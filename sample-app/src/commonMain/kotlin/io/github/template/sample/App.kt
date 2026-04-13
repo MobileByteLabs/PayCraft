@@ -76,6 +76,7 @@ private fun SampleScreen() {
             PayCraftBanner(
                 onClick = { showPaywall = true },
                 onRestoreClick = { showRestore = true },
+                onManageClick = { showPaywall = true },
                 modifier = Modifier.fillMaxWidth(),
             )
 
