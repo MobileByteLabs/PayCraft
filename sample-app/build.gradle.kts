@@ -62,7 +62,7 @@ kotlin {
             implementation(compose.components.uiToolingPreview)
 
             // Include the library
-            implementation(project(":cmp-library"))
+            implementation(project(":cmp-paycraft"))
         }
 
         desktopMain.dependencies {

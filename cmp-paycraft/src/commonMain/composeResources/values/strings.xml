@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Paywall general -->
+    <string name="paycraft_upgrade_title">Upgrade to Premium</string>
+    <string name="paycraft_your_premium_title">Your Premium</string>
+    <string name="paycraft_loading">Loading billing information…</string>
+
+    <!-- Plan selection -->
+    <string name="paycraft_choose_plan">Choose your plan</string>
+    <string name="paycraft_per_interval">per %1$s</string>
+    <string name="paycraft_popular_badge">Popular</string>
+    <string name="paycraft_plan_selected_description">%1$s plan, %2$s per %3$s, selected</string>
+    <string name="paycraft_plan_description">%1$s plan, %2$s per %3$s</string>
+
+    <!-- Benefits -->
+    <string name="paycraft_what_you_get">What you get</string>
+
+    <!-- Email input -->
+    <string name="paycraft_email_label">Email address</string>
+    <string name="paycraft_email_hint">you@example.com</string>
+    <string name="paycraft_email_error_empty">Please enter your email address</string>
+    <string name="paycraft_email_error_invalid">Please enter a valid email address</string>
+
+    <!-- Subscribe CTA -->
+    <string name="paycraft_get_premium">Get Premium</string>
+    <string name="paycraft_subscribe_cta">Start %1$s — %2$s/%3$s</string>
+    <string name="paycraft_subscribing">Processing…</string>
+    <string name="paycraft_already_subscribed">Already subscribed? Refresh status</string>
+
+    <!-- Premium status card -->
+    <string name="paycraft_premium_active">Premium Active</string>
+    <string name="paycraft_status_plan">Plan</string>
+    <string name="paycraft_status_account">Account</string>
+    <string name="paycraft_status_provider">Provider</string>
+    <string name="paycraft_status_renews">Renews</string>
+    <string name="paycraft_status_auto_renew">Auto-renew</string>
+    <string name="paycraft_auto_renew_on">On</string>
+    <string name="paycraft_auto_renew_off">Off</string>
+    <string name="paycraft_manage_subscription">Manage Subscription</string>
+    <string name="paycraft_log_out">Log Out</string>
+
+    <!-- Support -->
+    <string name="paycraft_contact_support">Contact Support</string>
+    <string name="paycraft_contact_support_email">Need help? Contact %1$s</string>
+
+    <!-- Error -->
+    <string name="paycraft_error_unknown">Something went wrong. Please try again.</string>
+    <string name="paycraft_retry">Retry</string>
+    <string name="paycraft_dismiss">Dismiss</string>
+    <string name="paycraft_close">Close</string>
+    <string name="paycraft_refresh">Refresh</string>
+
+    <!-- Premium guard -->
+    <string name="paycraft_premium_feature_title">Premium Feature</string>
+    <string name="paycraft_premium_feature_description">Upgrade to unlock this feature and much more.</string>
+    <string name="paycraft_upgrade_button">Upgrade to Premium</string>
+    <string name="paycraft_locked_content_description">This feature requires a premium subscription</string>
+</resources>

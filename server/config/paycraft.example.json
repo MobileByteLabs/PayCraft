@@ -1,0 +1,32 @@
+{
+  "_comment": "PayCraft example configuration. Copy to paycraft.json and fill in your values.",
+  "provider": "stripe",
+  "supabase": {
+    "ref": "your-project-ref",
+    "url": "https://your-project-ref.supabase.co"
+  },
+  "currency": "inr",
+  "plans": [
+    { "id": "monthly",   "name": "Monthly",   "price_minor_units": 10000, "interval": "/month"  },
+    { "id": "quarterly", "name": "Quarterly", "price_minor_units": 30000, "interval": "/3 months" },
+    { "id": "yearly",    "name": "Yearly",    "price_minor_units": 100000, "interval": "/year", "popular": true }
+  ],
+  "stripe": {
+    "secret_key_env": "STRIPE_SECRET_KEY",
+    "payment_links": {
+      "monthly":   "https://buy.stripe.com/YOUR_MONTHLY_LINK",
+      "quarterly": "https://buy.stripe.com/YOUR_QUARTERLY_LINK",
+      "yearly":    "https://buy.stripe.com/YOUR_YEARLY_LINK"
+    },
+    "customer_portal_url": "https://billing.stripe.com/p/login/YOUR_PORTAL_ID"
+  },
+  "razorpay": {
+    "key_id": "rzp_live_YOUR_KEY_ID",
+    "payment_links": {
+      "monthly":   "https://rzp.io/l/YOUR_MONTHLY",
+      "quarterly": "https://rzp.io/l/YOUR_QUARTERLY",
+      "yearly":    "https://rzp.io/l/YOUR_YEARLY"
+    }
+  },
+  "support_email": "support@yourdomain.com"
+}
