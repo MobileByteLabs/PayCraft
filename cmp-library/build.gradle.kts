@@ -65,7 +65,13 @@ kotlin {
 
             // Koin
             implementation(libs.koin.core)
+            implementation(libs.koin.core.viewmodel)
             implementation(libs.koin.compose)
+            implementation(libs.koin.compose.viewmodel)
+
+            // Lifecycle (ViewModel + collectAsStateWithLifecycle)
+            implementation(libs.lifecycle.viewmodel)
+            implementation(libs.lifecycle.runtime.compose)
 
             // Logging
             implementation(libs.kermit)

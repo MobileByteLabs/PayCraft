@@ -48,6 +48,58 @@ data class PayCraftTheme(
          * Used by all PayCraft components if no explicit theme is provided.
          */
         val Default = PayCraftTheme()
+
+        /** Active [PayCraftTheme.colors] in the current composition. */
+        val colors: PayCraftColors
+            @Composable
+            @ReadOnlyComposable
+            get() = LocalPayCraftTheme.current.colors
+
+        /** Active [PayCraftTheme.typography] in the current composition. */
+        val typography: PayCraftTypography
+            @Composable
+            @ReadOnlyComposable
+            get() = LocalPayCraftTheme.current.typography
+
+        /** Active [PayCraftTheme.shape] in the current composition. */
+        val shape: PayCraftShape
+            @Composable
+            @ReadOnlyComposable
+            get() = LocalPayCraftTheme.current.shape
+
+        /** Full [PayCraftTheme] snapshot for the current composition. */
+        val current: PayCraftTheme
+            @Composable
+            @ReadOnlyComposable
+            get() = LocalPayCraftTheme.current
+
+        /**
+         * Builds an adaptive [PayCraftTheme] that maps Material3 tonal color roles to
+         * PayCraft semantic tokens. Call inside a Composable context.
+         */
+        @Composable
+        @ReadOnlyComposable
+        fun materialAdaptive(): PayCraftTheme {
+            val mat = MaterialTheme.colorScheme
+            return PayCraftTheme(
+                colors = PayCraftColors(
+                    accent = mat.primary,
+                    accentContainer = mat.primaryContainer,
+                    onAccentContainer = mat.onPrimaryContainer,
+                    activeBadge = mat.tertiary,
+                    onActiveBadge = mat.onTertiary,
+                    popularBadge = mat.secondary,
+                    onPopularBadge = mat.onSecondary,
+                    errorContainer = mat.errorContainer,
+                    onErrorContainer = mat.onErrorContainer,
+                    surface = mat.surface,
+                    onSurface = mat.onSurface,
+                    onSurfaceVariant = mat.onSurfaceVariant,
+                    outline = mat.outlineVariant,
+                    divider = mat.outlineVariant.copy(alpha = 0.5f),
+                ),
+            )
+        }
     }
 
     /**
@@ -97,68 +149,4 @@ fun PayCraftThemeProvider(theme: PayCraftTheme = PayCraftTheme.Default, content:
         LocalPayCraftTheme provides theme,
         content = content,
     )
-}
-
-/**
- * Extension property to access the current [PayCraftTheme] from any composable.
- *
- * ```kotlin
- * val payCraftColors = PayCraftTheme.current.colors
- * ```
- */
-object PayCraftTheme {
-    /** Active [PayCraftTheme.colors] in the current composition. */
-    val colors: PayCraftColors
-        @Composable
-        @ReadOnlyComposable
-        get() = LocalPayCraftTheme.current.colors
-
-    /** Active [PayCraftTheme.typography] in the current composition. */
-    val typography: PayCraftTypography
-        @Composable
-        @ReadOnlyComposable
-        get() = LocalPayCraftTheme.current.typography
-
-    /** Active [PayCraftTheme.shape] in the current composition. */
-    val shape: PayCraftShape
-        @Composable
-        @ReadOnlyComposable
-        get() = LocalPayCraftTheme.current.shape
-
-    /** Full [PayCraftTheme] snapshot for the current composition. */
-    val current: com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
-        @Composable
-        @ReadOnlyComposable
-        get() = LocalPayCraftTheme.current
-
-    /**
-     * Builds an adaptive [PayCraftTheme] that maps Material3 tonal color roles to
-     * PayCraft semantic tokens. Call inside a Composable context.
-     *
-     * Recommended when you want PayCraft to "just work" with your app's dynamic
-     * colour scheme without any additional configuration.
-     */
-    @Composable
-    @ReadOnlyComposable
-    fun materialAdaptive(): com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme {
-        val mat = MaterialTheme.colorScheme
-        return com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme(
-            colors = PayCraftColors(
-                accent = mat.primary,
-                accentContainer = mat.primaryContainer,
-                onAccentContainer = mat.onPrimaryContainer,
-                activeBadge = mat.tertiary,
-                onActiveBadge = mat.onTertiary,
-                popularBadge = mat.secondary,
-                onPopularBadge = mat.onSecondary,
-                errorContainer = mat.errorContainer,
-                onErrorContainer = mat.onErrorContainer,
-                surface = mat.surface,
-                onSurface = mat.onSurface,
-                onSurfaceVariant = mat.onSurfaceVariant,
-                outline = mat.outlineVariant,
-                divider = mat.outlineVariant.copy(alpha = 0.5f),
-            ),
-        )
-    }
 }
