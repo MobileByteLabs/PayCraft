@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "io.github.mobilebytelabs"
-version = "1.0.1"
+version = "1.0.2"
 
 @OptIn(ExperimentalKotlinGradlePluginApi::class, ExperimentalWasmDsl::class)
 kotlin {
