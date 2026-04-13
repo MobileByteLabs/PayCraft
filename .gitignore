@@ -94,3 +94,8 @@ package-lock.json
 # Documentation build
 docs/_build/
 site/
+
+# PayCraft environment secrets — NEVER commit
+.env
+.env.local
+.env.*.local

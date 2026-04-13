@@ -4,22 +4,39 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.mobilebytelabs.paycraft.Greeting
+import com.mobilebytelabs.paycraft.ui.PayCraftBanner
+import com.mobilebytelabs.paycraft.ui.PayCraftRestore
+import com.mobilebytelabs.paycraft.ui.PayCraftSheet
 
+/**
+ * PayCraft Sample App
+ *
+ * Demonstrates PayCraft billing integration:
+ * - PayCraftBanner in a settings-like screen
+ * - PayCraftSheet (bottom sheet paywall)
+ * - PayCraftRestore (email-based restore purchase)
+ *
+ * Configure PayCraft in SampleApplication.kt (Android) or platform-specific
+ * entry points before calling App().
+ */
 @Composable
 fun App() {
     MaterialTheme {
@@ -27,44 +44,74 @@ fun App() {
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
         ) {
-            var greetingText by remember { mutableStateOf("Click the button to greet!") }
-            val greeting = remember { Greeting() }
+            SampleScreen()
+        }
+    }
+}
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SampleScreen() {
+    var showPaywall by remember { mutableStateOf(false) }
+    var showRestore by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(title = { Text("PayCraft Sample") })
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                text = "Settings",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+
+            // PayCraftBanner — shows upgrade CTA or active premium status
+            PayCraftBanner(
+                onClick = { showPaywall = true },
+                onRestoreClick = { showRestore = true },
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Manual Controls",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Button(
+                onClick = { showPaywall = true },
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(
-                    text = "Library Sample App",
-                    style = MaterialTheme.typography.headlineMedium,
-                )
+                Text("Open Paywall")
+            }
 
-                Spacer(modifier = Modifier.height(32.dp))
-
-                Text(
-                    text = greetingText,
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Button(onClick = {
-                    greetingText = greeting.greet()
-                }) {
-                    Text("Get Platform Greeting")
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Button(onClick = {
-                    greetingText = greeting.greet("Developer")
-                }) {
-                    Text("Get Personalized Greeting")
-                }
+            OutlinedButton(
+                onClick = { showRestore = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Restore Purchase")
             }
         }
     }
+
+    // PayCraftSheet — bottom sheet paywall
+    PayCraftSheet(
+        visible = showPaywall,
+        onDismiss = { showPaywall = false },
+    )
+
+    // PayCraftRestore — email-based restore
+    PayCraftRestore(
+        visible = showRestore,
+        onDismiss = { showRestore = false },
+    )
 }

@@ -1,209 +1,228 @@
-# KMP Library Template
+# PayCraft
 
-[![CI](https://github.com/MobileByteLabs/mbl-library-template-kmp/actions/workflows/gradle.yml/badge.svg)](https://github.com/MobileByteLabs/mbl-library-template-kmp/actions/workflows/gradle.yml)
-[![GitHub Release](https://img.shields.io/github/v/release/MobileByteLabs/mbl-library-template-kmp?include_prereleases)](https://github.com/MobileByteLabs/mbl-library-template-kmp/releases)
+[![CI](https://github.com/MobileByteLabs/PayCraft/actions/workflows/gradle.yml/badge.svg)](https://github.com/MobileByteLabs/PayCraft/actions/workflows/gradle.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.mobilebytelabs/paycraft)](https://central.sonatype.com/artifact/io.github.mobilebytelabs/paycraft)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.1.0-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-A template for creating Kotlin Multiplatform libraries with full platform support and Compose Multiplatform sample app.
+> **Craft your own billing. Any provider. Any platform. 15 minutes.**
 
-## Supported Platforms
+Self-hosted, provider-agnostic billing library for Kotlin Multiplatform apps.
+Uses **Supabase** as the source of truth — your app never talks to a payment provider directly.
 
-| Platform | Targets | Status |
-|----------|---------|--------|
-| Android  | android | Supported |
-| iOS      | iosX64, iosArm64, iosSimulatorArm64 | Supported |
-| macOS    | macosX64, macosArm64 | Supported |
-| tvOS     | tvosX64, tvosArm64, tvosSimulatorArm64 | Supported |
-| watchOS  | watchosX64, watchosArm32, watchosArm64, watchosSimulatorArm64, watchosDeviceArm64 | Supported |
-| JVM      | jvm | Supported |
-| Linux    | linuxX64, linuxArm64 | Supported |
-| Windows  | mingwX64 | Supported |
-| JavaScript | js (Browser, Node.js) | Supported |
-| WebAssembly | wasmJs (Browser, Node.js), wasmWasi (Node.js) | Supported |
+```
+Client App ──→ PayCraft ──→ Supabase (source of truth)
+                             ↑
+Payment Provider ──webhook──┘
+```
+
+## Features
+
+- **Provider-agnostic** — Stripe, Razorpay, or bring your own checkout URLs
+- **No fees** — zero per-transaction cuts (beyond your payment provider)
+- **Self-hosted** — you own the data in your own Supabase project
+- **KMP + Compose** — works on Android, iOS, macOS, JVM, JS, and Wasm
+- **Paywall UI included** — `PayCraftSheet`, `PayCraftBanner`, `PayCraftRestore` out of the box
+- **Koin DI** — drop in `PayCraftModule`, get `BillingManager` everywhere
+- **15-minute setup** — `/setup` Claude skill automates the entire server side
 
 ## Installation
 
-Add the dependency to your `build.gradle.kts`:
+Add to `gradle/libs.versions.toml`:
 
-```kotlin
-// In your shared module
-kotlin {
-    sourceSets {
-        commonMain.dependencies {
-            implementation("com.mobilebytelabs.paycraft:paycraft:1.0.0")
-        }
-    }
-}
+```toml
+[versions]
+paycraft = "1.0.0"
+
+[libraries]
+paycraft = { module = "io.github.mobilebytelabs:paycraft", version.ref = "paycraft" }
 ```
 
-### Platform-specific setup
+Add to your shared module's `build.gradle.kts`:
 
-<details>
-<summary>Android</summary>
-
-No additional setup required.
-
-</details>
-
-<details>
-<summary>iOS</summary>
-
-No additional setup required.
-
-</details>
+```kotlin
+commonMain.dependencies {
+    implementation(libs.paycraft)
+}
+```
 
 ## Quick Start
 
-```kotlin
-import com.mobilebytelabs.paycraft.Greeting
+### 1. Configure PayCraft (before Koin)
 
-fun main() {
-    val greeting = Greeting()
-    println(greeting.greet()) // Hello from [Platform]!
-    println(greeting.greet("World")) // Hello, World! Welcome from [Platform].
+```kotlin
+PayCraft.configure {
+    supabase(
+        url = BuildConfig.SUPABASE_URL,
+        anonKey = BuildConfig.SUPABASE_ANON_KEY,
+    )
+    provider(
+        StripeProvider(
+            paymentLinks = mapOf(
+                "monthly"   to BuildConfig.STRIPE_MONTHLY_LINK,
+                "quarterly" to BuildConfig.STRIPE_QUARTERLY_LINK,
+                "yearly"    to BuildConfig.STRIPE_YEARLY_LINK,
+            ),
+            customerPortalUrl = BuildConfig.STRIPE_PORTAL_URL,
+        )
+    )
+    plans(
+        BillingPlan(id = "monthly",   name = "Monthly",   price = "₹99",   interval = "/month"),
+        BillingPlan(id = "quarterly", name = "Quarterly", price = "₹249",  interval = "/3 months"),
+        BillingPlan(id = "yearly",    name = "Yearly",    price = "₹799",  interval = "/year", isPopular = true),
+    )
+    benefits(
+        BillingBenefit(icon = Icons.Default.Block,    text = "Ad-free experience"),
+        BillingBenefit(icon = Icons.Default.Download, text = "Unlimited downloads"),
+    )
+    supportEmail("support@yourdomain.com")
 }
 ```
 
+### 2. Add PayCraftModule to Koin
+
+```kotlin
+startKoin {
+    androidContext(this@App)
+    modules(
+        yourModules,
+        PayCraftModule,  // ← add this
+    )
+}
+```
+
+### 3. Use in UI
+
+```kotlin
+// Bottom-sheet paywall
+var showPaywall by remember { mutableStateOf(false) }
+
+PayCraftSheet(
+    visible = showPaywall,
+    onDismiss = { showPaywall = false },
+)
+
+// Settings banner (free: upgrade CTA, premium: manage)
+PayCraftBanner(
+    onClick = { showPaywall = true },
+    onRestoreClick = { showRestore = true },
+)
+
+// Gate content behind premium
+PayCraftPremiumGuard(
+    fallback = { /* show upgrade prompt */ },
+) {
+    PremiumContent()
+}
+```
+
+### 4. Check premium status
+
+```kotlin
+class MyViewModel(private val billing: BillingManager) : ViewModel() {
+    val isPremium = billing.isPremium  // StateFlow<Boolean>
+}
+```
+
+## Server Setup
+
+PayCraft needs two things server-side:
+1. A Supabase `subscriptions` table + RPCs
+2. A webhook Edge Function per payment provider
+
+**Automated (recommended):** Use the `/setup` Claude skill in this repo to do everything automatically.
+
+**Manual:** Follow `docs/QUICK_START.md`.
+
+## Providers
+
+| Provider | Status | Checkout | Notes |
+|----------|--------|----------|-------|
+| Stripe | Stable | Payment Links | Webhook: `stripe-webhook` |
+| Razorpay | Stable | Payment Links | Webhook: `razorpay-webhook` |
+| Custom | Stable | Any URL | Implement `PaymentProvider` interface |
+
+## UI Components
+
+| Component | Description |
+|-----------|-------------|
+| `PayCraftSheet` | Conditional bottom-sheet paywall |
+| `PayCraftPaywall` | Full-screen paywall |
+| `PayCraftPaywallSheet` | Bottom-sheet paywall (direct) |
+| `PayCraftBanner` | Settings row — upgrade CTA or premium status |
+| `PayCraftRestore` | Email-based restore purchases dialog |
+| `PayCraftPremiumGuard` | Gate any composable behind premium |
+
+## Supported Platforms
+
+| Platform | Targets |
+|----------|---------|
+| Android | `android` |
+| iOS | `iosX64`, `iosArm64`, `iosSimulatorArm64` |
+| macOS | `macosX64`, `macosArm64` |
+| JVM | `jvm` |
+| JavaScript | `js` (Browser, Node.js) |
+| WebAssembly | `wasmJs` (Browser) |
+
 ## Documentation
 
-For detailed documentation, visit [Documentation Link].
+- [Quick Start](docs/QUICK_START.md) — 15-minute setup guide
+- [Architecture](docs/ARCHITECTURE.md) — how it works under the hood
+- [Providers](docs/PROVIDERS.md) — Stripe, Razorpay, custom
+- [Customization](docs/CUSTOMIZATION.md) — theme, slot API, custom UI
+- [Security](docs/SECURITY.md) — webhook verification, key management
+- [FAQ](docs/FAQ.md) — common questions
 
-## Getting Started with Development
+## Claude Skills
 
-### Prerequisites
+| Skill | What it does |
+|-------|-------------|
+| `/setup` | Full automated setup (Supabase + Stripe/Razorpay + verify) |
+| `/setup-stripe` | Create Stripe products, prices, payment links |
+| `/setup-supabase` | Apply migrations, deploy webhook |
+| `/verify` | End-to-end integration check |
 
-- JDK 17 or higher
-- Android SDK (for Android development)
-- Xcode 15+ (for iOS development, macOS only)
+Copy `client-skills/` to your app's `.claude/commands/` to get:
+- `/paycraft-setup` — integrate PayCraft into your KMP app
+- `/paycraft-verify` — verify the integration is correct
 
-### Setup
+## Building
 
-1. Clone the repository:
 ```bash
-git clone https://github.com/MobileByteLabs/TEMPLATE_REPO.git
-cd TEMPLATE_REPO
-```
-
-2. Customize the template (first time only):
-```bash
-bash customizer.sh com.yourpackage.library YourLibraryName your-org
-```
-
-3. Set up git hooks:
-```bash
-bash scripts/setup-hooks.sh
-```
-
-4. Build the project:
-```bash
+# Build everything
 ./gradlew build
-```
 
-### Running Tests
-
-```bash
-# All platforms
+# Run tests
 ./gradlew allTests
-
-# Specific platforms
 ./gradlew jvmTest
-./gradlew iosSimulatorArm64Test
-./gradlew testAndroidHostTest
-./gradlew linuxX64Test
-```
 
-### Code Quality
+# Run sample app (desktop)
+./gradlew :sample-app:run
 
-```bash
-# Format code
+# Code quality
 ./gradlew spotlessApply
-
-# Run static analysis
 ./gradlew detekt
 ```
 
-### Sample App
-
-A Compose Multiplatform sample app is included to test the library on all platforms:
+## Publishing
 
 ```bash
-# Run on Desktop (macOS, Windows, Linux)
-./gradlew :sample-app:run
+# Publish to Maven Central
+./gradlew publishToMavenCentral
 
-# Run on Android
-./gradlew :sample-app:installDebug
-
-# Run on iOS (requires Xcode on macOS)
-# Open sample-app in Xcode or use KMM plugin in Android Studio
-
-# Run on Web (WebAssembly)
-./gradlew :sample-app:wasmJsBrowserRun
-```
-
-## Publishing to Maven Central
-
-### Prerequisites
-
-1. Create a [Sonatype account](https://central.sonatype.com/)
-2. Generate a GPG key for signing
-3. Configure GitHub secrets:
-   - `MAVEN_CENTRAL_USERNAME` - Sonatype username
-   - `MAVEN_CENTRAL_PASSWORD` - Sonatype password
-   - `SIGNING_KEY_ID` - GPG key ID
-   - `SIGNING_PASSWORD` - GPG key password
-   - `GPG_KEY_CONTENTS` - Base64 encoded GPG private key
-
-### Release Process
-
-1. Update version in `cmp-library/build.gradle.kts`
-2. Create a GitHub release with a tag (e.g., `v1.0.0`)
-3. The publish workflow will automatically deploy to Maven Central
-
-## Project Structure
-
-```
-.
-├── cmp-library/                # Library module
-│   └── src/
-│       ├── commonMain/         # Common code (all platforms)
-│       ├── commonTest/         # Common tests
-│       ├── androidMain/        # Android-specific code
-│       ├── jvmMain/            # JVM-specific code
-│       ├── appleMain/          # Apple platforms (iOS, macOS, tvOS, watchOS)
-│       ├── linuxMain/          # Linux platforms (linuxX64, linuxArm64)
-│       ├── mingwMain/          # Windows (mingwX64)
-│       ├── jsMain/             # JavaScript (Browser, Node.js)
-│       ├── wasmJsMain/         # WebAssembly JS
-│       └── wasmWasiMain/       # WebAssembly WASI
-├── sample-app/                 # Compose Multiplatform sample app
-│   └── src/
-│       ├── commonMain/         # Shared UI code
-│       ├── androidMain/        # Android app entry
-│       ├── desktopMain/        # Desktop app entry
-│       ├── iosMain/            # iOS app entry
-│       └── wasmJsMain/         # Web app entry
-├── scripts/                    # Automation scripts
-│   ├── pre-commit.sh           # Pre-commit hook
-│   ├── pre-push.sh             # Pre-push hook
-│   └── setup-hooks.sh          # Hook setup script
-├── config/
-│   └── detekt/                 # Detekt configuration
-├── .github/
-│   ├── workflows/              # GitHub Actions
-│   └── ISSUE_TEMPLATE/         # Issue templates
-├── customizer.sh               # Template customization script
-└── build.gradle.kts            # Root build configuration
+# Required GitHub secrets:
+# MAVEN_CENTRAL_USERNAME, MAVEN_CENTRAL_PASSWORD
+# SIGNING_KEY_ID, SIGNING_PASSWORD, GPG_KEY_CONTENTS
 ```
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
 ```
-Copyright 2025 MobileByteLabs
+Copyright 2026 MobileByteLabs
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -217,8 +236,3 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ```
-
-## Acknowledgments
-
-- [Kotlin Multiplatform](https://kotlinlang.org/docs/multiplatform.html)
-- [Gradle Maven Publish Plugin](https://vanniktech.github.io/gradle-maven-publish-plugin/)

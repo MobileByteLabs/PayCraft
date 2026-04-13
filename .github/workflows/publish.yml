@@ -4,19 +4,14 @@
 name: Publish
 
 on:
+  # Triggered automatically when release.yml creates a GitHub Release
   release:
     types: [released, prereleased]
 
 jobs:
-  # Run tests first
-  test:
-    name: Run Tests
-    uses: ./.github/workflows/gradle.yml
-
-  # Publish to Maven Central
+  # Publish to Maven Central (tests already passed in release.yml)
   publish:
     name: Publish to Maven Central
-    needs: test
     runs-on: macos-latest
     permissions:
       contents: read

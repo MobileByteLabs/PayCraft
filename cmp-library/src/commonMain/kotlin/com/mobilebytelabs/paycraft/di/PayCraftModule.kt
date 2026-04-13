@@ -5,12 +5,14 @@ import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.PayCraftBillingManager
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.network.PayCraftServiceImpl
+import com.mobilebytelabs.paycraft.ui.PayCraftPaywallViewModel
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.serializer.KotlinXSerializer
 import kotlinx.serialization.json.Json
+import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
 
 private val payCraftJson = Json {
@@ -40,10 +42,16 @@ val PayCraftModule = module {
         )
     }
 
+    single<com.mobilebytelabs.paycraft.persistence.PayCraftStore> {
+        com.mobilebytelabs.paycraft.persistence.PayCraftSettingsStore()
+    }
+
     single<BillingManager> {
         PayCraftBillingManager(
             service = get(),
             store = get(),
         )
     }
+
+    viewModelOf(::PayCraftPaywallViewModel)
 }

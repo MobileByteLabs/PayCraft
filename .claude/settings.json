@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl:*)",
+      "Bash(supabase:*)",
+      "Bash(./server/scripts/setup.sh:*)",
+      "Bash(./server/scripts/verify.sh:*)",
+      "Bash(./server/scripts/deploy-webhook.sh:*)",
+      "Bash(chmod:*)"
+    ]
+  }
+}
