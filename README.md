@@ -1,7 +1,7 @@
 # PayCraft
 
 [![CI](https://github.com/MobileByteLabs/PayCraft/actions/workflows/gradle.yml/badge.svg)](https://github.com/MobileByteLabs/PayCraft/actions/workflows/gradle.yml)
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.mobilebytelabs/paycraft)](https://central.sonatype.com/artifact/io.github.mobilebytelabs/paycraft)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.mobilebytelabs/paycraft?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.mobilebytelabs/paycraft)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.1.0-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
@@ -24,15 +24,18 @@ Payment Provider ──webhook──┘
 - **KMP + Compose** — works on Android, iOS, macOS, JVM, JS, and Wasm
 - **Paywall UI included** — `PayCraftSheet`, `PayCraftBanner`, `PayCraftRestore` out of the box
 - **Koin DI** — drop in `PayCraftModule`, get `BillingManager` everywhere
-- **15-minute setup** — `/setup` Claude skill automates the entire server side
+- **15-minute setup** — `/setup-paycraft` Claude skill automates the entire server side
 
 ## Installation
+
+> **Latest version:** see the Maven Central badge above — that's always the current release.
 
 Add to `gradle/libs.versions.toml`:
 
 ```toml
 [versions]
-paycraft = "1.0.0"
+# Check latest: https://central.sonatype.com/artifact/io.github.mobilebytelabs/paycraft
+paycraft = "LATEST_VERSION"
 
 [libraries]
 paycraft = { module = "io.github.mobilebytelabs:paycraft", version.ref = "paycraft" }
@@ -130,7 +133,7 @@ PayCraft needs two things server-side:
 1. A Supabase `subscriptions` table + RPCs
 2. A webhook Edge Function per payment provider
 
-**Automated (recommended):** Use the `/setup` Claude skill in this repo to do everything automatically.
+**Automated (recommended):** Use the `/setup-paycraft` Claude skill in this repo.
 
 **Manual:** Follow `docs/QUICK_START.md`.
 
@@ -177,10 +180,11 @@ PayCraft needs two things server-side:
 
 | Skill | What it does |
 |-------|-------------|
-| `/setup` | Full automated setup (Supabase + Stripe/Razorpay + verify) |
+| `/setup-paycraft` | Full automated setup (Supabase + Stripe/Razorpay + verify) |
 | `/setup-stripe` | Create Stripe products, prices, payment links |
 | `/setup-supabase` | Apply migrations, deploy webhook |
 | `/verify` | End-to-end integration check |
+| `/release-paycraft` | Quality gate + tag + push + PR |
 
 Copy `client-skills/` to your app's `.claude/commands/` to get:
 - `/paycraft-setup` — integrate PayCraft into your KMP app
@@ -189,11 +193,7 @@ Copy `client-skills/` to your app's `.claude/commands/` to get:
 ## Building
 
 ```bash
-# Build everything
-./gradlew build
-
 # Run tests
-./gradlew allTests
 ./gradlew jvmTest
 
 # Run sample app (desktop)
@@ -204,16 +204,18 @@ Copy `client-skills/` to your app's `.claude/commands/` to get:
 ./gradlew detekt
 ```
 
-## Publishing
+## Releasing
 
 ```bash
-# Publish to Maven Central
-./gradlew publishToMavenCentral
+# Full release — quality gate → tag → push → CI → Maven Central
+./scripts/release.sh
 
-# Required GitHub secrets:
-# MAVEN_CENTRAL_USERNAME, MAVEN_CENTRAL_PASSWORD
-# SIGNING_KEY_ID, SIGNING_PASSWORD, GPG_KEY_CONTENTS
+# Or via Claude skill:
+# /release-paycraft
 ```
+
+The version in `cmp-paycraft/build.gradle.kts` is the single source of truth.
+The Maven Central badge above always reflects the latest published version.
 
 ## Contributing
 
