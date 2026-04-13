@@ -109,10 +109,12 @@ echo "▶  [3/5] Running JVM tests..."
 ./gradlew jvmTest --quiet
 echo "✅  JVM tests passed"
 
-# ── Gate 4: Build ────────────────────────────────────────────────────────────
-echo "▶  [4/5] Building all targets..."
-./gradlew assemble --quiet
-echo "✅  Build passed"
+# ── Gate 4: Build (JVM + available targets) ──────────────────────────────────
+# Full multi-platform assemble runs on CI (release.yml) where all SDKs are present.
+# Locally, compile JVM + any non-Android targets that don't need platform SDKs.
+echo "▶  [4/5] Compiling (JVM — full assemble runs on CI)..."
+./gradlew compileKotlinJvm --quiet
+echo "✅  JVM compile passed"
 
 if [ "$DRY_RUN" = true ]; then
   echo ""
