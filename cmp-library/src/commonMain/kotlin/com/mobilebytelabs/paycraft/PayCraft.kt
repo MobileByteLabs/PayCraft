@@ -13,8 +13,7 @@ object PayCraft {
         config = PayCraftConfigBuilder().apply(builder).build()
     }
 
-    fun requireConfig(): PayCraftConfig =
-        config ?: error("PayCraft.configure() must be called before use")
+    fun requireConfig(): PayCraftConfig = config ?: error("PayCraft.configure() must be called before use")
 
     fun checkout(plan: BillingPlan, email: String? = null) {
         val url = requireConfig().provider.getCheckoutUrl(plan, email)

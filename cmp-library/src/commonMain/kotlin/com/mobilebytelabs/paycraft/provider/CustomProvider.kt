@@ -8,9 +8,7 @@ class CustomProvider(
     private val checkoutUrlBuilder: (BillingPlan, String?) -> String,
     private val manageUrlBuilder: ((String) -> String)? = null,
 ) : PaymentProvider {
-    override fun getCheckoutUrl(plan: BillingPlan, email: String?) =
-        checkoutUrlBuilder(plan, email)
+    override fun getCheckoutUrl(plan: BillingPlan, email: String?) = checkoutUrlBuilder(plan, email)
 
-    override fun getManageUrl(email: String) =
-        manageUrlBuilder?.invoke(email)
+    override fun getManageUrl(email: String) = manageUrlBuilder?.invoke(email)
 }

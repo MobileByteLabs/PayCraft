@@ -2,10 +2,8 @@ package com.mobilebytelabs.paycraft.provider
 
 import com.mobilebytelabs.paycraft.model.BillingPlan
 
-class StripeProvider(
-    private val paymentLinks: Map<String, String>,
-    private val customerPortalUrl: String? = null,
-) : PaymentProvider {
+class StripeProvider(private val paymentLinks: Map<String, String>, private val customerPortalUrl: String? = null) :
+    PaymentProvider {
     override val name = "stripe"
     override val webhookFunctionName = "stripe-webhook"
 
@@ -15,7 +13,5 @@ class StripeProvider(
         return if (email != null) "$baseUrl?prefilled_email=$email" else baseUrl
     }
 
-    override fun getManageUrl(email: String): String? {
-        return customerPortalUrl?.let { "$it?prefilled_email=$email" }
-    }
+    override fun getManageUrl(email: String): String? = customerPortalUrl?.let { "$it?prefilled_email=$email" }
 }

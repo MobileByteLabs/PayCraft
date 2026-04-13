@@ -28,35 +28,29 @@ interface PayCraftService {
     suspend fun getSubscription(email: String): SubscriptionDto?
 }
 
-class PayCraftServiceImpl(
-    private val postgrest: Postgrest,
-) : PayCraftService {
+class PayCraftServiceImpl(private val postgrest: Postgrest) : PayCraftService {
 
-    override suspend fun isPremium(email: String): Boolean {
-        return try {
-            Logger.d(TAG) { "Checking premium for: $email" }
-            val result = postgrest.rpc(
-                function = "is_premium",
-                parameters = buildJsonObject { put("user_email", email) },
-            ).data
-            val decoded = result.trim().toBooleanStrictOrNull() ?: false
-            Logger.d(TAG) { "Premium result for $email: $decoded" }
-            decoded
-        } catch (e: Exception) {
-            Logger.e(TAG) { "Failed to check premium: ${e.message}" }
-            false
-        }
+    override suspend fun isPremium(email: String): Boolean = try {
+        Logger.d(TAG) { "Checking premium for: $email" }
+        val result = postgrest.rpc(
+            function = "is_premium",
+            parameters = buildJsonObject { put("user_email", email) },
+        ).data
+        val decoded = result.trim().toBooleanStrictOrNull() ?: false
+        Logger.d(TAG) { "Premium result for $email: $decoded" }
+        decoded
+    } catch (e: Exception) {
+        Logger.e(TAG) { "Failed to check premium: ${e.message}" }
+        false
     }
 
-    override suspend fun getSubscription(email: String): SubscriptionDto? {
-        return try {
-            postgrest.rpc(
-                function = "get_subscription",
-                parameters = buildJsonObject { put("user_email", email) },
-            ).decodeList<SubscriptionDto>().firstOrNull()
-        } catch (e: Exception) {
-            Logger.e(TAG) { "Failed to get subscription: ${e.message}" }
-            null
-        }
+    override suspend fun getSubscription(email: String): SubscriptionDto? = try {
+        postgrest.rpc(
+            function = "get_subscription",
+            parameters = buildJsonObject { put("user_email", email) },
+        ).decodeList<SubscriptionDto>().firstOrNull()
+    } catch (e: Exception) {
+        Logger.e(TAG) { "Failed to get subscription: ${e.message}" }
+        null
     }
 }

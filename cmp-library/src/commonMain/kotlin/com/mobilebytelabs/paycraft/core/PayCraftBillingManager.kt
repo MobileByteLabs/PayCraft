@@ -15,10 +15,7 @@ import kotlinx.coroutines.launch
 
 private const val TAG = "PayCraftBillingManager"
 
-class PayCraftBillingManager(
-    private val service: PayCraftService,
-    private val store: PayCraftStore,
-) : BillingManager {
+class PayCraftBillingManager(private val service: PayCraftService, private val store: PayCraftStore) : BillingManager {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
