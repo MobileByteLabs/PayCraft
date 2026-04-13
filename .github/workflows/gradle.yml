@@ -5,9 +5,9 @@ name: CI
 
 on:
   push:
-    branches: [ "development" ]
+    branches: [ "main", "development" ]
   pull_request:
-    branches: [ "development" ]
+    branches: [ "main", "development" ]
   workflow_call:
 
 permissions:
