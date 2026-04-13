@@ -18,7 +18,7 @@ Ask the user:
 
 ### Step 2: Create Provider Implementation
 
-Create `cmp-library/src/commonMain/kotlin/com/mobilebytelabs/paycraft/provider/[Name]Provider.kt`:
+Create `cmp-paycraft/src/commonMain/kotlin/com/mobilebytelabs/paycraft/provider/[Name]Provider.kt`:
 
 ```kotlin
 package com.mobilebytelabs.paycraft.provider

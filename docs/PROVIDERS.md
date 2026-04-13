@@ -103,7 +103,7 @@ Run `/add-provider` in Claude Code, or follow these steps manually:
 
 ### 1. Implement PaymentProvider
 
-Create `cmp-library/src/commonMain/kotlin/.../provider/[Name]Provider.kt`:
+Create `cmp-paycraft/src/commonMain/kotlin/.../provider/[Name]Provider.kt`:
 
 ```kotlin
 class [Name]Provider(

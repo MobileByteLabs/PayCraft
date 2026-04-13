@@ -6,19 +6,19 @@ Runs the full quality gate, creates a git tag, pushes to GitHub, and opens a PR.
 
 ### Step 1: Confirm version
 
-Read current version from `cmp-library/build.gradle.kts`:
+Read current version from `cmp-paycraft/build.gradle.kts`:
 ```bash
-grep -E '^version\s*=' cmp-library/build.gradle.kts | head -1
+grep -E '^version\s*=' cmp-paycraft/build.gradle.kts | head -1
 ```
 
 Ask user:
 > Current version is **X.Y.Z**. Release this version, or bump?
 > [Release X.Y.Z] [Bump patch → X.Y.Z+1] [Bump minor → X.Y+1.0] [Bump major → X+1.0.0]
 
-If bump chosen, update version in `cmp-library/build.gradle.kts` and commit:
+If bump chosen, update version in `cmp-paycraft/build.gradle.kts` and commit:
 ```bash
 # After editing build.gradle.kts:
-git add cmp-library/build.gradle.kts
+git add cmp-paycraft/build.gradle.kts
 git commit -m "chore(release): bump version to X.Y.Z"
 ```
 

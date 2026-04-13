@@ -62,7 +62,7 @@ done
 if [ -n "$EXPLICIT_VERSION" ]; then
   VERSION="$EXPLICIT_VERSION"
 else
-  VERSION=$(grep -E '^version\s*=' "$ROOT_DIR/cmp-library/build.gradle.kts" \
+  VERSION=$(grep -E '^version\s*=' "$ROOT_DIR/cmp-paycraft/build.gradle.kts" \
     | head -1 | sed 's/.*"\(.*\)".*/\1/')
 fi
 
