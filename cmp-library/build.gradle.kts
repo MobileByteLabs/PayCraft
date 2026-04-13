@@ -10,7 +10,7 @@ plugins {
 // ============================================================================
 // TEMPLATE CONFIGURATION - Update these values using customizer.sh or manually
 // ============================================================================
-group = "io.github.template"
+group = "io.github.mobilebytelabs"
 version = "1.0.0"
 
 @OptIn(ExperimentalKotlinGradlePluginApi::class, ExperimentalWasmDsl::class)
@@ -27,7 +27,7 @@ kotlin {
     // Android Target
     // ========================================================================
     androidLibrary {
-        namespace = "io.github.template"
+        namespace = "com.mobilebytelabs.paycraft"
         compileSdk =
             libs.versions.android.compileSdk
                 .get()
@@ -133,13 +133,13 @@ mavenPublishing {
     publishToMavenCentral()
     signAllPublications()
 
-    coordinates(group.toString(), "template-library", version.toString())
+    coordinates(group.toString(), "paycraft", version.toString())
 
     pom {
-        name = "TEMPLATE_LIBRARY_NAME"
-        description = "TEMPLATE_DESCRIPTION"
+        name = "paycraft"
+        description = "paycraft - A Kotlin Multiplatform library"
         inceptionYear = "2024"
-        url = "https://github.com/TEMPLATE_ORG/TEMPLATE_REPO/"
+        url = "https://github.com/MobileByteLabs/paycraft/"
 
         licenses {
             license {
@@ -158,7 +158,7 @@ mavenPublishing {
         }
 
         scm {
-            url = "https://github.com/TEMPLATE_ORG/TEMPLATE_REPO/"
+            url = "https://github.com/MobileByteLabs/paycraft/"
             connection = "scm:git:git://github.com/TEMPLATE_ORG/TEMPLATE_REPO.git"
             developerConnection = "scm:git:ssh://git@github.com/TEMPLATE_ORG/TEMPLATE_REPO.git"
         }

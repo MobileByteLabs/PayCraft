@@ -1,4 +1,4 @@
-package io.github.template
+package com.mobilebytelabs.paycraft
 
 import kotlin.test.Test
 import kotlin.test.assertContains

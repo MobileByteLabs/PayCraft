@@ -72,14 +72,14 @@ kotlin {
 }
 
 android {
-    namespace = "io.github.template.sample"
+    namespace = "com.mobilebytelabs.paycraft.sample"
     compileSdk =
         libs.versions.android.compileSdk
             .get()
             .toInt()
 
     defaultConfig {
-        applicationId = "io.github.template.sample"
+        applicationId = "com.mobilebytelabs.paycraft.sample"
         minSdk =
             libs.versions.android.minSdk
                 .get()
@@ -112,11 +112,11 @@ android {
 
 compose.desktop {
     application {
-        mainClass = "io.github.template.sample.MainKt"
+        mainClass = "com.mobilebytelabs.paycraft.sample.MainKt"
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "io.github.template.sample"
+            packageName = "com.mobilebytelabs.paycraft.sample"
             packageVersion = "1.0.0"
         }
     }

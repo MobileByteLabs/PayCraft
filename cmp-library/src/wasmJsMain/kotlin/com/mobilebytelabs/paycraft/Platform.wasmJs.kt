@@ -1,4 +1,4 @@
-package io.github.template
+package com.mobilebytelabs.paycraft
 
 /**
  * WebAssembly JS platform implementation

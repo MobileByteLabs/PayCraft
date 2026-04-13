@@ -1,4 +1,4 @@
-package io.github.template
+package com.mobilebytelabs.paycraft
 
 /**
  * JavaScript platform implementation

@@ -1,4 +1,4 @@
-package io.github.template.sample
+package com.mobilebytelabs.paycraft.sample
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -18,7 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import io.github.template.Greeting
+import com.mobilebytelabs.paycraft.Greeting
 
 @Composable
 fun App() {

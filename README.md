@@ -31,7 +31,7 @@ Add the dependency to your `build.gradle.kts`:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("TEMPLATE_PACKAGE:template-library:1.0.0")
+            implementation("com.mobilebytelabs.paycraft:paycraft:1.0.0")
         }
     }
 }
@@ -56,7 +56,7 @@ No additional setup required.
 ## Quick Start
 
 ```kotlin
-import TEMPLATE_PACKAGE.Greeting
+import com.mobilebytelabs.paycraft.Greeting
 
 fun main() {
     val greeting = Greeting()
@@ -81,7 +81,7 @@ For detailed documentation, visit [Documentation Link].
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/TEMPLATE_ORG/TEMPLATE_REPO.git
+git clone https://github.com/MobileByteLabs/TEMPLATE_REPO.git
 cd TEMPLATE_REPO
 ```
 

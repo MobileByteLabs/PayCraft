@@ -1,4 +1,4 @@
-package io.github.template
+package com.mobilebytelabs.paycraft
 
 /**
  * Linux platform implementation (linuxX64, linuxArm64)

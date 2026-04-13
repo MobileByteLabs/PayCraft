@@ -1,3 +1,3 @@
-package io.github.template
+package com.mobilebytelabs.paycraft
 
 actual fun getPlatformName(): String = "JVM ${System.getProperty("java.version")}"

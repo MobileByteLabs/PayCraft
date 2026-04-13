@@ -1,4 +1,4 @@
-package io.github.template.sample
+package com.mobilebytelabs.paycraft.sample
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
