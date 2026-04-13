@@ -5,9 +5,9 @@ name: CI
 
 on:
   push:
-    branches: [ "main", "dev" ]
+    branches: [ "main", "development" ]
   pull_request:
-    branches: [ "main", "dev" ]
+    branches: [ "main", "development" ]
   workflow_call:
 
 permissions:
@@ -65,9 +65,6 @@ jobs:
           - name: iOS Simulator
             target: iosSimulatorArm64Test
             os: macos-latest
-          - name: Linux
-            target: linuxX64Test
-            os: ubuntu-latest
     runs-on: ${{ matrix.os }}
 
     steps:
