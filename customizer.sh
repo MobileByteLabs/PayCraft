@@ -138,12 +138,12 @@ update_settings_gradle() {
 
 # Update library build.gradle.kts
 update_library_build_gradle() {
-    print_section "Updating cmp-library/build.gradle.kts"
+    print_section "Updating cmp-paycraft/build.gradle.kts"
 
-    local build_file="cmp-library/build.gradle.kts"
+    local build_file="cmp-paycraft/build.gradle.kts"
 
     if [ ! -f "$build_file" ]; then
-        print_error "cmp-library/build.gradle.kts not found"
+        print_error "cmp-paycraft/build.gradle.kts not found"
         return 1
     fi
 
@@ -185,7 +185,7 @@ update_kotlin_sources() {
     print_section "Updating Kotlin Source Files"
 
     local src_dirs=("commonMain" "commonTest" "androidMain" "androidHostTest" "jvmMain" "jvmTest" "appleMain" "appleTest" "linuxMain" "linuxTest" "mingwMain" "mingwTest" "jsMain" "jsTest" "wasmJsMain" "wasmJsTest" "wasmWasiMain" "wasmWasiTest")
-    local library_dir="cmp-library/src"
+    local library_dir="cmp-paycraft/src"
 
     for src_dir in "${src_dirs[@]}"; do
         local kotlin_dir="$library_dir/$src_dir/kotlin"
@@ -344,13 +344,13 @@ print_final_summary() {
     echo
     echo -e "${CYAN}Files Updated:${NC}"
     echo "  - settings.gradle.kts"
-    echo "  - cmp-library/build.gradle.kts"
+    echo "  - cmp-paycraft/build.gradle.kts"
     echo "  - Kotlin source files"
     echo "  - README.md"
     echo "  - GitHub workflows"
     echo
     echo -e "${YELLOW}${WARNING} Next Steps:${NC}"
-    echo "  1. Review and update cmp-library/build.gradle.kts POM configuration"
+    echo "  1. Review and update cmp-paycraft/build.gradle.kts POM configuration"
     echo "  2. Update LICENSE file with your license"
     echo "  3. Configure GitHub secrets for Maven Central publishing:"
     echo "     - MAVEN_CENTRAL_USERNAME"

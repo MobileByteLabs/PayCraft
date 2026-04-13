@@ -17,7 +17,7 @@ Webhooks keep Supabase in sync with the payment provider.
 
 | File | Purpose |
 |------|---------|
-| `cmp-library/` | KMP library module |
+| `cmp-paycraft/` | KMP library module |
 | `PayCraft.kt` | Singleton config — entry point |
 | `core/BillingManager.kt` | Interface — isPremium, logIn, logOut |
 | `core/PayCraftBillingManager.kt` | Implementation — queries Supabase |

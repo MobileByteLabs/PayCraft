@@ -45,7 +45,7 @@ git push
    - `SIGNING_KEY_ID`
    - `SIGNING_PASSWORD`
    - `GPG_KEY_CONTENTS`
-3. **Start Coding** - Your library code goes in `cmp-library/src/`
+3. **Start Coding** - Your library code goes in `cmp-paycraft/src/`
 
 ## Supported Platforms
 
