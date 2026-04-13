@@ -74,9 +74,9 @@ private fun SampleScreen() {
 
             // PayCraftBanner — shows upgrade CTA or active premium status
             PayCraftBanner(
-                onClick = { showPaywall = true },
-                onRestoreClick = { showRestore = true },
+                onUpgradeClick = { showPaywall = true },
                 onManageClick = { showPaywall = true },
+                onRestoreClick = { showRestore = true },
                 modifier = Modifier.fillMaxWidth(),
             )
 
