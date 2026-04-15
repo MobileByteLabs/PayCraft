@@ -171,12 +171,11 @@ echo "▶  [4/6] Running JVM tests..."
 ./gradlew jvmTest --quiet
 echo "✅  JVM tests passed"
 
-# ── Gate 5: Compile (JVM) ────────────────────────────────────────────────────
-# Full multi-platform assemble runs on CI (release.yml) where all SDKs are present.
-# Locally we compile JVM only — sufficient to catch compilation errors.
-echo "▶  [5/6] Compiling (JVM — full assemble runs on CI)..."
-./gradlew :cmp-paycraft:compileKotlinJvm --quiet
-echo "✅  JVM compile passed"
+# ── Gate 5: Build library (all targets) ──────────────────────────────────────
+# Matches exactly what CI runs in release.yml and gradle.yml
+echo "▶  [5/6] Building cmp-paycraft (all targets — same as CI)..."
+./gradlew :cmp-paycraft:assemble --quiet
+echo "✅  Library build passed (all targets)"
 
 if [ "$DRY_RUN" = true ]; then
   echo ""
