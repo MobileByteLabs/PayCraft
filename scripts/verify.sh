@@ -117,12 +117,25 @@ print_summary() {
     fi
 }
 
+run_build() {
+    echo -e "\n${BOLD}[5/5] Build Library — all targets (same as CI)${NC}"
+    OUTPUT=$(./gradlew :cmp-paycraft:assemble --daemon 2>&1)
+    if echo "$OUTPUT" | grep -q "BUILD SUCCESSFUL"; then
+        step_pass "assemble :cmp-paycraft (all targets)"
+    else
+        echo -e "  ${RED}Build errors:${NC}"
+        echo "$OUTPUT" | grep "^e:\|FAILED" | head -5
+        step_fail "assemble :cmp-paycraft"
+        return 1
+    fi
+}
+
 print_header
 case "$MODE" in
     --fix)   run_spotless_fix || true ;;
     --check) run_spotless_check || true; run_detekt || true ;;
     --quick) run_spotless_fix || true; run_spotless_check || true; run_detekt || true; run_tests || true ;;
-    --ci)    run_spotless_check || true; run_detekt || true; run_tests || true ;;
-    --full|*) run_spotless_fix || true; run_spotless_check || true; run_detekt || true; run_tests || true ;;
+    --ci)    run_spotless_check || true; run_detekt || true; run_tests || true; run_build || true ;;
+    --full|*) run_spotless_fix || true; run_spotless_check || true; run_detekt || true; run_tests || true; run_build || true ;;
 esac
 print_summary

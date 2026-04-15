@@ -151,5 +151,5 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build All
-        run: ./gradlew assemble
+      - name: Build Library (all targets)
+        run: ./gradlew :cmp-paycraft:assemble
