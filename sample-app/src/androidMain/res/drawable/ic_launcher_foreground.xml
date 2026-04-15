@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- PayCraft "P" icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,30 L38,78 L48,78 L48,62 L58,62 C66.8,62 74,54.8 74,46 C74,37.2 66.8,30 58,30 L38,30 Z M48,40 L58,40 C61.3,40 64,42.7 64,46 C64,49.3 61.3,52 58,52 L48,52 L48,40 Z" />
+</vector>
