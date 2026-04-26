@@ -2,125 +2,107 @@
 
 These Claude skills automate PayCraft integration into any KMP client app.
 
+**One command. Zero sub-commands exposed.** All phases (Supabase, Stripe, client wiring, verification) run internally.
+
 ---
 
-## Option A — Bootstrap (no clone required, recommended)
+## Install & Run (one prompt)
 
-Paste this single prompt into Claude Code **in your KMP project**:
+Paste this into Claude Code **in your KMP project**:
 
 ```
-Fetch https://raw.githubusercontent.com/mobilebytelabs/paycraft/main/client-skills/paycraft-adopt.md
+Fetch https://raw.githubusercontent.com/mobilebytelabs/paycraft/development/client-skills/paycraft-adopt.md
 Save it to .claude/commands/paycraft-adopt.md in this project, then run /paycraft-adopt.
 ```
 
 Claude will:
-1. Fetch the adoption command from GitHub
-2. Save it to your project's `.claude/commands/`
-3. Run `/paycraft-adopt` — which:
-   - Searches 8 common locations for an existing PayCraft clone
-   - If not found, **asks where you want to clone it** (home dir / Developer/ / custom path)
-   - Clones PayCraft there, saves the path to your `.env` for future runs
-   - Wires billing into your app end-to-end
+1. Fetch the stub from GitHub
+2. Save it to `.claude/commands/`
+3. Run `/paycraft-adopt` — which finds or clones PayCraft, then runs the full adoption flow
 
 No cloning required upfront. No directory switching. Works from any KMP project.
 
-**On subsequent runs** — PayCraft path is remembered in `.env` (`PAYCRAFT_ROOT`), so the clone question is skipped.
+---
+
+## Manual install
+
+```bash
+mkdir -p .claude/commands
+cp paycraft-adopt.md .claude/commands/
+```
+
+Open Claude Code in your project, then run `/paycraft-adopt`.
 
 ---
 
-## Option B — Manual install (copy files)
+## One User-Facing Command
 
-1. Copy the `.md` files from this directory to your project's `.claude/commands/`:
-   ```bash
-   mkdir -p .claude/commands
-   # Full E2E command (handles everything including Supabase + Stripe + client integration):
-   cp paycraft-adopt.md .claude/commands/
-   # Individual phase commands (optional — for partial re-runs):
-   cp paycraft-adopt-env.md .claude/commands/
-   cp paycraft-adopt-supabase.md .claude/commands/
-   cp paycraft-adopt-stripe.md .claude/commands/
-   cp paycraft-adopt-razorpay.md .claude/commands/
-   cp paycraft-adopt-client.md .claude/commands/
-   cp paycraft-adopt-verify.md .claude/commands/
-   # Migration command (for moving to new Supabase/Stripe account later):
-   cp paycraft-adopt-migrate.md .claude/commands/
-   ```
+| Command | Purpose |
+|---------|---------|
+| `/paycraft-adopt` | **Everything** — status matrix → full setup → sandbox E2E → live test → keys guide |
+| `/paycraft-setup` | Legacy (client integration only) |
+| `/paycraft-verify` | Legacy (verify only) |
 
-2. Open Claude Code in your KMP project
-3. Run `/paycraft-adopt`
-
-> On first run, Claude will ask where to clone PayCraft if it's not already on your system.
-> The chosen path is saved to `.env` as `PAYCRAFT_ROOT` — subsequent runs skip the question.
+To re-run a specific phase: `/paycraft-adopt` → **[F] Fix specific phase**.
 
 ---
 
-## Available Skills
+## What `/paycraft-adopt` does
 
-| Skill | Purpose |
-|-------|---------|
-| `/paycraft-adopt` | **E2E setup: env + Supabase + provider + client + verify** (start here) |
-| `/paycraft-adopt-env` | Phase 1 only — credentials setup |
-| `/paycraft-adopt-supabase` | Phase 2 only — migrations + webhook |
-| `/paycraft-adopt-stripe` | Phase 3 only — Stripe test products + links |
-| `/paycraft-adopt-razorpay` | Phase 3B only — Razorpay plans + links |
-| `/paycraft-adopt-client` | Phase 4 only — wire billing into app |
-| `/paycraft-adopt-verify` | Phase 5 only — end-to-end DB + RPC verification |
-| `/paycraft-adopt-migrate` | Migrate to new Supabase / Stripe / Razorpay account, or switch provider |
-| `/paycraft-setup` | Legacy: client integration only (assumes server already done) |
-| `/paycraft-verify` | Legacy: verify integration only |
+1. **Status matrix** — shows current implementation state (reads `.paycraft/memory.json`)
+2. **[A] Full setup** — Phases 1→5:
+   - Phase 1: Collect + validate all credentials (Supabase + Stripe/Razorpay)
+   - Phase 2: Deploy Supabase migrations + webhook Edge Function
+   - Phase 3: Create Stripe products, prices, payment links
+   - Phase 4: Wire PayCraft into your KMP app (commonMain only)
+   - Phase 5: E2E DB write + RPC verification
+3. **[B] Sandbox E2E** — 7-step test with Stripe test card — proof billing works
+4. **[C] Live test** — E2E with real card + real keys
+5. **[D] Keys guide** — exact steps to get every key/secret with dashboard URLs
+6. **[F] Fix phase** — re-run any single phase
 
 ---
 
-## What gets created in your project
+## `.paycraft/` Memory Directory
 
-After `/paycraft-adopt` completes, your project contains a `.paycraft/` directory:
+After Phase 1 completes, your project contains:
 
 ```
 your-kmp-app/
 └── .paycraft/
-    ├── config.json          ← setup answers (billing UI path, key storage, provider, plans)
+    ├── memory.json          ← remembered context (env path, koin file, billing screen, etc.)
+    ├── config.json          ← setup answers (provider, plans, currency, support email)
     ├── deployment.json      ← deployed resource IDs — no secrets, safe to commit
+    ├── schema_version       ← PayCraft version this memory was created with
     ├── supabase/
-    │   ├── migrations/      ← SQL backup of what was applied to Supabase
-    │   └── functions/       ← Edge Function source backup (stripe-webhook/ or razorpay-webhook/)
-    ├── backups/             ← gitignored — timestamped .env + deployment backups
-    └── exports/             ← subscriber data exports (written during /paycraft-adopt-migrate)
+    │   ├── migrations/      ← SQL backup of what was deployed
+    │   └── functions/       ← Edge Function source backup
+    ├── test_results/
+    │   ├── sandbox_test.json ← Sandbox E2E test result + timestamp
+    │   └── live_test.json    ← Live E2E test result
+    └── backups/             ← gitignored — timestamped .env snapshots
 ```
 
-`config.json` records all answers you gave during setup:
-- Which file has `PayCraft.configure()` (app init file)
-- Which screen hosts the billing UI (SettingsScreen or paywall host)
-- How keys are stored (`local.properties`, `Config.kt`, `BuildConfig`, or inline)
-- Provider choice (stripe / razorpay), plan count, plan definitions
+### What `memory.json` remembers
 
-`deployment.json` records all deployed resource IDs:
-- Supabase project ref + URL + webhook function name
-- Stripe product ID + price IDs + payment link URLs (or Razorpay plan IDs)
-- Migration history (updated by `/paycraft-adopt-migrate`)
+| Field | Set in | Used in |
+|-------|--------|---------|
+| `env_path` | Phase 1 | All phases — never ask again |
+| `env_path_confirmed_by_user` | Phase 1 | Skip .env picker on re-run |
+| `koin_module_file` + `koin_module_line` | Phase 4 | Phase 4 re-run — skip detection |
+| `billing_card_file` + `billing_card_line` | Phase 4 | Phase 4 re-run — skip detection |
+| `lifecycle_refresh_file` | Phase 4 | Phase 4 re-run — skip detection |
+| `configure_file` | Phase 4 | Status matrix |
+| `deep_link_scheme` | Phase 4 | Status matrix |
+| `supabase_project_ref` | Phase 2 | Status matrix |
+| `stripe_product_id` | Phase 3 | Status matrix |
+| `payment_links` | Phase 3 | Status matrix |
+| `phases_completed` | All phases | Smart-skip in full setup |
+| `phases_verified` | Phase 5 | Status matrix |
 
-**gitignore**: Step 5 automatically updates your `.gitignore` — `.env` (PayCraft credentials) and `.paycraft/backups/` (timestamped `.env` copies) are both excluded. Everything else in `.paycraft/` is safe and useful to commit.
+### gitignore
 
----
-
-## Migrating later
-
-To move to a new Supabase project, new Stripe account, or switch payment providers:
-
-```
-/paycraft-adopt-migrate
-```
-
-Claude will:
-1. Show your current deployment state from `.paycraft/deployment.json`
-2. Ask what you want to migrate (Supabase / Stripe / Razorpay / Both / Switch)
-3. Back up `.env` → `.paycraft/backups/.env.backup.{timestamp}`
-4. Collect only the new credentials needed
-5. Re-deploy only the affected components
-6. Optionally migrate your subscriber data to the new Supabase project
-7. Re-verify everything end-to-end
-8. Update `.paycraft/deployment.json` with the new state + migration history
-
-No manual `.env` editing. No re-running the full setup from scratch.
+`.paycraft/backups/` and `.paycraft/exports/` are automatically added to your `.gitignore` (contain `.env` snapshots = secrets). Everything else is safe and useful to commit.
 
 ---
 
@@ -128,16 +110,17 @@ No manual `.env` editing. No re-running the full setup from scratch.
 
 - KMP app using Koin DI + Compose Multiplatform
 - Supabase project (free tier works)
-- Stripe or Razorpay account (test mode for setup)
-- Claude Code with internet access (for Stripe MCP, optional but recommended)
+- Stripe or Razorpay account (test mode for initial setup)
+- Claude Code
 
-## What `/paycraft-adopt` Does to Your App
+---
 
-- Applies Supabase migrations (`subscriptions` table + `is_premium()` + `get_subscription()`)
-- Deploys the webhook Edge Function to Supabase
-- Creates Stripe/Razorpay test products, prices, payment links
-- Adds `io.github.mobilebytelabs:paycraft` dependency to `commonMain`
-- Writes `PayCraft.configure {}` before Koin initialization
-- Adds `PayCraftModule` to Koin modules
-- Adds `PayCraftBanner` + `PayCraftSheet` + `PayCraftRestore` to SettingsScreen
-- Runs a live DB write → `is_premium()` → cleanup verification test
+## 100% Success Design
+
+Every connection step is zero-guesswork:
+- Per-key validation at collection: format + prefix + length checks with exact error messages
+- Inline "where to get it" guide for every key (exact dashboard URLs + field names)
+- Pre-flight gate before each phase (APIs must be reachable before any work starts)
+- Post-phase verification (proves it worked — table exists, RPCs callable, webhook ACTIVE)
+- Idempotent: re-running never duplicates Supabase migrations or Stripe products
+- Sandbox E2E: 7-step test with 30s webhook timeout + exact diagnosis on failure

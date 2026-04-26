@@ -14,9 +14,78 @@ Everything else — `PayCraft.configure()`, `PayCraftBanner`, `LifecycleEventEff
 
 ---
 
+## MEMORY SYSTEM — `.paycraft/memory.json` Schema (M1)
+
+```json
+{
+  "paycraft_version": "1.1.0",
+  "last_run": "2026-04-26T09:35:49Z",
+  "env_path": "/path/to/project/.env",
+  "env_path_confirmed_by_user": true,
+  "koin_module_file": "cmp-navigation/src/commonMain/.../KoinModules.kt",
+  "koin_module_line": 42,
+  "billing_card_file": "feature/settings/src/commonMain/.../SettingsScreen.kt",
+  "billing_card_line": 557,
+  "lifecycle_refresh_file": "feature/settings/src/commonMain/.../SettingsScreen.kt",
+  "lifecycle_refresh_line": 152,
+  "configure_file": "core/network/src/commonMain/.../NetworkModule.kt",
+  "deep_link_scheme": "myapp",
+  "phases_completed": ["env", "supabase", "stripe", "client"],
+  "phases_verified": ["supabase", "client", "sandbox_e2e"],
+  "supabase_project_ref": "mlwfgytjxlqyfxcgpysm",
+  "stripe_product_id": "prod_...",
+  "stripe_live_product_id": "prod_... (live)",
+  "payment_links": {
+    "monthly": "https://buy.stripe.com/test_...",
+    "yearly": "https://buy.stripe.com/test_..."
+  },
+  "payment_links_live": {
+    "monthly": "https://buy.stripe.com/...",
+    "yearly": "https://buy.stripe.com/..."
+  }
+}
+```
+
+**Rules:**
+- Written atomically: always write to `.paycraft/memory.json.tmp` then rename (S10)
+- Read BEFORE every run — see STEP 0A
+- Supplements live scanning (matrix always re-checks live state)
+- `.paycraft/backups/` and `.paycraft/exports/` are gitignored (secrets)
+- All other `.paycraft/` files are safe to commit
+
+---
+
+## STEP 0A — READ MEMORY + SCHEMA MIGRATION (M2/M4, runs before matrix)
+
+```
+MEMORY_PATH = {TARGET_APP_PATH}/.paycraft/memory.json
+SCHEMA_PATH = {TARGET_APP_PATH}/.paycraft/schema_version
+
+IF memory.json exists:
+  READ + PARSE → populate remembered_context (env_path, koin_module_file, etc.)
+
+  --- Schema migration check (M4) ---
+  READ SCHEMA_PATH → stored_version (e.g. "1.0.0")
+  CURRENT_VERSION = current PayCraft library version
+  IF stored_version != CURRENT_VERSION:
+    DISPLAY:
+      "⚠️  PayCraft version change detected: {stored_version} → {CURRENT_VERSION}"
+      "Memory was created with an older version."
+      "[U] Update memory schema automatically   [S] Skip (keep old schema)"
+    IF [U]: update schema, write schema_version, write memory.json
+    IF [S]: continue with old schema (may have missing fields)
+
+ELSE:
+  remembered_context = {} (cold start — first run)
+  OUTPUT: "ℹ First run — .paycraft/ will be initialized in Phase 1"
+```
+
+---
+
 ## STEP 0 — STATUS MATRIX (runs FIRST, every time)
 
-Before executing anything, scan the current state and display this matrix:
+Before executing anything, read memory (STEP 0A above), then scan live state and display this matrix.
+Memory-remembered values show `[✓ remembered]` in the matrix (M9):
 
 ```
 ╔══ /paycraft-adopt — Current Implementation Status ════════════════════════════╗
@@ -50,8 +119,17 @@ Before executing anything, scan the current state and display this matrix:
 ║  [?] LifecycleEventEffect ON_RESUME   — [✓ found / ✗ missing / ? not checked]  ║
 ║  [?] iOS cocoapods declared           — [✓ found / ✗ missing / ? not checked]  ║
 ║                                                                                 ║
+║  MEMORY (.paycraft/memory.json)                                                 ║
+║  [?] .paycraft/ initialized           — [✓ exists / ✗ not yet]                 ║
+║  [?] env_path remembered              — [✓ {path} / ✗ not set]                 ║
+║  [?] koin_module_file remembered      — [✓ {file}:{line} / ✗ not set]          ║
+║  [?] billing_card_file remembered     — [✓ {file}:{line} / ✗ not set]          ║
+║  [?] phases_completed                 — [list or NONE]                          ║
+║                                                                                 ║
 ║  SANDBOX TEST (last run)                                                        ║
-║  [?] Sandbox payment completed        — [✓ verified / ✗ not run / date if run] ║
+║  [?] Sandbox payment completed        — [✓ verified {date} / ✗ not run]        ║
+║                                         (source: .paycraft/test_results/       ║
+║                                          sandbox_test.json)                    ║
 ║  [?] Webhook received + DB updated    — [✓ verified / ✗ not run]               ║
 ║  [?] is_premium() confirmed true      — [✓ verified / ✗ not run]               ║
 ║                                                                                 ║
@@ -78,15 +156,20 @@ Before executing anything, scan the current state and display this matrix:
   If ENV keys missing → show `? not checked` for all.
 
 **CLIENT APP section**: Only scan if target_app_path is known.
+  Note: KMP projects are often multi-module — search ALL subdirs, not just src/commonMain.
   1. Glob `**/libs.versions.toml` → grep `paycraft`
-  2. Grep source for `PayCraft.configure(`
-  3. Grep source for `PayCraftModule`
-  4. Grep commonMain for `PayCraftBanner`
-  5. Grep commonMain for `LifecycleEventEffect`
-  6. Grep `**/build.gradle.kts` for `kotlinCocoapods` AND `pod("FirebaseCrashlytics")`
+  2. Grep `{target_app_path}/**/*.kt` for `PayCraft.configure(`
+  3. Grep `{target_app_path}/**/*.kt` for `PayCraftModule`
+  4. Grep `{target_app_path}/**/commonMain/**/*.kt` for `PayCraftBanner`
+  5. Grep `{target_app_path}/**/commonMain/**/*.kt` for `LifecycleEventEffect`
+  6. Grep `{target_app_path}/**/build.gradle.kts` for `kotlinCocoapods`
   If target_app_path unknown → show `? not checked`.
 
-**SANDBOX / LIVE TEST section**: Read `.paycraft/sandbox_test.json` and `.paycraft/live_test.json` if they exist.
+**MEMORY section**: Read `.paycraft/memory.json` → show remembered_context fields.
+  If file does not exist → all show `✗ not yet`.
+
+**SANDBOX / LIVE TEST section**: Read `.paycraft/test_results/sandbox_test.json` and `.paycraft/test_results/live_test.json` if they exist.
+  Show timestamp from `timestamp` field if present.
 
 After matrix, display action menu:
 
@@ -618,7 +701,7 @@ B2. PAYCRAFT_STRIPE_WEBHOOK_SECRET            Status: [from matrix]
     Note: This secret matches what's set in Supabase function secrets as STRIPE_WEBHOOK_SECRET
 
 B3. PAYCRAFT_STRIPE_LINK_* (test payment links)   Status: [from matrix]
-    These are created AUTOMATICALLY by Phase 3A (run /paycraft-adopt-stripe with mode=test).
+    These are created AUTOMATICALLY by Phase 3A (run /paycraft-adopt → [A] Full setup → Phase 3 test mode).
     To create manually:
     1. Stripe Dashboard (Test mode) → Payment Links → "New"
     2. Select product + price (created by Phase 3A)
@@ -661,7 +744,7 @@ C2. PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET           Status: [from matrix]
                           --project-ref [ref]
 
 C3. PAYCRAFT_STRIPE_LIVE_LINK_* (live payment links)
-    Created automatically by Phase 3B (run /paycraft-adopt-stripe with mode=live).
+    Created automatically by Phase 3B (run /paycraft-adopt → [F] Fix specific phase → Phase 3 with PAYCRAFT_MODE=live).
     Each link will be https://buy.stripe.com/... (no /test/ prefix in live mode).
     These go in PayCraftConfig.kt → LIVE_PAYMENT_LINKS map.
 
@@ -746,14 +829,17 @@ After displaying, show:
 
 ---
 
-## Sub-commands (independently callable)
+## Phase Runtime Files (internal — not user-facing)
 
-| Command | Runs |
-|---------|------|
-| `/paycraft-adopt-env` | Phase 1 only |
-| `/paycraft-adopt-supabase` | Phase 2 only |
-| `/paycraft-adopt-stripe` | Phase 3 (Stripe) only |
-| `/paycraft-adopt-razorpay` | Phase 3B (Razorpay) only |
-| `/paycraft-adopt-client` | Phase 4 only |
-| `/paycraft-adopt-verify` | Phase 5 only |
-| `/paycraft-adopt-migrate` | Migrate Supabase account, payment provider, or both |
+These files are loaded internally by this runtime. They are NOT commands exposed to users.
+
+| File | Phase |
+|------|-------|
+| `layers/paycraft/commands/paycraft-adopt-env.md` | Phase 1 — ENV bootstrap + key validation |
+| `layers/paycraft/commands/paycraft-adopt-supabase.md` | Phase 2 — Supabase migrations + webhook |
+| `layers/paycraft/commands/paycraft-adopt-stripe.md` | Phase 3 — Stripe products + payment links |
+| `layers/paycraft/commands/paycraft-adopt-razorpay.md` | Phase 3B — Razorpay payment links |
+| `layers/paycraft/commands/paycraft-adopt-client.md` | Phase 4 — KMP client integration |
+| `layers/paycraft/commands/paycraft-adopt-verify.md` | Phase 5 — E2E verification |
+
+To re-run a specific phase: run `/paycraft-adopt` → choose **[F] Fix specific phase** from the action menu.

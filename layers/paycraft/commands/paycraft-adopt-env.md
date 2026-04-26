@@ -1,17 +1,105 @@
 # paycraft-adopt-env — Phase 1: ENV Bootstrap
 
-> **PHASE 1 of 5** — Sets up `.env` and validates all required credentials.
-> All 6 steps run in strict sequence. Every step verifies its result.
+> **PHASE 1 of 5** — Sets up `.env`, initializes `.paycraft/` memory directory, and validates all credentials.
+> All steps run in strict sequence. Every step verifies its result.
 > A single missing or invalid key is a HARD STOP.
 
 ---
 
 ## Phase 1 Steps
 
+### STEP 1.0 — Read .paycraft/memory.json (if exists)
+
+```
+MEMORY_PATH = {TARGET_APP_PATH}/.paycraft/memory.json
+
+IF memory.json EXISTS:
+  READ: Parse JSON → extract env_path, env_path_confirmed_by_user, phases_completed[]
+  IF env_path_confirmed_by_user = true:
+    ENV_PATH = {memory.json env_path}
+    OUTPUT: "ℹ Remembered .env location: {ENV_PATH}"
+    SKIP Step 1.0A (env location picker) — go directly to Step 1.1
+  ELSE:
+    proceed to Step 1.0A
+
+IF memory.json DOES NOT EXIST:
+  proceed to Step 1.0A (first run)
+
+IF $CI = true (CI environment):
+  ENV_PATH = pre-set value from bootstrap stub
+  OUTPUT: "ℹ CI mode: using ENV_PATH from environment ({ENV_PATH})"
+  SKIP Step 1.0A
+```
+
+### STEP 1.0A — Ask .env location (first run only, not CI)
+
+```
+╔══ Where should PayCraft store your credentials (.env)? ═══════════════╗
+║                                                                          ║
+║  PayCraft needs to store API keys (Supabase, Stripe, Razorpay).        ║
+║  These are secrets — NEVER committed to git.                           ║
+║                                                                          ║
+║  [A] {TARGET_APP_PATH}/.env         ← recommended (standard location)  ║
+║      gitignore entry: /.env                                            ║
+║  [B] {TARGET_APP_PATH}/../.env      ← workspace root (outside source) ║
+║      gitignore entry: ../.env                                          ║
+║  [C] Enter a custom path                                               ║
+║                                                                          ║
+║  Default: [A] — press Enter to accept                                  ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+WAIT: user picks A/B/C or presses Enter (default = A)
+RESOLVE:
+  A or Enter → ENV_PATH = {TARGET_APP_PATH}/.env
+               GITIGNORE_PATH = {TARGET_APP_PATH}/.gitignore
+               GITIGNORE_ENTRY = /.env
+  B           → ENV_PATH = {TARGET_APP_PATH}/../.env
+               GITIGNORE_PATH = {TARGET_APP_PATH}/../.gitignore
+               GITIGNORE_ENTRY = .env
+  C           → ASK: "Enter full path to your .env file:"
+               ENV_PATH = {entered path}
+               GITIGNORE_PATH = {dirname(ENV_PATH)}/.gitignore
+               GITIGNORE_ENTRY = /{basename(ENV_PATH)}
+
+OUTPUT: "✓ .env location: {ENV_PATH}"
+
+--- Auto-add to .gitignore ---
+CHECK: Does {GITIGNORE_PATH} contain {GITIGNORE_ENTRY}?
+IF NOT: Append {GITIGNORE_ENTRY} to {GITIGNORE_PATH}
+        OUTPUT: "✓ Added {GITIGNORE_ENTRY} to {GITIGNORE_PATH}"
+ELSE:   OUTPUT: "✓ .gitignore already has {GITIGNORE_ENTRY}"
+```
+
+### STEP 1.0B — Initialize .paycraft/ directory structure
+
+```
+BASE = {TARGET_APP_PATH}/.paycraft/
+
+CREATE (if not exists):
+  {BASE}                          ← main directory
+  {BASE}supabase/migrations/      ← SQL copies deployed to this project
+  {BASE}supabase/functions/       ← Edge Function source copies
+  {BASE}test_results/             ← sandbox + live test results
+  {BASE}backups/                  ← .env snapshots (gitignored)
+
+WRITE: {BASE}schema_version → current PayCraft version (e.g. "1.1.0")
+       (If file exists and version differs → show migration prompt — see M4)
+
+--- Auto-update consumer .gitignore ---
+GITIGNORE = {TARGET_APP_PATH}/.gitignore
+ENTRIES_NEEDED:
+  ".paycraft/backups/"
+  ".paycraft/exports/"
+FOR EACH entry:
+  IF NOT in {GITIGNORE}: append entry
+OUTPUT: "✓ .paycraft/ initialized ({BASE})"
+OUTPUT: "✓ .paycraft/backups/ and .paycraft/exports/ added to .gitignore"
+```
+
 ### STEP 1.1 — Check .env file exists
 
 ```
-NOTE: ENV_PATH is pre-set by the bootstrap stub (framework or client-skills).
+NOTE: ENV_PATH was resolved in Step 1.0 or 1.0A.
       It points to the ADOPTING PROJECT's .env, not the PayCraft library directory.
       Example (framework): workspaces/mbs/reels-downloader/.env
       Example (open source): /Users/them/my-kmp-app/.env
@@ -312,26 +400,94 @@ VERIFY  : Both keys non-empty in .env
 OUTPUT  : "✓ Support email and redirect URL set"
 ```
 
+### STEP 1.7 — Key format validation (S1 — validate all keys at collection time)
+
+```
+Run final validation on all collected keys — format, prefix, length:
+
+VALIDATE PAYCRAFT_SUPABASE_URL:
+  MUST match regex: ^https://[a-z0-9]+\.supabase\.co$
+  IF INVALID: HARD STOP — "Invalid Supabase URL format.
+              Expected: https://{ref}.supabase.co
+              Get it at: https://supabase.com/dashboard/project/{ref}/settings/api → 'Project URL'"
+
+VALIDATE PAYCRAFT_SUPABASE_ANON_KEY:
+  MUST start with "eyJ" AND length > 100
+  IF INVALID: HARD STOP — "Invalid anon key format.
+              Must be a JWT starting with eyJ (100+ chars).
+              Get it at: same Settings → API page → 'anon public'"
+
+VALIDATE PAYCRAFT_SUPABASE_SERVICE_ROLE_KEY:
+  MUST start with "eyJ" AND length > 100 AND differ from ANON_KEY
+  IF SAME AS ANON: HARD STOP — "Service role key must differ from anon key.
+              You may have pasted the anon key twice.
+              The service_role key is separate — click 'Reveal' on the service_role row."
+
+VALIDATE PAYCRAFT_SUPABASE_ACCESS_TOKEN:
+  MUST start with "sbp_"
+  IF INVALID: HARD STOP — "Invalid Supabase access token.
+              Must start with sbp_
+              Get it at: https://supabase.com/dashboard/account/tokens → 'Generate new token'"
+
+IF PAYCRAFT_PROVIDER = "stripe":
+  VALIDATE PAYCRAFT_STRIPE_TEST_SECRET_KEY:
+    MUST start with "sk_test_" AND length > 30
+    IF starts with "sk_live_": HARD STOP — "Live key detected in TEST field.
+                Switch Stripe Dashboard to TEST mode (toggle top-left) and copy the sk_test_ key."
+    IF NOT starts with "sk_": HARD STOP — "Not a Stripe secret key format (must start with sk_test_)."
+
+  IF PAYCRAFT_STRIPE_LIVE_SECRET_KEY non-empty:
+    VALIDATE: MUST start with "sk_live_" AND length > 30
+    IF INVALID: HARD STOP — "Invalid live key format. Must start with sk_live_."
+
+OUTPUT: "✓ All key formats validated"
+```
+
+### STEP 1.8 — Write memory.json (M3a — atomic write)
+
+```
+MEMORY_PATH = {TARGET_APP_PATH}/.paycraft/memory.json
+TMP_PATH    = {TARGET_APP_PATH}/.paycraft/memory.json.tmp
+
+BUILD memory object:
+  IF memory.json exists: READ existing → merge (preserve existing fields, update/add new)
+  ELSE: start fresh
+
+SET fields:
+  paycraft_version        = current PayCraft version (from schema_version file)
+  last_run                = current ISO timestamp
+  env_path                = {ENV_PATH}
+  env_path_confirmed_by_user = true
+  phases_completed        = add "env" if not already present
+
+WRITE: JSON to {TMP_PATH}
+RENAME: {TMP_PATH} → {MEMORY_PATH}  (atomic — prevents corrupt partial writes)
+OUTPUT: "✓ Phase 1 state saved → .paycraft/memory.json"
+```
+
 ---
 
 ## Phase 1 Checkpoint
 
 ```
-╔══ PHASE 1 COMPLETE — ENV Bootstrap ═════════════════════════════╗
-║                                                                   ║
-║  ✓ .env file ready                                               ║
-║  ✓ Provider: [stripe/razorpay]                                   ║
-║  ✓ Supabase: [project-ref].supabase.co (5 keys)                 ║
-║  ✓ Mode: [PAYCRAFT_MODE]
-  ║  ✓ [Provider] credentials: TEST key set, LIVE key [set/pending]                               ║
-║  ✓ Plans: [N] plans ([list with prices])                        ║
-║  ✓ Support email: [email]                                        ║
-║  ✓ App redirect URL: [url]                                       ║
-║                                                                   ║
-║  Ready to proceed to Phase 2: Supabase Setup?                    ║
-║  [Y] Continue   [Q] Quit                                         ║
-╚═══════════════════════════════════════════════════════════════════╝
+╔══ PHASE 1 COMPLETE — ENV Bootstrap ════════════════════════════════════╗
+║                                                                          ║
+║  ✓ .paycraft/ directory initialized                                      ║
+║  ✓ .env location confirmed: {ENV_PATH}                                   ║
+║  ✓ .env / .gitignore updated                                             ║
+║  ✓ Provider: [stripe/razorpay]                                           ║
+║  ✓ Supabase: [project-ref].supabase.co (5 keys — all formats valid)     ║
+║  ✓ Mode: [PAYCRAFT_MODE]                                                 ║
+║  ✓ [Provider] credentials: TEST key set, LIVE key [set/pending]         ║
+║  ✓ Plans: [N] plans ([list with prices])                                 ║
+║  ✓ Support email: [email]                                                ║
+║  ✓ App redirect URL: [url]                                               ║
+║  ✓ memory.json written                                                   ║
+║                                                                          ║
+║  Ready to proceed to Phase 2: Supabase Setup?                           ║
+║  [Y] Continue   [Q] Quit                                                 ║
+╚══════════════════════════════════════════════════════════════════════════╝
 ```
 
 Wait for user `[Y]` before proceeding to Phase 2.
-If user types `[Q]`: save .env state, display "Resume with /paycraft-adopt-supabase when ready."
+If user types `[Q]`: save .env state, display "Run /paycraft-adopt to resume — select [A] Full setup or [F] Fix specific phase from the action menu."

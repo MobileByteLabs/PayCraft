@@ -209,7 +209,7 @@ OUTPUT  : "✓ Test data cleaned up"
 READ    : PAYCRAFT_PLAN_COUNT from .env
 IF PAYCRAFT_PLAN_COUNT is empty OR = "0":
   HARD STOP: "PAYCRAFT_PLAN_COUNT not set in .env.
-              Re-run Phase 1 (/paycraft-adopt-env) to configure plans."
+              Run /paycraft-adopt and select [F] Fix specific phase → Phase 1 to configure plans."
 
 READ    : PAYCRAFT_PROVIDER from .env
 READ    : PAYCRAFT_MODE from .env (default to "test" if absent)
@@ -433,7 +433,7 @@ Content:
 
 VERIFY: Both JSON files written and valid
 OUTPUT: "✓ Deployment state saved → .paycraft/deployment.json"
-        "  (Used by /paycraft-adopt-migrate for account migrations)"
+        "  (deployment state — used for account migration planning)"
 
 --- 5.10D: Add .paycraft/ to app .gitignore ---
 
@@ -465,41 +465,201 @@ OUTPUT: "✓ .gitignore updated:"
 
 ---
 
+## Phase 5B — Sandbox E2E Test (S9 — 7-step proof of billing)
+
+```
+PREREQUISITE: Phase 1–4 all complete AND PAYCRAFT_STRIPE_TEST_LINK_{plan} present.
+
+DISPLAY:
+  "SANDBOX E2E TEST — 7 steps to prove billing works end-to-end"
+  "No real money. Uses test card. Verifies webhook → DB → RPC flow."
+  ""
+
+--- Step 5B.1: Open payment link ---
+  READ: PAYCRAFT_STRIPE_TEST_LINK_{PAYCRAFT_PLAN_1_ID} from .env
+  DISPLAY:
+    "Step 1: Open this payment link in your browser:"
+    "  {payment_link}"
+    ""
+    "Press Enter when the Stripe checkout page has loaded."
+  WAIT: user presses Enter
+
+--- Step 5B.2: Fill checkout with test card ---
+  DISPLAY:
+    "Step 2: Fill the Stripe checkout form:"
+    "  Card number : 4242 4242 4242 4242"
+    "  Expiry      : any future date (e.g. 12/28)"
+    "  CVC         : any 3 digits (e.g. 123)"
+    "  Email       : use a test email you'll remember (e.g. test@example.com)"
+    "  Name        : Test User (or anything)"
+    ""
+    "  → Click 'Subscribe' / 'Pay'"
+    ""
+    "Press Enter after you clicked Subscribe."
+  WAIT: user presses Enter
+
+--- Step 5B.3: Confirm checkout completed ---
+  DISPLAY:
+    "Step 3: Did Stripe show a success page or redirect to your app?"
+    "  [Y] Yes — payment accepted   [N] No — still on checkout"
+  WAIT: user picks
+  IF [N]:
+    DISPLAY: "Check that:
+               1. Card number is exactly: 4242 4242 4242 4242 (spaces are OK)
+               2. Expiry is a FUTURE date
+               3. Stripe is in TEST mode (URL shows dashboard.stripe.com/test/)
+               Try again. Press Enter when payment is accepted."
+    WAIT: user presses Enter
+
+--- Step 5B.4: Wait for webhook (30 second timeout) ---
+  DISPLAY: "Step 4: Waiting for Stripe webhook to reach Supabase..."
+  TEST_EMAIL = the email used in Step 5B.2
+
+  POLL: every 3 seconds for up to 30 seconds:
+    SELECT status FROM subscriptions WHERE email = '{TEST_EMAIL}' LIMIT 1
+    Auth: PAYCRAFT_SUPABASE_SERVICE_ROLE_KEY
+    IF row exists AND status = 'active': webhook received → BREAK
+    DISPLAY progress: "  ⏳ {elapsed}s / 30s — waiting..."
+
+  IF 30s timeout without row:
+    DISPLAY:
+      "Webhook not received after 30 seconds."
+      ""
+      "DIAGNOSIS:"
+      "  1. Check webhook endpoint in Stripe:"
+      "     → https://dashboard.stripe.com/test/webhooks"
+      "     → Is your endpoint URL set to:"
+      "       https://{PAYCRAFT_SUPABASE_PROJECT_REF}.supabase.co/functions/v1/stripe-webhook"
+      "     → Are these events listed?"
+      "       ✓ customer.subscription.created"
+      "       ✓ customer.subscription.updated"
+      "       ✓ customer.subscription.deleted"
+      "       ✓ invoice.paid"
+      ""
+      "  2. Check Edge Function logs for errors:"
+      "     supabase functions logs stripe-webhook --project-ref {PAYCRAFT_SUPABASE_PROJECT_REF}"
+      ""
+      "  3. Verify PAYCRAFT_STRIPE_TEST_WEBHOOK_SECRET matches the signing secret"
+      "     shown on the webhook endpoint page (whsec_...)"
+      ""
+      "[R] Retry (webhook may be delayed)   [F] Show fix steps   [Q] Quit"
+    WAIT: user picks
+    IF [R]: resume polling for 30 more seconds
+    IF [F]: show full webhook setup guide from Phase 2
+    IF [Q]: abort test
+
+--- Step 5B.5: Verify subscription row in DB ---
+  SELECT * FROM subscriptions WHERE email = '{TEST_EMAIL}' LIMIT 1
+  Auth: PAYCRAFT_SUPABASE_SERVICE_ROLE_KEY
+  VERIFY: row exists AND status = 'active'
+  CAPTURE: subscription_id, plan, provider
+  IF FAIL: HARD STOP — "Subscription row not found. Webhook may have failed.
+                         Check: supabase functions logs stripe-webhook --project-ref {ref}"
+  DISPLAY: "  ✓ Step 5: Subscription row exists — status=active, plan={plan}"
+
+--- Step 5B.6: Verify is_premium() returns true ---
+  SELECT is_premium('{TEST_EMAIL}')
+  Auth: PAYCRAFT_SUPABASE_ANON_KEY
+  VERIFY: returns true
+  IF FAIL: HARD STOP — "is_premium() returned false for active subscriber.
+                         Check RPC definition — should query subscriptions WHERE email={email} AND status='active'."
+  DISPLAY: "  ✓ Step 6: is_premium() = true for test user"
+
+--- Step 5B.7: Clean up test data ---
+  DELETE FROM subscriptions WHERE email = '{TEST_EMAIL}'
+  Auth: PAYCRAFT_SUPABASE_SERVICE_ROLE_KEY
+  VERIFY: DELETE response HTTP 200 or 204
+  DISPLAY: "  ✓ Step 7: Test data cleaned up"
+
+--- Write test results ---
+  WRITE: {TARGET_APP_PATH}/.paycraft/test_results/sandbox_test.json
+  Content:
+    {
+      "timestamp": "{ISO timestamp}",
+      "paycraft_version": "{version}",
+      "result": "PASS",
+      "steps_passed": 7,
+      "test_email": "{TEST_EMAIL}",
+      "payment_link_used": "{payment_link}",
+      "webhook_delay_seconds": {actual_seconds},
+      "subscription_id": "{subscription_id}"
+    }
+
+DISPLAY:
+  "╔══ SANDBOX E2E TEST PASSED ══════════════════════════════════════════╗"
+  "║  ✓ Step 1: Payment link opened                                      ║"
+  "║  ✓ Step 2: Test card filled                                         ║"
+  "║  ✓ Step 3: Stripe checkout accepted payment                         ║"
+  "║  ✓ Step 4: Webhook received in {n}s                                 ║"
+  "║  ✓ Step 5: Subscription row active in DB                            ║"
+  "║  ✓ Step 6: is_premium() returns true                                ║"
+  "║  ✓ Step 7: Test data cleaned up                                     ║"
+  "║                                                                      ║"
+  "║  Billing is working end-to-end.                                     ║"
+  "║  Results saved: .paycraft/test_results/sandbox_test.json            ║"
+  "╚══════════════════════════════════════════════════════════════════════╝"
+```
+
+## Phase 5 Memory Write (M3e — atomic)
+
+```
+MEMORY_PATH = {TARGET_APP_PATH}/.paycraft/memory.json
+TMP_PATH    = {TARGET_APP_PATH}/.paycraft/memory.json.tmp
+
+READ existing memory.json → merge
+SET fields:
+  phases_completed = add "verify" if not already present
+  phases_verified  = add "supabase", "client" (if 5B passed: add "sandbox_e2e")
+  last_run         = current ISO timestamp
+
+WRITE: JSON to {TMP_PATH}
+RENAME: {TMP_PATH} → {MEMORY_PATH}
+OUTPUT: "✓ Phase 5 state saved → .paycraft/memory.json"
+```
+
 ## Phase 5 Final Summary
 
 ```
-╔══ PayCraft Setup Complete ═════════════════════════════════════════════╗
-║                                                                         ║
-║  SUPABASE                                                               ║
-║  ✓ Project: [name] ([ref])                                             ║
-║  ✓ Table: subscriptions (12 cols, UNIQUE email, RLS enabled)           ║
-║  ✓ RPCs: is_premium() ✓  get_subscription() ✓                         ║
-║  ✓ Webhook: [provider]-webhook (no JWT check, returns 400 unsigned)    ║
-║                                                                         ║
-║  [PROVIDER] (TEST MODE)                                                 ║
-║  ✓ Product: [product_id]                                                ║
-║  ✓ Plans ([N]):                                                         ║
-║    [for each: plan_name — plan_id — payment_link]                       ║
-║  ✓ Webhook signing secret: configured                                   ║
-║  ✓ Customer portal: [portal_url]                                        ║
-║                                                                         ║
-║  CLIENT APP                                                             ║
-║  ✓ Dependency: io.github.mobilebytelabs:paycraft:[version]             ║
-║  ✓ PayCraft.configure() in [init file]                                 ║
-║  ✓ PayCraftModule in Koin                                               ║
-║  ✓ PayCraft UI in SettingsScreen                                        ║
-║  ✓ Build: compiles clean                                                ║
-║                                                                         ║
-║  E2E VERIFICATION                                                       ║
-║  ✓ DB write: service_role INSERT succeeded                              ║
-║  ✓ is_premium(): returns true for active subscriber                     ║
-║  ✓ get_subscription(): returns correct plan+status                     ║
-║  ✓ Test data cleaned up                                                 ║
-║                                                                         ║
-║  ══════════════════════════════════════════════════════════════════     ║
-║  STATUS: FULLY OPERATIONAL — TEST MODE                                  ║
-║  ══════════════════════════════════════════════════════════════════     ║
-╚═════════════════════════════════════════════════════════════════════════╝
+╔══ PayCraft Setup Complete ══════════════════════════════════════════════╗
+║                                                                          ║
+║  SUPABASE                                                                ║
+║  ✓ Project: [name] ([ref])                                              ║
+║  ✓ Table: subscriptions (12 cols, UNIQUE email, RLS enabled)            ║
+║  ✓ RPCs: is_premium() ✓  get_subscription() ✓                          ║
+║  ✓ Webhook: [provider]-webhook (no JWT check, returns 400 unsigned)     ║
+║                                                                          ║
+║  [PROVIDER] (TEST MODE)                                                  ║
+║  ✓ Product: [product_id]                                                 ║
+║  ✓ Plans ([N]):                                                          ║
+║    [for each: plan_name — plan_id — payment_link]                        ║
+║  ✓ Webhook signing secret: configured                                    ║
+║  ✓ Customer portal: [portal_url]                                         ║
+║                                                                          ║
+║  CLIENT APP                                                              ║
+║  ✓ Dependency: io.github.mobilebytelabs:paycraft:[version]              ║
+║  ✓ PayCraft.configure() in [configure_file]                              ║
+║  ✓ PayCraftModule in Koin — {koin_module_file}:{koin_module_line}       ║
+║  ✓ PayCraftBanner in {billing_card_file}:{billing_card_line}            ║
+║  ✓ Build: compiles clean                                                 ║
+║                                                                          ║
+║  E2E VERIFICATION                                                        ║
+║  ✓ DB write: service_role INSERT succeeded                               ║
+║  ✓ is_premium(): returns true for active subscriber                      ║
+║  ✓ get_subscription(): returns correct plan+status                      ║
+║  ✓ Test data cleaned up                                                  ║
+║                                                                          ║
+║  SANDBOX E2E TEST                                                        ║
+║  ✓ Payment link opened + test card charged                               ║
+║  ✓ Webhook received in {n}s → subscription row active                   ║
+║  ✓ is_premium() = true confirmed                                         ║
+║  ✓ Results: .paycraft/test_results/sandbox_test.json                    ║
+║                                                                          ║
+║  ✓ memory.json updated — all phases remembered                           ║
+║                                                                          ║
+║  ══════════════════════════════════════════════════════════════════      ║
+║  STATUS: FULLY OPERATIONAL — TEST MODE                                   ║
+║  ══════════════════════════════════════════════════════════════════      ║
+╚══════════════════════════════════════════════════════════════════════════╝
 ```
 
 ## Live Mode Upgrade Checklist
@@ -519,7 +679,7 @@ Print this after the summary:
 ║                                                                       ║
 ║  Step 2: Run Phase 3B (live mode setup)                               ║
 ║    • Set PAYCRAFT_MODE=live in .env                                   ║
-║    • Run: /paycraft-adopt-stripe (auto-detects live mode)             ║
+║    • Run: /paycraft-adopt → [F] Fix specific phase → Phase 3 (auto-detects live mode)             ║
 ║    • Creates LIVE products, prices, payment links                     ║
 ║    • Fills PAYCRAFT_STRIPE_LIVE_LINK_*, PAYCRAFT_STRIPE_LIVE_*       ║
 ║                                                                       ║

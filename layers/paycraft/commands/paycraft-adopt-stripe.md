@@ -7,20 +7,50 @@
 
 ---
 
-## Prerequisites (verify before starting)
+## Pre-flight Gate (S6 — verify keys + API reachable before any Stripe calls)
 
-Read `.env` → confirm:
-- `PAYCRAFT_PROVIDER` = "stripe"
-- `PAYCRAFT_MODE` = "test" or "live"
-- `PAYCRAFT_PLAN_COUNT` is a number ≥ 1
-- `PAYCRAFT_CURRENCY` is non-empty
-- `PAYCRAFT_APP_REDIRECT_URL` is non-empty
-- IF `PAYCRAFT_MODE` = "test": `PAYCRAFT_STRIPE_TEST_SECRET_KEY` starts with "sk_test_"
-- IF `PAYCRAFT_MODE` = "live": `PAYCRAFT_STRIPE_LIVE_SECRET_KEY` starts with "sk_live_"
+```
+PRE-FLIGHT CHECK — Phase 3:
 
-IF running in live mode AND test mode was NEVER completed:
-  HARD STOP: "Complete Phase 3A (test mode) and Phase 5 E2E verification first.
-              Then re-run with PAYCRAFT_MODE=live."
+1. Read .env → validate:
+   PAYCRAFT_PROVIDER = "stripe"
+   PAYCRAFT_PLAN_COUNT ≥ 1
+   PAYCRAFT_CURRENCY non-empty
+   PAYCRAFT_APP_REDIRECT_URL non-empty
+
+   IF PAYCRAFT_MODE = "test" (or absent):
+     PAYCRAFT_STRIPE_TEST_SECRET_KEY must start with "sk_test_"
+     IF missing or wrong format:
+       HARD STOP — "Stripe TEST secret key missing or invalid.
+                   Get it at: https://dashboard.stripe.com/test/apikeys
+                   Must start with sk_test_  (switch to TEST mode in Stripe dashboard)"
+
+   IF PAYCRAFT_MODE = "live":
+     PAYCRAFT_STRIPE_LIVE_SECRET_KEY must start with "sk_live_"
+     IF missing or wrong format:
+       HARD STOP — "Stripe LIVE secret key missing or invalid.
+                   Get it at: https://dashboard.stripe.com/apikeys
+                   Must start with sk_live_  (switch to LIVE mode in Stripe dashboard)"
+
+   IF running in live mode AND "stripe" not in memory.json phases_completed:
+     HARD STOP — "Complete Phase 3A (test mode) and Phase 5 sandbox E2E first.
+                  Then re-run /paycraft-adopt → [F] Fix specific phase → Phase 3 with PAYCRAFT_MODE=live."
+
+2. Stripe API reachable check:
+   GET https://api.stripe.com/v1/account
+   Authorization: Bearer {stripe_key}
+   EXPECT: HTTP 200 AND livemode matches expected mode
+   IF HTTP 401: HARD STOP — "Stripe authentication failed.
+                              The key may be from a different Stripe account.
+                              Verify at: https://dashboard.stripe.com/test/apikeys"
+   IF livemode mismatch: HARD STOP — "Key mode mismatch.
+                                       Expected test mode but got live key (or vice versa)."
+
+DISPLAY:
+  ✓ Stripe key valid ({test/live} mode)
+  ✓ Stripe API reachable — account: {acct_id}
+  → Proceeding with Phase 3...
+```
 
 ---
 
@@ -44,8 +74,8 @@ PRE-CHECK: Verify Stripe MCP is configured in this Claude Code session.
                 2. Go to 'MCP Servers'
                 3. Add Stripe MCP with your PAYCRAFT_STRIPE_TEST_SECRET_KEY
                    OR set STRIPE_API_KEY env var and restart Claude Code.
-                Alternative: Use /paycraft-adopt-stripe with manual mode (no MCP)
-                  by running Stripe CLI commands directly."
+                Alternative: Use manual mode (no MCP) by running Stripe CLI commands directly.
+                  See Phase 6 Keys Guide for CLI setup instructions."
   IF CALL RETURNS AUTH ERROR (401/403):
     HARD STOP: "Stripe MCP authentication failed.
                 Check that PAYCRAFT_STRIPE_TEST_SECRET_KEY in .env matches the key
@@ -335,26 +365,85 @@ OUTPUT  : "✓ TEST customer portal URL saved (PAYCRAFT_STRIPE_TEST_PORTAL_URL)"
 
 ---
 
+## Phase 3A Post-Phase Verification (S7 — prove it worked)
+
+```
+CHECK 1: Product exists and is active
+  mcp__stripe__list_products → find product with metadata.paycraft_adopt = "true"
+  EXPECT: product exists AND active = true
+  IF FAIL: HARD STOP — "Test product not found in Stripe.
+                         Check: https://dashboard.stripe.com/test/products"
+
+CHECK 2: Prices exist for all plans
+  FOR EACH PLAN i = 1..PAYCRAFT_PLAN_COUNT:
+    READ: PAYCRAFT_STRIPE_TEST_PRICE_{plan_id} from .env
+    mcp__stripe__retrieve_price({price_id})
+    EXPECT: active = true AND currency matches PAYCRAFT_CURRENCY
+    IF FAIL: HARD STOP — "Price for plan {plan_id} not found or inactive."
+
+CHECK 3: Payment links exist and are reachable
+  FOR EACH PLAN i = 1..PAYCRAFT_PLAN_COUNT:
+    READ: PAYCRAFT_STRIPE_TEST_LINK_{plan_id} from .env
+    EXPECT: non-empty AND starts with "https://buy.stripe.com/test_"
+    HTTP HEAD {url} → expect 200 or 302
+    IF NOT REACHABLE: HARD STOP — "Payment link for plan {plan_id} not reachable.
+                                    URL: {url}
+                                    Check: https://dashboard.stripe.com/test/payment-links"
+
+CHECK 4: Webhook secret present
+  READ: PAYCRAFT_STRIPE_TEST_WEBHOOK_SECRET from .env
+  EXPECT: starts with "whsec_"
+  IF MISSING: HARD STOP — "Webhook secret not set.
+                             Get it from: https://dashboard.stripe.com/test/webhooks
+                             → click your endpoint → Signing secret → Reveal"
+
+OUTPUT:
+  ✓ Product: ACTIVE
+  ✓ Prices: all [N] plans have active prices
+  ✓ Payment links: all [N] links reachable
+  ✓ Webhook secret: set
+  → Phase 3A VERIFIED
+```
+
+## Phase 3A Memory Write (M3c — atomic)
+
+```
+MEMORY_PATH = {TARGET_APP_PATH}/.paycraft/memory.json
+TMP_PATH    = {TARGET_APP_PATH}/.paycraft/memory.json.tmp
+
+READ existing memory.json → merge
+SET fields:
+  stripe_product_id = {PAYCRAFT_STRIPE_TEST_PRODUCT_ID}
+  payment_links     = { plan_id: PAYCRAFT_STRIPE_TEST_LINK_{plan_id} for each plan }
+  last_run          = current ISO timestamp
+  phases_completed  = add "stripe" if not already present
+
+WRITE: JSON to {TMP_PATH}
+RENAME: {TMP_PATH} → {MEMORY_PATH}
+OUTPUT: "✓ Phase 3A state saved → .paycraft/memory.json"
+```
+
 ## Phase 3A Checkpoint
 
 ```
-╔══ PHASE 3A COMPLETE — Stripe Setup (TEST MODE) ════════════════════╗
-║                                                                      ║
-║  ✓ Stripe connected — TEST MODE (livemode=false)                   ║
-║  ✓ Test product: [product_id] → PAYCRAFT_STRIPE_TEST_PRODUCT_ID    ║
-║  ✓ Test prices ([N] plans):                                         ║
-║    [list: plan_id → price_id → PAYCRAFT_STRIPE_TEST_PRICE_[PLAN]]  ║
-║  ✓ Test payment links ([N] links):                                  ║
-║    [list: plan_id → PAYCRAFT_STRIPE_TEST_LINK_[PLAN] = url]        ║
-║  ✓ Test webhook secret: PAYCRAFT_STRIPE_TEST_WEBHOOK_SECRET set    ║
-║  ✓ Test portal URL: PAYCRAFT_STRIPE_TEST_PORTAL_URL set            ║
-║                                                                      ║
-║  All TEST keys written with PAYCRAFT_STRIPE_TEST_ prefix.           ║
-║  No real money will be charged.                                      ║
-║                                                                      ║
-║  Ready to proceed to Phase 4: Client Integration?                   ║
-║  [Y] Continue to Phase 4   [L] Set up LIVE mode now   [Q] Quit     ║
-╚══════════════════════════════════════════════════════════════════════╝
+╔══ PHASE 3A COMPLETE — Stripe Setup (TEST MODE) ══════════════════════╗
+║                                                                         ║
+║  ✓ Stripe connected — TEST MODE (livemode=false)                      ║
+║  ✓ Test product: [product_id] → PAYCRAFT_STRIPE_TEST_PRODUCT_ID       ║
+║  ✓ Test prices ([N] plans) — all ACTIVE (verified)                    ║
+║    [list: plan_id → price_id]                                          ║
+║  ✓ Test payment links ([N] links) — all REACHABLE (verified)          ║
+║    [list: plan_id → url]                                               ║
+║  ✓ Test webhook secret: PAYCRAFT_STRIPE_TEST_WEBHOOK_SECRET set       ║
+║  ✓ Test portal URL: PAYCRAFT_STRIPE_TEST_PORTAL_URL set               ║
+║  ✓ memory.json updated                                                  ║
+║                                                                         ║
+║  All TEST keys written with PAYCRAFT_STRIPE_TEST_ prefix.              ║
+║  No real money will be charged.                                         ║
+║                                                                         ║
+║  Ready to proceed to Phase 4: Client Integration?                      ║
+║  [Y] Continue to Phase 4   [L] Set up LIVE mode now   [Q] Quit        ║
+╚═════════════════════════════════════════════════════════════════════════╝
 ```
 
 Wait for user selection:
@@ -547,31 +636,46 @@ OUTPUT: "✓ LIVE portal URL saved (PAYCRAFT_STRIPE_LIVE_PORTAL_URL)"
 
 ---
 
+## Phase 3B Memory Write (M3c live — atomic)
+
+```
+READ existing memory.json → merge
+SET additional fields:
+  stripe_live_product_id = {PAYCRAFT_STRIPE_LIVE_PRODUCT_ID}
+  payment_links_live     = { plan_id: PAYCRAFT_STRIPE_LIVE_LINK_{plan_id} for each plan }
+  phases_completed       = add "stripe_live" if not already present
+  last_run               = current ISO timestamp
+
+WRITE: JSON to {TMP_PATH} → rename to memory.json
+OUTPUT: "✓ Phase 3B state saved → .paycraft/memory.json"
+```
+
 ## Phase 3B Checkpoint
 
 ```
-╔══ PHASE 3B COMPLETE — Stripe Setup (LIVE MODE) ════════════════════╗
-║                                                                      ║
-║  ✓ Stripe connected — LIVE MODE (livemode=true)                    ║
-║  ✓ Live product: [product_id] → PAYCRAFT_STRIPE_LIVE_PRODUCT_ID   ║
-║  ✓ Live prices ([N] plans):                                         ║
-║    [list: plan_id → price_id → PAYCRAFT_STRIPE_LIVE_PRICE_[PLAN]]  ║
-║  ✓ Live payment links ([N] links):                                  ║
-║    [list: plan_id → PAYCRAFT_STRIPE_LIVE_LINK_[PLAN] = url]        ║
-║  ✓ Live webhook secret: PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET set    ║
-║  ✓ Live portal URL: PAYCRAFT_STRIPE_LIVE_PORTAL_URL set            ║
-║                                                                      ║
-║  ⚠️  Update your app's initPayCraft() to use LIVE payment links    ║
-║      and portal URL before releasing to production.                  ║
-║                                                                      ║
-║  KEY HANDOFF — paste these into initPayCraft():                     ║
-║    Monthly link : [PAYCRAFT_STRIPE_LIVE_LINK_MONTHLY]              ║
-║    Yearly link  : [PAYCRAFT_STRIPE_LIVE_LINK_YEARLY]               ║
-║    Portal URL   : [PAYCRAFT_STRIPE_LIVE_PORTAL_URL]                ║
-║                                                                      ║
-║  Ready to proceed to Phase 4: Client Integration?                   ║
-║  [Y] Continue   [Q] Quit                                            ║
-╚══════════════════════════════════════════════════════════════════════╝
+╔══ PHASE 3B COMPLETE — Stripe Setup (LIVE MODE) ══════════════════════╗
+║                                                                         ║
+║  ✓ Stripe connected — LIVE MODE (livemode=true)                       ║
+║  ✓ Live product: [product_id] → PAYCRAFT_STRIPE_LIVE_PRODUCT_ID      ║
+║  ✓ Live prices ([N] plans) — all ACTIVE                               ║
+║    [list: plan_id → price_id → PAYCRAFT_STRIPE_LIVE_PRICE_[PLAN]]    ║
+║  ✓ Live payment links ([N] links) — all REACHABLE                     ║
+║    [list: plan_id → PAYCRAFT_STRIPE_LIVE_LINK_[PLAN] = url]          ║
+║  ✓ Live webhook secret: PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET set      ║
+║  ✓ Live portal URL: PAYCRAFT_STRIPE_LIVE_PORTAL_URL set              ║
+║  ✓ memory.json updated                                                  ║
+║                                                                         ║
+║  ⚠️  Update your app's PayCraft.configure() to use LIVE payment      ║
+║      links and portal URL before releasing to production.              ║
+║                                                                         ║
+║  KEY HANDOFF — paste these into PayCraft.configure():                 ║
+║    Monthly link : [PAYCRAFT_STRIPE_LIVE_LINK_MONTHLY]                ║
+║    Yearly link  : [PAYCRAFT_STRIPE_LIVE_LINK_YEARLY]                 ║
+║    Portal URL   : [PAYCRAFT_STRIPE_LIVE_PORTAL_URL]                  ║
+║                                                                         ║
+║  Ready to proceed to Phase 4: Client Integration?                      ║
+║  [Y] Continue   [Q] Quit                                               ║
+╚═════════════════════════════════════════════════════════════════════════╝
 ```
 
 Wait for user `[Y]` before proceeding.

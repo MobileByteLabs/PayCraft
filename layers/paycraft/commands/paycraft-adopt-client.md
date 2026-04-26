@@ -40,6 +40,27 @@ fun PaywallScreen(...) {
 
 ---
 
+## Memory Read — Skip if Remembered (M7/M8)
+
+```
+READ: {TARGET_APP_PATH}/.paycraft/memory.json (if exists)
+
+IF memory.json exists AND koin_module_file AND billing_card_file are set:
+  DISPLAY:
+    "Remembered integration locations from previous run:"
+    "  Koin module : {koin_module_file}:{koin_module_line}"
+    "  Billing banner : {billing_card_file}:{billing_card_line}"
+    "  Lifecycle refresh : {lifecycle_refresh_file}:{lifecycle_refresh_line}"
+    "  PayCraft.configure() : {configure_file}"
+    ""
+    "Press Enter to use remembered locations, or [C] to change"
+
+  IF user presses Enter: use remembered values → skip Steps 4.4 and 4.7 detection prompts
+  IF user picks [C]: clear remembered values → run detection prompts as first run
+ELSE:
+  run all detection prompts (Steps 4.4 and 4.7) as first run
+```
+
 ## Prerequisites (verify before starting)
 
 Read `.env` → confirm:
@@ -56,19 +77,19 @@ IF PAYCRAFT_PROVIDER = "stripe":
             PAYCRAFT_STRIPE_TEST_LINK_YEARLY is non-empty
     IF ALL EMPTY:
       HARD STOP: "No Stripe TEST payment links set in .env.
-                  Run /paycraft-adopt-stripe (Phase 3A) first to create test payment links."
+                  Run /paycraft-adopt and select [A] Full setup to complete Phase 3 (Stripe test setup) first."
   IF PAYCRAFT_MODE = "live":
     VERIFY: At least one of PAYCRAFT_STRIPE_LIVE_LINK_MONTHLY, PAYCRAFT_STRIPE_LIVE_LINK_QUARTERLY,
             PAYCRAFT_STRIPE_LIVE_LINK_YEARLY is non-empty
     IF ALL EMPTY:
       HARD STOP: "No Stripe LIVE payment links set in .env.
-                  Run /paycraft-adopt-stripe (Phase 3B) first to create live payment links."
+                  Run /paycraft-adopt and select [A] Full setup to complete Phase 3 (Stripe live setup) first."
 IF PAYCRAFT_PROVIDER = "razorpay":
   VERIFY: At least one of PAYCRAFT_RAZORPAY_LINK_MONTHLY, PAYCRAFT_RAZORPAY_LINK_QUARTERLY,
           PAYCRAFT_RAZORPAY_LINK_YEARLY is non-empty
   IF ALL EMPTY:
     HARD STOP: "No Razorpay payment links set in .env.
-                Run /paycraft-adopt-razorpay first to create payment links."
+                Run /paycraft-adopt and select [A] Full setup to complete Phase 3 (Razorpay setup) first."
 
 IF ANY BASE KEY MISSING: HARD STOP — "Required .env keys missing. Complete Phase 1–3 first."
 
@@ -578,24 +599,50 @@ READ    : key_storage_choice from Step 4.4B
 
 ---
 
+## Phase 4 Memory Write (M3d — atomic)
+
+```
+MEMORY_PATH = {TARGET_APP_PATH}/.paycraft/memory.json
+TMP_PATH    = {TARGET_APP_PATH}/.paycraft/memory.json.tmp
+
+READ existing memory.json → merge
+SET fields (from confirmed locations in Steps 4.4 and 4.7):
+  koin_module_file          = {confirmed koin file path}
+  koin_module_line          = {line number of PayCraftModule}
+  billing_card_file         = {confirmed billing screen file}
+  billing_card_line         = {line number of PayCraftBanner}
+  lifecycle_refresh_file    = {file with LifecycleEventEffect}
+  lifecycle_refresh_line    = {line number of LifecycleEventEffect}
+  configure_file            = {file with PayCraft.configure()}
+  deep_link_scheme          = {scheme extracted from AndroidManifest.xml}
+  last_run                  = current ISO timestamp
+  phases_completed          = add "client" if not already present
+
+WRITE: JSON to {TMP_PATH}
+RENAME: {TMP_PATH} → {MEMORY_PATH}
+OUTPUT: "✓ Phase 4 state saved → .paycraft/memory.json"
+```
+
 ## Phase 4 Checkpoint
 
 ```
-╔══ PHASE 4 COMPLETE — Client Integration ═════════════════════════════╗
-║                                                                        ║
-║  ✓ PayCraft [version] dependency in Gradle                           ║
-║  ✓ PayCraft.configure() in [app init file]                           ║
-║    - Supabase: [project-ref]                                          ║
-║    - Provider: [stripe/razorpay]                                      ║
-║    - Plans: [N] plans with real payment links                         ║
-║  ✓ PayCraftModule in Koin modules                                     ║
-║  ✓ PayCraftBanner + PayCraftPaywallSheet + PayCraftRestore in Settings ║
-║  ✓ Deep link intent filter registered in AndroidManifest.xml          ║
-║  ✓ API keys in [storage location]                                     ║
-║                                                                        ║
-║  Ready to proceed to Phase 5: End-to-End Verification?               ║
-║  [Y] Continue   [Q] Quit                                             ║
-╚════════════════════════════════════════════════════════════════════════╝
+╔══ PHASE 4 COMPLETE — Client Integration ═════════════════════════════════╗
+║                                                                             ║
+║  ✓ PayCraft [version] dependency in Gradle                               ║
+║  ✓ PayCraft.configure() in [configure_file]                               ║
+║    - Supabase: [project-ref]                                               ║
+║    - Provider: [stripe/razorpay]                                           ║
+║    - Plans: [N] plans with real payment links                              ║
+║  ✓ PayCraftModule in Koin — {koin_module_file}:{koin_module_line}         ║
+║  ✓ PayCraftBanner in {billing_card_file}:{billing_card_line}              ║
+║  ✓ LifecycleEventEffect(ON_RESUME) in {lifecycle_refresh_file}            ║
+║  ✓ Deep link scheme registered in AndroidManifest.xml                      ║
+║  ✓ API keys in [storage location]                                          ║
+║  ✓ memory.json updated (locations remembered for future runs)              ║
+║                                                                             ║
+║  Ready to proceed to Phase 5: End-to-End Verification?                    ║
+║  [Y] Continue   [Q] Quit                                                  ║
+╚═════════════════════════════════════════════════════════════════════════════╝
 ```
 
 Wait for user `[Y]` before proceeding.

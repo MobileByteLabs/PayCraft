@@ -1,3 +1,9 @@
+<!--
+  Runtime skill command is the single source of truth.
+  Modify only in https://github.com/MobileByteLabs/PayCraft
+  This stub contains zero logic — it bootstraps PayCraft location and loads the runtime.
+-->
+
 # /paycraft-adopt
 
 End-to-end PayCraft billing adoption — from zero to verified billing in test mode.
@@ -24,6 +30,7 @@ PAYCRAFT_ROOT candidates (check in order):
   6. ~/Developer/paycraft/
   7. ~/code/paycraft/
   8. ~/projects/paycraft/
+  9. {PROJECT_ROOT}/workspaces/mbs/PayCraft/   (claude-product-cycle framework workspace)
 
 FOR EACH CANDIDATE:
   CHECK: {candidate}/server/migrations/001_create_subscriptions.sql exists?
@@ -162,7 +169,7 @@ Paste this into Claude Code in your KMP project to install this command automati
 
 ```
 Fetch the file at this URL and save it to .claude/commands/paycraft-adopt.md in this project:
-https://raw.githubusercontent.com/mobilebytelabs/paycraft/main/client-skills/paycraft-adopt.md
+https://raw.githubusercontent.com/MobileByteLabs/PayCraft/development/client-skills/paycraft-adopt.md
 
 After saving, run /paycraft-adopt.
 ```

@@ -6,16 +6,35 @@
 
 ---
 
-## Prerequisites (verify before starting)
+## Pre-flight Gate (S3 — verify before any work starts)
 
-Read `.env` → confirm these are non-empty:
-- `PAYCRAFT_SUPABASE_PROJECT_REF`
-- `PAYCRAFT_SUPABASE_URL`
-- `PAYCRAFT_SUPABASE_ACCESS_TOKEN`
-- `PAYCRAFT_SUPABASE_SERVICE_ROLE_KEY`
-- `PAYCRAFT_PROVIDER`
+```
+PRE-FLIGHT CHECK — Phase 2:
 
-IF ANY EMPTY: HARD STOP — "Run Phase 1 (/paycraft-adopt-env) first."
+1. Read .env → validate keys present + format:
+   PAYCRAFT_SUPABASE_PROJECT_REF   — non-empty, matches [a-z0-9]{20}
+   PAYCRAFT_SUPABASE_URL           — matches https://{ref}.supabase.co
+   PAYCRAFT_SUPABASE_ACCESS_TOKEN  — starts with "sbp_"
+   PAYCRAFT_SUPABASE_SERVICE_ROLE_KEY — starts with "eyJ", length > 100
+   PAYCRAFT_PROVIDER               — "stripe" or "razorpay"
+
+   IF ANY MISSING OR INVALID:
+     HARD STOP — "Required credentials missing. Run /paycraft-adopt and select [A] Full setup to complete Phase 1 first."
+     Show exact which key is missing/invalid.
+
+2. Verify Supabase project reachable:
+   HEAD {PAYCRAFT_SUPABASE_URL}/rest/v1/ → expect HTTP 200 or 401
+   (401 = keys wrong but project reachable; 200 = fully connected)
+   IF NETWORK ERROR / TIMEOUT:
+     HARD STOP — "Cannot reach {PAYCRAFT_SUPABASE_URL}.
+                  Check: 1) Internet connection  2) Project URL is correct
+                  Verify at: https://supabase.com/dashboard/project/{ref}"
+
+DISPLAY:
+  ✓ Keys present and format valid
+  ✓ Supabase project reachable
+  → Proceeding with Phase 2...
+```
 
 ---
 
@@ -39,20 +58,33 @@ IF status != ACTIVE_HEALTHY :
 OUTPUT  : "✓ Supabase project reachable: [project name] ([ref])"
 ```
 
-### STEP 2.2 — Apply migration 001_create_subscriptions.sql
+### STEP 2.2 — Apply migration 001_create_subscriptions.sql (idempotent)
 
 ```
-ACTION  : Read file: {paycraft_root}/server/migrations/001_create_subscriptions.sql
-ACTION  : POST https://api.supabase.com/v1/projects/[ref]/database/query
-          Header: Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
-          Header: Content-Type: application/json
-          Body: {"query": "[SQL content from 001_create_subscriptions.sql]"}
-VERIFY  : HTTP 200 AND response does not contain "error"
-IF ERROR IN RESPONSE:
-  HARD STOP: "Migration 001 failed.
-              Error: [exact error from response]
-              Check SQL syntax and retry."
-OUTPUT  : "✓ Migration 001 applied (subscriptions table)"
+--- Idempotency check first (S5) ---
+CHECK: SELECT COUNT(*) FROM information_schema.tables
+       WHERE table_schema='public' AND table_name='subscriptions'
+       Auth: PAYCRAFT_SUPABASE_SERVICE_ROLE_KEY (anon key will fail on schema_information)
+
+IF subscriptions table EXISTS:
+  OUTPUT: "ℹ subscriptions table already exists — skipping migration (idempotent)"
+  SKIP to Step 2.3 (verify schema)
+
+IF NOT EXISTS:
+  ACTION  : Read file: {paycraft_root}/server/migrations/001_create_subscriptions.sql
+  ACTION  : POST https://api.supabase.com/v1/projects/[ref]/database/query
+            Header: Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+            Header: Content-Type: application/json
+            Body: {"query": "[SQL content from 001_create_subscriptions.sql]"}
+  VERIFY  : HTTP 200 AND response does not contain "error"
+  IF ERROR IN RESPONSE:
+    HARD STOP: "Migration 001 failed.
+                Error: [exact error from response]
+                Common fixes:
+                  1. Verify PAYCRAFT_SUPABASE_ACCESS_TOKEN is valid (sbp_...)
+                  2. Verify PAYCRAFT_SUPABASE_PROJECT_REF is correct (20 lowercase chars)
+                  3. Check Supabase project is ACTIVE_HEALTHY at dashboard.supabase.com"
+  OUTPUT  : "✓ Migration 001 applied (subscriptions table)"
 ```
 
 ### STEP 2.3 — Verify subscriptions table schema
@@ -278,24 +310,86 @@ READ    : PAYCRAFT_PROVIDER from .env
 
 ---
 
+## Phase 2 Post-Phase Verification (S4 — prove it worked)
+
+```
+Run these checks BEFORE declaring Phase 2 complete:
+
+CHECK 1: subscriptions table exists
+  SELECT COUNT(*) FROM information_schema.tables
+  WHERE table_schema='public' AND table_name='subscriptions'
+  EXPECT: count = 1
+  IF FAIL: HARD STOP — "subscriptions table not found after migration.
+                         Fix: manually run 001_create_subscriptions.sql in Supabase SQL editor
+                         at https://supabase.com/dashboard/project/{ref}/sql"
+
+CHECK 2: is_premium() RPC callable
+  SELECT is_premium()
+  EXPECT: returns true or false (no error)
+  IF FAIL: HARD STOP — "is_premium() RPC not found.
+                         Fix: run the RPC migration SQL manually in Supabase SQL editor"
+
+CHECK 3: get_subscription() RPC callable
+  SELECT get_subscription()
+  EXPECT: returns row or null (no error)
+  IF FAIL: HARD STOP — "get_subscription() RPC not found.
+                         Fix: run the RPC migration SQL manually"
+
+CHECK 4: stripe-webhook (or razorpay-webhook) Edge Function status
+  GET https://api.supabase.com/v1/projects/{ref}/functions
+  Authorization: Bearer {PAYCRAFT_SUPABASE_ACCESS_TOKEN}
+  FIND: function with slug "{provider}-webhook"
+  EXPECT: status = "ACTIVE"
+  IF NOT FOUND: HARD STOP — "Edge Function not found.
+                              Fix: supabase functions deploy {provider}-webhook
+                                   --project-ref {ref}
+                                   --no-verify-jwt"
+  IF status != ACTIVE: HARD STOP — "Edge Function status is [{status}].
+                                      Fix: check logs:
+                                      supabase functions logs {provider}-webhook --project-ref {ref}"
+
+OUTPUT:
+  ✓ subscriptions table: EXISTS
+  ✓ is_premium() RPC: CALLABLE
+  ✓ get_subscription() RPC: CALLABLE
+  ✓ {provider}-webhook: ACTIVE
+  → Phase 2 VERIFIED
+```
+
+## Phase 2 Memory Write (M3b — atomic)
+
+```
+MEMORY_PATH = {TARGET_APP_PATH}/.paycraft/memory.json
+TMP_PATH    = {TARGET_APP_PATH}/.paycraft/memory.json.tmp
+
+READ existing memory.json → merge
+SET fields:
+  supabase_project_ref = {PAYCRAFT_SUPABASE_PROJECT_REF}
+  last_run             = current ISO timestamp
+  phases_completed     = add "supabase" if not already present
+
+WRITE: JSON to {TMP_PATH}
+RENAME: {TMP_PATH} → {MEMORY_PATH}
+OUTPUT: "✓ Phase 2 state saved → .paycraft/memory.json"
+```
+
 ## Phase 2 Checkpoint
 
 ```
-╔══ PHASE 2 COMPLETE — Supabase Setup ══════════════════════════════╗
-║                                                                     ║
-║  ✓ Project reachable: [name] ([ref]) — ACTIVE_HEALTHY             ║
-║  ✓ subscriptions table (12 cols, NOT NULL email)                  ║
-║  ✓ UNIQUE constraint on email                                      ║
-║  ✓ RLS enabled                                                     ║
-║  ✓ is_premium() RPC — callable, returns false for unknown email   ║
-║  ✓ get_subscription() RPC — deployed                               ║
-║  ✓ [provider]-webhook deployed (--no-verify-jwt)                  ║
-║  ✓ Webhook returns 400 for unsigned requests                       ║
-║  ✓ Provider API key set as function secret                         ║
-║                                                                     ║
-║  Ready to proceed to Phase 3: Provider Setup?                      ║
-║  [Y] Continue   [Q] Quit                                           ║
-╚═════════════════════════════════════════════════════════════════════╝
+╔══ PHASE 2 COMPLETE — Supabase Setup ══════════════════════════════════╗
+║                                                                          ║
+║  ✓ Project reachable: [name] ([ref]) — ACTIVE_HEALTHY                  ║
+║  ✓ subscriptions table — EXISTS (verified)                              ║
+║  ✓ UNIQUE constraint on email, RLS enabled                              ║
+║  ✓ is_premium() RPC — CALLABLE (verified)                               ║
+║  ✓ get_subscription() RPC — CALLABLE (verified)                         ║
+║  ✓ {provider}-webhook — ACTIVE (verified)                               ║
+║  ✓ Provider API key set as function secret                               ║
+║  ✓ memory.json updated                                                   ║
+║                                                                          ║
+║  Ready to proceed to Phase 3: Provider Setup?                           ║
+║  [Y] Continue   [Q] Quit                                                 ║
+╚══════════════════════════════════════════════════════════════════════════╝
 ```
 
 Wait for user `[Y]` before proceeding.
