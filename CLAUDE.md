@@ -33,7 +33,14 @@ Webhooks keep Supabase in sync with the payment provider.
 
 | Command | Purpose |
 |---------|---------|
-| `/setup` | Full automated setup (Supabase + provider) |
+| `/paycraft-adopt` | **E2E adoption: env + Supabase + provider + client + verify (START HERE)** |
+| `/paycraft-adopt-env` | Phase 1: env bootstrap + key validation only |
+| `/paycraft-adopt-supabase` | Phase 2: Supabase migrations + webhook only |
+| `/paycraft-adopt-stripe` | Phase 3: Stripe test setup only |
+| `/paycraft-adopt-razorpay` | Phase 3B: Razorpay setup only |
+| `/paycraft-adopt-client` | Phase 4: client app integration only |
+| `/paycraft-adopt-verify` | Phase 5: end-to-end verification only |
+| `/setup` | Legacy full setup (Supabase + provider) |
 | `/setup-stripe` | Create Stripe products, prices, payment links |
 | `/setup-razorpay` | Create Razorpay subscription plans |
 | `/setup-supabase` | Create table, RPCs, deploy webhook |

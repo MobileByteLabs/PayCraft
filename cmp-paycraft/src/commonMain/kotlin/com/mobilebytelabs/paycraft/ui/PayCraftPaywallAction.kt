@@ -13,4 +13,6 @@ sealed interface PayCraftPaywallAction {
     data object RefreshStatus : PayCraftPaywallAction
     data object ContactSupport : PayCraftPaywallAction
     data object ClearError : PayCraftPaywallAction
+    data class RestoreSubscription(val email: String) : PayCraftPaywallAction
+    data object ClearRestoreResult : PayCraftPaywallAction
 }

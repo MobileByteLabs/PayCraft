@@ -3,21 +3,21 @@ package com.mobilebytelabs.paycraft.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Email
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,18 +42,28 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_choose_plan
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_contact_support_email
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_description
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_retry
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_title
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_get_premium
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_subscribe_cta
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_upgrade_plan
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_upgrade_title
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_what_you_get
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_your_premium_title
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.ui.components.BenefitItem
-import com.mobilebytelabs.paycraft.ui.components.EmailInputSection
+import com.mobilebytelabs.paycraft.ui.components.PayCraftActiveSubscriptionBanner
+import com.mobilebytelabs.paycraft.ui.components.PayCraftPaywallHeader
 import com.mobilebytelabs.paycraft.ui.components.PlanSelector
-import com.mobilebytelabs.paycraft.ui.components.PremiumStatusCard
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Full-screen paywall that shows billing plans, benefits, email capture, and premium status.
- *
- * Container composable — collects state from [PayCraftPaywallViewModel] and passes it to
- * [PayCraftPaywallContent] (stateless).
+ * Full-screen paywall. Observes [PayCraftPaywallViewModel] and delegates rendering.
  */
 @Composable
 fun PayCraftPaywall(
@@ -68,10 +78,8 @@ fun PayCraftPaywall(
         viewModel.events.collect { event ->
             when (event) {
                 is PayCraftPaywallEvent.Dismissed -> onDismiss()
-                is PayCraftPaywallEvent.ErrorOccurred -> {
-                    snackbarHostState.showSnackbar(event.message)
-                }
-                else -> { /* URL events handled by platform */ }
+                is PayCraftPaywallEvent.ErrorOccurred -> snackbarHostState.showSnackbar(event.message)
+                else -> {}
             }
         }
     }
@@ -85,8 +93,7 @@ fun PayCraftPaywall(
 }
 
 /**
- * Bottom-sheet variant of the paywall.
- * Use when you want to present it as a modal sheet over existing content.
+ * Bottom-sheet variant of the paywall. T18: dragHandle = null + refreshStatus on close.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,8 +115,13 @@ fun PayCraftPaywallSheet(
     }
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            // T18: refreshStatus when paywall closes
+            viewModel.dispatch(PayCraftPaywallAction.RefreshStatus)
+            onDismiss()
+        },
         sheetState = sheetState,
+        dragHandle = null, // T18: no drag handle
         modifier = modifier,
     ) {
         PayCraftPaywallContent(
@@ -121,7 +133,7 @@ fun PayCraftPaywallSheet(
 }
 
 /**
- * Stateless paywall content. Receives state and dispatches actions upward.
+ * Stateless paywall content. T27: contentWindowInsets + containerColor. T28: Column + verticalScroll.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -135,11 +147,18 @@ fun PayCraftPaywallContent(
         modifier = modifier
             .fillMaxSize()
             .testTag(PayCraftTestTags.PAYWALL_SCREEN),
+        // T27: zero insets so sheet handles insets itself
+        contentWindowInsets = WindowInsets(0.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = if (state.isPremium) "Your Premium" else "Upgrade to Premium",
+                        text = if (state.isPremium) {
+                            stringResource(Res.string.paycraft_your_premium_title)
+                        } else {
+                            stringResource(Res.string.paycraft_upgrade_title)
+                        },
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                     )
@@ -152,10 +171,7 @@ fun PayCraftPaywallContent(
                             .testTag(PayCraftTestTags.DISMISS_BUTTON)
                             .semantics { contentDescription = "Close paywall" },
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = null,
-                        )
+                        Icon(imageVector = Icons.Default.Close, contentDescription = null)
                     }
                 },
             )
@@ -179,124 +195,76 @@ fun PayCraftPaywallContent(
                 }
             }
 
-            is BillingState.Premium -> {
-                LazyColumn(
+            // T32: Full-screen error UI with retry
+            is BillingState.Error -> {
+                PaywallErrorScreen(
+                    message = billingState.message,
+                    onRetry = { onAction(PayCraftPaywallAction.RefreshStatus) },
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
-                        .testTag(PayCraftTestTags.PREMIUM_STATUS_SCREEN),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    item {
-                        PremiumStatusCard(
-                            status = billingState.status,
-                            onManageSubscription = { onAction(PayCraftPaywallAction.ManageSubscription) },
-                            onLogOut = { onAction(PayCraftPaywallAction.LogOut) },
-                            onRefresh = { onAction(PayCraftPaywallAction.RefreshStatus) },
-                        )
-                    }
-
-                    if (state.supportEmail.isNotBlank()) {
-                        item {
-                            TextButton(
-                                onClick = { onAction(PayCraftPaywallAction.ContactSupport) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .testTag(PayCraftTestTags.CONTACT_SUPPORT_BUTTON)
-                                    .semantics { contentDescription = "Contact support at ${state.supportEmail}" },
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Email,
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .padding(end = 8.dp)
-                                        .size(18.dp),
-                                )
-                                Text("Contact Support")
-                            }
-                        }
-                    }
-                }
+                        .padding(horizontal = 24.dp),
+                )
             }
 
-            is BillingState.Free, is BillingState.Error -> {
-                LazyColumn(
+            // T10: Premium state with active banner + upgrade plan grid
+            is BillingState.Premium -> {
+                val currentPlanName = state.plans.firstOrNull {
+                    it.rank == state.currentPlanRank
+                }?.name
+
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
-                        .testTag(PayCraftTestTags.PAYWALL_CONTENT),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                        .testTag(PayCraftTestTags.PREMIUM_STATUS_SCREEN),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    if (billingState is BillingState.Error || state.errorMessage != null) {
-                        item {
-                            val message = (billingState as? BillingState.Error)?.message
-                                ?: state.errorMessage
-                                ?: "Something went wrong"
-                            ErrorBanner(
-                                message = message,
-                                onDismiss = { onAction(PayCraftPaywallAction.ClearError) },
-                                onRetry = { onAction(PayCraftPaywallAction.RefreshStatus) },
-                            )
-                        }
-                    }
+                    // T8: Active subscription banner component
+                    PayCraftActiveSubscriptionBanner(
+                        status = billingState.status,
+                        currentPlanName = currentPlanName,
+                    )
 
-                    if (state.benefits.isNotEmpty()) {
-                        item {
-                            Text(
-                                text = "What you get",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                        itemsIndexed(
-                            items = state.benefits,
-                            key = { index, _ -> "benefit_$index" },
-                        ) { index, benefit ->
-                            BenefitItem(benefit = benefit, index = index)
-                        }
-                    }
+                    HorizontalDivider()
 
+                    // Plan grid for upgrades
                     if (state.plans.isNotEmpty()) {
-                        item {
-                            Text(
-                                text = "Choose your plan",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            PlanSelector(
-                                plans = state.plans,
-                                selectedPlan = state.selectedPlan,
-                                onPlanSelected = { onAction(PayCraftPaywallAction.SelectPlan(it)) },
-                            )
-                        }
-                    }
-
-                    item {
-                        EmailInputSection(
-                            email = state.email,
-                            emailError = state.emailError,
-                            onEmailChange = { onAction(PayCraftPaywallAction.UpdateEmail(it)) },
-                            onDone = { onAction(PayCraftPaywallAction.Subscribe) },
-                            isEnabled = !state.isSubmitting,
+                        Text(
+                            text = stringResource(Res.string.paycraft_choose_plan),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        PlanSelector(
+                            plans = state.plans,
+                            selectedPlan = state.selectedPlan,
+                            currentPlanRank = state.currentPlanRank,
+                            onPlanSelected = { onAction(PayCraftPaywallAction.SelectPlan(it)) },
+                            isPremium = true,
                         )
                     }
 
-                    item {
+                    // Support info BEFORE CTA
+                    if (state.supportEmail.isNotBlank()) {
+                        SupportInfo(
+                            supportEmail = state.supportEmail,
+                            onContactSupport = { onAction(PayCraftPaywallAction.ContactSupport) },
+                        )
+                    }
+
+                    // Upgrade CTA
+                    val canUpgrade = state.selectedPlan?.let {
+                        state.canUpgrade(it) && !state.isPlanActive(it)
+                    } ?: false
+                    if (canUpgrade) {
                         Button(
                             onClick = { onAction(PayCraftPaywallAction.Subscribe) },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(52.dp)
-                                .testTag(PayCraftTestTags.SUBSCRIBE_BUTTON)
-                                .semantics {
-                                    contentDescription = state.selectedPlan?.let {
-                                        "Subscribe to ${it.name} for ${it.price} per ${it.interval}"
-                                    } ?: "Subscribe"
-                                },
+                                .height(56.dp)
+                                .testTag(PayCraftTestTags.SUBSCRIBE_BUTTON),
                             enabled = !state.isSubmitting && state.selectedPlan != null,
                         ) {
                             if (state.isSubmitting) {
@@ -307,47 +275,95 @@ fun PayCraftPaywallContent(
                                 )
                             } else {
                                 Text(
-                                    text = state.selectedPlan?.let {
-                                        "Start ${it.name} — ${it.price}/${it.interval}"
-                                    } ?: "Get Premium",
+                                    text = stringResource(Res.string.paycraft_upgrade_plan),
                                     style = MaterialTheme.typography.labelLarge,
                                 )
                             }
                         }
                     }
+                }
+            }
 
-                    if (state.isLoggedIn) {
-                        item {
-                            TextButton(
-                                onClick = { onAction(PayCraftPaywallAction.RefreshStatus) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .testTag(PayCraftTestTags.REFRESH_BUTTON)
-                                    .semantics { contentDescription = "Refresh premium status" },
-                            ) {
-                                Text("Already subscribed? Refresh status")
-                            }
+            // T9: Free state with header, benefits, plan grid, CTA
+            is BillingState.Free -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                        .testTag(PayCraftTestTags.PAYWALL_CONTENT),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                ) {
+                    // T7: Paywall header component
+                    PayCraftPaywallHeader(
+                        title = stringResource(Res.string.paycraft_upgrade_title),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    )
+
+                    // Benefits
+                    if (state.benefits.isNotEmpty()) {
+                        Text(
+                            text = stringResource(Res.string.paycraft_what_you_get),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        state.benefits.forEachIndexed { index, benefit ->
+                            BenefitItem(benefit = benefit, index = index)
                         }
                     }
 
+                    // Plans — T30: 10dp spacing via PlanSelector Column
+                    if (state.plans.isNotEmpty()) {
+                        Text(
+                            text = stringResource(Res.string.paycraft_choose_plan),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        PlanSelector(
+                            plans = state.plans,
+                            selectedPlan = state.selectedPlan,
+                            currentPlanRank = 0,
+                            onPlanSelected = { onAction(PayCraftPaywallAction.SelectPlan(it)) },
+                            isPremium = false,
+                        )
+                    }
+
+                    // Support info BEFORE CTA
                     if (state.supportEmail.isNotBlank()) {
-                        item {
-                            TextButton(
-                                onClick = { onAction(PayCraftPaywallAction.ContactSupport) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .testTag(PayCraftTestTags.CONTACT_SUPPORT_BUTTON)
-                                    .semantics { contentDescription = "Contact support" },
-                            ) {
-                                Text(
-                                    text = "Need help? Contact ${state.supportEmail}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    textAlign = TextAlign.Center,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                        SupportInfo(
+                            supportEmail = state.supportEmail,
+                            onContactSupport = { onAction(PayCraftPaywallAction.ContactSupport) },
+                        )
+                    }
+
+                    // Get Premium CTA — 56dp
+                    Button(
+                        onClick = { onAction(PayCraftPaywallAction.Subscribe) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .testTag(PayCraftTestTags.SUBSCRIBE_BUTTON)
+                            .semantics {
+                                contentDescription = state.selectedPlan?.let {
+                                    "Subscribe to ${it.name} for ${it.price} per ${it.interval}"
+                                } ?: "Get Premium"
+                            },
+                        enabled = !state.isSubmitting && state.selectedPlan != null,
+                    ) {
+                        if (state.isSubmitting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            Text(
+                                text = state.selectedPlan?.let {
+                                    stringResource(Res.string.paycraft_subscribe_cta, it.name, it.price, it.interval)
+                                } ?: stringResource(Res.string.paycraft_get_premium),
+                                style = MaterialTheme.typography.labelLarge,
+                            )
                         }
                     }
                 }
@@ -356,43 +372,55 @@ fun PayCraftPaywallContent(
     }
 }
 
+// T32: Full-screen error UI
 @Composable
-private fun ErrorBanner(message: String, onDismiss: () -> Unit, onRetry: () -> Unit, modifier: Modifier = Modifier) {
-    androidx.compose.material3.Card(
+private fun PaywallErrorScreen(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = stringResource(Res.string.paycraft_error_title),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = message.ifBlank { stringResource(Res.string.paycraft_error_description) },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(24.dp))
+        Button(
+            onClick = onRetry,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .testTag(PayCraftTestTags.ERROR_MESSAGE),
+        ) {
+            Text(stringResource(Res.string.paycraft_error_retry))
+        }
+    }
+}
+
+@Composable
+private fun SupportInfo(supportEmail: String, onContactSupport: () -> Unit, modifier: Modifier = Modifier) {
+    TextButton(
+        onClick = onContactSupport,
         modifier = modifier
             .fillMaxWidth()
-            .testTag(PayCraftTestTags.ERROR_MESSAGE),
-        colors = androidx.compose.material3.CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-        ),
+            .height(48.dp)
+            .testTag(PayCraftTestTags.CONTACT_SUPPORT_BUTTON)
+            .semantics { contentDescription = "Contact support at $supportEmail" },
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-            )
-            androidx.compose.foundation.layout.Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                TextButton(
-                    onClick = onRetry,
-                    modifier = Modifier.height(40.dp),
-                ) {
-                    Text("Retry", color = MaterialTheme.colorScheme.error)
-                }
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .height(40.dp)
-                        .testTag(PayCraftTestTags.CLEAR_ERROR_BUTTON),
-                ) {
-                    Text("Dismiss", color = MaterialTheme.colorScheme.onErrorContainer)
-                }
-            }
-        }
+        Text(
+            text = stringResource(Res.string.paycraft_contact_support_email, supportEmail),
+            style = MaterialTheme.typography.labelSmall,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

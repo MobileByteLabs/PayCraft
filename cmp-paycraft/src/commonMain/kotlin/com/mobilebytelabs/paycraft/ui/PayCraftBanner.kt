@@ -1,10 +1,9 @@
 package com.mobilebytelabs.paycraft.ui
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,32 +11,57 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.PayCraftPlatform
 import com.mobilebytelabs.paycraft.core.BillingManager
+import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_cta_get_premium
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_cta_manage
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_cta_top_tier
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_cta_upgrade
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_expires
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_plan_subtitle
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_premium_active_title
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_premium_cd
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_renews
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_restore
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_support_info
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_upgrade_cd
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_upgrade_subtitle
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_upgrade_title
+import com.mobilebytelabs.paycraft.model.BillingBenefit
+import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
-import com.mobilebytelabs.paycraft.ui.components.ActiveBadge
+import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
 private const val TAG_BANNER_FREE = "paycraft_banner_free"
@@ -46,32 +70,29 @@ private const val TAG_BANNER_UPGRADE_BTN = "paycraft_banner_upgrade_button"
 private const val TAG_BANNER_MANAGE_BTN = "paycraft_banner_manage_button"
 private const val TAG_BANNER_RESTORE_BTN = "paycraft_banner_restore_button"
 
+// Gradient palettes matching the original app design
+private val gradientFree = listOf(Color(0xFF4A148C), Color(0xFF7B1FA2), Color(0xFFAB47BC))
+private val gradientPremium = listOf(Color(0xFF1A237E), Color(0xFF283593), Color(0xFF3949AB))
+private val gradientTopTier = listOf(Color(0xFF1B5E20), Color(0xFF2E7D32), Color(0xFF388E3C))
+
+private val colorGold = Color(0xFFFFD54F)
+private val colorCtaGold = Brush.linearGradient(listOf(Color(0xFFFFD54F), Color(0xFFFFC107)))
+private val colorCtaManage = Brush.linearGradient(
+    listOf(Color.White.copy(alpha = 0.2f), Color.White.copy(alpha = 0.1f)),
+)
+
 /**
- * Adaptive settings banner that shows either an upgrade CTA (free user) or a
- * premium status summary (premium user).
+ * Adaptive settings banner that renders a rich gradient card.
  *
- * Observes [BillingManager.billingState] and automatically switches between
- * the two states — no manual state management required.
+ * - **Free user**: purple gradient, perk list, gold "Get Premium" CTA.
+ * - **Premium user**: blue/green gradient, plan info, renewal date, support note.
  *
- * ### Typical usage in a Settings screen
- * ```kotlin
- * var showPaywall by remember { mutableStateOf(false) }
- * var showRestore by remember { mutableStateOf(false) }
+ * Observes [BillingManager.billingState] and switches automatically — no manual
+ * state management required.
  *
- * PayCraftBanner(
- *     onUpgradeClick = { showPaywall = true },
- *     onManageClick = { showPaywall = true },
- *     onRestoreClick = { showRestore = true },
- * )
- *
- * if (showPaywall) PayCraftPaywall(onDismiss = { showPaywall = false })
- * if (showRestore) PayCraftRestore(visible = showRestore, onDismiss = { showRestore = false })
- * ```
- *
- * @param onUpgradeClick Invoked when a free user taps the banner or "Upgrade" button.
- * @param onManageClick Invoked when a premium user taps "Manage" (opens provider portal).
- * @param onRestoreClick Invoked when a free user taps "Restore purchases".
- * @param billingManager Override for testing; resolved from Koin by default.
+ * @param onUpgradeClick Invoked when a free user taps the card or CTA.
+ * @param onManageClick  Invoked when a premium user taps "Manage Subscription".
+ * @param onRestoreClick Optional — shown as a text link for free users.
  */
 @Composable
 fun PayCraftBanner(
@@ -82,15 +103,21 @@ fun PayCraftBanner(
     billingManager: BillingManager = koinInject(),
 ) {
     val billingState by billingManager.billingState.collectAsStateWithLifecycle()
+    val benefits = PayCraft.requireConfig().benefits
+    val plans = PayCraft.requireConfig().plans
+    val supportEmail = PayCraft.requireConfig().supportEmail
 
     when (val state = billingState) {
-        is BillingState.Premium -> PremiumBanner(
+        is BillingState.Premium -> PremiumBannerCard(
             status = state.status,
+            plans = plans,
+            topTierPlan = plans.maxByOrNull { it.rank },
+            supportEmail = supportEmail,
             onManageClick = onManageClick,
             modifier = modifier,
         )
-
-        is BillingState.Free, is BillingState.Error, is BillingState.Loading -> FreeBanner(
+        is BillingState.Free, is BillingState.Error, is BillingState.Loading -> FreeBannerCard(
+            benefits = benefits,
             onUpgradeClick = onUpgradeClick,
             onRestoreClick = onRestoreClick,
             modifier = modifier,
@@ -98,150 +125,348 @@ fun PayCraftBanner(
     }
 }
 
-// ------------------------------------------------------------------
-// Free user banner
-// ------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Free state
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun FreeBanner(onUpgradeClick: () -> Unit, onRestoreClick: (() -> Unit)?, modifier: Modifier = Modifier) {
-    val containerColor by animateColorAsState(
-        targetValue = MaterialTheme.colorScheme.primaryContainer,
-        animationSpec = tween(300),
-        label = "banner_bg",
-    )
+private fun FreeBannerCard(
+    benefits: List<BillingBenefit>,
+    onUpgradeClick: () -> Unit,
+    onRestoreClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val upgradeTitle = stringResource(Res.string.paycraft_banner_upgrade_title)
+    val upgradeCd = stringResource(Res.string.paycraft_banner_upgrade_cd)
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(containerColor)
-            .clickable(
-                onClickLabel = "Upgrade to Premium",
-                role = Role.Button,
-                onClick = onUpgradeClick,
-            )
-            .padding(16.dp)
-            .testTag(TAG_BANNER_FREE)
-            .semantics {
-                contentDescription = "Upgrade to Premium — tap to see plans"
-            },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    GradientCard(
+        gradient = gradientFree,
+        onClick = onUpgradeClick,
+        testTag = TAG_BANNER_FREE,
+        contentDescription = upgradeCd,
+        modifier = modifier,
     ) {
-        Icon(
-            imageVector = Icons.Default.Star,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(32.dp),
+        // Header row
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            IconBox(imageVector = Icons.Default.Star)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = upgradeTitle,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = stringResource(Res.string.paycraft_banner_upgrade_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.85f),
+                    lineHeight = 18.sp,
+                )
+            }
+        }
+
+        // Perk list
+        if (benefits.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            benefits.forEach { benefit ->
+                PerkRow(icon = benefit.icon, textRes = benefit.text)
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // CTA button
+        CtaButton(
+            gradient = colorCtaGold,
+            icon = Icons.Default.Star,
+            textColor = Color(0xFF4A148C),
+            text = stringResource(Res.string.paycraft_banner_cta_get_premium),
+            testTag = TAG_BANNER_UPGRADE_BTN,
         )
 
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Upgrade to Premium",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = "Remove ads · Unlimited downloads · Priority support",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
-            )
-
-            if (onRestoreClick != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                TextButton(
-                    onClick = onRestoreClick,
-                    modifier = Modifier
-                        .height(32.dp)
-                        .testTag(TAG_BANNER_RESTORE_BTN)
-                        .semantics { contentDescription = "Restore purchases" },
-                ) {
-                    Text(
-                        text = "Restore purchases",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
+        // Restore link
+        if (onRestoreClick != null) {
+            Spacer(Modifier.height(8.dp))
+            androidx.compose.material3.TextButton(
+                onClick = onRestoreClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(TAG_BANNER_RESTORE_BTN),
+            ) {
+                Text(
+                    text = stringResource(Res.string.paycraft_banner_restore),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.7f),
+                )
             }
         }
     }
 }
 
-// ------------------------------------------------------------------
-// Premium user banner
-// ------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Premium state
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun PremiumBanner(status: SubscriptionStatus, onManageClick: () -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.primaryContainer)
-            .padding(16.dp)
-            .testTag(TAG_BANNER_PREMIUM)
-            .semantics {
-                val planText = status.plan?.let { " ($it)" } ?: ""
-                contentDescription = "Premium active$planText"
-            },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Icon(
-            imageVector = Icons.Default.CheckCircle,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(32.dp),
-        )
+private fun PremiumBannerCard(
+    status: SubscriptionStatus,
+    plans: List<BillingPlan>,
+    topTierPlan: BillingPlan?,
+    supportEmail: String,
+    onManageClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isTopTier = topTierPlan != null && status.plan == topTierPlan.id
+    val currentPlan = plans.firstOrNull { it.id == status.plan }
+    val currentPlanName = currentPlan?.name
+    val gradient = if (isTopTier) gradientTopTier else gradientPremium
+    val premiumCd = stringResource(Res.string.paycraft_banner_premium_cd)
 
-        Column(modifier = Modifier.weight(1f)) {
+    // 4-state CTA logic
+    val ctaText = when {
+        isTopTier -> stringResource(Res.string.paycraft_banner_cta_top_tier)
+        currentPlan != null -> stringResource(Res.string.paycraft_banner_cta_upgrade)
+        else -> stringResource(Res.string.paycraft_banner_cta_manage)
+    }
+
+    // isTopTier → manage subscription (portal); otherwise → open paywall for upgrade
+    val email = status.email.orEmpty()
+    val ctaClick: () -> Unit = if (isTopTier && email.isNotBlank()) {
+        { PayCraft.manageSubscription(email) }
+    } else {
+        onManageClick
+    }
+
+    val expiryDateDisplay = status.expiresAt?.substringBefore('T')
+
+    GradientCard(
+        gradient = gradient,
+        onClick = ctaClick,
+        testTag = TAG_BANNER_PREMIUM,
+        contentDescription = premiumCd,
+        modifier = modifier,
+    ) {
+        // Header row
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            IconBox(imageVector = Icons.Default.CheckCircle)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(Res.string.paycraft_banner_premium_active_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(2.dp))
+                if (currentPlanName != null) {
+                    // T26: show plan name, not raw plan ID
+                    Text(
+                        text = stringResource(Res.string.paycraft_banner_plan_subtitle, currentPlanName),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colorGold,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        }
+
+        // Renewal / expiry row — T12: Schedule icon, T25: substringBefore('T')
+        if (expiryDateDisplay != null) {
+            Spacer(Modifier.height(12.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(
-                    text = "Premium",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                Icon(
+                    imageVector = Icons.Filled.Schedule,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.size(16.dp),
                 )
-                ActiveBadge()
-            }
-
-            if (status.plan != null) {
-                Spacer(modifier = Modifier.height(2.dp))
+                val expiryLabel = if (status.willRenew) {
+                    stringResource(Res.string.paycraft_banner_renews, expiryDateDisplay)
+                } else {
+                    stringResource(Res.string.paycraft_banner_expires, expiryDateDisplay)
+                }
                 Text(
-                    text = status.plan.replaceFirstChar { it.uppercase() },
+                    text = expiryLabel,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
-                )
-            }
-
-            if (status.expiresAt != null) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Renews ${status.expiresAt}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
+                    color = Color.White.copy(alpha = 0.7f),
                 )
             }
         }
 
-        Spacer(modifier = Modifier.width(4.dp))
+        Spacer(Modifier.height(16.dp))
 
-        TextButton(
-            onClick = onManageClick,
+        // Support info BEFORE the CTA (matches original design)
+        if (supportEmail.isNotBlank()) {
+            HorizontalDivider(
+                color = Color.White.copy(alpha = 0.15f),
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { PayCraftPlatform.openUrl("mailto:$supportEmail") },
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.6f),
+                    modifier = Modifier.size(16.dp).padding(top = 2.dp),
+                )
+                Text(
+                    text = stringResource(Res.string.paycraft_banner_support_info, supportEmail),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.6f),
+                    lineHeight = 18.sp,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // 4-state CTA button — click handled by the enclosing GradientCard
+        CtaButton(
+            gradient = colorCtaManage,
+            icon = Icons.Default.ArrowForward,
+            textColor = Color.White,
+            text = ctaText,
+            testTag = TAG_BANNER_MANAGE_BTN,
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared primitives
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun GradientCard(
+    gradient: List<Color>,
+    onClick: () -> Unit,
+    testTag: String,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    content: @Composable (androidx.compose.foundation.layout.ColumnScope.() -> Unit),
+) {
+    OutlinedCard(
+        modifier = modifier.fillMaxWidth(),
+        onClick = onClick,
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        border = CardDefaults.outlinedCardBorder(enabled = false),
+    ) {
+        Box(
             modifier = Modifier
-                .testTag(TAG_BANNER_MANAGE_BTN)
-                .semantics { contentDescription = "Manage your premium subscription" },
+                .fillMaxWidth()
+                .background(Brush.linearGradient(gradient))
+                .testTag(testTag)
+                .semantics { this.contentDescription = contentDescription },
         ) {
+            // Decorative circles
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .align(Alignment.TopEnd)
+                    .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(60.dp)),
+            )
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .align(Alignment.BottomStart)
+                    .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(40.dp)),
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                content = content,
+            )
+        }
+    }
+}
+
+@Composable
+private fun IconBox(imageVector: ImageVector) {
+    Box(
+        modifier = Modifier
+            .size(52.dp)
+            .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(16.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = imageVector,
+            contentDescription = null,
+            tint = colorGold,
+            modifier = Modifier.size(30.dp),
+        )
+    }
+}
+
+@Composable
+private fun PerkRow(icon: ImageVector, textRes: StringResource, modifier: Modifier = Modifier) {
+    val text = stringResource(textRes)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = colorGold,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.95f),
+        )
+    }
+}
+
+@Composable
+private fun CtaButton(
+    gradient: Brush,
+    icon: ImageVector,
+    textColor: Color,
+    text: String,
+    testTag: String,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(gradient, RoundedCornerShape(14.dp))
+            .padding(vertical = 14.dp)
+            .testTag(testTag),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = textColor,
+                modifier = Modifier.size(20.dp),
+            )
             Text(
-                text = "Manage",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
+                text = text,
+                style = MaterialTheme.typography.titleSmall,
+                color = textColor,
+                fontWeight = FontWeight.ExtraBold,
             )
         }
     }

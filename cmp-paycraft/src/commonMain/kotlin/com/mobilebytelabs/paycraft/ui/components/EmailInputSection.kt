@@ -28,7 +28,7 @@ fun EmailInputSection(
     onEmailChange: (String) -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
-    label: String = "Email address",
+    label: String = "Email address (optional)",
     isEnabled: Boolean = true,
 ) {
     Column(

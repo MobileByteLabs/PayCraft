@@ -11,45 +11,44 @@ Get PayCraft running in your KMP app in 15 minutes using Claude AI.
 
 ---
 
-## Option A: Claude AI Setup (Recommended — 15 minutes)
+## Option A: Claude AI Setup (Recommended — 20 minutes)
 
-### 1. Set Up Server (5 minutes)
+### Single Command Setup
 
-Open Claude Code in the PayCraft repo and run:
+Open Claude Code **in the PayCraft repo** and run:
 
 ```
-/setup
+/paycraft-adopt
 ```
 
-Claude will ask you:
+Claude handles everything end-to-end:
+1. Creates `.env` from `.env.example` and collects all keys
+2. Applies Supabase migrations + deploys webhook + verifies
+3. Creates Stripe test products, prices, payment links via MCP
+4. Walks you through browser steps with exact instructions
+5. Wires PayCraft into your app directly
+6. Runs a live DB write test to confirm everything works
+
+**Every step is verified immediately. Test mode first. Live mode checklist at the end.**
+
+Claude will ask you (~12 questions):
 - Provider (stripe/razorpay)
-- Supabase project ref + token
+- Supabase project ref + credentials
+- Stripe test API key
 - Currency and plan prices
+- Which app to integrate billing into
 
-It creates the database, deploys the webhook, and gives you ready-to-paste code.
+You'll complete ~6 browser steps (Stripe Dashboard, Supabase Dashboard) with exact instructions.
 
-### 2. Integrate into Your App (5 minutes)
+### 3. Verify (automated in /paycraft-adopt)
 
-Copy `client-skills/` files to your app:
-```bash
-mkdir -p .claude/commands
-cp client-skills/*.md .claude/commands/
+Verification runs automatically as the final phase of `/paycraft-adopt`.
+To re-run verification independently:
+```
+/paycraft-adopt-verify
 ```
 
-Open Claude Code in your app and run:
-```
-/paycraft-setup
-```
-
-Claude reads your existing config, asks for payment links, and wires everything automatically.
-
-### 3. Verify (2 minutes)
-
-```
-/paycraft-verify
-```
-
-Done! Your app now has a professional billing system.
+Done! Your app has a verified billing system in test mode.
 
 ---
 
@@ -168,8 +167,8 @@ if (isPremium) {
 ### Step 8: Set Up Webhook
 
 In Stripe Dashboard → Webhooks → Add endpoint:
-- URL: `https://YOUR_SUPABASE_REF.functions.supabase.co/stripe-webhook`
-- Events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`
+- URL: `https://YOUR_SUPABASE_REF.supabase.co/functions/v1/stripe-webhook`
+- Events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`
 
 Then set the signing secret:
 ```bash

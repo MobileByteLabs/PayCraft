@@ -204,7 +204,7 @@ set_secrets() {
     log_info "Setting up Stripe webhook secret..."
     log_warn "STRIPE_WEBHOOK_SECRET must be set manually after creating the webhook endpoint."
     log_warn "  1. Go to: https://dashboard.stripe.com/webhooks"
-    log_warn "  2. Add endpoint: https://$SUPABASE_REF.functions.supabase.co/stripe-webhook"
+    log_warn "  2. Add endpoint: https://$SUPABASE_REF.supabase.co/functions/v1/stripe-webhook"
     log_warn "  3. Copy the signing secret"
     log_warn "  4. Run: supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_... --project-ref $SUPABASE_REF"
 
@@ -215,7 +215,7 @@ set_secrets() {
 
     log_warn "RAZORPAY_WEBHOOK_SECRET must be set manually."
     log_warn "  1. Go to: https://dashboard.razorpay.com/app/webhooks"
-    log_warn "  2. Add endpoint: https://$SUPABASE_REF.functions.supabase.co/razorpay-webhook"
+    log_warn "  2. Add endpoint: https://$SUPABASE_REF.supabase.co/functions/v1/razorpay-webhook"
     log_warn "  3. Copy the webhook secret"
     log_warn "  4. Run: supabase secrets set RAZORPAY_WEBHOOK_SECRET=... --project-ref $SUPABASE_REF"
   fi

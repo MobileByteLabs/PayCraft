@@ -5,8 +5,10 @@ import androidx.lifecycle.viewModelScope
 import co.touchlab.kermit.Logger
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.core.BillingManager
+import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,17 +43,40 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         }
     }
 
+    private fun resolveInitialSelectedPlan(plans: List<BillingPlan>, currentPlanRank: Int): BillingPlan? {
+        // If premium, default to the next rank above current; otherwise popular or first
+        if (currentPlanRank > 0) {
+            val nextUp = plans.filter { it.rank > currentPlanRank }.minByOrNull { it.rank }
+            if (nextUp != null) return nextUp
+            // Already on highest — keep current plan selected
+            return plans.firstOrNull { it.rank == currentPlanRank }
+        }
+        return plans.firstOrNull { it.isPopular } ?: plans.firstOrNull()
+    }
+
     private fun observeBillingState() {
         viewModelScope.launch {
             billingManager.billingState.collect { billingState ->
+                val currentPlanRank = when (billingState) {
+                    is BillingState.Premium -> {
+                        val planId = billingState.status.plan
+                        _state.value.plans.firstOrNull { it.id == planId }?.rank ?: 0
+                    }
+                    else -> 0
+                }
                 _state.update { current ->
-                    current.copy(
+                    val updatedState = current.copy(
                         billingState = billingState,
                         isSubmitting = false,
+                        currentPlanRank = currentPlanRank,
                         errorMessage = when (billingState) {
                             is BillingState.Error -> billingState.message
                             else -> null
                         },
+                    )
+                    // Re-resolve selected plan when billing state changes
+                    updatedState.copy(
+                        selectedPlan = resolveInitialSelectedPlan(updatedState.plans, currentPlanRank),
                     )
                 }
             }
@@ -77,6 +102,8 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
             is PayCraftPaywallAction.RefreshStatus -> onRefreshStatus()
             is PayCraftPaywallAction.ContactSupport -> onContactSupport()
             is PayCraftPaywallAction.ClearError -> onClearError()
+            is PayCraftPaywallAction.RestoreSubscription -> onRestoreSubscription(action)
+            is PayCraftPaywallAction.ClearRestoreResult -> onClearRestoreResult()
         }
     }
 
@@ -101,18 +128,15 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         }
 
         val email = currentState.email.trim()
-        if (email.isBlank()) {
-            _state.update { it.copy(emailError = "Please enter your email address") }
-            return
-        }
-        if (!currentState.isEmailValid) {
+        // Email is optional — validate format only if the user typed something
+        if (email.isNotBlank() && !currentState.isEmailValid) {
             _state.update { it.copy(emailError = "Please enter a valid email address") }
             return
         }
 
         _state.update { it.copy(isSubmitting = true, emailError = null) }
-        billingManager.logIn(email)
-        PayCraft.checkout(plan, email)
+        if (email.isNotBlank()) billingManager.logIn(email)
+        PayCraft.checkout(plan, email.ifBlank { null })
         viewModelScope.launch {
             _events.send(PayCraftPaywallEvent.CheckoutLaunched(url = plan.id))
         }
@@ -166,5 +190,27 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
 
     private fun onClearError() {
         _state.update { it.copy(errorMessage = null) }
+    }
+
+    private fun onRestoreSubscription(action: PayCraftPaywallAction.RestoreSubscription) {
+        val email = action.email.trim()
+        if (email.isBlank()) return
+        _state.update { it.copy(isRestoring = true, restoreResult = null) }
+        viewModelScope.launch {
+            billingManager.logIn(email)
+            delay(3_000)
+            val isNowPremium = _state.value.isPremium
+            val result = if (isNowPremium) RestoreResult.Success else RestoreResult.Failure
+            _state.update { it.copy(isRestoring = false, restoreResult = result) }
+            if (result == RestoreResult.Success) {
+                delay(1_500)
+                _state.update { it.copy(restoreResult = null) }
+                _events.send(PayCraftPaywallEvent.Dismissed)
+            }
+        }
+    }
+
+    private fun onClearRestoreResult() {
+        _state.update { it.copy(restoreResult = null) }
     }
 }
