@@ -15,11 +15,39 @@
     <!-- Benefits -->
     <string name="paycraft_what_you_get">What you get</string>
 
+    <!-- Banner — free state -->
+    <string name="paycraft_banner_upgrade_title">Upgrade to Premium</string>
+    <string name="paycraft_banner_upgrade_subtitle">Enjoy ad-free experience, HD downloads, and exclusive features</string>
+    <string name="paycraft_banner_upgrade_cd">Upgrade to Premium — tap to see plans</string>
+    <string name="paycraft_banner_restore">Restore Your Premium</string>
+    <string name="paycraft_banner_cta_get_premium">Get Premium</string>
+
+    <!-- Banner — premium state -->
+    <string name="paycraft_banner_premium_active_title">Premium Active</string>
+    <string name="paycraft_banner_premium_renews">Renews %1$s</string>
+    <string name="paycraft_banner_renews">Renews %1$s</string>
+    <string name="paycraft_banner_expires">Expires %1$s</string>
+    <string name="paycraft_banner_cta_manage">Manage Subscription</string>
+    <string name="paycraft_banner_manage">Manage</string>
+    <string name="paycraft_banner_active_badge">Active</string>
+    <string name="paycraft_banner_premium_cd">Premium active</string>
+    <string name="paycraft_banner_support_info">Having issues with your subscription? Email us at %1$s or create a ticket via Settings → Request Feature. Don\'t forget to mention your email.</string>
+
     <!-- Email input -->
     <string name="paycraft_email_label">Email address</string>
     <string name="paycraft_email_hint">you@example.com</string>
     <string name="paycraft_email_error_empty">Please enter your email address</string>
     <string name="paycraft_email_error_invalid">Please enter a valid email address</string>
+
+    <!-- Restore sheet -->
+    <string name="paycraft_restore_title">Restore Purchases</string>
+    <string name="paycraft_restore_description">Enter the email address you used when subscribing. We\'ll check your subscription status.</string>
+    <string name="paycraft_restore_email_cd">Email address for subscription restore</string>
+    <string name="paycraft_restore_checking">Checking…</string>
+    <string name="paycraft_restore_button">Restore Purchases</string>
+    <string name="paycraft_restore_cancel">Cancel</string>
+    <string name="paycraft_restore_not_found">No subscription found for this email. Please check the address and try again.</string>
+    <string name="paycraft_restore_success">Subscription restored successfully!</string>
 
     <!-- Subscribe CTA -->
     <string name="paycraft_get_premium">Get Premium</string>
@@ -55,4 +83,37 @@
     <string name="paycraft_premium_feature_description">Upgrade to unlock this feature and much more.</string>
     <string name="paycraft_upgrade_button">Upgrade to Premium</string>
     <string name="paycraft_locked_content_description">This feature requires a premium subscription</string>
+
+    <!-- Plan badges -->
+    <string name="paycraft_active_badge">Active</string>
+    <string name="paycraft_plan_active_description">%1$s — your current plan</string>
+    <string name="paycraft_plan_disabled_description">%1$s — requires a higher plan to downgrade</string>
+    <string name="paycraft_plan_upgrade_description">%1$s — upgrade from your current plan</string>
+
+    <!-- Restore sheet — additional -->
+    <string name="paycraft_restore_hint">This is the email you used when you first subscribed or made a purchase.</string>
+    <string name="paycraft_restore_success_title">Subscription Restored</string>
+    <string name="paycraft_restore_success_message">Welcome back! Your premium access is now active.</string>
+    <string name="paycraft_restore_failed_title">Not Found</string>
+    <string name="paycraft_restore_failed_message">No active subscription found for this email. Check the address and try again, or contact support.</string>
+
+    <!-- Banner — CTA variants -->
+    <string name="paycraft_banner_cta_upgrade">Upgrade Plan</string>
+    <string name="paycraft_banner_cta_top_tier">View Benefits</string>
+    <string name="paycraft_banner_plan_subtitle">%1$s plan</string>
+
+    <!-- Error UI — full screen -->
+    <string name="paycraft_error_title">Something went wrong</string>
+    <string name="paycraft_error_retry">Try Again</string>
+    <string name="paycraft_error_description">We couldn\'t load your billing information. Please check your connection and try again.</string>
+
+    <!-- BillingBenefit presets -->
+    <string name="paycraft_benefit_unlock_all">Unlimited downloads with no wait time</string>
+    <string name="paycraft_benefit_ad_free">Ad-free experience across the entire app</string>
+    <string name="paycraft_benefit_hd_downloads">HD &amp; 4K video downloads</string>
+    <string name="paycraft_benefit_priority_support">Priority support &amp; faster processing</string>
+    <string name="paycraft_benefit_early_access">Early access to new features</string>
+
+    <!-- Upgrade CTA -->
+    <string name="paycraft_upgrade_plan">Upgrade Plan</string>
 </resources>

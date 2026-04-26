@@ -16,6 +16,99 @@ Client App ──→ PayCraft ──→ Supabase (source of truth)
 Payment Provider ──webhook──┘
 ```
 
+---
+
+## Adopt with Claude AI (Recommended)
+
+The fastest way to add PayCraft billing to your KMP app — no cloning, no setup, one prompt.
+
+### Step 1 — Open Claude Code in your KMP app
+
+```bash
+cd /path/to/your-kmp-app
+claude
+```
+
+### Step 2 — Paste this one prompt
+
+```
+Fetch https://raw.githubusercontent.com/mobilebytelabs/paycraft/main/client-skills/paycraft-adopt.md
+Save it to .claude/commands/paycraft-adopt.md in this project, then run /paycraft-adopt.
+```
+
+That's it. Claude handles everything from here:
+
+| Phase | What Claude does | What you do |
+|-------|-----------------|-------------|
+| **Bootstrap** | Searches for PayCraft locally, offers to clone it if not found — **asks where on your system** | Pick a location (or press Enter for `~/paycraft/`) |
+| **Phase 1 — ENV** | Creates `.env`, walks you through each credential | Answer ~8 questions (Supabase keys, Stripe key, plans) |
+| **Phase 2 — Supabase** | Applies migrations, creates RPCs, deploys webhook, verifies every step | Nothing |
+| **Phase 3 — Stripe** | Creates test product, prices, payment links automatically via Stripe MCP | 2 browser steps: add webhook endpoint + enable portal |
+| **Phase 4 — Client** | Adds dependency, writes `PayCraft.configure()`, wires Koin + paywall UI | Nothing |
+| **Phase 5 — Verify** | Writes real DB row, calls `is_premium()`, confirms `true`, cleans up | Nothing |
+
+**Result:** fully operational billing in test mode. No real charges until you opt in.
+
+### Re-run individual phases anytime
+
+After setup, these commands are available in your project:
+
+```
+/paycraft-adopt-env        ← re-collect credentials (key rotation)
+/paycraft-adopt-supabase   ← re-deploy webhook or re-apply migrations
+/paycraft-adopt-stripe     ← create live products when ready to ship
+/paycraft-adopt-client     ← re-integrate into a different app
+/paycraft-adopt-verify     ← re-verify after any config change
+/paycraft-adopt-migrate    ← migrate to new Supabase/Stripe account or switch providers
+```
+
+### Deployment context
+
+After setup completes, your app contains a `.paycraft/` directory — a complete record of
+how PayCraft is configured in your project:
+
+```
+your-app/
+├── .env                      ← gitignored (auto-added by setup) — all PayCraft keys
+└── .paycraft/
+    ├── config.json           ← setup answers — safe to commit
+    ├── deployment.json       ← resource IDs, no secrets — safe to commit
+    ├── supabase/             ← SQL + Edge Function backup — safe to commit
+    └── backups/              ← gitignored — timestamped .env copies
+```
+
+Step 5 automatically adds `.env` and `.paycraft/backups/` to your `.gitignore`.
+Everything else in `.paycraft/` is safe to commit as deployment documentation.
+
+### Prerequisites
+
+- [Claude Code](https://claude.ai/code) CLI (`npm install -g @anthropic-ai/claude-code`)
+- KMP app with Koin DI
+- [Supabase](https://supabase.com) project (free tier works)
+- [Stripe](https://stripe.com) or [Razorpay](https://razorpay.com) account (test mode for setup)
+
+### Migrate later
+
+Moving to a new Supabase org, rotating Stripe accounts, or switching from Stripe to Razorpay?
+
+```
+/paycraft-adopt-migrate
+```
+
+Claude shows your current deployment, asks what's changing, backs up your `.env`, collects
+only the new credentials, re-deploys only the affected components, and re-verifies end-to-end.
+No full re-setup. Subscriber data migration included (optional).
+
+| Migration | Command handles |
+|-----------|----------------|
+| New Supabase project | Re-deploys migrations + webhook, migrates subscriber data |
+| New Stripe account | Re-creates products, prices, payment links, webhook |
+| New Razorpay account | Re-creates plans, payment links, webhook |
+| Stripe → Razorpay | Full provider switch, updates app config |
+| Razorpay → Stripe | Full provider switch, updates app config |
+
+---
+
 ## Features
 
 - **Provider-agnostic** — Stripe, Razorpay, or bring your own checkout URLs
@@ -24,34 +117,32 @@ Payment Provider ──webhook──┘
 - **KMP + Compose** — works on Android, iOS, macOS, JVM, JS, and Wasm
 - **Paywall UI included** — `PayCraftSheet`, `PayCraftBanner`, `PayCraftRestore` out of the box
 - **Koin DI** — drop in `PayCraftModule`, get `BillingManager` everywhere
-- **15-minute setup** — `/setup-paycraft` Claude skill automates the entire server side
 
-## Installation
+---
 
-> **Latest version:** see the Maven Central badge above — that's always the current release.
+## Manual Setup
 
-Add to `gradle/libs.versions.toml`:
+If you prefer to set up without Claude AI, see [docs/QUICK_START.md](docs/QUICK_START.md).
+
+### Add dependency
 
 ```toml
+# gradle/libs.versions.toml
 [versions]
-# Check latest: https://central.sonatype.com/artifact/io.github.mobilebytelabs/paycraft
-paycraft = "LATEST_VERSION"
+paycraft = "LATEST_VERSION"   # check Maven Central badge above
 
 [libraries]
 paycraft = { module = "io.github.mobilebytelabs:paycraft", version.ref = "paycraft" }
 ```
 
-Add to your shared module's `build.gradle.kts`:
-
 ```kotlin
+// shared/build.gradle.kts — commonMain ONLY
 commonMain.dependencies {
     implementation(libs.paycraft)
 }
 ```
 
-## Quick Start
-
-### 1. Configure PayCraft (before Koin)
+### Configure (before Koin)
 
 ```kotlin
 PayCraft.configure {
@@ -70,9 +161,9 @@ PayCraft.configure {
         )
     )
     plans(
-        BillingPlan(id = "monthly",   name = "Monthly",   price = "₹99",   interval = "/month"),
-        BillingPlan(id = "quarterly", name = "Quarterly", price = "₹249",  interval = "/3 months"),
-        BillingPlan(id = "yearly",    name = "Yearly",    price = "₹799",  interval = "/year", isPopular = true),
+        BillingPlan(id = "monthly",   name = "Monthly",   price = "₹99",  interval = "/month"),
+        BillingPlan(id = "quarterly", name = "Quarterly", price = "₹249", interval = "/3 months"),
+        BillingPlan(id = "yearly",    name = "Yearly",    price = "₹799", interval = "/year", isPopular = true),
     )
     benefits(
         BillingBenefit(icon = Icons.Default.Block,    text = "Ad-free experience"),
@@ -82,60 +173,38 @@ PayCraft.configure {
 }
 ```
 
-### 2. Add PayCraftModule to Koin
+### Add Koin module
 
 ```kotlin
 startKoin {
-    androidContext(this@App)
-    modules(
-        yourModules,
-        PayCraftModule,  // ← add this
-    )
+    modules(yourModules, PayCraftModule)
 }
 ```
 
-### 3. Use in UI
+### Add UI
 
 ```kotlin
-// Bottom-sheet paywall
 var showPaywall by remember { mutableStateOf(false) }
+var showRestore by remember { mutableStateOf(false) }
 
-PayCraftSheet(
-    visible = showPaywall,
-    onDismiss = { showPaywall = false },
-)
-
-// Settings banner (free: upgrade CTA, premium: manage)
 PayCraftBanner(
     onClick = { showPaywall = true },
     onRestoreClick = { showRestore = true },
 )
 
-// Gate content behind premium
-PayCraftPremiumGuard(
-    fallback = { /* show upgrade prompt */ },
-) {
-    PremiumContent()
-}
+PayCraftSheet(visible = showPaywall, onDismiss = { showPaywall = false })
+PayCraftRestore(visible = showRestore, onDismiss = { showRestore = false })
 ```
 
-### 4. Check premium status
+### Gate premium features
 
 ```kotlin
-class MyViewModel(private val billing: BillingManager) : ViewModel() {
-    val isPremium = billing.isPremium  // StateFlow<Boolean>
-}
+val isPremium by billingManager.isPremium.collectAsState()
+
+if (isPremium) PremiumContent() else FreeContent()
 ```
 
-## Server Setup
-
-PayCraft needs two things server-side:
-1. A Supabase `subscriptions` table + RPCs
-2. A webhook Edge Function per payment provider
-
-**Automated (recommended):** Use the `/setup-paycraft` Claude skill in this repo.
-
-**Manual:** Follow `docs/QUICK_START.md`.
+---
 
 ## Providers
 
@@ -151,7 +220,6 @@ PayCraft needs two things server-side:
 |-----------|-------------|
 | `PayCraftSheet` | Conditional bottom-sheet paywall |
 | `PayCraftPaywall` | Full-screen paywall |
-| `PayCraftPaywallSheet` | Bottom-sheet paywall (direct) |
 | `PayCraftBanner` | Settings row — upgrade CTA or premium status |
 | `PayCraftRestore` | Email-based restore purchases dialog |
 | `PayCraftPremiumGuard` | Gate any composable behind premium |
@@ -167,55 +235,34 @@ PayCraft needs two things server-side:
 | JavaScript | `js` (Browser, Node.js) |
 | WebAssembly | `wasmJs` (Browser) |
 
+---
+
 ## Documentation
 
-- [Quick Start](docs/QUICK_START.md) — 15-minute setup guide
+- [Quick Start](docs/QUICK_START.md) — manual 15-minute setup guide
 - [Architecture](docs/ARCHITECTURE.md) — how it works under the hood
 - [Providers](docs/PROVIDERS.md) — Stripe, Razorpay, custom
 - [Customization](docs/CUSTOMIZATION.md) — theme, slot API, custom UI
 - [Security](docs/SECURITY.md) — webhook verification, key management
-- [FAQ](docs/FAQ.md) — common questions
+- [Claude Skills](docs/CLAUDE_SKILLS.md) — all available Claude commands
 
-## Claude Skills
-
-| Skill | What it does |
-|-------|-------------|
-| `/setup-paycraft` | Full automated setup (Supabase + Stripe/Razorpay + verify) |
-| `/setup-stripe` | Create Stripe products, prices, payment links |
-| `/setup-supabase` | Apply migrations, deploy webhook |
-| `/verify` | End-to-end integration check |
-| `/release-paycraft` | Quality gate + tag + push + PR |
-
-Copy `client-skills/` to your app's `.claude/commands/` to get:
-- `/paycraft-setup` — integrate PayCraft into your KMP app
-- `/paycraft-verify` — verify the integration is correct
+---
 
 ## Building
 
 ```bash
-# Run tests
-./gradlew jvmTest
-
-# Run sample app (desktop)
-./gradlew :sample-app:run
-
-# Code quality
-./gradlew spotlessApply
-./gradlew detekt
+./gradlew jvmTest          # run tests
+./gradlew :sample-app:run  # desktop sample
+./gradlew spotlessApply    # format
+./gradlew detekt           # lint
 ```
 
 ## Releasing
 
 ```bash
-# Full release — quality gate → tag → push → CI → Maven Central
 ./scripts/release.sh
-
-# Or via Claude skill:
-# /release-paycraft
+# or: /lib-release in Claude Code
 ```
-
-The version in `cmp-paycraft/build.gradle.kts` is the single source of truth.
-The Maven Central badge above always reflects the latest published version.
 
 ## Contributing
 

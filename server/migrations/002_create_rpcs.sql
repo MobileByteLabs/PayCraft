@@ -1,7 +1,12 @@
 -- PayCraft: RPC functions for subscription checks
+-- SECURITY DEFINER: runs as function owner so anon key can query subscriptions (RLS bypass)
 
 CREATE OR REPLACE FUNCTION is_premium(user_email text)
-RETURNS boolean AS $$
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
     RETURN EXISTS (
         SELECT 1 FROM public.subscriptions
@@ -10,10 +15,14 @@ BEGIN
         AND current_period_end > now()
     );
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE OR REPLACE FUNCTION get_subscription(user_email text)
-RETURNS SETOF public.subscriptions AS $$
+RETURNS SETOF public.subscriptions
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
     RETURN QUERY
         SELECT * FROM public.subscriptions
@@ -22,4 +31,8 @@ BEGIN
         ORDER BY current_period_end DESC
         LIMIT 1;
 END;
-$$ LANGUAGE plpgsql;
+$$;
+
+-- Grant execute to anon and authenticated roles
+GRANT EXECUTE ON FUNCTION is_premium(text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION get_subscription(text) TO anon, authenticated;

@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "io.github.mobilebytelabs"
-version = "1.0.2"
+version = "1.1.0"
 
 @OptIn(ExperimentalKotlinGradlePluginApi::class, ExperimentalWasmDsl::class)
 kotlin {
@@ -57,6 +57,7 @@ kotlin {
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.material3)
+            implementation(compose.materialIconsExtended)
             implementation(compose.ui)
             implementation(compose.components.resources)
 
@@ -108,7 +109,10 @@ kotlin {
 
 mavenPublishing {
     publishToMavenCentral()
-    signAllPublications()
+    val gpgKey = System.getenv("GPG_SIGNING_KEY") ?: ""
+    if (gpgKey.isNotBlank()) {
+        signAllPublications()
+    }
 
     coordinates(group.toString(), "paycraft", version.toString())
 
@@ -140,4 +144,10 @@ mavenPublishing {
             developerConnection = "scm:git:ssh://git@github.com/MobileByteLabs/PayCraft.git"
         }
     }
+}
+
+compose.resources {
+    publicResClass = true
+    generateResClass = always
+    packageOfResClass = "com.mobilebytelabs.paycraft.generated.resources"
 }

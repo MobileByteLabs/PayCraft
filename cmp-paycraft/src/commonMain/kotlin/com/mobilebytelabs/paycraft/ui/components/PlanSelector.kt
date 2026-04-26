@@ -1,13 +1,9 @@
 package com.mobilebytelabs.paycraft.ui.components
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -18,22 +14,25 @@ import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 fun PlanSelector(
     plans: List<BillingPlan>,
     selectedPlan: BillingPlan?,
+    currentPlanRank: Int,
     onPlanSelected: (BillingPlan) -> Unit,
+    isPremium: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .wrapContentHeight()
-            .horizontalScroll(rememberScrollState())
             .testTag(PayCraftTestTags.PLAN_SELECTOR_ROW),
-        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.Top,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         plans.forEach { plan ->
-            PlanCard(
+            val isActive = isPremium && plan.rank == currentPlanRank
+            val isDisabled = isPremium && plan.rank < currentPlanRank
+            PayCraftPlanCard(
                 plan = plan,
                 isSelected = selectedPlan?.id == plan.id,
+                isActive = isActive,
+                isDisabled = isDisabled,
                 onSelect = onPlanSelected,
             )
         }

@@ -26,6 +26,8 @@ ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public read subscriptions"
     ON public.subscriptions FOR SELECT USING (true);
 CREATE POLICY "Service role manages subscriptions"
-    ON public.subscriptions FOR ALL USING (auth.role() = 'service_role');
+    ON public.subscriptions FOR ALL
+    USING (auth.role() = 'service_role')
+    WITH CHECK (auth.role() = 'service_role');
 
 COMMENT ON TABLE public.subscriptions IS 'PayCraft: subscription status synced via payment provider webhooks';

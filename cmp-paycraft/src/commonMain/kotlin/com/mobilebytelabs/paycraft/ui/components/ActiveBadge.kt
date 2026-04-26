@@ -18,6 +18,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_active_badge
+import org.jetbrains.compose.resources.stringResource
 
 private const val BADGE_CORNER_RADIUS = 100
 
@@ -34,21 +37,22 @@ private const val BADGE_CORNER_RADIUS = 100
 @Composable
 fun ActiveBadge(
     modifier: Modifier = Modifier,
-    label: String = "ACTIVE",
+    label: String? = null,
     containerColor: Color = MaterialTheme.colorScheme.tertiary,
     contentColor: Color = MaterialTheme.colorScheme.onTertiary,
 ) {
+    val resolvedLabel = label ?: stringResource(Res.string.paycraft_banner_active_badge)
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(BADGE_CORNER_RADIUS.dp))
             .background(containerColor)
             .padding(horizontal = 10.dp, vertical = 3.dp)
             .testTag("paycraft_active_badge")
-            .semantics { contentDescription = "Subscription status: $label" },
+            .semantics { contentDescription = "Subscription status: $resolvedLabel" },
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = label,
+            text = resolvedLabel,
             color = contentColor,
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,

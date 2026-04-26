@@ -2,12 +2,26 @@
 
 PayCraft ships with Claude AI skills that automate the entire setup and integration process.
 
+## Recommended: Single E2E Command
+
+```
+/paycraft-adopt
+```
+
+Handles everything in one command — env setup, Supabase migrations, Stripe/Razorpay setup,
+client app integration, and end-to-end verification. Every step verified. Test mode first.
+
+**Start here.** Use the individual skills below only for partial re-runs.
+
+---
+
 ## Library Skills (for this repo)
 
 Open Claude Code in the PayCraft directory and use:
 
 | Skill | Command | What It Does |
 |-------|---------|-------------|
+| **E2E Adopt** | **`/paycraft-adopt`** | **Full setup: env + Supabase + provider + client + verify** |
 | Full Setup | `/setup` | End-to-end: Supabase + provider + webhook + verify |
 | Stripe Setup | `/setup-stripe` | Creates Stripe products, prices, payment links via Stripe MCP |
 | Razorpay Setup | `/setup-razorpay` | Creates Razorpay payment links |

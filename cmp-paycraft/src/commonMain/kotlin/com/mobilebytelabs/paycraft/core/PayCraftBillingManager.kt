@@ -44,7 +44,13 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
     }
 
     override fun refreshStatus() {
-        val email = _userEmail.value ?: return
+        val email = _userEmail.value
+        if (email == null) {
+            // T34: No email stored — transition to Free so UI prompts sign-in
+            Logger.d(TAG) { "refreshStatus() called with no stored email → emitting Free" }
+            _billingState.value = BillingState.Free
+            return
+        }
         scope.launch { checkPremiumStatus(email) }
     }
 
