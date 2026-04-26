@@ -1,8 +1,10 @@
 package com.mobilebytelabs.paycraft
 
+import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.provider.PaymentProvider
+import com.mobilebytelabs.paycraft.provider.StripeProvider
 
 object PayCraft {
 
@@ -10,7 +12,18 @@ object PayCraft {
         private set
 
     fun configure(builder: PayCraftConfigBuilder.() -> Unit) {
-        config = PayCraftConfigBuilder().apply(builder).build()
+        val cfg = PayCraftConfigBuilder().apply(builder).build()
+        config = cfg
+        val stripe = cfg.provider as? StripeProvider
+        PayCraftLogger.onConfigure(
+            provider = cfg.provider.name,
+            modeLabel = stripe?.modeLabel ?: cfg.provider.name,
+            planCount = cfg.plans.size,
+            planIds = cfg.plans.joinToString { "${it.id}${if (it.isPopular) "*" else ""}" },
+            testLinks = stripe?.testLinkCount ?: -1,
+            liveLinks = stripe?.liveLinkCount ?: -1,
+            supabaseUrl = cfg.supabaseUrl,
+        )
     }
 
     fun requireConfig(): PayCraftConfig = config ?: error("PayCraft.configure() must be called before use")
@@ -22,6 +35,8 @@ object PayCraft {
 
     fun manageSubscription(email: String) {
         val url = requireConfig().provider.getManageUrl(email)
+        val stripe = requireConfig().provider as? StripeProvider
+        PayCraftLogger.onManageSubscription(mode = stripe?.modeLabel ?: "unknown", url = url)
         if (url != null) PayCraftPlatform.openUrl(url)
     }
 }

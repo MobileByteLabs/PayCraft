@@ -600,6 +600,270 @@ DISPLAY:
   "╚══════════════════════════════════════════════════════════════════════╝"
 ```
 
+## Phase 5C — Real Device Sandbox Test
+
+```
+PREREQUISITE: Phase 5B PASS and a physical/emulator Android or iOS device connected.
+
+LOGCAT FILTER (run in a separate terminal before installing):
+  adb logcat -s "PayCraft:D" "*:S"
+  (all PayCraft events — configure, checkout, refreshStatus, is_premium — flow through here)
+
+--- Step 5C.1: Confirm IS_TEST_MODE = true ---
+
+READ: {configure_file} from memory.json (e.g. core/network/.../NetworkModule.kt)
+SCAN: Find the StripeProvider(...) call
+CHECK: isTestMode parameter OR IS_TEST_MODE flag
+
+IF isTestMode = false OR IS_TEST_MODE = false:
+  DISPLAY:
+    "⚠️  IS_TEST_MODE is currently FALSE (live mode)."
+    "   Switch to true for sandbox testing, then rebuild."
+    "   File: {configure_file}"
+    "   Change: isTestMode = false  →  isTestMode = true"
+  WAIT: user confirms they've changed it
+ELSE:
+  OUTPUT: "✓ IS_TEST_MODE = true — sandbox mode confirmed"
+
+--- Step 5C.2: Build + install on device ---
+
+DISPLAY:
+  "Building and installing debug APK..."
+  "  ./gradlew :cmp-android:installDebug"
+  ""
+  "Press Enter when app is installed and launched on device."
+WAIT: user presses Enter
+
+--- Step 5C.3: Check configure() log ---
+
+DISPLAY:
+  "Expected logcat output after app launch:"
+  ""
+  "  D PayCraft: ══ PayCraft.configure() ═════════════════════════════"
+  "  D PayCraft:   Provider     = stripe | TEST mode (sandbox — use 4242 test cards)"
+  "  D PayCraft:   Supabase URL = https://{ref}.supabase.co"
+  "  D PayCraft:   Plans (4): monthly, quarterly, semiannual, yearly*"
+  "  D PayCraft:   Test links   = ✓ 4/4 configured"
+  "  D PayCraft:   Live links   = ⚠ 0/4 — run /paycraft-adopt → Phase 3 live to create"
+  "  D PayCraft:   Filter: adb logcat -s \"PayCraft:D\" \"*:S\""
+  "  D PayCraft: ════════════════════════════════════════════════════"
+  ""
+  "If you see  ⚠ Live links = 0/4  — that's expected for now (live keys not yet set)."
+  "If you see  ⚠ Test links = 0/4  — re-run Phase 3 (test) before proceeding."
+  ""
+  "[Y] I see configure() logs   [N] No log output"
+
+IF [N]:
+  DISPLAY:
+    "PayCraftLogger is enabled by default."
+    "Check that PayCraft.configure() is actually being called at app startup."
+    "Verify: {configure_file} is called from your app's init path."
+
+--- Step 5C.4: Navigate to paywall ---
+
+DISPLAY:
+  "In the app: navigate to Settings → Premium / Paywall screen."
+  ""
+  "Expected logcat:"
+  "  D PayCraft: refreshStatus() — no stored email → Free (UI should prompt sign-in)"
+  "    OR"
+  "  D PayCraft: refreshStatus() → checking status for: {email}"
+  "  D PayCraft: RPC is_premium(email={email})"
+  "  D PayCraft:   ↳ is_premium result: false"
+  "  D PayCraft: isPremium=false for {email} — no active subscription found"
+  ""
+  "[Y] I see the paywall   [N] Paywall not showing"
+
+--- Step 5C.5: Tap a plan + complete sandbox checkout ---
+
+DISPLAY:
+  "Tap any plan (e.g. Yearly) → 'Get Premium' button."
+  ""
+  "Expected logcat immediately after tap:"
+  "  D PayCraft: checkout — plan=yearly, mode=TEST"
+  "  D PayCraft:   Opening: https://buy.stripe.com/test_..."
+  ""
+  "In the browser/WebView that opens:"
+  "  Card number : 4242 4242 4242 4242"
+  "  Expiry      : any future date (e.g. 12/28)"
+  "  CVC         : any 3 digits (e.g. 123)"
+  "  Email       : use any test email"
+  "  → Click Subscribe"
+  ""
+  "After payment succeeds, return to the app."
+  "[Y] Payment accepted + back in app"
+
+--- Step 5C.6: Verify ON_RESUME refresh + premium status ---
+
+DISPLAY:
+  "After returning to app, ON_RESUME fires automatically."
+  ""
+  "Expected logcat:"
+  "  D PayCraft: refreshStatus() → checking status for: {email}"
+  "  D PayCraft: RPC is_premium(email={email})"
+  "  D PayCraft:   ↳ is_premium result: true"
+  "  D PayCraft: ✓ isPremium=true — plan=yearly, provider=stripe, expires=..., willRenew=true"
+  ""
+  "Expected UI: paywall shows 'ACTIVE ✓' banner, plan listed with green checkmark."
+  ""
+  "[Y] Logs show isPremium=true AND UI shows active  ✓  → SANDBOX DEVICE TEST PASSED"
+  "[N] Still showing free — check webhook:"
+  "    supabase functions logs stripe-webhook --project-ref {PAYCRAFT_SUPABASE_PROJECT_REF}"
+
+--- Write Phase 5C result ---
+
+IF PASS:
+  WRITE: {TARGET_APP_PATH}/.paycraft/test_results/sandbox_device_test.json
+  Content:
+    {
+      "test_type": "sandbox_device",
+      "run_at": "{ISO timestamp}",
+      "result": "PASS",
+      "is_test_mode": true,
+      "device_log_confirmed": true
+    }
+  OUTPUT: "✓ Phase 5C PASS — sandbox device test verified via logcat"
+```
+
+---
+
+## Phase 5D — Real Device Live Test
+
+```
+PREREQUISITE: Live Stripe keys set in .env.
+
+--- Step 5D.0: Live keys gate ---
+
+READ from .env:
+  PAYCRAFT_STRIPE_LIVE_SECRET_KEY  → must start with sk_live_
+  PAYCRAFT_STRIPE_LIVE_LINK_*      → all plan links must be non-empty
+  PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET → must start with whsec_
+  PAYCRAFT_STRIPE_LIVE_PORTAL_URL  → recommended (allows subscription management)
+
+DISPLAY live keys status:
+  "┌─ Live Keys Status ──────────────────────────────────────────────┐"
+  "│ PAYCRAFT_STRIPE_LIVE_SECRET_KEY    {✓ sk_live_... | ⬜ MISSING} │"
+  "│ PAYCRAFT_STRIPE_LIVE_LINK_MONTHLY  {✓ url | ⬜ MISSING}         │"
+  "│ PAYCRAFT_STRIPE_LIVE_LINK_QUARTERLY {✓ url | ⬜ MISSING}        │"
+  "│ PAYCRAFT_STRIPE_LIVE_LINK_SEMIANNUAL {✓ url | ⬜ MISSING}       │"
+  "│ PAYCRAFT_STRIPE_LINK_YEARLY        {✓ url | ⬜ MISSING}         │"
+  "│ PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET {✓ whsec_... | ⬜ MISSING}  │"
+  "└─────────────────────────────────────────────────────────────────┘"
+
+IF any MISSING:
+  DISPLAY:
+    "Live keys are not yet configured. Here is how to get each one:"
+    ""
+    "── PAYCRAFT_STRIPE_LIVE_SECRET_KEY ──────────────────────────────"
+    "  1. Open https://dashboard.stripe.com/apikeys"
+    "  2. Toggle TEST mode OFF (top-left — turns orange → 'Live')"
+    "  3. Under 'Secret key', click 'Reveal live key'"
+    "  4. Copy sk_live_... → add to .env: PAYCRAFT_STRIPE_LIVE_SECRET_KEY=sk_live_..."
+    ""
+    "── PAYCRAFT_STRIPE_LIVE_LINK_* (payment links) ──────────────────"
+    "  These are created automatically by Phase 3 (live mode)."
+    "  To create:"
+    "  1. Set PAYCRAFT_MODE=live in .env"
+    "  2. Run: /paycraft-adopt → [F] Fix specific phase → Phase 3"
+    "  3. Phase 3 will create live products, prices, and payment links"
+    "  4. Links are saved as PAYCRAFT_STRIPE_LIVE_LINK_{PLAN} in .env"
+    ""
+    "── PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET ──────────────────────────"
+    "  Created automatically during Phase 3 (live) at Step 3B.5."
+    "  To check manually:"
+    "  1. Open https://dashboard.stripe.com/webhooks"
+    "  2. Click your live endpoint → 'Signing secret' → Reveal"
+    "  3. Copy whsec_... → add to .env: PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET=whsec_..."
+    ""
+    "[S] Skip live test for now (set up test mode only)   [C] Continue after adding keys"
+  WAIT: user picks
+  IF [S]: EXIT Phase 5D — display "Live test skipped. Run /paycraft-adopt when ready."
+
+--- Step 5D.1: Flip to live mode + rebuild ---
+
+DISPLAY:
+  "Switching to LIVE mode:"
+  ""
+  "  In {configure_file}:"
+  "  Change: isTestMode = true  →  isTestMode = false"
+  "    OR"
+  "  Change: IS_TEST_MODE = true  →  IS_TEST_MODE = false"
+  ""
+  "Then rebuild: ./gradlew :cmp-android:installDebug"
+  ""
+  "Press Enter when installed and launched."
+WAIT: user presses Enter
+
+--- Step 5D.2: Confirm LIVE mode in logcat ---
+
+DISPLAY:
+  "Expected logcat:"
+  "  D PayCraft:   Provider     = stripe | LIVE mode (production — real cards)"
+  "  D PayCraft:   Test links   = ✓ 4/4 configured"
+  "  D PayCraft:   Live links   = ✓ 4/4 configured"
+  ""
+  "[Y] Seeing LIVE mode in logs   [N] Still showing TEST"
+
+IF [N]:
+  DISPLAY: "IS_TEST_MODE was not changed. Check {configure_file} and rebuild."
+  WAIT: user confirms
+
+--- Step 5D.3: Open paywall + tap a plan ---
+
+DISPLAY:
+  "Navigate to paywall → tap any plan → 'Get Premium'."
+  ""
+  "Expected logcat:"
+  "  D PayCraft: checkout — plan={plan}, mode=LIVE"
+  "  D PayCraft:   Opening: https://buy.stripe.com/{live-link}"
+  ""
+  "⚠️  REAL MONEY: This opens a live Stripe checkout. Use a real card."
+  "    The charge will be real. Use a low-cost plan for testing (monthly = ₹100)."
+  ""
+  "[Y] Live checkout opened in browser"
+
+--- Step 5D.4: Complete payment + verify ---
+
+DISPLAY:
+  "Complete payment with a real card. After returning to app:"
+  ""
+  "Expected logcat:"
+  "  D PayCraft: refreshStatus() → checking status for: {email}"
+  "  D PayCraft: RPC is_premium(email={email})"
+  "  D PayCraft:   ↳ is_premium result: true"
+  "  D PayCraft: ✓ isPremium=true — plan={plan}, provider=stripe, expires=..., willRenew=true"
+  ""
+  "Expected UI: 'ACTIVE ✓' banner with plan name."
+  ""
+  "[Y] isPremium=true in logs + ACTIVE shown in UI  →  LIVE DEVICE TEST PASSED"
+  "[N] Still free — check live webhook at https://dashboard.stripe.com/webhooks"
+  "    Verify endpoint points to: https://{ref}.supabase.co/functions/v1/stripe-webhook"
+
+--- Write Phase 5D result + flip back to test mode ---
+
+IF PASS:
+  WRITE: {TARGET_APP_PATH}/.paycraft/test_results/live_device_test.json
+  Content:
+    {
+      "test_type": "live_device",
+      "run_at": "{ISO timestamp}",
+      "result": "PASS",
+      "is_test_mode": false,
+      "device_log_confirmed": true
+    }
+  OUTPUT: "✓ Phase 5D PASS — live device test verified via logcat"
+
+DISPLAY:
+  "──────────────────────────────────────────────────────────────────"
+  "⚠️  Remember to flip IS_TEST_MODE back to true before committing!"
+  "   Production release: keep false. Development: keep true."
+  "──────────────────────────────────────────────────────────────────"
+
+UPDATE memory.json → phases_verified: add "live_device"
+```
+
+---
+
 ## Phase 5 Memory Write (M3e — atomic)
 
 ```

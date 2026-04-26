@@ -1,6 +1,6 @@
 package com.mobilebytelabs.paycraft.core
 
-import co.touchlab.kermit.Logger
+import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.network.PayCraftService
@@ -12,8 +12,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-
-private const val TAG = "PayCraftBillingManager"
 
 class PayCraftBillingManager(private val service: PayCraftService, private val store: PayCraftStore) : BillingManager {
 
@@ -45,9 +43,8 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
 
     override fun refreshStatus() {
         val email = _userEmail.value
+        PayCraftLogger.onRefreshStatus(email)
         if (email == null) {
-            // T34: No email stored — transition to Free so UI prompts sign-in
-            Logger.d(TAG) { "refreshStatus() called with no stored email → emitting Free" }
             _billingState.value = BillingState.Free
             return
         }
@@ -56,6 +53,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
 
     override fun logIn(email: String) {
         val normalized = email.trim().lowercase()
+        PayCraftLogger.onLogIn(normalized)
         _userEmail.value = normalized
         _billingState.value = BillingState.Loading
         scope.launch {
@@ -65,6 +63,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
     }
 
     override fun logOut() {
+        PayCraftLogger.onLogOut()
         _userEmail.value = null
         _isPremium.value = false
         _subscriptionStatus.value = SubscriptionStatus()
@@ -89,14 +88,28 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
                 )
                 _subscriptionStatus.value = status
                 _billingState.value = BillingState.Premium(status)
+                PayCraftLogger.onStatusResult(
+                    email = email,
+                    isPremium = true,
+                    plan = sub?.plan,
+                    provider = sub?.provider,
+                    expiresAt = sub?.currentPeriodEnd,
+                    willRenew = sub?.cancelAtPeriodEnd != true,
+                )
             } else {
                 _subscriptionStatus.value = SubscriptionStatus(isPremium = false, email = email)
                 _billingState.value = BillingState.Free
+                PayCraftLogger.onStatusResult(
+                    email = email,
+                    isPremium = false,
+                    plan = null,
+                    provider = null,
+                    expiresAt = null,
+                    willRenew = false,
+                )
             }
-
-            Logger.d(TAG) { "Premium status for $email: $premium" }
         } catch (e: Exception) {
-            Logger.e(TAG) { "Failed to check premium: ${e.message}" }
+            PayCraftLogger.onError(source = "checkPremiumStatus", message = e.message)
             _billingState.value = BillingState.Error(e.message ?: "Unknown error")
         }
     }

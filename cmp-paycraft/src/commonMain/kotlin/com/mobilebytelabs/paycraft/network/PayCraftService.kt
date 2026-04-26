@@ -1,14 +1,12 @@
 package com.mobilebytelabs.paycraft.network
 
-import co.touchlab.kermit.Logger
+import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.rpc
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-
-private const val TAG = "PayCraftService"
 
 @Serializable
 data class SubscriptionDto(
@@ -31,26 +29,38 @@ interface PayCraftService {
 class PayCraftServiceImpl(private val postgrest: Postgrest) : PayCraftService {
 
     override suspend fun isPremium(email: String): Boolean = try {
-        Logger.d(TAG) { "Checking premium for: $email" }
+        PayCraftLogger.onRpcCall("is_premium", email)
         val result = postgrest.rpc(
             function = "is_premium",
             parameters = buildJsonObject { put("user_email", email) },
         ).data
         val decoded = result.trim().toBooleanStrictOrNull() ?: false
-        Logger.d(TAG) { "Premium result for $email: $decoded" }
+        PayCraftLogger.onRpcResult("is_premium", decoded.toString())
         decoded
     } catch (e: Exception) {
-        Logger.e(TAG) { "Failed to check premium: ${e.message}" }
+        PayCraftLogger.onRpcError("is_premium", e.message)
         false
     }
 
     override suspend fun getSubscription(email: String): SubscriptionDto? = try {
-        postgrest.rpc(
+        PayCraftLogger.onRpcCall("get_subscription", email)
+        val sub = postgrest.rpc(
             function = "get_subscription",
             parameters = buildJsonObject { put("user_email", email) },
         ).decodeList<SubscriptionDto>().firstOrNull()
+        PayCraftLogger.onRpcResult(
+            "get_subscription",
+            if (sub !=
+                null
+            ) {
+                "plan=${sub.plan}, status=${sub.status}"
+            } else {
+                "null"
+            },
+        )
+        sub
     } catch (e: Exception) {
-        Logger.e(TAG) { "Failed to get subscription: ${e.message}" }
+        PayCraftLogger.onRpcError("get_subscription", e.message)
         null
     }
 }

@@ -193,4 +193,4 @@ Run 2+ (any future run):
 - [x] V10: All 7 PAYCRAFT_* keys validated at collection with inline how-to guide
 - [x] V11: Post-phase verification steps in Phase 2 + 3 + 5
 - [x] V12: Sandbox E2E test has webhook diagnosis on failure
-- [ ] V13: Commit + PR against `development` on `MobileByteLabs/PayCraft`
+- [x] V13: Commit + PR against `development` on `MobileByteLabs/PayCraft` → PR #28
