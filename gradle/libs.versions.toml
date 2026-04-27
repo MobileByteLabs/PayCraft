@@ -17,7 +17,7 @@ junit = "4.13.2"
 coroutines = "1.9.0"
 
 # AndroidX
-androidx-activityCompose = "1.9.3"
+androidx-activityCompose = "1.13.0"
 
 # PayCraft dependencies
 supabase = "3.1.4"
