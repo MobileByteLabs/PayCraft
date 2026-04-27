@@ -154,12 +154,8 @@ Copy these from `{paycraft_root}/client-skills/` to your `.claude/commands/`:
 
 | File | Command | Runs |
 |------|---------|------|
-| `paycraft-adopt-env.md` | `/paycraft-adopt-env` | Phase 1 only (re-collect credentials) |
-| `paycraft-adopt-supabase.md` | `/paycraft-adopt-supabase` | Phase 2 only (re-deploy migrations/webhook) |
-| `paycraft-adopt-stripe.md` | `/paycraft-adopt-stripe` | Phase 3 Stripe only |
-| `paycraft-adopt-razorpay.md` | `/paycraft-adopt-razorpay` | Phase 3B Razorpay only |
-| `paycraft-adopt-client.md` | `/paycraft-adopt-client` | Phase 4 only (re-integrate client) |
-| `paycraft-adopt-verify.md` | `/paycraft-adopt-verify` | Phase 5 only (re-verify anytime) |
+| `paycraft-setup.md` | `/paycraft-setup` | Full client integration (dependency + config + Koin + UI) |
+| `paycraft-verify.md` | `/paycraft-verify` | Verify PayCraft integration is correct |
 
 ---
 
