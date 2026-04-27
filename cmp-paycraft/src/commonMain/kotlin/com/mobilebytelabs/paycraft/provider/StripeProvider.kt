@@ -17,7 +17,7 @@ class StripeProvider(
     private val livePaymentLinks: Map<String, String> = emptyMap(),
     private val testPortalUrl: String? = null,
     private val livePortalUrl: String? = null,
-    private val isTestMode: Boolean = false,
+    val isTestMode: Boolean = false,
 ) : PaymentProvider {
 
     /** Legacy constructor — single map, treated as test links. */

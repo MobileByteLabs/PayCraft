@@ -7,28 +7,28 @@ import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.network.PayCraftServiceImpl
 import com.mobilebytelabs.paycraft.ui.PayCraftPaywallViewModel
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
-import io.github.jan.supabase.postgrest.postgrest
 import org.koin.core.module.dsl.viewModelOf
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 val PayCraftModule = module {
-    single<SupabaseClient>(qualifier = org.koin.core.qualifier.named("paycraft")) {
+    single<SupabaseClient>(qualifier = named("paycraft")) {
         val config = PayCraft.requireConfig()
         createSupabaseClient(
             supabaseUrl = config.supabaseUrl,
             supabaseKey = config.supabaseAnonKey,
         ) {
             install(Postgrest)
+            install(Auth)
         }
     }
 
     single<PayCraftService> {
         PayCraftServiceImpl(
-            postgrest = get<SupabaseClient>(
-                qualifier = org.koin.core.qualifier.named("paycraft"),
-            ).postgrest,
+            client = get<SupabaseClient>(qualifier = named("paycraft")),
         )
     }
 

@@ -2,12 +2,20 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.0.0?target=deno";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
-  apiVersion: "2023-10-16",
-  httpClient: Stripe.createFetchHttpClient(),
-});
+// Test + live keys deployed separately — mode derived from event.livemode, not key prefix.
+// Legacy STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET retained as fallback for existing deploys.
+const testSecretKey = Deno.env.get("STRIPE_TEST_SECRET_KEY") || Deno.env.get("STRIPE_SECRET_KEY") || "";
+const liveSecretKey = Deno.env.get("STRIPE_LIVE_SECRET_KEY") || "";
+const testWebhookSecret = Deno.env.get("STRIPE_TEST_WEBHOOK_SECRET") || Deno.env.get("STRIPE_WEBHOOK_SECRET") || "";
+const liveWebhookSecret = Deno.env.get("STRIPE_LIVE_WEBHOOK_SECRET") || Deno.env.get("STRIPE_WEBHOOK_SECRET") || "";
 
-const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
+// Lazy Stripe clients — only instantiated if the key is present
+const stripeTest = testSecretKey
+  ? new Stripe(testSecretKey, { apiVersion: "2023-10-16", httpClient: Stripe.createFetchHttpClient() })
+  : null;
+const stripeLive = liveSecretKey
+  ? new Stripe(liveSecretKey, { apiVersion: "2023-10-16", httpClient: Stripe.createFetchHttpClient() })
+  : null;
 
 serve(async (req) => {
   const signature = req.headers.get("stripe-signature");
@@ -17,15 +25,40 @@ serve(async (req) => {
 
   const body = await req.text();
 
-  let event: Stripe.Event;
-  try {
-    event = await stripe.webhooks.constructEventAsync(body, signature, webhookSecret);
-  } catch (err) {
-    console.error("Webhook signature verification failed:", err.message);
-    return new Response(`Webhook Error: ${err.message}`, { status: 400 });
+  // Verify signature — try test secret first, then live secret.
+  // Whichever succeeds determines the mode; event.livemode is the final authority.
+  let event: Stripe.Event | null = null;
+  let stripeMode: "test" | "live" = "test";
+  let stripeClient: Stripe | null = stripeTest || stripeLive;
+
+  if (testWebhookSecret) {
+    try {
+      const client = stripeTest || stripeLive!;
+      event = await client.webhooks.constructEventAsync(body, signature, testWebhookSecret);
+    } catch { /* try live */ }
   }
 
-  console.log(`Received event: ${event.type}`);
+  if (!event && liveWebhookSecret && liveWebhookSecret !== testWebhookSecret) {
+    try {
+      const client = stripeLive || stripeTest!;
+      event = await client.webhooks.constructEventAsync(body, signature, liveWebhookSecret);
+    } catch (err) {
+      console.error("Webhook signature verification failed:", err.message);
+      return new Response(`Webhook Error: ${err.message}`, { status: 400 });
+    }
+  }
+
+  if (!event) {
+    return new Response("No valid webhook secret matched the signature", { status: 400 });
+  }
+
+  // event.livemode is the source of truth — overrides which secret verified first
+  stripeMode = event.livemode ? "live" : "test";
+  stripeClient = stripeMode === "live"
+    ? (stripeLive || stripeTest)
+    : (stripeTest || stripeLive);
+
+  console.log(`Received event: ${event.type} | mode=${stripeMode}`);
 
   try {
     switch (event.type) {
@@ -34,12 +67,12 @@ serve(async (req) => {
         let email = session.customer_email
           || (session as any).customer_details?.email;
         if (!email && session.customer) {
-          const customer = await stripe.customers.retrieve(session.customer as string);
+          const customer = await stripeClient!.customers.retrieve(session.customer as string);
           email = (customer as any).email;
         }
 
         if (session.mode === "subscription" && email) {
-          const sub = await stripe.subscriptions.retrieve(session.subscription as string);
+          const sub = await stripeClient!.subscriptions.retrieve(session.subscription as string);
           await handleSubscriptionEvent({
             email,
             provider: "stripe",
@@ -47,6 +80,7 @@ serve(async (req) => {
             subscriptionId: session.subscription as string,
             plan: session.metadata?.plan_id || sub.items.data[0]?.price?.metadata?.plan_id || sub.items.data[0]?.price?.id || "unknown",
             status: "active",
+            mode: stripeMode,
             periodStart: new Date(sub.current_period_start * 1000),
             periodEnd: new Date(sub.current_period_end * 1000),
             cancelAtPeriodEnd: sub.cancel_at_period_end,
@@ -65,6 +99,7 @@ serve(async (req) => {
           subscriptionId: sub.id,
           plan: null,
           status: sub.status as any,
+          mode: stripeMode,
           periodStart: new Date(sub.current_period_start * 1000),
           periodEnd: new Date(sub.current_period_end * 1000),
           cancelAtPeriodEnd: sub.cancel_at_period_end,
@@ -82,6 +117,7 @@ serve(async (req) => {
             subscriptionId: invoice.subscription as string,
             plan: null,
             status: "active",
+            mode: stripeMode,
             periodStart: null,
             periodEnd: null,
             cancelAtPeriodEnd: false,

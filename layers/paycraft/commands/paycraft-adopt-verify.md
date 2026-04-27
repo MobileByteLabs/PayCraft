@@ -22,7 +22,7 @@ IF ANY MISSING: HARD STOP — "Run Phases 1–3 first."
 
 ## Phase 5 Steps
 
-### STEP 5.1 — Re-verify Supabase schema (fresh read, 4 individual queries)
+### STEP 5.1 — Re-verify Supabase schema (fresh read, 9 individual queries)
 
 ```
 BASE_URL: https://api.supabase.com/v1/projects/[PAYCRAFT_SUPABASE_PROJECT_REF]/database/query
@@ -53,7 +53,55 @@ Query 4: SELECT COUNT(*) AS cnt FROM information_schema.table_constraints
   IF NOT: HARD STOP — "UNIQUE constraint missing on subscriptions. Re-run Phase 2 Step 2.4."
   OUTPUT: "  ✓ UNIQUE constraint on email"
 
-OUTPUT  : "✓ Schema check:  table ✓  is_premium() ✓  get_subscription() ✓  UNIQUE ✓"
+--- Device Binding Schema (PayCraft ≥ 1.3.0) ---
+
+Query 5: SELECT COUNT(*) AS cnt FROM information_schema.tables
+         WHERE table_schema = 'public' AND table_name = 'registered_devices'
+  VERIFY: cnt = 1
+  IF NOT:
+    DISPLAY: "⚠️  registered_devices table not found."
+             "  Fix: Re-run Phase 2 Step 2.10 (migration 005_registered_devices.sql)"
+    HARD STOP: "registered_devices table missing."
+  OUTPUT: "  ✓ registered_devices table exists (device binding)"
+
+Query 6: SELECT COUNT(*) AS cnt FROM information_schema.routines
+         WHERE routine_schema = 'public' AND routine_name = 'register_device'
+  VERIFY: cnt = 1
+  IF NOT: HARD STOP — "register_device() RPC not found. Re-run Phase 2 Step 2.11."
+  OUTPUT: "  ✓ register_device() RPC exists"
+
+Query 7: SELECT COUNT(*) AS cnt FROM information_schema.routines
+         WHERE routine_schema = 'public' AND routine_name = 'check_premium_with_device'
+  VERIFY: cnt = 1
+  IF NOT: HARD STOP — "check_premium_with_device() RPC not found. Re-run Phase 2 Step 2.11."
+  OUTPUT: "  ✓ check_premium_with_device() RPC exists"
+
+Query 8: SELECT COUNT(*) AS cnt FROM information_schema.tables
+         WHERE table_schema = 'public' AND table_name = 'otp_send_log'
+  VERIFY: cnt = 1
+  IF NOT: HARD STOP — "otp_send_log table not found. Re-run Phase 2 Step 2.12."
+  OUTPUT: "  ✓ otp_send_log table exists"
+
+Query 9: SELECT COUNT(*) AS cnt FROM information_schema.routines
+         WHERE routine_schema = 'public' AND routine_name = 'check_otp_gate'
+  VERIFY: cnt = 1
+  IF NOT: HARD STOP — "check_otp_gate() RPC not found. Re-run Phase 2 Step 2.12."
+  OUTPUT: "  ✓ check_otp_gate() RPC exists"
+
+--- OTP gate live test ---
+ACTION: POST https://[PAYCRAFT_SUPABASE_URL]/rest/v1/rpc/check_otp_gate
+        Header: apikey: [PAYCRAFT_SUPABASE_ANON_KEY]
+        Header: Content-Type: application/json
+        Body: {}
+VERIFY: HTTP 200
+VERIFY: Response contains "available" key (true or false — both are valid)
+IF HTTP 404:
+  HARD STOP: "check_otp_gate() not callable via REST. Re-run Phase 2 Step 2.12."
+OUTPUT: "  ✓ check_otp_gate() callable (available={available}, sends_today={sends_today})"
+
+OUTPUT  : "✓ Schema check: table ✓  is_premium() ✓  get_subscription() ✓  UNIQUE ✓"
+         "                registered_devices ✓  register_device() ✓"
+         "                check_premium_with_device() ✓  otp_send_log ✓  check_otp_gate() ✓"
 ```
 
 ### STEP 5.2 — Re-verify webhook is live
@@ -412,7 +460,13 @@ Content:
   "supabase": {
     "project_ref": "[supabase_ref]",
     "url": "[supabase_url]",
-    "migrations_applied": ["001_create_subscriptions", "002_create_rpcs"],
+    "migrations_applied": [
+      "001_create_subscriptions",
+      "002_create_rpcs",
+      "005_registered_devices",
+      "006_server_token_rpcs",
+      "007_otp_send_gate"
+    ],
     "webhook_function": "[provider]-webhook",
     "last_deployed": "[ISO8601 UTC timestamp]"
   },
@@ -892,6 +946,16 @@ OUTPUT: "✓ Phase 5 state saved → .paycraft/memory.json"
 ║  ✓ RPCs: is_premium() ✓  get_subscription() ✓                          ║
 ║  ✓ Webhook: [provider]-webhook (no JWT check, returns 400 unsigned)     ║
 ║                                                                          ║
+║  DEVICE BINDING (PayCraft ≥ 1.3.0)                                      ║
+║  ✓ registered_devices table — one active device per email               ║
+║  ✓ register_device() — issues server tokens, detects conflicts          ║
+║  ✓ check_premium_with_device() — validates token + premium in 1 query   ║
+║  ✓ transfer_to_device() — OTP-verified transfer to new device           ║
+║  ✓ otp_send_log + check_otp_gate() — tracks Brevo daily limit           ║
+║  ✓ otp-send-hook — fires after each OTP email dispatch                  ║
+║  [smtp_configured]: Brevo SMTP — {✓ CONFIGURED | ⚠ SKIPPED}           ║
+║  [otp_hook_wired]: Auth Hook — {✓ WIRED | ⚠ SKIPPED}                  ║
+║                                                                          ║
 ║  [PROVIDER] (TEST MODE)                                                  ║
 ║  ✓ Product: [product_id]                                                 ║
 ║  ✓ Plans ([N]):                                                          ║
@@ -903,6 +967,9 @@ OUTPUT: "✓ Phase 5 state saved → .paycraft/memory.json"
 ║  ✓ Dependency: io.github.mobilebytelabs:paycraft:[version]              ║
 ║  ✓ PayCraft.configure() in [configure_file]                              ║
 ║  ✓ PayCraftModule in Koin — {koin_module_file}:{koin_module_line}       ║
+║  ✓ PayCraftPlatform.init(context) in Android Application                ║
+║  ✓ registerAndLogin() replaces logIn() in restore flow                  ║
+║  ✓ DeviceConflict bottom sheet — OTP verify + support fallback          ║
 ║  ✓ PayCraftBanner in {billing_card_file}:{billing_card_line}            ║
 ║  ✓ Build: compiles clean                                                 ║
 ║                                                                          ║
@@ -910,6 +977,8 @@ OUTPUT: "✓ Phase 5 state saved → .paycraft/memory.json"
 ║  ✓ DB write: service_role INSERT succeeded                               ║
 ║  ✓ is_premium(): returns true for active subscriber                      ║
 ║  ✓ get_subscription(): returns correct plan+status                      ║
+║  ✓ registered_devices: table + RPCs verified                            ║
+║  ✓ otp_send_log: table + check_otp_gate() verified                      ║
 ║  ✓ Test data cleaned up                                                  ║
 ║                                                                          ║
 ║  SANDBOX E2E TEST                                                        ║
@@ -921,7 +990,7 @@ OUTPUT: "✓ Phase 5 state saved → .paycraft/memory.json"
 ║  ✓ memory.json updated — all phases remembered                           ║
 ║                                                                          ║
 ║  ══════════════════════════════════════════════════════════════════      ║
-║  STATUS: FULLY OPERATIONAL — TEST MODE                                   ║
+║  STATUS: FULLY OPERATIONAL — TEST MODE (single-device binding active)   ║
 ║  ══════════════════════════════════════════════════════════════════      ║
 ╚══════════════════════════════════════════════════════════════════════════╝
 ```

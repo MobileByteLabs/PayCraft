@@ -15,6 +15,8 @@ interface SubscriptionEvent {
   periodStart: Date | null;
   periodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  /** "test" for sk_test_ keys, "live" for sk_live_ keys. Prevents sandbox rows affecting is_premium() in production. */
+  mode: "test" | "live";
 }
 
 export async function handleSubscriptionEvent(data: SubscriptionEvent) {
@@ -30,6 +32,7 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
         provider_subscription_id: data.subscriptionId,
         plan: data.plan || "unknown",
         status: data.status,
+        mode: data.mode,
         current_period_start: data.periodStart?.toISOString(),
         current_period_end: data.periodEnd?.toISOString(),
         cancel_at_period_end: data.cancelAtPeriodEnd,
