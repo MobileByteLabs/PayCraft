@@ -344,13 +344,13 @@ ON START if exists: "[R] Resume from Phase [N]  [S] Start over  [Q] Quit"
 
 ---
 
-## Enforcement Rules (STRICTLY ENFORCED)
+## Enforcement Rules (STRICTLY ENFORCED — NO EXCEPTIONS)
 
-1. **STRICT SEQUENCE**: Phase 1→2→3→4→5→5B→5C→P. Phase 5C requires 5B PASS first. Phase P requires 5B + 5C PASS.
-2. **VERIFY AFTER EVERY ACTION**: Every API call, migration, deploy = immediate verify. Fail = HARD STOP.
-3. **KMP-FIRST**: Zero platform-specific billing code. All PayCraft calls in `commonMain`.
-4. **USER ACTION GATES**: Browser steps → numbered checklist + exact URL → PAUSE → verify.
-5. **TEST BEFORE LIVE**: Phase 5B (sandbox) MUST PASS before Phase 3 live or Phase 5C.
+1. **STRICT SEQUENCE**: Phase 1→2→3→4→5→5B→5C→P. Phase 5C requires 5B PASS first. Phase P requires 5B + 5C PASS. No re-ordering. No jumping ahead. No exceptions.
+2. **VERIFY AFTER EVERY ACTION**: Every API call, migration, deploy, file write = immediate verify. Fail = HARD STOP. No proceeding on unverified state.
+3. **KMP-FIRST**: Zero platform-specific billing code. All PayCraft calls in `commonMain`. Violation = HARD STOP at Phase 5 KMP audit.
+4. **USER ACTION GATES**: Browser steps → numbered checklist + exact URL → PAUSE → user confirms → verify result. Never auto-proceed past a user gate.
+5. **TEST BEFORE LIVE**: Phase 5B (sandbox) MUST PASS before Phase 3B live setup or Phase 5C. HARD STOP if attempted out of order.
 6. **HARD STOP FORMAT**:
    ```
    ✗ HARD STOP — [step] failed
@@ -358,4 +358,9 @@ ON START if exists: "[R] Resume from Phase [N]  [S] Start over  [Q] Quit"
    Fix   : [numbered steps]
    Run this step again after fixing.
    ```
-7. **PHASE CHECKPOINTS**: Summary at end of every phase. User confirms before next.
+7. **PHASE CHECKPOINTS**: Summary at end of every phase. User explicitly confirms [Y] before next phase starts. [Q] saves state and stops — it does NOT skip or bypass the phase.
+8. **NO SKIP PERMITTED**: No phase, step, or gate may be skipped unless all checks for that phase already show ✓ in the live status matrix (matrix re-scanned at start of every run). "Smart skip" = skip re-running a phase already fully verified — never skip unverified work.
+9. **DEFERRED ≠ DONE**: Manual browser steps (Brevo SMTP, Auth Hook wiring, webhook endpoint creation) may be deferred with [D] Defer, but are written to memory.json as `status: "INCOMPLETE"`. The status matrix shows them as ⚠ PENDING. The Production Ready gate [P] HARD STOPs until all deferred steps are resolved.
+10. **PHASE GATE SEQUENCE LOCK**: Phase N cannot start if Phase N-1 contains any step with `status: "INCOMPLETE"` in memory.json. Display: `⛔ Phase [N-1] has incomplete steps. Resolve them first via [F] Fix specific phase.`
+11. **CHECKPOINT CONFIRMATION IS MANDATORY**: At every phase checkpoint [Y] is required to proceed. Silence = stop. There is no default-proceed. Auto-advancing to the next phase without explicit [Y] is a violation.
+12. **NO INLINE BYPASS**: Commenting out, modifying, or working around any HARD STOP, pre-flight check, post-phase verification, or enforcement rule is a violation. Every check runs every time.

@@ -15,6 +15,35 @@ If any gate fails → HARD STOP with exact fix instructions. Re-run after fixing
 
 ---
 
+## STEP PR.0 — INCOMPLETE Step Gate (runs FIRST — before any PR check)
+
+```
+READ: {TARGET_APP_PATH}/.paycraft/memory.json
+
+CHECK for any field with status = "INCOMPLETE":
+  - smtp_status         → Brevo SMTP (Phase 2 Step 2.14)
+  - otp_hook_status     → Auth Hook wiring (Phase 2 Step 2.15)
+  - Any phase in phases_completed marked with "_deferred" suffix
+
+IF any INCOMPLETE fields found:
+  DISPLAY:
+    "⛔ PRODUCTION READY GATE BLOCKED — Incomplete steps detected:"
+    ""
+    FOR EACH incomplete field:
+      "  ✗ [step name] — INCOMPLETE"
+      "    Fix: /paycraft-adopt → [F] Fix specific phase → [Phase N] → Step [N.X]"
+    ""
+    "All steps must be fully complete before production certification."
+    "There are no exceptions. Resolve every item above, then re-run [P]."
+  HARD STOP.
+
+IF no INCOMPLETE fields:
+  OUTPUT: "✓ PR.0 PASS — No deferred/incomplete steps detected"
+  → Proceed to PR.1
+```
+
+---
+
 ## STEP PR.1 — Environment: All required keys present
 
 ```

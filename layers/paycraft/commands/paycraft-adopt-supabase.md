@@ -466,9 +466,12 @@ READ from .env:
 
 IF either is EMPTY:
   DISPLAY:
-    "Brevo SMTP not configured in .env."
+    "⛔ Brevo SMTP not configured — REQUIRED for OTP device transfer emails."
     ""
-    "To get Brevo SMTP credentials:"
+    "Without Brevo SMTP, Supabase uses its own limited mailer which may silently"
+    "fail OTP sends. The single-device binding feature depends on OTP delivery."
+    ""
+    "To get Brevo SMTP credentials (free, 300 emails/day):"
     "  1. Sign up at https://www.brevo.com (free, no credit card)"
     "  2. Go to: Senders & IP → SMTP & API → SMTP tab"
     "  3. Copy:"
@@ -478,11 +481,18 @@ IF either is EMPTY:
     "     PAYCRAFT_BREVO_SMTP_USER=your@email.com"
     "     PAYCRAFT_BREVO_SMTP_KEY=your-smtp-key"
     ""
-    "[C] I've added the keys → continue   [S] Skip SMTP setup for now"
-  WAIT: user picks
-  IF [S]:
-    DISPLAY: "⚠️  SMTP skipped. OTP emails will use Supabase default mailer (limited quota)."
+    "[C] I've added the keys → continue"
+    "[D] Defer — mark as INCOMPLETE (⚠ blocks Production Ready gate until resolved)"
+    ""
+    "⚠️  There is no skip. [D] defers — it does not bypass. Resolve before going live."
+  WAIT: user picks [C] or [D]
+  IF [D]:
     MARK: smtp_configured = false
+    WRITE to memory.json: smtp_status = "INCOMPLETE"
+    DISPLAY: "⚠️  Brevo SMTP deferred — marked INCOMPLETE in memory.json."
+             "    Status matrix will show ⚠ PENDING."
+             "    Production Ready gate will HARD STOP until this is resolved."
+             "    Resume: /paycraft-adopt → [F] Fix specific phase → Phase 2 → Step 2.14"
     CONTINUE to STEP 2.15
 
 READ: PAYCRAFT_BREVO_SMTP_USER and PAYCRAFT_BREVO_SMTP_KEY from .env
@@ -549,17 +559,25 @@ DISPLAY: "Confirm: Is 'otp-send-hook' listed as active under Auth → Hooks → 
 WAIT: user picks
 IF [N]:
   DISPLAY: "Troubleshooting:"
-           "  • Is otp-send-hook deployed? Check Step 2.13."
+           "  • Is otp-send-hook deployed and ACTIVE? Check Step 2.13."
            "  • Auth Hooks require Supabase project on Pro plan or above."
-           "    Free plan may not support Auth Hooks."
-           "    Alternative: skip this step — the OTP gate will default to 'open'"
-           "    and the rate limiting will be best-effort only."
+           "    Free plan does NOT support Auth Hooks — upgrade is required."
+           "    Without this hook, the daily OTP counter will not update."
+           "    This means the Brevo 300/day limit will not be enforced,"
+           "    risking silent OTP failures if the limit is hit."
            ""
-           "[R] Retry   [S] Skip (best-effort mode — no hard rate limit)"
+           "[R] Retry   [D] Defer — mark as INCOMPLETE (⚠ blocks Production Ready)"
+           ""
+           "⚠️  There is no skip. Auth Hook wiring is required for device binding to"
+           "    function reliably. [D] defers — it does not remove the requirement."
   WAIT: user picks
-  IF [S]:
+  IF [D]:
     MARK: otp_hook_wired = false
-    DISPLAY: "⚠️  OTP hook not wired. Daily counter will not track sends."
+    WRITE to memory.json: otp_hook_status = "INCOMPLETE"
+    DISPLAY: "⚠️  Auth Hook deferred — marked INCOMPLETE in memory.json."
+             "    Status matrix will show ⚠ PENDING."
+             "    Production Ready gate will HARD STOP until this is resolved."
+             "    Resume: /paycraft-adopt → [F] Fix specific phase → Phase 2 → Step 2.15"
     CONTINUE
   IF [R]: loop back to DISPLAY above
 

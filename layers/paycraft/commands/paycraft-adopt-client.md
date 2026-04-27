@@ -161,15 +161,20 @@ DISPLAY:
   "Which KMP app should I wire PayCraft into?"
   "(Enter the absolute path to your app root, or 'skip' for manual code)"
 
-WAIT: user enters path or "skip"
+WAIT: user enters path
 
-IF "skip":
-  DISPLAY: "Skipping automatic client integration."
-  Generate manual integration code block (see STEP 4.5 for PayCraft.configure format)
-  Display: "Add this to your app manually:"
-  [print full PayCraft.configure() block + Koin + UI instructions]
-  SKIP remaining Phase 4 steps
-  MARK Phase 4 as MANUAL
+NOTE: There is no skip. Phase 4 is required. If you cannot provide the app path,
+      manual mode is available — but you must confirm every step was applied before
+      Phase 4 is marked complete.
+
+IF user types "manual":
+  DISPLAY: "Manual mode — generating all required code snippets."
+           "You must apply each snippet to your app and confirm [Y] for every step."
+           "Phase 4 will only be marked complete after all confirmations."
+  [Generate full PayCraft.configure() + Koin + UI + DeviceConflict code blocks]
+  [Walk through each step (4.3→4.8) in sequence, PAUSE at each, require [Y] confirmation]
+  [If user types [N] at any confirmation → HARD STOP — "Step [N] not confirmed. Fix and confirm before proceeding."]
+  MARK Phase 4 as MANUAL only after all [Y] confirmations received
 
 IF path provided:
   VALIDATE: Directory exists at path
