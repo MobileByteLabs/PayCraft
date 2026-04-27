@@ -139,7 +139,7 @@ mavenPublishing {
     publishToMavenCentral()
     if (signingKey.isNotBlank()) signAllPublications()
 
-    coordinates(group.toString(), "paycraft", version.toString())
+    coordinates(group.toString(), "cmp-paycraft", version.toString())
 
     pom {
         name = "PayCraft"
