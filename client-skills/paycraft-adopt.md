@@ -148,17 +148,6 @@ The runtime will:
 
 ---
 
-## Sub-commands (also available after install)
-
-Copy these from `{paycraft_root}/client-skills/` to your `.claude/commands/`:
-
-| File | Command | Runs |
-|------|---------|------|
-| `paycraft-setup.md` | `/paycraft-setup` | Full client integration (dependency + config + Koin + UI) |
-| `paycraft-verify.md` | `/paycraft-verify` | Verify PayCraft integration is correct |
-
----
-
 ## Bootstrap — Install from anywhere (one prompt)
 
 Paste this into Claude Code in your KMP project to install this command automatically:
