@@ -392,6 +392,19 @@ fun PayCraftPaywallContent(
                         }
                     }
                 }
+
+                is BillingState.DeviceConflict -> {
+                    // Device conflict is handled by the host screen (SettingsScreen).
+                    // The paywall shows a loading indicator while the conflict sheet is open.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(48.dp))
+                    }
+                }
             } // end when(billingState)
         } // end Column wrapper
     }
