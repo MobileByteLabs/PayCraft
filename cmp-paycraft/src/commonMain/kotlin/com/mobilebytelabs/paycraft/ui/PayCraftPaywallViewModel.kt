@@ -7,11 +7,13 @@ import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
+import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -104,6 +106,11 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
             is PayCraftPaywallAction.ClearError -> onClearError()
             is PayCraftPaywallAction.RestoreSubscription -> onRestoreSubscription(action)
             is PayCraftPaywallAction.ClearRestoreResult -> onClearRestoreResult()
+            is PayCraftPaywallAction.LoginWithOAuth -> onLoginWithOAuth(action)
+            is PayCraftPaywallAction.VerifyOtpOwnership -> onVerifyOtpOwnership(action)
+            is PayCraftPaywallAction.ConfirmDeviceTransfer -> onConfirmDeviceTransfer()
+            is PayCraftPaywallAction.CancelDeviceTransfer -> onCancelDeviceTransfer()
+            is PayCraftPaywallAction.ContactSupportManualTransfer -> onContactSupportManualTransfer()
         }
     }
 
@@ -196,17 +203,132 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         val email = action.email.trim()
         if (email.isBlank()) return
         _state.update { it.copy(isRestoring = true, restoreResult = null) }
+        // registerAndLogin() sets BillingState.Loading synchronously before returning,
+        // so the collect below is guaranteed to see Loading first.
+        billingManager.registerAndLogin(email)
         viewModelScope.launch {
-            billingManager.logIn(email)
-            delay(3_000)
-            val isNowPremium = _state.value.isPremium
-            val result = if (isNowPremium) RestoreResult.Success else RestoreResult.Failure
-            _state.update { it.copy(isRestoring = false, restoreResult = result) }
-            if (result == RestoreResult.Success) {
-                delay(1_500)
-                _state.update { it.copy(restoreResult = null) }
-                _events.send(PayCraftPaywallEvent.Dismissed)
+            val finalState = billingManager.billingState.first { it !is BillingState.Loading }
+            when (finalState) {
+                is BillingState.Premium -> {
+                    _state.update { it.copy(isRestoring = false, restoreResult = RestoreResult.Success) }
+                    delay(1_500)
+                    _state.update { it.copy(restoreResult = null) }
+                    _events.send(PayCraftPaywallEvent.Dismissed)
+                }
+                is BillingState.DeviceConflict -> {
+                    // Dismiss paywall — DeviceConflict is now the active billingState;
+                    // the host screen's billingState observer will show the conflict UI.
+                    _state.update { it.copy(isRestoring = false, restoreResult = null) }
+                    _events.send(PayCraftPaywallEvent.Dismissed)
+                }
+                else -> {
+                    _state.update { it.copy(isRestoring = false, restoreResult = RestoreResult.Failure) }
+                }
             }
+        }
+    }
+
+    private fun onLoginWithOAuth(action: PayCraftPaywallAction.LoginWithOAuth) {
+        _state.update { it.copy(isRestoring = true, restoreResult = null) }
+        viewModelScope.launch {
+            billingManager.loginWithOAuth(action.provider, action.idToken)
+            val finalState = billingManager.billingState.first { it !is BillingState.Loading }
+            when (finalState) {
+                is BillingState.Premium -> {
+                    _state.update { it.copy(isRestoring = false, restoreResult = RestoreResult.Success) }
+                    delay(1_500)
+                    _state.update { it.copy(restoreResult = null) }
+                    _events.send(PayCraftPaywallEvent.Dismissed)
+                }
+                // OAuth verified ownership — OwnershipVerified state triggers confirmation dialog
+                // billingState observer in observeBillingState() handles the UI update
+                is BillingState.OwnershipVerified, is BillingState.DeviceConflict -> {
+                    _state.update { it.copy(isRestoring = false) }
+                }
+                else -> {
+                    _state.update { it.copy(isRestoring = false, restoreResult = RestoreResult.Failure) }
+                }
+            }
+        }
+    }
+
+    /** Gate 2: Verify OTP code entered by user after conflict detected */
+    private fun onVerifyOtpOwnership(action: PayCraftPaywallAction.VerifyOtpOwnership) {
+        _state.update { it.copy(isRestoring = true) }
+        viewModelScope.launch {
+            val ok = billingManager.verifyOtpOwnership(action.email, action.otp)
+            if (!ok) {
+                _state.update { it.copy(isRestoring = false, errorMessage = "Incorrect code. Please try again.") }
+            } else {
+                // billingState transitions to OwnershipVerified — observer handles UI
+                _state.update { it.copy(isRestoring = false) }
+            }
+        }
+    }
+
+    /** User confirmed "Deactivate [device] and transfer here?" */
+    private fun onConfirmDeviceTransfer() {
+        _state.update { it.copy(isRestoring = true) }
+        viewModelScope.launch {
+            billingManager.confirmDeviceTransfer()
+            val finalState = billingManager.billingState.first { it !is BillingState.Loading }
+            when (finalState) {
+                is BillingState.Premium -> {
+                    _state.update { it.copy(isRestoring = false, restoreResult = RestoreResult.Success) }
+                    delay(1_500)
+                    _state.update { it.copy(restoreResult = null) }
+                    _events.send(PayCraftPaywallEvent.Dismissed)
+                }
+                else -> {
+                    _state.update { it.copy(isRestoring = false) }
+                }
+            }
+        }
+    }
+
+    /** User cancelled the transfer confirmation dialog → stay on DeviceConflict screen */
+    private fun onCancelDeviceTransfer() {
+        // billingState is still OwnershipVerified — go back to last conflict
+        // Re-trigger a fresh conflict state by re-registering (or just refresh)
+        billingManager.refreshStatus()
+    }
+
+    /**
+     * Gate 3: OTP exhausted (>300/day).
+     * Opens a pre-filled mailto: with device + subscription info.
+     */
+    private fun onContactSupportManualTransfer() {
+        val state = _state.value
+        val billingState = state.billingState
+        val supportEmail = state.supportEmail.ifBlank { "support@example.com" }
+
+        val email = state.userEmail ?: ""
+        val conflictDevice = when (billingState) {
+            is BillingState.DeviceConflict -> billingState.conflictingDeviceName ?: "Unknown device"
+            is BillingState.OwnershipVerified -> billingState.conflictingDeviceName ?: "Unknown device"
+            else -> "Unknown device"
+        }
+        val thisDevice = PlatformInfo.deviceName
+
+        val subject = "Manual subscription transfer request"
+        val body = """
+            Hello,
+
+            I need help transferring my subscription to a new device.
+
+            Account email: $email
+            Current device (active): $conflictDevice
+            New device (this device): $thisDevice
+
+            Please transfer the subscription to my new device.
+
+            Thank you
+        """.trimIndent()
+
+        val mailto = "mailto:$supportEmail?subject=${subject.encodeForMailto()}&body=${body.encodeForMailto()}"
+
+        viewModelScope.launch {
+            _events.send(PayCraftPaywallEvent.ManualTransferEmailOpened(mailto))
         }
     }
 
@@ -214,3 +336,8 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         _state.update { it.copy(restoreResult = null) }
     }
 }
+
+private fun String.encodeForMailto(): String = this.replace(" ", "%20")
+    .replace("\n", "%0A")
+    .replace(":", "%3A")
+    .replace("@", "%40")

@@ -6,4 +6,7 @@ sealed interface PayCraftPaywallEvent {
     data class ManageLaunched(val url: String) : PayCraftPaywallEvent
     data class SupportEmailOpened(val email: String) : PayCraftPaywallEvent
     data class ErrorOccurred(val message: String) : PayCraftPaywallEvent
+
+    /** Gate 3: open pre-filled support email for manual device transfer. */
+    data class ManualTransferEmailOpened(val mailto: String) : PayCraftPaywallEvent
 }

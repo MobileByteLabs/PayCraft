@@ -18,8 +18,9 @@ CREATE TABLE IF NOT EXISTS public.subscriptions (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_email
     ON public.subscriptions(email);
-CREATE INDEX IF NOT EXISTS idx_subscriptions_provider_sub
-    ON public.subscriptions(provider_subscription_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_stripe_id
+    ON public.subscriptions(provider_subscription_id)
+    WHERE provider_subscription_id IS NOT NULL;
 
 ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
 

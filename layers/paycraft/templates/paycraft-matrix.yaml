@@ -1,0 +1,220 @@
+# PayCraft Test Matrix — per-project state file
+# Schema Version: 2.0
+# Auto-managed by /paycraft-adopt [T] Test scenarios.
+# DO NOT edit manually. DO NOT commit — contains test emails and device tokens.
+# Gitignore: .paycraft/paycraft-matrix.yaml
+
+schema_version: "2.0"
+project: "{project_name}"
+last_updated: null  # ISO8601 — updated on every write
+
+# ── Matrix state cache ────────────────────────────────────────────────────────
+# Claude reads scanned_at, computes (now - scanned_at) in minutes.
+# If < 10 → use cache (skip live scan). If >= 10 or null → re-scan and update.
+# ENV gate: always live (file read is fast, never cached).
+# MEMORY gate: always live (file read, never cached).
+# SUPABASE / CLIENT / OAUTH: cached with 10-minute TTL.
+matrix_state:
+  env:
+    status: ok              # ok | partial | missing
+    scanned_at: null        # ISO8601 — null = never scanned (always live, no TTL)
+    keys_present: 0
+    keys_missing: []
+  supabase:
+    status: ok              # ok | partial | missing | error
+    scanned_at: null        # ISO8601 — null = never scanned
+    migrations_applied: []  # e.g. ["001_create_subscriptions", "009_device_id"]
+    migrations_missing: []
+    edge_functions: {}      # e.g. {stripe-webhook: ACTIVE, otp-send-hook: ACTIVE}
+    device_id_column: false # true = registered_devices.device_id column exists (migration 009)
+  client:
+    status: ok              # ok | partial | missing | error
+    scanned_at: null        # ISO8601 — null = never scanned
+    paycraft_version: null  # e.g. "1.3.0"
+    configure_found: false
+    koin_module_found: false
+    banner_found: false
+    lifecycle_refresh_found: false
+    device_conflict_ui_found: false
+  oauth:
+    status: ok              # ok | partial | missing | error
+    scanned_at: null        # ISO8601 — null = never scanned
+    google_enabled: false
+    apple_enabled: false
+
+# ── Test scenarios ─────────────────────────────────────────────────────────────
+# State-only. Step logic (API calls, assertions, self-heal) lives in
+# layers/paycraft/commands/paycraft-adopt-scenarios.md (Phase 5T).
+scenarios:
+  - id: S1
+    name: "New purchase — sandbox (happy path)"
+    category: purchase
+    mode: test
+    depends_on: []
+    status: pending           # pending | pass | fail | skipped
+    last_run: null            # ISO8601
+    email_used: null
+    plan_tested: null
+    fail_reason: null         # null | webhook_timeout | is_premium_false | mode_mismatch | ...
+    result_detail: null
+
+  - id: S2
+    name: "New purchase — live (real card)"
+    category: purchase
+    mode: live
+    depends_on: [S1]
+    status: pending
+    last_run: null
+    email_used: null
+    plan_tested: null
+    fail_reason: null
+    result_detail: null
+
+  - id: S3
+    name: "Restore: token cached (fast path)"
+    category: restore
+    mode: test
+    depends_on: [S1]
+    status: pending
+    last_run: null
+    email_used: null
+    fail_reason: null
+    result_detail: null
+
+  - id: S4
+    name: "Restore: clear data, same device"
+    category: restore
+    mode: test
+    depends_on: [S1]
+    status: pending
+    last_run: null
+    email_used: null
+    fail_reason: null
+    result_detail: null
+
+  - id: S5
+    name: "Restore: same device_id, new install"
+    category: restore
+    mode: test
+    depends_on: [S1]
+    status: pending
+    last_run: null
+    email_used: null
+    fail_reason: null
+    result_detail: null
+
+  - id: S6
+    name: "Device conflict: active sub + new device"
+    category: conflict
+    mode: test
+    depends_on: [S1]
+    status: pending
+    last_run: null
+    email_used: null
+    fail_reason: null
+    result_detail: null
+
+  - id: S7
+    name: "Device conflict: OTP verification flow"
+    category: conflict
+    mode: test
+    depends_on: [S6]
+    status: pending
+    last_run: null
+    email_used: null
+    otp_verified: null        # true | false | skipped
+    fail_reason: null
+    result_detail: null
+
+  - id: S8
+    name: "Device conflict: OAuth (Google) resolution"
+    category: conflict
+    mode: test
+    depends_on: [S6]
+    status: pending
+    last_run: null
+    email_used: null
+    device_required: true     # cannot be run API-only
+    fail_reason: null
+    result_detail: null
+
+  - id: S9
+    name: "Device conflict: transfer accepted"
+    category: conflict
+    mode: test
+    depends_on: [S6]
+    status: pending
+    last_run: null
+    email_used: null
+    fail_reason: null
+    result_detail: null
+
+  - id: S10
+    name: "Expired subscription — no access"
+    category: negative
+    mode: test
+    depends_on: [S1]
+    status: pending
+    last_run: null
+    email_used: null
+    original_period_end: null  # saved before SETUP mutation; restored in TEARDOWN
+    original_status: null
+    fail_reason: null
+    result_detail: null
+
+  - id: S11
+    name: "Revoked device token"
+    category: negative
+    mode: test
+    depends_on: [S1]
+    status: pending
+    last_run: null
+    email_used: null
+    fail_reason: null
+    result_detail: null
+
+  - id: S12
+    name: "OTP rate limit gate (>=300/day)"
+    category: negative
+    mode: test
+    depends_on: []
+    status: pending
+    last_run: null
+    original_send_count: null  # saved before SETUP mutation; restored in TEARDOWN
+    fail_reason: null
+    result_detail: null
+
+  - id: S13
+    name: "device_id backfill on re-register"
+    category: migration
+    mode: test
+    depends_on: [S1]
+    status: pending
+    last_run: null
+    email_used: null
+    fail_reason: null
+    result_detail: null
+
+  - id: S14
+    name: "Fresh user — no subscription (free gate)"
+    category: negative
+    mode: test
+    depends_on: []
+    status: pending
+    last_run: null
+    test_email: null           # ephemeral email — never in subscriptions table
+    fail_reason: null
+    result_detail: null
+
+  - id: S15
+    name: "Cancelled-in-period — still premium"
+    category: negative
+    mode: test
+    depends_on: [S1]
+    status: pending
+    last_run: null
+    email_used: null
+    original_status: null      # saved before SETUP mutation; restored in TEARDOWN
+    original_cancel_flag: null
+    fail_reason: null
+    result_detail: null

@@ -1,3 +1,9 @@
+<!--
+  Runtime skill command is the single source of truth.
+  Modify only in https://github.com/MobileByteLabs/PayCraft
+  This stub contains zero logic — it bootstraps PayCraft location and loads the runtime.
+-->
+
 # /paycraft-adopt
 
 End-to-end PayCraft billing adoption — from zero to verified billing in test mode.
@@ -24,6 +30,7 @@ PAYCRAFT_ROOT candidates (check in order):
   6. ~/Developer/paycraft/
   7. ~/code/paycraft/
   8. ~/projects/paycraft/
+  9. {PROJECT_ROOT}/workspaces/mbs/PayCraft/   (claude-product-cycle framework workspace)
 
 FOR EACH CANDIDATE:
   CHECK: {candidate}/server/migrations/001_create_subscriptions.sql exists?
@@ -141,28 +148,13 @@ The runtime will:
 
 ---
 
-## Sub-commands (also available after install)
-
-Copy these from `{paycraft_root}/client-skills/` to your `.claude/commands/`:
-
-| File | Command | Runs |
-|------|---------|------|
-| `paycraft-adopt-env.md` | `/paycraft-adopt-env` | Phase 1 only (re-collect credentials) |
-| `paycraft-adopt-supabase.md` | `/paycraft-adopt-supabase` | Phase 2 only (re-deploy migrations/webhook) |
-| `paycraft-adopt-stripe.md` | `/paycraft-adopt-stripe` | Phase 3 Stripe only |
-| `paycraft-adopt-razorpay.md` | `/paycraft-adopt-razorpay` | Phase 3B Razorpay only |
-| `paycraft-adopt-client.md` | `/paycraft-adopt-client` | Phase 4 only (re-integrate client) |
-| `paycraft-adopt-verify.md` | `/paycraft-adopt-verify` | Phase 5 only (re-verify anytime) |
-
----
-
 ## Bootstrap — Install from anywhere (one prompt)
 
 Paste this into Claude Code in your KMP project to install this command automatically:
 
 ```
 Fetch the file at this URL and save it to .claude/commands/paycraft-adopt.md in this project:
-https://raw.githubusercontent.com/mobilebytelabs/paycraft/main/client-skills/paycraft-adopt.md
+https://raw.githubusercontent.com/MobileByteLabs/PayCraft/development/client-skills/paycraft-adopt.md
 
 After saving, run /paycraft-adopt.
 ```

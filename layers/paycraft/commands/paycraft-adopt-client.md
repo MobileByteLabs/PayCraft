@@ -20,6 +20,8 @@ PayCraft is a **Kotlin Multiplatform library**. Every integration step MUST targ
 | Add `PayCraft.configure()` in Android Application class | Add in `initPayCraft()` called from the KMP Koin init block |
 | Add `PayCraftPlatform.init()` anywhere other than `androidMain` (Android) or `iosMain` (iOS) | `PayCraftPlatform.init()` is the ONLY call allowed in platform-specific code — everything else is commonMain |
 | Call `subscriptionManager.refreshStatus()` in `Activity.onResume()` | Call `subscriptionManager.refreshStatus()` inside `LifecycleEventEffect(Lifecycle.Event.ON_RESUME)` in the paywall/settings Composable |
+| Call `billingManager.logIn(email)` directly | Call `billingManager.registerAndLogin(email)` — registers device + detects conflicts before logging in (PayCraft ≥ 1.3.0) |
+| Skip `DeviceTokenStore.init(context)` on Android | Call `PayCraftPlatform.init(context)` (which calls `DeviceTokenStore.init(context)`) in `androidMain` before Koin starts |
 
 **Subscription refresh after checkout — KMP pattern:**
 ```kotlin
@@ -40,6 +42,27 @@ fun PaywallScreen(...) {
 
 ---
 
+## Memory Read — Skip if Remembered (M7/M8)
+
+```
+READ: {TARGET_APP_PATH}/.paycraft/memory.json (if exists)
+
+IF memory.json exists AND koin_module_file AND billing_card_file are set:
+  DISPLAY:
+    "Remembered integration locations from previous run:"
+    "  Koin module : {koin_module_file}:{koin_module_line}"
+    "  Billing banner : {billing_card_file}:{billing_card_line}"
+    "  Lifecycle refresh : {lifecycle_refresh_file}:{lifecycle_refresh_line}"
+    "  PayCraft.configure() : {configure_file}"
+    ""
+    "Press Enter to use remembered locations, or [C] to change"
+
+  IF user presses Enter: use remembered values → skip Steps 4.4 and 4.7 detection prompts
+  IF user picks [C]: clear remembered values → run detection prompts as first run
+ELSE:
+  run all detection prompts (Steps 4.4 and 4.7) as first run
+```
+
 ## Prerequisites (verify before starting)
 
 Read `.env` → confirm:
@@ -56,25 +79,79 @@ IF PAYCRAFT_PROVIDER = "stripe":
             PAYCRAFT_STRIPE_TEST_LINK_YEARLY is non-empty
     IF ALL EMPTY:
       HARD STOP: "No Stripe TEST payment links set in .env.
-                  Run /paycraft-adopt-stripe (Phase 3A) first to create test payment links."
+                  Run /paycraft-adopt and select [A] Full setup to complete Phase 3 (Stripe test setup) first."
   IF PAYCRAFT_MODE = "live":
     VERIFY: At least one of PAYCRAFT_STRIPE_LIVE_LINK_MONTHLY, PAYCRAFT_STRIPE_LIVE_LINK_QUARTERLY,
             PAYCRAFT_STRIPE_LIVE_LINK_YEARLY is non-empty
     IF ALL EMPTY:
       HARD STOP: "No Stripe LIVE payment links set in .env.
-                  Run /paycraft-adopt-stripe (Phase 3B) first to create live payment links."
+                  Run /paycraft-adopt and select [A] Full setup to complete Phase 3 (Stripe live setup) first."
 IF PAYCRAFT_PROVIDER = "razorpay":
   VERIFY: At least one of PAYCRAFT_RAZORPAY_LINK_MONTHLY, PAYCRAFT_RAZORPAY_LINK_QUARTERLY,
           PAYCRAFT_RAZORPAY_LINK_YEARLY is non-empty
   IF ALL EMPTY:
     HARD STOP: "No Razorpay payment links set in .env.
-                Run /paycraft-adopt-razorpay first to create payment links."
+                Run /paycraft-adopt and select [A] Full setup to complete Phase 3 (Razorpay setup) first."
 
 IF ANY BASE KEY MISSING: HARD STOP — "Required .env keys missing. Complete Phase 1–3 first."
 
 ---
 
 ## Phase 4 Steps
+
+### STEP 4.0B — Initialize DeviceTokenStore on Android (PayCraft ≥ 1.3.0)
+
+```
+NOTE: PayCraft 1.3.0 introduced DeviceTokenStore — platform-specific secure storage
+      for the server-issued device token. On Android it uses EncryptedSharedPreferences
+      which requires a Context reference available before Koin starts.
+      DeviceTokenStore.init(context) is called INSIDE PayCraftPlatform.init(context),
+      so no separate call is needed — just ensure PayCraftPlatform.init() is invoked.
+
+CHECK: Is PayCraftPlatform.init(context) already called in androidMain?
+  SEARCH: [app]/androidMain/**/*.kt for "PayCraftPlatform.init"
+  IF FOUND:
+    OUTPUT: "✓ PayCraftPlatform.init(context) already present — DeviceTokenStore initialized"
+    SKIP remaining STEP 4.0B
+
+IF NOT FOUND:
+  SEARCH: [app] for Application.kt in androidMain (the Android Application subclass)
+  IF NOT FOUND: look for MainActivity.kt → look for onCreate() method
+
+  ARCHITECTURAL NOTE:
+    PayCraftPlatform.init(context) MUST be called before Koin starts.
+    The recommended location is the Android Application subclass's onCreate() — BEFORE startKoin {}.
+    This is the ONLY androidMain change needed. Everything else is commonMain.
+
+  DISPLAY:
+    "Add PayCraftPlatform.init(context) to your Android Application class:"
+    ""
+    "  // In YourApplication.kt (androidMain)"
+    "  import com.mobilebytelabs.paycraft.PayCraftPlatform"
+    ""
+    "  class YourApplication : Application() {"
+    "      override fun onCreate() {"
+    "          super.onCreate()"
+    "          PayCraftPlatform.init(this)  // ← Add BEFORE startKoin {}"
+    "          // ... rest of init"
+    "      }"
+    "  }"
+    ""
+    "Press Enter when added."
+  WAIT: user presses Enter
+
+  IF Application.kt found (auto-detected):
+    READ: file content
+    FIND: the onCreate() method body
+    FIND: position BEFORE any startKoin {} call (or before super.onCreate() closes)
+    ADD: PayCraftPlatform.init(this)  // Initialize device token store (PayCraft)
+    ADD import: import com.mobilebytelabs.paycraft.PayCraftPlatform
+    VERIFY: Re-read file → "PayCraftPlatform.init" present
+    IF MISSING: HARD STOP — "Failed to add PayCraftPlatform.init(this) to Application class."
+
+  OUTPUT: "✓ PayCraftPlatform.init(context) added to Android Application (DeviceTokenStore initialized)"
+         "  Device tokens stored in EncryptedSharedPreferences with Android Auto Backup"
+```
 
 ### STEP 4.1 — Ask target app path (or skip)
 
@@ -84,15 +161,20 @@ DISPLAY:
   "Which KMP app should I wire PayCraft into?"
   "(Enter the absolute path to your app root, or 'skip' for manual code)"
 
-WAIT: user enters path or "skip"
+WAIT: user enters path
 
-IF "skip":
-  DISPLAY: "Skipping automatic client integration."
-  Generate manual integration code block (see STEP 4.5 for PayCraft.configure format)
-  Display: "Add this to your app manually:"
-  [print full PayCraft.configure() block + Koin + UI instructions]
-  SKIP remaining Phase 4 steps
-  MARK Phase 4 as MANUAL
+NOTE: There is no skip. Phase 4 is required. If you cannot provide the app path,
+      manual mode is available — but you must confirm every step was applied before
+      Phase 4 is marked complete.
+
+IF user types "manual":
+  DISPLAY: "Manual mode — generating all required code snippets."
+           "You must apply each snippet to your app and confirm [Y] for every step."
+           "Phase 4 will only be marked complete after all confirmations."
+  [Generate full PayCraft.configure() + Koin + UI + DeviceConflict code blocks]
+  [Walk through each step (4.3→4.8) in sequence, PAUSE at each, require [Y] confirmation]
+  [If user types [N] at any confirmation → HARD STOP — "Step [N] not confirmed. Fix and confirm before proceeding."]
+  MARK Phase 4 as MANUAL only after all [Y] confirmations received
 
 IF path provided:
   VALIDATE: Directory exists at path
@@ -402,7 +484,7 @@ IF MISSING: HARD STOP — "Koin wiring incomplete.
 OUTPUT: "✓ initPayCraft() and PayCraftModule wired into Koin"
 ```
 
-### STEP 4.7 — Add PayCraft UI to SettingsScreen
+### STEP 4.7 — Add PayCraft UI to SettingsScreen (including device conflict resolution)
 
 ```
 SEARCH  : Find SettingsScreen.kt (or equivalent) in [app]
@@ -416,7 +498,6 @@ SEARCH  : Find SettingsScreen.kt (or equivalent) in [app]
 IF NOT FOUND using any of the above:
   DISPLAY: "Could not auto-detect your settings/billing screen. Where should the PayCraft UI go?"
            "Enter the file path relative to [app] (e.g. feature/settings/SettingsScreen.kt):"
-           "Enter relative path:"
   WAIT: user enters path
   VALIDATE: file exists
   IF NOT: HARD STOP — "File not found."
@@ -424,8 +505,13 @@ IF NOT FOUND using any of the above:
 READ    : SettingsScreen.kt content
 
 CHECK   : Is "PayCraftBanner" already present?
-IF YES  : OUTPUT "✓ PayCraft UI already in SettingsScreen — no change"
-IF NO   :
+IF YES  :
+  CHECK: Is "registerAndLogin" or "BillingState.DeviceConflict" present?
+  IF YES: OUTPUT "✓ PayCraft UI (including device conflict) already in SettingsScreen — no change"
+  IF NO : NOTE "PayCraft UI found but missing device conflict handling — adding conflict sheet (see below)"
+  [fall through to ADD conflict UI]
+
+IF "PayCraftBanner" NOT present:
   FIND  : First composable function in the file (the @Composable Screen function)
   ADD at top of function body (after any existing remember { } state):
     var showPaywall by remember { mutableStateOf(false) }
@@ -458,10 +544,192 @@ IF NO   :
     import com.mobilebytelabs.paycraft.ui.PayCraftPaywallSheet
     import com.mobilebytelabs.paycraft.ui.PayCraftRestore
 
-VERIFY  : Re-read file → PayCraftBanner, PayCraftPaywallSheet, PayCraftRestore all present
+--- Device Conflict Handling (PayCraft ≥ 1.3.0) ---
+
+NOTE: PayCraft 1.3.0 enforces single-device subscription binding. When a user
+      restores their subscription on a second device, the app receives
+      BillingState.DeviceConflict — a new billing state that carries:
+        - conflictingDeviceName: which device currently holds the subscription
+        - conflictingLastSeen: when that device was last active
+        - otpAvailable: whether the daily OTP send gate is open (Brevo free: 300/day)
+        - supportEmail: fallback email when OTP gate is closed
+        - pendingToken: the new device's token (used to call transferToDevice())
+
+  The UI must:
+    1. Detect DeviceConflict state via LaunchedEffect on billingState
+    2. Show a bottom sheet with conflict info and transfer options:
+       a. [Send OTP to verify ownership] — only when otpAvailable = true
+       b. [Contact Support] — shown when otpAvailable = false OR as secondary option
+    3. After OTP is verified, call billingManager.transferToDevice() automatically
+    4. On success, dismiss the sheet and premium activates on the new device
+
+DETECT: Does the SettingsScreen inject the BillingManager?
+  SEARCH: file for "billingManager" or "BillingManager" via koinInject()
+  IF FOUND:
+    billing_manager_val = detected variable name
+  IF NOT:
+    ADD to function top:
+      val payCraftBillingManager: BillingManager = koinInject()
+    ADD import: import com.mobilebytelabs.paycraft.core.BillingManager
+    billing_manager_val = "payCraftBillingManager"
+
+DETECT: Is there an existing logIn() call in a restore flow?
+  SEARCH: file for ".logIn(" OR "logIn("
+  IF FOUND:
+    REPLACE: all ".logIn(email)" → ".registerAndLogin(email)"
+    NOTE: registerAndLogin() replaces logIn() — same signature, adds device binding
+
+ADD state variables near top of composable:
+  val billingState by {billing_manager_val}.billingState.collectAsState()
+  var showConflictSheet by remember { mutableStateOf(false) }
+  var conflictInfo by remember { mutableStateOf<BillingState.DeviceConflict?>(null) }
+  var showOtpInput by remember { mutableStateOf(false) }
+  var otpValue by remember { mutableStateOf("") }
+  var otpError by remember { mutableStateOf<String?>(null) }
+  var isVerifying by remember { mutableStateOf(false) }
+
+ADD LaunchedEffect to detect DeviceConflict:
+  LaunchedEffect(billingState) {
+      if (billingState is BillingState.DeviceConflict) {
+          conflictInfo = billingState as BillingState.DeviceConflict
+          showConflictSheet = true
+          showOtpInput = false
+          otpValue = ""
+          otpError = null
+      }
+  }
+
+ADD conflict resolution bottom sheet (after existing if-blocks):
+  if (showConflictSheet && conflictInfo != null) {
+      val conflict = conflictInfo!!
+      val coroutineScope = rememberCoroutineScope()
+      ModalBottomSheet(onDismissRequest = { showConflictSheet = false }) {
+          Column(modifier = Modifier.padding(24.dp).fillMaxWidth()) {
+
+              Text("Subscription Already Active", style = MaterialTheme.typography.titleLarge)
+              Spacer(Modifier.height(8.dp))
+              Text(
+                  "This subscription is currently active on: " +
+                  (conflict.conflictingDeviceName ?: "another device"),
+                  style = MaterialTheme.typography.bodyMedium,
+              )
+              if (conflict.conflictingLastSeen != null) {
+                  Text(
+                      "Last seen: ${conflict.conflictingLastSeen.take(10)}",
+                      style = MaterialTheme.typography.bodySmall,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+              }
+
+              Spacer(Modifier.height(16.dp))
+
+              if (!showOtpInput) {
+                  // Primary action: OTP verify (if gate open) or support
+                  if (conflict.otpAvailable) {
+                      Button(
+                          onClick = {
+                              coroutineScope.launch {
+                                  {billing_manager_val}.requestOtpVerification(conflict.email)
+                                  showOtpInput = true
+                              }
+                          },
+                          modifier = Modifier.fillMaxWidth(),
+                      ) {
+                          Text("Send Verification Code to Email")
+                      }
+                  } else {
+                      Button(
+                          onClick = {
+                              // Open email client for support
+                              val uri = Uri.parse("mailto:${conflict.supportEmail}?subject=Subscription+Transfer+Request")
+                              // Use uriHandler or platform intent
+                          },
+                          modifier = Modifier.fillMaxWidth(),
+                      ) {
+                          Text("Contact Support")
+                      }
+                      Text(
+                          "Daily OTP limit reached. Contact support to transfer your subscription.",
+                          style = MaterialTheme.typography.bodySmall,
+                          color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      )
+                  }
+                  Spacer(Modifier.height(8.dp))
+                  TextButton(
+                      onClick = { showConflictSheet = false },
+                      modifier = Modifier.fillMaxWidth(),
+                  ) {
+                      Text("Cancel")
+                  }
+              } else {
+                  // OTP input form
+                  Text(
+                      "Enter the 6-digit code sent to ${conflict.email}",
+                      style = MaterialTheme.typography.bodyMedium,
+                  )
+                  Spacer(Modifier.height(8.dp))
+                  OutlinedTextField(
+                      value = otpValue,
+                      onValueChange = { otpValue = it.filter { c -> c.isDigit() }.take(6) },
+                      label = { Text("Verification Code") },
+                      singleLine = true,
+                      modifier = Modifier.fillMaxWidth(),
+                      isError = otpError != null,
+                      supportingText = otpError?.let { { Text(it) } },
+                  )
+                  Spacer(Modifier.height(8.dp))
+                  Button(
+                      onClick = {
+                          if (otpValue.length == 6) {
+                              isVerifying = true
+                              coroutineScope.launch {
+                                  val ok = {billing_manager_val}.verifyOtp(conflict.email, otpValue)
+                                  if (ok) {
+                                      {billing_manager_val}.transferToDevice()
+                                      showConflictSheet = false
+                                  } else {
+                                      otpError = "Invalid or expired code. Try again."
+                                  }
+                                  isVerifying = false
+                              }
+                          }
+                      },
+                      enabled = otpValue.length == 6 && !isVerifying,
+                      modifier = Modifier.fillMaxWidth(),
+                  ) {
+                      if (isVerifying) CircularProgressIndicator(Modifier.size(20.dp))
+                      else Text("Verify & Transfer Subscription")
+                  }
+                  TextButton(
+                      onClick = { showOtpInput = false; otpValue = "" },
+                      modifier = Modifier.fillMaxWidth(),
+                  ) {
+                      Text("Back")
+                  }
+              }
+          }
+      }
+  }
+
+ADD imports at top of file (add any not already present):
+  import com.mobilebytelabs.paycraft.ui.PayCraftBanner
+  import com.mobilebytelabs.paycraft.ui.PayCraftPaywallSheet
+  import com.mobilebytelabs.paycraft.ui.PayCraftRestore
+  import com.mobilebytelabs.paycraft.core.BillingManager
+  import com.mobilebytelabs.paycraft.model.BillingState
+  import androidx.compose.material3.ModalBottomSheet
+  import androidx.compose.material3.OutlinedTextField
+  import androidx.compose.material3.CircularProgressIndicator
+  import androidx.compose.runtime.rememberCoroutineScope
+  import kotlinx.coroutines.launch
+
+VERIFY  : Re-read file → PayCraftBanner, PayCraftPaywallSheet, PayCraftRestore, BillingState,
+          LaunchedEffect(billingState), showConflictSheet all present
 IF ANY MISSING: HARD STOP — "PayCraft UI components not fully added.
                 Missing: [list of missing components]"
 OUTPUT  : "✓ PayCraft UI added to SettingsScreen"
+         "✓ Device conflict resolution UI added (OTP verify + support fallback)"
+         "✓ registerAndLogin() wired (replaces logIn())"
 ```
 
 ### STEP 4.7B — Register deep link intent filter in AndroidManifest.xml
@@ -578,24 +846,58 @@ READ    : key_storage_choice from Step 4.4B
 
 ---
 
+## Phase 4 Memory Write (M3d — atomic)
+
+```
+MEMORY_PATH = {TARGET_APP_PATH}/.paycraft/memory.json
+TMP_PATH    = {TARGET_APP_PATH}/.paycraft/memory.json.tmp
+
+READ existing memory.json → merge
+SET fields (from confirmed locations in Steps 4.4 and 4.7):
+  koin_module_file          = {confirmed koin file path}
+  koin_module_line          = {line number of PayCraftModule}
+  billing_card_file         = {confirmed billing screen file}
+  billing_card_line         = {line number of PayCraftBanner}
+  lifecycle_refresh_file    = {file with LifecycleEventEffect}
+  lifecycle_refresh_line    = {line number of LifecycleEventEffect}
+  configure_file            = {file with PayCraft.configure()}
+  deep_link_scheme          = {scheme extracted from AndroidManifest.xml}
+  last_run                  = current ISO timestamp
+  phases_completed          = add "client" if not already present
+
+WRITE: JSON to {TMP_PATH}
+RENAME: {TMP_PATH} → {MEMORY_PATH}
+OUTPUT: "✓ Phase 4 state saved → .paycraft/memory.json"
+```
+
 ## Phase 4 Checkpoint
 
 ```
-╔══ PHASE 4 COMPLETE — Client Integration ═════════════════════════════╗
-║                                                                        ║
-║  ✓ PayCraft [version] dependency in Gradle                           ║
-║  ✓ PayCraft.configure() in [app init file]                           ║
-║    - Supabase: [project-ref]                                          ║
-║    - Provider: [stripe/razorpay]                                      ║
-║    - Plans: [N] plans with real payment links                         ║
-║  ✓ PayCraftModule in Koin modules                                     ║
-║  ✓ PayCraftBanner + PayCraftPaywallSheet + PayCraftRestore in Settings ║
-║  ✓ Deep link intent filter registered in AndroidManifest.xml          ║
-║  ✓ API keys in [storage location]                                     ║
-║                                                                        ║
-║  Ready to proceed to Phase 5: End-to-End Verification?               ║
-║  [Y] Continue   [Q] Quit                                             ║
-╚════════════════════════════════════════════════════════════════════════╝
+╔══ PHASE 4 COMPLETE — Client Integration ═════════════════════════════════╗
+║                                                                             ║
+║  ✓ PayCraft [version] dependency in Gradle                               ║
+║  ✓ PayCraft.configure() in [configure_file]                               ║
+║    - Supabase: [project-ref]                                               ║
+║    - Provider: [stripe/razorpay]                                           ║
+║    - Plans: [N] plans with real payment links                              ║
+║  ✓ PayCraftModule in Koin — {koin_module_file}:{koin_module_line}         ║
+║  ✓ PayCraftBanner in {billing_card_file}:{billing_card_line}              ║
+║  ✓ LifecycleEventEffect(ON_RESUME) in {lifecycle_refresh_file}            ║
+║  ✓ Deep link scheme registered in AndroidManifest.xml                      ║
+║  ✓ API keys in [storage location]                                          ║
+║                                                                             ║
+║  DEVICE BINDING (PayCraft ≥ 1.3.0)                                        ║
+║  ✓ PayCraftPlatform.init(context) in Android Application (STEP 4.0B)    ║
+║  ✓ registerAndLogin() replaces logIn() in restore flow                    ║
+║  ✓ BillingState.DeviceConflict detected via LaunchedEffect                ║
+║  ✓ Conflict resolution UI: OTP verify + Contact Support fallback          ║
+║  ✓ verifyOtp() + transferToDevice() wired                                 ║
+║                                                                             ║
+║  ✓ memory.json updated (locations remembered for future runs)              ║
+║                                                                             ║
+║  Ready to proceed to Phase 5: End-to-End Verification?                    ║
+║  [Y] Continue   [Q] Quit                                                  ║
+╚═════════════════════════════════════════════════════════════════════════════╝
 ```
 
 Wait for user `[Y]` before proceeding.

@@ -1,5 +1,10 @@
 package com.mobilebytelabs.paycraft.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,15 +24,21 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -60,9 +71,13 @@ import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import com.mobilebytelabs.paycraft.provider.StripeProvider
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+
+private val colorTestMode = Color(0xFFFF6F00) // deep amber — visible on all gradients
+private val colorTestModeChip = Brush.linearGradient(listOf(Color(0xFFFF6F00), Color(0xFFFFA000)))
 
 private const val TAG_BANNER_FREE = "paycraft_banner_free"
 private const val TAG_BANNER_PREMIUM = "paycraft_banner_premium"
@@ -103,25 +118,69 @@ fun PayCraftBanner(
     billingManager: BillingManager = koinInject(),
 ) {
     val billingState by billingManager.billingState.collectAsStateWithLifecycle()
+
+    // Retain last stable (non-loading) state — avoids jarring free → premium flash on navigation
+    var lastStableState by remember {
+        mutableStateOf(billingState.takeIf { it !is BillingState.Loading } ?: BillingState.Free)
+    }
+    LaunchedEffect(billingState) {
+        if (billingState !is BillingState.Loading) {
+            lastStableState = billingState
+        }
+    }
+
+    // Only show loading overlay when refreshing a known-premium state.
+    // For free/unknown users on initial load the spinner is just noise.
+    val isLoading = billingState is BillingState.Loading && lastStableState is BillingState.Premium
+
     val benefits = PayCraft.requireConfig().benefits
     val plans = PayCraft.requireConfig().plans
     val supportEmail = PayCraft.requireConfig().supportEmail
 
-    when (val state = billingState) {
-        is BillingState.Premium -> PremiumBannerCard(
-            status = state.status,
-            plans = plans,
-            topTierPlan = plans.maxByOrNull { it.rank },
-            supportEmail = supportEmail,
-            onManageClick = onManageClick,
-            modifier = modifier,
-        )
-        is BillingState.Free, is BillingState.Error, is BillingState.Loading -> FreeBannerCard(
-            benefits = benefits,
-            onUpgradeClick = onUpgradeClick,
-            onRestoreClick = onRestoreClick,
-            modifier = modifier,
-        )
+    Box(modifier = modifier) {
+        Crossfade(
+            targetState = lastStableState,
+            animationSpec = tween(350),
+            label = "billing_state_transition",
+        ) { state ->
+            when (state) {
+                is BillingState.Premium -> PremiumBannerCard(
+                    status = state.status,
+                    plans = plans,
+                    topTierPlan = plans.maxByOrNull { it.rank },
+                    supportEmail = supportEmail,
+                    onManageClick = onManageClick,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                else -> FreeBannerCard(
+                    benefits = benefits,
+                    onUpgradeClick = onUpgradeClick,
+                    onRestoreClick = onRestoreClick,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
+        // Semi-transparent white overlay with spinner during status fetch / refresh
+        AnimatedVisibility(
+            visible = isLoading,
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(600)),
+            modifier = Modifier.matchParentSize(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color.White.copy(alpha = 0.55f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(28.dp),
+                    strokeWidth = 2.5.dp,
+                )
+            }
+        }
     }
 }
 
@@ -139,6 +198,8 @@ private fun FreeBannerCard(
     val upgradeTitle = stringResource(Res.string.paycraft_banner_upgrade_title)
     val upgradeCd = stringResource(Res.string.paycraft_banner_upgrade_cd)
 
+    val isTestMode = (PayCraft.config?.provider as? StripeProvider)?.isTestMode == true
+
     GradientCard(
         gradient = gradientFree,
         onClick = onUpgradeClick,
@@ -146,6 +207,11 @@ private fun FreeBannerCard(
         contentDescription = upgradeCd,
         modifier = modifier,
     ) {
+        if (isTestMode) {
+            TestModeChip()
+            Spacer(Modifier.height(12.dp))
+        }
+
         // Header row
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -220,6 +286,7 @@ private fun PremiumBannerCard(
     onManageClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val isTestMode = (PayCraft.config?.provider as? StripeProvider)?.isTestMode == true
     val isTopTier = topTierPlan != null && status.plan == topTierPlan.id
     val currentPlan = plans.firstOrNull { it.id == status.plan }
     val currentPlanName = currentPlan?.name
@@ -233,9 +300,10 @@ private fun PremiumBannerCard(
         else -> stringResource(Res.string.paycraft_banner_cta_manage)
     }
 
-    // isTopTier → manage subscription (portal); otherwise → open paywall for upgrade
+    // isTopTier + portal URL configured → open billing portal; otherwise → open paywall
     val email = status.email.orEmpty()
-    val ctaClick: () -> Unit = if (isTopTier && email.isNotBlank()) {
+    val hasPortalUrl = PayCraft.requireConfig().provider.getManageUrl(email) != null
+    val ctaClick: () -> Unit = if (isTopTier && email.isNotBlank() && hasPortalUrl) {
         { PayCraft.manageSubscription(email) }
     } else {
         onManageClick
@@ -250,6 +318,11 @@ private fun PremiumBannerCard(
         contentDescription = premiumCd,
         modifier = modifier,
     ) {
+        if (isTestMode) {
+            TestModeChip()
+            Spacer(Modifier.height(12.dp))
+        }
+
         // Header row
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -431,6 +504,26 @@ private fun PerkRow(icon: ImageVector, textRes: StringResource, modifier: Modifi
             text = text,
             style = MaterialTheme.typography.bodyMedium,
             color = Color.White.copy(alpha = 0.95f),
+        )
+    }
+}
+
+/**
+ * Amber chip shown at the top of the banner when [StripeProvider.isTestMode] is true.
+ * Invisible in production — zero overhead, no extra parameter needed.
+ */
+@Composable
+private fun TestModeChip(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(colorTestModeChip, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        Text(
+            text = "⚙ TEST MODE — sandbox only, no real charges",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
         )
     }
 }

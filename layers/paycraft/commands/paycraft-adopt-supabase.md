@@ -1,21 +1,40 @@
 # paycraft-adopt-supabase — Phase 2: Supabase Setup
 
-> **PHASE 2 of 5** — Applies migrations, creates RPCs, deploys webhook, verifies every step.
-> 9 steps. Every step has an inline verification. HARD STOP on any failure.
+> **PHASE 2 of 5** — Applies migrations, creates RPCs, deploys webhook, device binding tables + RPCs, Brevo SMTP, OTP hook, verifies every step.
+> 15 steps. Every step has an inline verification. HARD STOP on any failure.
 > No step may be skipped or reordered.
 
 ---
 
-## Prerequisites (verify before starting)
+## Pre-flight Gate (S3 — verify before any work starts)
 
-Read `.env` → confirm these are non-empty:
-- `PAYCRAFT_SUPABASE_PROJECT_REF`
-- `PAYCRAFT_SUPABASE_URL`
-- `PAYCRAFT_SUPABASE_ACCESS_TOKEN`
-- `PAYCRAFT_SUPABASE_SERVICE_ROLE_KEY`
-- `PAYCRAFT_PROVIDER`
+```
+PRE-FLIGHT CHECK — Phase 2:
 
-IF ANY EMPTY: HARD STOP — "Run Phase 1 (/paycraft-adopt-env) first."
+1. Read .env → validate keys present + format:
+   PAYCRAFT_SUPABASE_PROJECT_REF   — non-empty, matches [a-z0-9]{20}
+   PAYCRAFT_SUPABASE_URL           — matches https://{ref}.supabase.co
+   PAYCRAFT_SUPABASE_ACCESS_TOKEN  — starts with "sbp_"
+   PAYCRAFT_SUPABASE_SERVICE_ROLE_KEY — starts with "eyJ", length > 100
+   PAYCRAFT_PROVIDER               — "stripe" or "razorpay"
+
+   IF ANY MISSING OR INVALID:
+     HARD STOP — "Required credentials missing. Run /paycraft-adopt and select [A] Full setup to complete Phase 1 first."
+     Show exact which key is missing/invalid.
+
+2. Verify Supabase project reachable:
+   HEAD {PAYCRAFT_SUPABASE_URL}/rest/v1/ → expect HTTP 200 or 401
+   (401 = keys wrong but project reachable; 200 = fully connected)
+   IF NETWORK ERROR / TIMEOUT:
+     HARD STOP — "Cannot reach {PAYCRAFT_SUPABASE_URL}.
+                  Check: 1) Internet connection  2) Project URL is correct
+                  Verify at: https://supabase.com/dashboard/project/{ref}"
+
+DISPLAY:
+  ✓ Keys present and format valid
+  ✓ Supabase project reachable
+  → Proceeding with Phase 2...
+```
 
 ---
 
@@ -39,20 +58,33 @@ IF status != ACTIVE_HEALTHY :
 OUTPUT  : "✓ Supabase project reachable: [project name] ([ref])"
 ```
 
-### STEP 2.2 — Apply migration 001_create_subscriptions.sql
+### STEP 2.2 — Apply migration 001_create_subscriptions.sql (idempotent)
 
 ```
-ACTION  : Read file: {paycraft_root}/server/migrations/001_create_subscriptions.sql
-ACTION  : POST https://api.supabase.com/v1/projects/[ref]/database/query
-          Header: Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
-          Header: Content-Type: application/json
-          Body: {"query": "[SQL content from 001_create_subscriptions.sql]"}
-VERIFY  : HTTP 200 AND response does not contain "error"
-IF ERROR IN RESPONSE:
-  HARD STOP: "Migration 001 failed.
-              Error: [exact error from response]
-              Check SQL syntax and retry."
-OUTPUT  : "✓ Migration 001 applied (subscriptions table)"
+--- Idempotency check first (S5) ---
+CHECK: SELECT COUNT(*) FROM information_schema.tables
+       WHERE table_schema='public' AND table_name='subscriptions'
+       Auth: PAYCRAFT_SUPABASE_SERVICE_ROLE_KEY (anon key will fail on schema_information)
+
+IF subscriptions table EXISTS:
+  OUTPUT: "ℹ subscriptions table already exists — skipping migration (idempotent)"
+  SKIP to Step 2.3 (verify schema)
+
+IF NOT EXISTS:
+  ACTION  : Read file: {paycraft_root}/server/migrations/001_create_subscriptions.sql
+  ACTION  : POST https://api.supabase.com/v1/projects/[ref]/database/query
+            Header: Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+            Header: Content-Type: application/json
+            Body: {"query": "[SQL content from 001_create_subscriptions.sql]"}
+  VERIFY  : HTTP 200 AND response does not contain "error"
+  IF ERROR IN RESPONSE:
+    HARD STOP: "Migration 001 failed.
+                Error: [exact error from response]
+                Common fixes:
+                  1. Verify PAYCRAFT_SUPABASE_ACCESS_TOKEN is valid (sbp_...)
+                  2. Verify PAYCRAFT_SUPABASE_PROJECT_REF is correct (20 lowercase chars)
+                  3. Check Supabase project is ACTIVE_HEALTHY at dashboard.supabase.com"
+  OUTPUT  : "✓ Migration 001 applied (subscriptions table)"
 ```
 
 ### STEP 2.3 — Verify subscriptions table schema
@@ -164,54 +196,44 @@ OUTPUT  : "✓ is_premium() callable via anon key, returns false for unknown ema
 ### STEP 2.8 — Deploy webhook Edge Function
 
 ```
-PRE-CHECK: Run: supabase --version
-VERIFY VERSION: Parse version number from output
-  STRIP pre-release suffix before comparing: remove anything after the third numeric segment
-    e.g. "1.50.0-beta" → "1.50.0", "1.50-rc1" → "1.50", "2.0.0" → "2.0.0"
-  PASS if: major ≥ 2, OR (major = 1 AND minor ≥ 50)
-  IF OUTDATED:
-    HARD STOP: "Supabase CLI version [version] is too old (need ≥ 1.50.0).
-                Update:
-                  macOS:   brew upgrade supabase/tap/supabase
-                  npm:     npm install -g supabase@latest
-                  Linux:   curl -s https://raw.githubusercontent.com/supabase/cli/main/install.sh | bash
-                Then re-run this step."
+NOTE: Deployed via Supabase Management API — no CLI required.
 
-IF COMMAND NOT FOUND:
-  USER ACTION GATE:
-    "Install Supabase CLI first:"
-    "  macOS:  brew install supabase/tap/supabase"
-    "  Linux:  curl -s https://raw.githubusercontent.com/supabase/cli/main/install.sh | bash"
-    "  npm:    npm install -g supabase"
-    "After installing, run: supabase --version"
-    "Press Enter when installed:"
-  WAIT: user confirms
-  VERIFY: supabase --version returns a version string
-  IF STILL FAILS: HARD STOP — "Supabase CLI not found. Install it before continuing."
-
-ACTION  : supabase login --token [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
-          (OR: SUPABASE_ACCESS_TOKEN=[token] in env)
-
-READ    : PAYCRAFT_PROVIDER from .env → function name = [provider]-webhook
+READ    : PAYCRAFT_PROVIDER from .env → function_slug = "[provider]-webhook"
           (e.g. stripe-webhook or razorpay-webhook)
 
-ACTION  : supabase functions deploy [provider]-webhook
-            --project-ref [PAYCRAFT_SUPABASE_PROJECT_REF]
-            --no-verify-jwt
-          (Run from {paycraft_root} — functions are in {paycraft_root}/server/functions/)
-          NOTE: The functions use https://esm.sh/ imports directly — no --import-map needed.
-          If supabase CLI looks for functions in supabase/functions/ by default and cannot
-          find {paycraft_root}/server/functions/, copy the folder first:
-            cp -r {paycraft_root}/server/functions/[provider]-webhook {paycraft_root}/supabase/functions/[provider]-webhook
-          Then deploy from repo root.
+PRE-CHECK — function already deployed?
+  GET https://api.supabase.com/v1/projects/[ref]/functions
+  Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+  FIND: function with slug = "[provider]-webhook" AND status = "ACTIVE"
+  IF FOUND: OUTPUT "ℹ [provider]-webhook already ACTIVE — skipping deploy (idempotent)"
+            SKIP to STEP 2.9
 
-VERIFY  : supabase functions list --project-ref [PAYCRAFT_SUPABASE_PROJECT_REF]
-          → [provider]-webhook appears in list with status = ACTIVE
-IF NOT IN LIST:
-  HARD STOP: "[provider]-webhook not in functions list after deploy.
-              Check deploy output above for errors.
-              Common fix: supabase login --token [PAYCRAFT_SUPABASE_ACCESS_TOKEN]"
-OUTPUT  : "✓ [provider]-webhook deployed (--no-verify-jwt)"
+ACTION  : Read function source:
+          {paycraft_root}/server/functions/[provider]-webhook/index.ts
+
+ACTION  : POST https://api.supabase.com/v1/projects/[ref]/functions
+          Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+          Content-Type: application/json
+          Body: {
+            "slug": "[provider]-webhook",
+            "name": "[provider]-webhook",
+            "body": "[full contents of index.ts as a JSON string]",
+            "verify_jwt": false
+          }
+VERIFY  : HTTP 201
+IF NOT 201:
+  HARD STOP: "[provider]-webhook deploy failed (HTTP [status]).
+              Error: [response body]
+              Fix: verify PAYCRAFT_SUPABASE_ACCESS_TOKEN is valid (sbp_...)"
+
+VERIFY ACTIVE:
+  GET https://api.supabase.com/v1/projects/[ref]/functions
+  FIND: slug = "[provider]-webhook" AND status = "ACTIVE"
+  IF NOT ACTIVE:
+    HARD STOP: "[provider]-webhook deployed but status is [status].
+                Check logs in Supabase dashboard."
+
+OUTPUT  : "✓ [provider]-webhook deployed via Management API (verify_jwt=false)"
 ```
 
 ### STEP 2.9 — Test webhook endpoint is live (unsigned smoke test)
@@ -227,10 +249,7 @@ VERIFY  : HTTP response is 400 (Bad Request — expected: function is live but r
           NOT 500 (means function crashed on startup)
 IF 401:
   HARD STOP: "Webhook function requires JWT (got 401).
-              Re-deploy with --no-verify-jwt:
-              supabase functions deploy [provider]-webhook
-                --project-ref [ref]
-                --no-verify-jwt"
+              Re-deploy via Step 2.8 (Management API with verify_jwt=false)."
 IF 404:
   HARD STOP: "Webhook function not found (got 404).
               Re-run Step 2.8."
@@ -245,57 +264,575 @@ OUTPUT  : "✓ Webhook live: https://[PAYCRAFT_SUPABASE_URL]/functions/v1/[provi
 ### STEP 2.9B — Set provider API key as Supabase function secret
 
 ```
-AUTH CHECK: Verify Supabase CLI is authenticated before setting secrets:
-  ACTION  : supabase projects list --token [PAYCRAFT_SUPABASE_ACCESS_TOKEN] 2>&1
-  VERIFY  : Exit code 0 (token valid, at least one project listed)
-  IF FAILS (non-zero exit or "unauthorized"):
-    ACTION  : supabase login --token [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
-    VERIFY  : Exit code 0
-    IF STILL FAILS:
-      HARD STOP: "Supabase CLI authentication failed.
-                  Token: [first 8 chars of PAYCRAFT_SUPABASE_ACCESS_TOKEN]...
-                  Get a fresh token at: https://supabase.com/dashboard/account/tokens
-                  Then run: supabase login --token [token]"
+NOTE: Secrets deployed via Supabase Management API — no CLI required.
 
 READ    : PAYCRAFT_PROVIDER from .env
 
 [IF STRIPE]
-  READ: PAYCRAFT_MODE from .env (default "test")
-  KEY_TO_USE = PAYCRAFT_STRIPE_TEST_SECRET_KEY (if mode=test) OR PAYCRAFT_STRIPE_LIVE_SECRET_KEY (if mode=live)
-  ACTION  : supabase secrets set STRIPE_SECRET_KEY=[KEY_TO_USE value]
-              --project-ref [PAYCRAFT_SUPABASE_PROJECT_REF]
-  VERIFY  : supabase secrets list --project-ref [ref] | grep STRIPE_SECRET_KEY
-  IF NOT FOUND: HARD STOP — "STRIPE_SECRET_KEY secret not set. Check supabase CLI auth."
-  OUTPUT  : "✓ STRIPE_SECRET_KEY set as function secret"
+  BUILD secrets payload from .env values:
+  secrets = []
+  IF PAYCRAFT_STRIPE_TEST_SECRET_KEY non-empty:
+    secrets += { "name": "STRIPE_TEST_SECRET_KEY",     "value": "[PAYCRAFT_STRIPE_TEST_SECRET_KEY]" }
+  IF PAYCRAFT_STRIPE_TEST_WEBHOOK_SECRET non-empty:
+    secrets += { "name": "STRIPE_TEST_WEBHOOK_SECRET", "value": "[PAYCRAFT_STRIPE_TEST_WEBHOOK_SECRET]" }
+  IF PAYCRAFT_STRIPE_LIVE_SECRET_KEY non-empty:
+    secrets += { "name": "STRIPE_LIVE_SECRET_KEY",     "value": "[PAYCRAFT_STRIPE_LIVE_SECRET_KEY]" }
+  IF PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET non-empty:
+    secrets += { "name": "STRIPE_LIVE_WEBHOOK_SECRET", "value": "[PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET]" }
+
+  IF secrets is empty: HARD STOP — "No Stripe keys found in .env. Run Phase 1 first."
+
+  ACTION  : POST https://api.supabase.com/v1/projects/[ref]/secrets
+            Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+            Content-Type: application/json
+            Body: [secrets array]
+  VERIFY  : HTTP 201
+
+  VERIFY deployed:
+    GET https://api.supabase.com/v1/projects/[ref]/secrets
+    FIND: STRIPE_TEST_SECRET_KEY present (if TEST key in .env)
+    FIND: STRIPE_LIVE_SECRET_KEY present (if LIVE key in .env)
+    IF NEITHER: HARD STOP — "Stripe secrets not found after deploy."
+
+  OUTPUT  : "✓ Stripe secrets deployed via Management API:"
+            "    STRIPE_TEST_SECRET_KEY      — [set / not set]"
+            "    STRIPE_TEST_WEBHOOK_SECRET  — [set / not set]"
+            "    STRIPE_LIVE_SECRET_KEY      — [set / not set]"
+            "    STRIPE_LIVE_WEBHOOK_SECRET  — [set / not set]"
 
 [IF RAZORPAY]
-  ACTION  : supabase secrets set RAZORPAY_KEY_SECRET=[PAYCRAFT_RAZORPAY_KEY_SECRET]
-              --project-ref [PAYCRAFT_SUPABASE_PROJECT_REF]
-  VERIFY  : supabase secrets list --project-ref [ref] | grep RAZORPAY_KEY_SECRET
-  IF NOT FOUND: HARD STOP — "RAZORPAY_KEY_SECRET secret not set."
-  OUTPUT  : "✓ RAZORPAY_KEY_SECRET set as function secret"
+  ACTION  : POST https://api.supabase.com/v1/projects/[ref]/secrets
+            Body: [{ "name": "RAZORPAY_KEY_SECRET", "value": "[PAYCRAFT_RAZORPAY_KEY_SECRET]" }]
+  VERIFY  : HTTP 201 AND secret appears in GET /secrets
+  IF NOT FOUND: HARD STOP — "RAZORPAY_KEY_SECRET not deployed."
+  OUTPUT  : "✓ RAZORPAY_KEY_SECRET deployed via Management API"
+```
+
+### STEP 2.10 — Apply migration 005_registered_devices.sql (device binding table)
+
+```
+--- Idempotency check first ---
+CHECK: SELECT COUNT(*) FROM information_schema.tables
+       WHERE table_schema='public' AND table_name='registered_devices'
+
+IF registered_devices EXISTS:
+  OUTPUT: "ℹ registered_devices table already exists — skipping (idempotent)"
+  SKIP to Step 2.11
+
+IF NOT EXISTS:
+  ACTION  : Read file: {paycraft_root}/server/migrations/005_registered_devices.sql
+  ACTION  : POST https://api.supabase.com/v1/projects/[ref]/database/query
+            Header: Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+            Body: {"query": "[SQL content from 005_registered_devices.sql]"}
+  VERIFY  : HTTP 200 AND no "error" in response
+  IF ERROR:
+    HARD STOP: "Migration 005 failed.
+                Error: [exact error from response]
+                Manual fix: copy SQL to Supabase SQL editor at
+                https://supabase.com/dashboard/project/{ref}/sql"
+
+VERIFY SCHEMA:
+  SELECT column_name FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name = 'registered_devices'
+  EXPECT columns: id, email, device_token, platform, device_name, mode,
+                  is_active, last_seen_at, registered_at, revoked_at, revoked_by
+  IF ANY MISSING:
+    HARD STOP: "registered_devices table missing columns: [list].
+                Drop and re-apply: DROP TABLE IF EXISTS registered_devices; then retry."
+
+OUTPUT  : "✓ Migration 005 applied (registered_devices table)"
+```
+
+### STEP 2.11 — Apply migration 006_server_token_rpcs.sql (device RPCs)
+
+```
+--- Idempotency check: verify RPCs exist ---
+CHECK: SELECT routine_name FROM information_schema.routines
+       WHERE routine_schema = 'public'
+         AND routine_name IN ('register_device', 'check_premium_with_device',
+                               'transfer_to_device', 'revoke_device', 'get_active_devices')
+
+IF all 5 RPCs exist:
+  OUTPUT: "ℹ Device RPCs already exist — skipping (idempotent)"
+  SKIP to Step 2.12
+
+IF any MISSING:
+  ACTION  : Read file: {paycraft_root}/server/migrations/006_server_token_rpcs.sql
+  ACTION  : POST database/query with SQL content from 006_server_token_rpcs.sql
+  VERIFY  : No "error" in response
+
+  VERIFY RPCs:
+    SELECT routine_name FROM information_schema.routines
+    WHERE routine_schema = 'public'
+      AND routine_name IN ('register_device', 'check_premium_with_device',
+                           'transfer_to_device', 'revoke_device', 'get_active_devices')
+  EXPECT: 5 rows returned
+  IF < 5:
+    HARD STOP: "Device RPCs not fully created. Missing: [list].
+                Check 006_server_token_rpcs.sql syntax and re-apply."
+
+OUTPUT  : "✓ Migration 006 applied:"
+         "    register_device() RPC"
+         "    check_premium_with_device() RPC"
+         "    transfer_to_device() RPC"
+         "    revoke_device() RPC"
+         "    get_active_devices() RPC"
+```
+
+### STEP 2.11B — Apply migration 008_fix_register_device_dedup.sql (register_device dedup fix)
+
+```
+NOTE: This migration fixes a critical bug in register_device() where LIMIT 1 without
+      ORDER BY could pick a stale/wrong active row, causing spurious conflicts and
+      accumulating duplicate active registrations on each app reinstall.
+      Uses CREATE OR REPLACE FUNCTION — safe to re-run (always idempotent).
+
+--- Idempotency check: does the current function already have the dedup fix? ---
+CHECK: SELECT prosrc FROM pg_proc
+       JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+       WHERE pg_namespace.nspname = 'public' AND pg_proc.proname = 'register_device'
+
+IF FOUND AND prosrc CONTAINS 'ORDER BY registered_at DESC':
+  OUTPUT: "ℹ register_device() already has dedup fix (ORDER BY registered_at DESC) — skipping (idempotent)"
+  SKIP to STEP 2.12
+
+IF NOT FOUND OR prosrc does NOT contain 'ORDER BY registered_at DESC':
+  ACTION  : Read file: {paycraft_root}/server/migrations/008_fix_register_device_dedup.sql
+  ACTION  : POST https://api.supabase.com/v1/projects/[ref]/database/query
+            Header: Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+            Body: {"query": "[SQL content from 008_fix_register_device_dedup.sql]"}
+  VERIFY  : HTTP 200 AND no "error" in response
+  IF ERROR:
+    HARD STOP: "Migration 008 failed.
+                Error: [exact error from response]
+                This migration fixes the register_device() dedup bug — required for
+                correct device binding behavior.
+                Manual fix: copy SQL to Supabase SQL editor at
+                https://supabase.com/dashboard/project/{ref}/sql"
+
+  VERIFY applied:
+    SELECT prosrc FROM pg_proc
+    JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+    WHERE pg_namespace.nspname = 'public' AND pg_proc.proname = 'register_device'
+    CHECK: prosrc CONTAINS 'ORDER BY registered_at DESC'
+    IF NOT: HARD STOP "Migration 008 applied but function body missing ORDER BY fix."
+
+OUTPUT  : "✓ Migration 008 applied (register_device() dedup fix: ORDER BY + duplicate cleanup)"
+```
+
+### STEP 2.11C — Apply migration 009_device_id.sql (hardware device identity)
+
+```
+NOTE: This migration adds a hardware-unique device_id column to registered_devices and
+      updates register_device() to use it for same-device detection.
+      Security fix: replaces insecure platform+device_name check (model labels are not unique).
+      Backward compat: p_device_id DEFAULT NULL — old 4-arg clients continue working.
+      Uses CREATE OR REPLACE FUNCTION — safe to re-run (idempotent).
+
+--- Idempotency check: does device_id column already exist? ---
+CHECK: SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name   = 'registered_devices'
+         AND column_name  = 'device_id'
+
+IF FOUND:
+  OUTPUT: "ℹ registered_devices.device_id column already exists — skipping column add (idempotent)"
+  SKIP column ALTER (still apply CREATE OR REPLACE FUNCTION to ensure latest RPC logic)
+
+--- Idempotency check: does the RPC already accept p_device_id? ---
+CHECK: SELECT prosrc FROM pg_proc
+       JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+       WHERE pg_namespace.nspname = 'public' AND pg_proc.proname = 'register_device'
+
+IF FOUND AND prosrc CONTAINS 'p_device_id':
+  OUTPUT: "ℹ register_device() already accepts p_device_id — skipping (idempotent)"
+  SKIP to STEP 2.12
+
+IF NOT:
+  ACTION  : Read file: {paycraft_root}/server/migrations/009_device_id.sql
+  ACTION  : POST https://api.supabase.com/v1/projects/[ref]/database/query
+            Header: Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+            Body: {"query": "[SQL content from 009_device_id.sql]"}
+  VERIFY  : HTTP 200 AND no "error" in response
+  IF ERROR:
+    HARD STOP: "Migration 009 failed.
+                Error: [exact error from response]
+                This migration adds hardware device_id for secure same-device detection.
+                Manual fix: copy SQL to Supabase SQL editor at
+                https://supabase.com/dashboard/project/{ref}/sql"
+
+  VERIFY applied:
+    SELECT column_name FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name   = 'registered_devices'
+      AND column_name  = 'device_id'
+    IF NOT FOUND: HARD STOP "Migration 009 applied but device_id column not found."
+
+    SELECT prosrc FROM pg_proc
+    JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+    WHERE pg_namespace.nspname = 'public' AND pg_proc.proname = 'register_device'
+    CHECK: prosrc CONTAINS 'p_device_id'
+    IF NOT: HARD STOP "Migration 009 applied but register_device() missing p_device_id param."
+
+OUTPUT  : "✓ Migration 009 applied (device_id column + hardware-unique same-device detection)"
+```
+
+### STEP 2.12 — Apply migration 007_otp_send_gate.sql (OTP rate limiting)
+
+```
+--- Idempotency check ---
+CHECK: SELECT COUNT(*) FROM information_schema.tables
+       WHERE table_schema='public' AND table_name='otp_send_log'
+
+IF otp_send_log EXISTS:
+  OUTPUT: "ℹ otp_send_log table already exists — skipping (idempotent)"
+  SKIP to STEP 2.13
+
+IF NOT EXISTS:
+  ACTION  : Read file: {paycraft_root}/server/migrations/007_otp_send_gate.sql
+  ACTION  : POST database/query with SQL content from 007_otp_send_gate.sql
+  VERIFY  : No "error" in response
+
+  VERIFY otp_send_log table:
+    SELECT COUNT(*) FROM information_schema.tables
+    WHERE table_schema='public' AND table_name='otp_send_log'
+    EXPECT: 1
+    IF 0: HARD STOP: "otp_send_log table not created."
+
+  VERIFY check_otp_gate() RPC:
+    SELECT routine_name FROM information_schema.routines
+    WHERE routine_schema = 'public' AND routine_name = 'check_otp_gate'
+    EXPECT: 1 row
+    IF 0: HARD STOP: "check_otp_gate() RPC not created."
+
+OUTPUT  : "✓ Migration 007 applied (otp_send_log table + check_otp_gate() RPC)"
+```
+
+### STEP 2.13 — Deploy otp-send-hook Edge Function
+
+```
+NOTE: Deployed via Supabase Management API — no CLI required.
+      Fires after every OTP email dispatched by Supabase Auth.
+      Increments daily counter in otp_send_log (monitors Brevo 300/day free limit).
+
+PRE-CHECK — already deployed?
+  GET https://api.supabase.com/v1/projects/[ref]/functions
+  Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+  FIND: slug = "otp-send-hook" AND status = "ACTIVE"
+  IF FOUND: OUTPUT "ℹ otp-send-hook already ACTIVE — skipping deploy (idempotent)"
+            SKIP to STEP 2.14
+
+ACTION  : Read function source:
+          {paycraft_root}/server/functions/otp-send-hook/index.ts
+
+ACTION  : POST https://api.supabase.com/v1/projects/[ref]/functions
+          Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+          Content-Type: application/json
+          Body: {
+            "slug": "otp-send-hook",
+            "name": "otp-send-hook",
+            "body": "[full contents of index.ts as a JSON string]",
+            "verify_jwt": false
+          }
+VERIFY  : HTTP 201
+IF NOT 201:
+  HARD STOP: "otp-send-hook deploy failed (HTTP [status]).
+              Error: [response body]"
+
+VERIFY ACTIVE:
+  GET https://api.supabase.com/v1/projects/[ref]/functions
+  FIND: slug = "otp-send-hook" AND status = "ACTIVE"
+  IF NOT ACTIVE: HARD STOP "otp-send-hook deployed but not ACTIVE."
+
+OUTPUT  : "✓ otp-send-hook deployed via Management API (ACTIVE)"
+```
+
+### STEP 2.14 — Configure Brevo SMTP + deploy secret (fully automated)
+
+```
+NOTE: Brevo's free tier gives 300 emails/day — sufficient for OTP sends.
+      All configuration is done via API — no browser steps required.
+
+━━━ STEP 2.14A — Get Brevo API key ━━━
+
+CHECK .env for BREVO_API_KEY:
+  IF present and non-empty: use it → skip asking
+  IF missing:
+    DISPLAY:
+      "Brevo API key needed for OTP email delivery (free — 300 emails/day)."
+      ""
+      "Get it in 2 steps:"
+      "  1. Sign up at https://www.brevo.com (free, no credit card)"
+      "  2. Go to: top-right menu → API Keys → Create API key → copy"
+      ""
+      "Enter your Brevo API key:"
+    WAIT: user pastes key
+    WRITE to .env: BREVO_API_KEY={key}
+
+━━━ STEP 2.14B — Resolve Brevo account email via API ━━━
+
+ACTION  : GET https://api.brevo.com/v3/account
+          Header: api-key: {BREVO_API_KEY}
+VERIFY  : HTTP 200
+IF HTTP 401:
+  HARD STOP: "Brevo API key invalid (HTTP 401).
+              Check the key at: https://app.brevo.com/settings/keys/api
+              Then re-enter it."
+IF HTTP != 200:
+  HARD STOP: "Brevo API unreachable (HTTP [status]).
+              Check internet connection and try again."
+
+EXTRACT: email = response.email  (Brevo account login email)
+OUTPUT  : "✓ Brevo account verified: {email}"
+
+━━━ STEP 2.14C — Push BREVO_API_KEY to Supabase Edge Function secrets ━━━
+
+PRE-CHECK: GET /v1/projects/[ref]/secrets → BREVO_API_KEY already present?
+  IF PRESENT: OUTPUT "ℹ BREVO_API_KEY already in Supabase secrets (idempotent)"
+              SKIP to 2.14D
+
+ACTION  : POST https://api.supabase.com/v1/projects/[ref]/secrets
+          Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+          Content-Type: application/json
+          Body: [{ "name": "BREVO_API_KEY", "value": "{BREVO_API_KEY}" }]
+VERIFY  : HTTP 201
+VERIFY  : GET /secrets → BREVO_API_KEY present
+IF NOT: HARD STOP "BREVO_API_KEY not found in Supabase secrets after push."
+
+OUTPUT  : "✓ BREVO_API_KEY deployed to Supabase Edge Function secrets"
+
+━━━ STEP 2.14D — Configure Brevo SMTP in Supabase Auth via Management API ━━━
+
+PRE-CHECK: GET /v1/projects/[ref]/config/auth
+  IF smtp_host = "smtp-relay.brevo.com" AND smtp_user non-empty:
+    OUTPUT "ℹ Brevo SMTP already configured (idempotent)"
+    SKIP to STEP 2.15
+
+ACTION  : PATCH https://api.supabase.com/v1/projects/[ref]/config/auth
+          Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+          Content-Type: application/json
+          Body: {
+            "smtp_admin_email": "{email from 2.14B}",
+            "smtp_host":        "smtp-relay.brevo.com",
+            "smtp_port":        587,
+            "smtp_user":        "{email from 2.14B}",
+            "smtp_pass":        "{BREVO_API_KEY}",
+            "smtp_sender_name": "PayCraft",
+            "smtp_max_frequency": 60
+          }
+VERIFY  : HTTP 200
+IF NOT 200:
+  HARD STOP: "Brevo SMTP config failed (HTTP [status]).
+              Error: [response body]
+              Check PAYCRAFT_SUPABASE_ACCESS_TOKEN is valid."
+
+VERIFY applied:
+  GET /v1/projects/[ref]/config/auth → smtp_host = "smtp-relay.brevo.com"
+  IF NOT: HARD STOP "SMTP config not saved."
+
+WRITE to .env: PAYCRAFT_BREVO_SMTP_USER={email}
+MARK: smtp_configured = true
+WRITE to memory.json: smtp_status = "COMPLETE"
+
+OUTPUT  : "✓ Brevo SMTP configured in Supabase Auth via API"
+          "  Host:  smtp-relay.brevo.com:587"
+          "  Login: {email}"
+```
+
+### STEP 2.15 — Wire otp-send-hook as Supabase Auth Hook (fully automated)
+
+```
+NOTE: Auth Hook wiring via Supabase Management API — no browser steps required.
+
+HOOK_URL = "https://[PAYCRAFT_SUPABASE_PROJECT_REF].supabase.co/functions/v1/otp-send-hook"
+
+PRE-CHECK: GET /v1/projects/[ref]/config/auth
+  IF hook_send_email_enabled = true AND hook_send_email_uri = {HOOK_URL}:
+    OUTPUT "ℹ Send Email Auth Hook already wired (idempotent)"
+    MARK: otp_hook_wired = true
+    WRITE to memory.json: otp_hook_status = "COMPLETE"
+    SKIP to Phase 2 Post-Phase Verification
+
+ACTION  : PATCH https://api.supabase.com/v1/projects/[ref]/config/auth
+          Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+          Content-Type: application/json
+          Body: {
+            "hook_send_email_enabled": true,
+            "hook_send_email_uri": "{HOOK_URL}"
+          }
+VERIFY  : HTTP 200
+IF NOT 200:
+  DISPLAY: "Auth Hook PATCH failed (HTTP [status])."
+           "This may mean the project is on Supabase Free plan — Auth Hooks require Pro."
+           ""
+           "[U] Upgrade to Pro at: https://supabase.com/dashboard/project/[ref]/settings/billing"
+           "    Then press Enter to retry."
+           "[D] Defer — mark as INCOMPLETE (⚠ OTP counter won't update, 300/day limit unmonitored)"
+  WAIT: user picks
+  IF [D]:
+    WRITE to memory.json: otp_hook_status = "INCOMPLETE"
+    DISPLAY: "⚠️  Auth Hook deferred — INCOMPLETE in memory.json. Resolve before going live."
+    CONTINUE
+  IF [U]: wait → retry PATCH → IF still fails: HARD STOP
+
+VERIFY wired:
+  GET /v1/projects/[ref]/config/auth
+  VERIFY: hook_send_email_enabled = true AND hook_send_email_uri = {HOOK_URL}
+  IF NOT: HARD STOP "Auth Hook not saved after PATCH."
+
+MARK: otp_hook_wired = true
+WRITE to memory.json: otp_hook_status = "COMPLETE"
+OUTPUT  : "✓ otp-send-hook wired as Auth Hook (Send Email) via Management API"
+          "  URI: {HOOK_URL}"
 ```
 
 ---
 
+## Phase 2 Post-Phase Verification (S4 — prove it worked)
+
+```
+Run these checks BEFORE declaring Phase 2 complete:
+
+CHECK 1: subscriptions table exists
+  SELECT COUNT(*) FROM information_schema.tables
+  WHERE table_schema='public' AND table_name='subscriptions'
+  EXPECT: count = 1
+  IF FAIL: HARD STOP — "subscriptions table not found after migration.
+                         Fix: manually run 001_create_subscriptions.sql in Supabase SQL editor
+                         at https://supabase.com/dashboard/project/{ref}/sql"
+
+CHECK 2: is_premium() RPC callable
+  SELECT is_premium()
+  EXPECT: returns true or false (no error)
+  IF FAIL: HARD STOP — "is_premium() RPC not found.
+                         Fix: run the RPC migration SQL manually in Supabase SQL editor"
+
+CHECK 3: get_subscription() RPC callable
+  SELECT get_subscription()
+  EXPECT: returns row or null (no error)
+  IF FAIL: HARD STOP — "get_subscription() RPC not found.
+                         Fix: run the RPC migration SQL manually"
+
+CHECK 4: stripe-webhook (or razorpay-webhook) Edge Function status
+  GET https://api.supabase.com/v1/projects/{ref}/functions
+  Authorization: Bearer {PAYCRAFT_SUPABASE_ACCESS_TOKEN}
+  FIND: function with slug "{provider}-webhook"
+  EXPECT: status = "ACTIVE"
+  IF NOT FOUND: HARD STOP — "Edge Function not found. Re-run Step 2.8 to deploy via Management API."
+  IF status != ACTIVE: HARD STOP — "Edge Function status is [{status}].
+                                      Fix: check logs:
+                                      supabase functions logs {provider}-webhook --project-ref {ref}"
+
+CHECK 5: registered_devices table exists (device binding — PayCraft ≥ 1.3.0)
+  SELECT COUNT(*) FROM information_schema.tables
+  WHERE table_schema='public' AND table_name='registered_devices'
+  EXPECT: count = 1
+  IF FAIL: HARD STOP — "registered_devices table not found. Re-run Step 2.10."
+
+CHECK 6: register_device() RPC exists
+  SELECT COUNT(*) FROM information_schema.routines
+  WHERE routine_schema='public' AND routine_name='register_device'
+  EXPECT: count = 1
+  IF FAIL: HARD STOP — "register_device() RPC not found. Re-run Step 2.11."
+
+CHECK 7: check_premium_with_device() RPC exists
+  SELECT COUNT(*) FROM information_schema.routines
+  WHERE routine_schema='public' AND routine_name='check_premium_with_device'
+  EXPECT: count = 1
+  IF FAIL: HARD STOP — "check_premium_with_device() RPC not found. Re-run Step 2.11."
+
+CHECK 7B: register_device() has dedup fix (migration 008)
+  SELECT prosrc FROM pg_proc
+  JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+  WHERE pg_namespace.nspname = 'public' AND pg_proc.proname = 'register_device'
+  EXPECT: prosrc CONTAINS 'ORDER BY registered_at DESC'
+  IF FAIL: HARD STOP — "register_device() is missing the dedup fix. Re-run Step 2.11B."
+
+CHECK 7C: registered_devices has device_id column and register_device() accepts p_device_id (migration 009)
+  SELECT column_name FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name   = 'registered_devices'
+    AND column_name  = 'device_id'
+  EXPECT: 1 row returned
+  IF FAIL: HARD STOP — "device_id column not found in registered_devices. Re-run Step 2.11C."
+
+  SELECT prosrc FROM pg_proc
+  JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+  WHERE pg_namespace.nspname = 'public' AND pg_proc.proname = 'register_device'
+  EXPECT: prosrc CONTAINS 'p_device_id'
+  IF FAIL: HARD STOP — "register_device() is missing p_device_id param. Re-run Step 2.11C."
+
+CHECK 8: otp_send_log table exists
+  SELECT COUNT(*) FROM information_schema.tables
+  WHERE table_schema='public' AND table_name='otp_send_log'
+  EXPECT: count = 1
+  IF FAIL: HARD STOP — "otp_send_log table not found. Re-run Step 2.12."
+
+CHECK 9: otp-send-hook Edge Function status
+  GET https://api.supabase.com/v1/projects/{ref}/functions
+  FIND: function with slug "otp-send-hook"
+  EXPECT: status = "ACTIVE"
+  IF NOT FOUND: HARD STOP — "otp-send-hook not found. Re-run Step 2.13."
+
+OUTPUT:
+  ✓ subscriptions table: EXISTS
+  ✓ is_premium() RPC: CALLABLE
+  ✓ get_subscription() RPC: CALLABLE
+  ✓ {provider}-webhook: ACTIVE
+  ✓ registered_devices table: EXISTS
+  ✓ register_device() RPC: EXISTS (dedup fix: ORDER BY registered_at DESC, device_id: supported)
+  ✓ registered_devices.device_id: column EXISTS
+  ✓ check_premium_with_device() RPC: EXISTS
+  ✓ otp_send_log table: EXISTS
+  ✓ otp-send-hook: ACTIVE
+  → Phase 2 VERIFIED
+```
+
+## Phase 2 Memory Write (M3b — atomic)
+
+```
+MEMORY_PATH = {TARGET_APP_PATH}/.paycraft/memory.json
+TMP_PATH    = {TARGET_APP_PATH}/.paycraft/memory.json.tmp
+
+READ existing memory.json → merge
+SET fields:
+  supabase_project_ref = {PAYCRAFT_SUPABASE_PROJECT_REF}
+  last_run             = current ISO timestamp
+  phases_completed     = add "supabase" if not already present
+
+WRITE: JSON to {TMP_PATH}
+RENAME: {TMP_PATH} → {MEMORY_PATH}
+OUTPUT: "✓ Phase 2 state saved → .paycraft/memory.json"
+```
+
 ## Phase 2 Checkpoint
 
 ```
-╔══ PHASE 2 COMPLETE — Supabase Setup ══════════════════════════════╗
-║                                                                     ║
-║  ✓ Project reachable: [name] ([ref]) — ACTIVE_HEALTHY             ║
-║  ✓ subscriptions table (12 cols, NOT NULL email)                  ║
-║  ✓ UNIQUE constraint on email                                      ║
-║  ✓ RLS enabled                                                     ║
-║  ✓ is_premium() RPC — callable, returns false for unknown email   ║
-║  ✓ get_subscription() RPC — deployed                               ║
-║  ✓ [provider]-webhook deployed (--no-verify-jwt)                  ║
-║  ✓ Webhook returns 400 for unsigned requests                       ║
-║  ✓ Provider API key set as function secret                         ║
-║                                                                     ║
-║  Ready to proceed to Phase 3: Provider Setup?                      ║
-║  [Y] Continue   [Q] Quit                                           ║
-╚═════════════════════════════════════════════════════════════════════╝
+╔══ PHASE 2 COMPLETE — Supabase Setup ══════════════════════════════════╗
+║                                                                          ║
+║  ✓ Project reachable: [name] ([ref]) — ACTIVE_HEALTHY                  ║
+║  ✓ subscriptions table — EXISTS (verified)                              ║
+║  ✓ UNIQUE constraint on email, RLS enabled                              ║
+║  ✓ is_premium() RPC — CALLABLE (verified)                               ║
+║  ✓ get_subscription() RPC — CALLABLE (verified)                         ║
+║  ✓ {provider}-webhook — ACTIVE (verified)                               ║
+║  ✓ Provider API key set as function secret                               ║
+║                                                                          ║
+║  DEVICE BINDING (PayCraft ≥ 1.3.0)                                      ║
+║  ✓ registered_devices table — EXISTS (device_id column: present)         ║
+║  ✓ register_device() RPC — EXISTS (dedup fix + device_id support)       ║
+║  ✓ check_premium_with_device() RPC — EXISTS                             ║
+║  ✓ transfer_to_device() RPC — EXISTS                                    ║
+║  ✓ otp_send_log table — EXISTS                                          ║
+║  ✓ otp-send-hook Edge Function — ACTIVE                                 ║
+║  [smtp_configured]: Brevo SMTP — {✓ CONFIGURED | ⚠ SKIPPED}           ║
+║  [otp_hook_wired]: Auth Hook — {✓ WIRED | ⚠ SKIPPED}                  ║
+║                                                                          ║
+║  ✓ memory.json updated                                                   ║
+║                                                                          ║
+║  Ready to proceed to Phase 3: Provider Setup?                           ║
+║  [Y] Continue   [Q] Quit                                                 ║
+╚══════════════════════════════════════════════════════════════════════════╝
 ```
 
 Wait for user `[Y]` before proceeding.
