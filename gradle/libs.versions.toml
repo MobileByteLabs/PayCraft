@@ -55,6 +55,13 @@ koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
 koin-compose = { module = "io.insert-koin:koin-compose", version.ref = "koin" }
 koin-compose-viewmodel = { module = "io.insert-koin:koin-compose-viewmodel", version.ref = "koin" }
 koin-core-viewmodel = { module = "io.insert-koin:koin-core-viewmodel", version.ref = "koin" }
+koin-android = { module = "io.insert-koin:koin-android", version.ref = "koin" }
+koin-test = { module = "io.insert-koin:koin-test", version.ref = "koin" }
+koin-test-junit4 = { module = "io.insert-koin:koin-test-junit4", version.ref = "koin" }
+
+# Compose Testing (version aligned with CMP 1.7.3 → AndroidX Compose 1.7.6)
+compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4", version = "1.7.6" }
+compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest", version = "1.7.6" }
 
 # Lifecycle (KMP ViewModel + collectAsStateWithLifecycle)
 lifecycle-viewmodel = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel", version.ref = "lifecycle" }

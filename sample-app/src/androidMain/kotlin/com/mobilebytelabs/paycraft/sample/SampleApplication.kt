@@ -1,14 +1,8 @@
 package com.mobilebytelabs.paycraft.sample
 
 import android.app.Application
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Star
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.di.PayCraftModule
-import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.provider.StripeProvider
 import org.koin.android.ext.koin.androidContext
@@ -54,12 +48,7 @@ class SampleApplication : Application() {
                     isPopular = true,
                 ),
             )
-            benefits(
-                BillingBenefit(icon = Icons.Default.Block, text = "Ad-free experience"),
-                BillingBenefit(icon = Icons.Default.Download, text = "Unlimited downloads"),
-                BillingBenefit(icon = Icons.Default.Star, text = "Premium features"),
-                BillingBenefit(icon = Icons.Default.Speed, text = "Faster performance"),
-            )
+            // benefits() requires StringResource — configure with actual resources in real app
             supportEmail("support@yourdomain.com") // replace
         }
 

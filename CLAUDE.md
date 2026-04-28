@@ -19,11 +19,14 @@ Webhooks keep Supabase in sync with the payment provider.
 |------|---------|
 | `cmp-paycraft/` | KMP library module |
 | `PayCraft.kt` | Singleton config — entry point |
-| `core/BillingManager.kt` | Interface — isPremium, logIn, logOut |
-| `core/PayCraftBillingManager.kt` | Implementation — queries Supabase |
+| `core/BillingManager.kt` | Interface — isPremium, logIn, logOut, refreshStatus(force) |
+| `core/PayCraftBillingManager.kt` | Implementation — cache-first init + smart sync |
+| `core/SyncPolicy.kt` | Tiered sync intervals (weekly/daily/hourly) |
 | `provider/PaymentProvider.kt` | Provider interface (Stripe, Razorpay, Custom) |
 | `network/PayCraftService.kt` | Supabase RPC calls |
-| `persistence/PayCraftStore.kt` | Email persistence interface |
+| `persistence/PayCraftStore.kt` | Email + subscription cache interface |
+| `persistence/PayCraftSettingsStore.kt` | multiplatform-settings cache implementation |
+| `platform/TimeProvider.kt` | expect/actual currentTimeMillis() (6 platforms) |
 | `ui/PayCraftPaywall.kt` | Default paywall UI |
 | `di/PayCraftModule.kt` | Koin DI module |
 | `server/migrations/` | SQL for subscriptions table + RPCs |

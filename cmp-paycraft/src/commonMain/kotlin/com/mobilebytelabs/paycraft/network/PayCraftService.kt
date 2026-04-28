@@ -132,7 +132,10 @@ class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService 
         deviceId: String,
         mode: String,
     ): RegisterDeviceResult {
-        PayCraftLogger.onRpcCall("register_device", email)
+        PayCraftLogger.onRpcCall(
+            "register_device",
+            "$email (platform=$platform, device=$deviceName, id=$deviceId, mode=$mode)",
+        )
         val r = postgrest.rpc(
             function = "register_device",
             parameters = buildJsonObject {
@@ -143,16 +146,23 @@ class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService 
                 put("p_mode", mode)
             },
         ).decodeAs<JsonObject>()
-        return RegisterDeviceResult(
+        val result = RegisterDeviceResult(
             deviceToken = r["device_token"]!!.jsonPrimitive.content,
             conflict = r["conflict"]?.jsonPrimitive?.boolean ?: false,
             conflictingDeviceName = r["conflicting_device_name"]?.jsonPrimitive?.contentOrNull,
             conflictingLastSeen = r["conflicting_last_seen"]?.jsonPrimitive?.contentOrNull,
         )
+        PayCraftLogger.onRpcResult(
+            "register_device",
+            "token=${result.deviceToken.take(
+                20,
+            )}, conflict=${result.conflict}, conflictDevice=${result.conflictingDeviceName}",
+        )
+        return result
     }
 
     override suspend fun checkPremiumWithDevice(email: String, deviceToken: String, mode: String): PremiumCheckResult {
-        PayCraftLogger.onRpcCall("check_premium_with_device", email)
+        PayCraftLogger.onRpcCall("check_premium_with_device", "$email (token=${deviceToken.take(20)}, mode=$mode)")
         val r = postgrest.rpc(
             function = "check_premium_with_device",
             parameters = buildJsonObject {
@@ -161,14 +171,19 @@ class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService 
                 put("p_mode", mode)
             },
         ).decodeAs<JsonObject>()
-        return PremiumCheckResult(
+        val result = PremiumCheckResult(
             isPremium = r["is_premium"]?.jsonPrimitive?.boolean ?: false,
             tokenValid = r["token_valid"]?.jsonPrimitive?.boolean ?: false,
         )
+        PayCraftLogger.onRpcResult(
+            "check_premium_with_device",
+            "isPremium=${result.isPremium}, tokenValid=${result.tokenValid}",
+        )
+        return result
     }
 
     override suspend fun transferToDevice(email: String, newToken: String, mode: String): Boolean {
-        PayCraftLogger.onRpcCall("transfer_to_device", email)
+        PayCraftLogger.onRpcCall("transfer_to_device", "$email (newToken=${newToken.take(20)}, mode=$mode)")
         val r = postgrest.rpc(
             function = "transfer_to_device",
             parameters = buildJsonObject {
@@ -177,7 +192,9 @@ class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService 
                 put("p_mode", mode)
             },
         ).decodeAs<JsonObject>()
-        return r["transferred"]?.jsonPrimitive?.boolean ?: false
+        val transferred = r["transferred"]?.jsonPrimitive?.boolean ?: false
+        PayCraftLogger.onRpcResult("transfer_to_device", "transferred=$transferred, raw=$r")
+        return transferred
     }
 
     override suspend fun revokeDevice(email: String, deviceToken: String, mode: String): Boolean {

@@ -114,6 +114,18 @@ object PayCraftLogger {
         Logger.e(TAG) { "  ✗ $function error: $message" }
     }
 
+    // ── Flow tracing (debug the billing pipeline) ─────────────────────────
+
+    fun onFlow(method: String, detail: String) {
+        if (!enabled) return
+        Logger.d(TAG) { "[$method] $detail" }
+    }
+
+    fun onStateChange(from: String, to: String) {
+        if (!enabled) return
+        Logger.d(TAG) { "STATE: $from → $to" }
+    }
+
     // ── Error ────────────────────────────────────────────────────────────────
 
     fun onError(source: String, message: String?) {
