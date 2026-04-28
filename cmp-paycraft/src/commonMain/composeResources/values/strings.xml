@@ -90,6 +90,13 @@
     <string name="paycraft_plan_disabled_description">%1$s — requires a higher plan to downgrade</string>
     <string name="paycraft_plan_upgrade_description">%1$s — upgrade from your current plan</string>
 
+    <!-- Restore — OAuth (Gate 1) -->
+    <string name="paycraft_restore_oauth_description">Sign in to instantly verify ownership of your subscription.</string>
+    <string name="paycraft_restore_sign_in_google">Continue with Google</string>
+    <string name="paycraft_restore_sign_in_apple">Continue with Apple</string>
+    <string name="paycraft_restore_or_email">Or restore with email</string>
+    <string name="paycraft_restore_verifying_identity">Verifying identity…</string>
+
     <!-- Restore sheet — additional -->
     <string name="paycraft_restore_hint">This is the email you used when you first subscribed or made a purchase.</string>
     <string name="paycraft_restore_success_title">Subscription Restored</string>

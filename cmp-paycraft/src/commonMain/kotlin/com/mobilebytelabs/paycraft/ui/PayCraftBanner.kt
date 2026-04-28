@@ -118,7 +118,6 @@ fun PayCraftBanner(
     billingManager: BillingManager = koinInject(),
 ) {
     val billingState by billingManager.billingState.collectAsStateWithLifecycle()
-    val isLoading = billingState is BillingState.Loading
 
     // Retain last stable (non-loading) state — avoids jarring free → premium flash on navigation
     var lastStableState by remember {
@@ -129,6 +128,10 @@ fun PayCraftBanner(
             lastStableState = billingState
         }
     }
+
+    // Only show loading overlay when refreshing a known-premium state.
+    // For free/unknown users on initial load the spinner is just noise.
+    val isLoading = billingState is BillingState.Loading && lastStableState is BillingState.Premium
 
     val benefits = PayCraft.requireConfig().benefits
     val plans = PayCraft.requireConfig().plans

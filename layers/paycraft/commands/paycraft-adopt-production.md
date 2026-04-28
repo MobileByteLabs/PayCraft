@@ -166,28 +166,61 @@ OUTPUT: "✓ PR.3 PASS — Client integration: dependency ✓, configure ✓, Ko
 ## STEP PR.4 — Sandbox test: Phase 5B result verified
 
 ```
-READ: {target_app_path}/.paycraft/test_results/sandbox_test.json
+-- Primary check: read paycraft-matrix.yaml (preferred)
+MATRIX_PATH = {TARGET_APP_PATH}/.paycraft/paycraft-matrix.yaml
+IF MATRIX_PATH exists:
+  READ MATRIX_PATH → scenarios[S1]
+  IF scenarios[S1].status = "pass":
+    OUTPUT: "✓ PR.4 PASS — Sandbox test (S1): PASS — {scenarios[S1].last_run} for email={scenarios[S1].email_used} plan={scenarios[S1].plan_tested}"
+    → Proceed to PR.4B
+  ELSE:
+    DISPLAY:
+      "✗ PR.4 FAILED — Sandbox test (S1) not passed."
+      "Last status: {scenarios[S1].status}  fail_reason: {scenarios[S1].fail_reason}"
+      "Fix: Run /paycraft-adopt → [T] → S1 to run sandbox scenario."
+    HARD STOP.
 
-IF file missing:
-  HARD STOP:
-    "✗ PR.4 FAILED — No sandbox test result found."
-    "Fix: Run /paycraft-adopt → [B] Test sandbox first."
+-- Legacy fallback (matrix file not found):
+ELSE:
+  READ: {target_app_path}/.paycraft/test_results/sandbox_test.json
+  IF file missing:
+    HARD STOP:
+      "✗ PR.4 FAILED — No sandbox test result found."
+      "Fix: Run /paycraft-adopt → [B] Test sandbox first."
+  CHECK: result = "PASS" AND webhook_received = true AND is_premium_api = true
+  IF fails: HARD STOP "Sandbox test did not pass. Fix via [B] Test sandbox."
+  OUTPUT: "✓ PR.4 PASS — Sandbox test passed on [tested_at] for email=[email_used] plan=[plan_tested]"
+```
 
-CHECK:
-  [ ] result = "PASS"
-  [ ] webhook_received = true
-  [ ] is_premium_api = true
-  [ ] plan_id_correct = true
-  [ ] tested_at is present (ISO8601)
+---
 
-IF result != "PASS" or any check fails:
+## STEP PR.4B — Device conflict test verified
+
+```
+READ: .paycraft/paycraft-matrix.yaml → scenarios[S6].status
+
+IF status = "pass":
+  OUTPUT: "✓ PR.4B PASS — Device conflict test (S6): PASS — {scenarios[S6].last_run}"
+  → Proceed to PR.5
+
+ELSE IF status = "fail":
   DISPLAY:
-    "✗ PR.4 FAILED — Sandbox test did not pass."
-    "Last result: [result]"
-    "Fix: Run /paycraft-adopt → [B] Test sandbox and resolve all failures."
-  HARD STOP.
+    "⚠️  PR.4B — Device conflict test (S6) failed."
+    "fail_reason: {scenarios[S6].fail_reason}"
+    ""
+    "[R] Run S6 now (recommended)   [S] Skip — accept risk"
+  IF [R]: Route to paycraft-adopt-scenarios.md → run S6
+  IF [S]: write to .paycraft/production_ready.json: s6_skipped=true, risk_accepted=true
+          OUTPUT: "⚠️  PR.4B SKIPPED — S6 risk accepted"
+          → Proceed to PR.5
 
-OUTPUT: "✓ PR.4 PASS — Sandbox test passed on [tested_at] for email=[email_used] plan=[plan_tested]"
+ELSE (status = "pending" or matrix missing):
+  DISPLAY:
+    "⚠️  PR.4B — Device conflict test (S6) not yet run."
+    ""
+    "[R] Run S6 now (recommended)   [S] Skip — accept risk"
+  IF [R]: Route to paycraft-adopt-scenarios.md → run S6
+  IF [S]: OUTPUT "⚠️  PR.4B SKIPPED — S6 not verified" → Proceed to PR.5
 ```
 
 ---

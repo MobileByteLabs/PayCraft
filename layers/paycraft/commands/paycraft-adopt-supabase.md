@@ -196,54 +196,44 @@ OUTPUT  : "✓ is_premium() callable via anon key, returns false for unknown ema
 ### STEP 2.8 — Deploy webhook Edge Function
 
 ```
-PRE-CHECK: Run: supabase --version
-VERIFY VERSION: Parse version number from output
-  STRIP pre-release suffix before comparing: remove anything after the third numeric segment
-    e.g. "1.50.0-beta" → "1.50.0", "1.50-rc1" → "1.50", "2.0.0" → "2.0.0"
-  PASS if: major ≥ 2, OR (major = 1 AND minor ≥ 50)
-  IF OUTDATED:
-    HARD STOP: "Supabase CLI version [version] is too old (need ≥ 1.50.0).
-                Update:
-                  macOS:   brew upgrade supabase/tap/supabase
-                  npm:     npm install -g supabase@latest
-                  Linux:   curl -s https://raw.githubusercontent.com/supabase/cli/main/install.sh | bash
-                Then re-run this step."
+NOTE: Deployed via Supabase Management API — no CLI required.
 
-IF COMMAND NOT FOUND:
-  USER ACTION GATE:
-    "Install Supabase CLI first:"
-    "  macOS:  brew install supabase/tap/supabase"
-    "  Linux:  curl -s https://raw.githubusercontent.com/supabase/cli/main/install.sh | bash"
-    "  npm:    npm install -g supabase"
-    "After installing, run: supabase --version"
-    "Press Enter when installed:"
-  WAIT: user confirms
-  VERIFY: supabase --version returns a version string
-  IF STILL FAILS: HARD STOP — "Supabase CLI not found. Install it before continuing."
-
-ACTION  : supabase login --token [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
-          (OR: SUPABASE_ACCESS_TOKEN=[token] in env)
-
-READ    : PAYCRAFT_PROVIDER from .env → function name = [provider]-webhook
+READ    : PAYCRAFT_PROVIDER from .env → function_slug = "[provider]-webhook"
           (e.g. stripe-webhook or razorpay-webhook)
 
-ACTION  : supabase functions deploy [provider]-webhook
-            --project-ref [PAYCRAFT_SUPABASE_PROJECT_REF]
-            --no-verify-jwt
-          (Run from {paycraft_root} — functions are in {paycraft_root}/server/functions/)
-          NOTE: The functions use https://esm.sh/ imports directly — no --import-map needed.
-          If supabase CLI looks for functions in supabase/functions/ by default and cannot
-          find {paycraft_root}/server/functions/, copy the folder first:
-            cp -r {paycraft_root}/server/functions/[provider]-webhook {paycraft_root}/supabase/functions/[provider]-webhook
-          Then deploy from repo root.
+PRE-CHECK — function already deployed?
+  GET https://api.supabase.com/v1/projects/[ref]/functions
+  Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+  FIND: function with slug = "[provider]-webhook" AND status = "ACTIVE"
+  IF FOUND: OUTPUT "ℹ [provider]-webhook already ACTIVE — skipping deploy (idempotent)"
+            SKIP to STEP 2.9
 
-VERIFY  : supabase functions list --project-ref [PAYCRAFT_SUPABASE_PROJECT_REF]
-          → [provider]-webhook appears in list with status = ACTIVE
-IF NOT IN LIST:
-  HARD STOP: "[provider]-webhook not in functions list after deploy.
-              Check deploy output above for errors.
-              Common fix: supabase login --token [PAYCRAFT_SUPABASE_ACCESS_TOKEN]"
-OUTPUT  : "✓ [provider]-webhook deployed (--no-verify-jwt)"
+ACTION  : Read function source:
+          {paycraft_root}/server/functions/[provider]-webhook/index.ts
+
+ACTION  : POST https://api.supabase.com/v1/projects/[ref]/functions
+          Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+          Content-Type: application/json
+          Body: {
+            "slug": "[provider]-webhook",
+            "name": "[provider]-webhook",
+            "body": "[full contents of index.ts as a JSON string]",
+            "verify_jwt": false
+          }
+VERIFY  : HTTP 201
+IF NOT 201:
+  HARD STOP: "[provider]-webhook deploy failed (HTTP [status]).
+              Error: [response body]
+              Fix: verify PAYCRAFT_SUPABASE_ACCESS_TOKEN is valid (sbp_...)"
+
+VERIFY ACTIVE:
+  GET https://api.supabase.com/v1/projects/[ref]/functions
+  FIND: slug = "[provider]-webhook" AND status = "ACTIVE"
+  IF NOT ACTIVE:
+    HARD STOP: "[provider]-webhook deployed but status is [status].
+                Check logs in Supabase dashboard."
+
+OUTPUT  : "✓ [provider]-webhook deployed via Management API (verify_jwt=false)"
 ```
 
 ### STEP 2.9 — Test webhook endpoint is live (unsigned smoke test)
@@ -259,10 +249,7 @@ VERIFY  : HTTP response is 400 (Bad Request — expected: function is live but r
           NOT 500 (means function crashed on startup)
 IF 401:
   HARD STOP: "Webhook function requires JWT (got 401).
-              Re-deploy with --no-verify-jwt:
-              supabase functions deploy [provider]-webhook
-                --project-ref [ref]
-                --no-verify-jwt"
+              Re-deploy via Step 2.8 (Management API with verify_jwt=false)."
 IF 404:
   HARD STOP: "Webhook function not found (got 404).
               Re-run Step 2.8."
@@ -277,54 +264,48 @@ OUTPUT  : "✓ Webhook live: https://[PAYCRAFT_SUPABASE_URL]/functions/v1/[provi
 ### STEP 2.9B — Set provider API key as Supabase function secret
 
 ```
-AUTH CHECK: Verify Supabase CLI is authenticated before setting secrets:
-  ACTION  : supabase projects list --token [PAYCRAFT_SUPABASE_ACCESS_TOKEN] 2>&1
-  VERIFY  : Exit code 0 (token valid, at least one project listed)
-  IF FAILS (non-zero exit or "unauthorized"):
-    ACTION  : supabase login --token [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
-    VERIFY  : Exit code 0
-    IF STILL FAILS:
-      HARD STOP: "Supabase CLI authentication failed.
-                  Token: [first 8 chars of PAYCRAFT_SUPABASE_ACCESS_TOKEN]...
-                  Get a fresh token at: https://supabase.com/dashboard/account/tokens
-                  Then run: supabase login --token [token]"
+NOTE: Secrets deployed via Supabase Management API — no CLI required.
 
 READ    : PAYCRAFT_PROVIDER from .env
 
 [IF STRIPE]
-  # Deploy test and live key pairs separately so the webhook can handle both modes.
-  # event.livemode is the authoritative mode signal — key prefix is never used.
-
-  SECRETS_CMD = ""
-
+  BUILD secrets payload from .env values:
+  secrets = []
   IF PAYCRAFT_STRIPE_TEST_SECRET_KEY non-empty:
-    SECRETS_CMD += " STRIPE_TEST_SECRET_KEY=[PAYCRAFT_STRIPE_TEST_SECRET_KEY]"
+    secrets += { "name": "STRIPE_TEST_SECRET_KEY",     "value": "[PAYCRAFT_STRIPE_TEST_SECRET_KEY]" }
   IF PAYCRAFT_STRIPE_TEST_WEBHOOK_SECRET non-empty:
-    SECRETS_CMD += " STRIPE_TEST_WEBHOOK_SECRET=[PAYCRAFT_STRIPE_TEST_WEBHOOK_SECRET]"
+    secrets += { "name": "STRIPE_TEST_WEBHOOK_SECRET", "value": "[PAYCRAFT_STRIPE_TEST_WEBHOOK_SECRET]" }
   IF PAYCRAFT_STRIPE_LIVE_SECRET_KEY non-empty:
-    SECRETS_CMD += " STRIPE_LIVE_SECRET_KEY=[PAYCRAFT_STRIPE_LIVE_SECRET_KEY]"
+    secrets += { "name": "STRIPE_LIVE_SECRET_KEY",     "value": "[PAYCRAFT_STRIPE_LIVE_SECRET_KEY]" }
   IF PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET non-empty:
-    SECRETS_CMD += " STRIPE_LIVE_WEBHOOK_SECRET=[PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET]"
+    secrets += { "name": "STRIPE_LIVE_WEBHOOK_SECRET", "value": "[PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET]" }
 
-  IF SECRETS_CMD is empty: HARD STOP — "No Stripe keys found in .env. Run Phase 1 first."
+  IF secrets is empty: HARD STOP — "No Stripe keys found in .env. Run Phase 1 first."
 
-  ACTION  : supabase secrets set {SECRETS_CMD} --project-ref [PAYCRAFT_SUPABASE_PROJECT_REF]
-  VERIFY  : supabase secrets list --project-ref [ref]
-            → STRIPE_TEST_SECRET_KEY present (if TEST key was in .env)
-            → STRIPE_LIVE_SECRET_KEY present (if LIVE key was in .env)
-  IF NEITHER found: HARD STOP — "No Stripe secrets set. Check supabase CLI auth."
-  OUTPUT  : "✓ Stripe secrets deployed:"
-            "    STRIPE_TEST_SECRET_KEY  — [set / not set (missing from .env)]"
-            "    STRIPE_TEST_WEBHOOK_SECRET — [set / not set]"
-            "    STRIPE_LIVE_SECRET_KEY  — [set / not set (add before launch)]"
-            "    STRIPE_LIVE_WEBHOOK_SECRET — [set / not set]"
+  ACTION  : POST https://api.supabase.com/v1/projects/[ref]/secrets
+            Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+            Content-Type: application/json
+            Body: [secrets array]
+  VERIFY  : HTTP 201
+
+  VERIFY deployed:
+    GET https://api.supabase.com/v1/projects/[ref]/secrets
+    FIND: STRIPE_TEST_SECRET_KEY present (if TEST key in .env)
+    FIND: STRIPE_LIVE_SECRET_KEY present (if LIVE key in .env)
+    IF NEITHER: HARD STOP — "Stripe secrets not found after deploy."
+
+  OUTPUT  : "✓ Stripe secrets deployed via Management API:"
+            "    STRIPE_TEST_SECRET_KEY      — [set / not set]"
+            "    STRIPE_TEST_WEBHOOK_SECRET  — [set / not set]"
+            "    STRIPE_LIVE_SECRET_KEY      — [set / not set]"
+            "    STRIPE_LIVE_WEBHOOK_SECRET  — [set / not set]"
 
 [IF RAZORPAY]
-  ACTION  : supabase secrets set RAZORPAY_KEY_SECRET=[PAYCRAFT_RAZORPAY_KEY_SECRET]
-              --project-ref [PAYCRAFT_SUPABASE_PROJECT_REF]
-  VERIFY  : supabase secrets list --project-ref [ref] | grep RAZORPAY_KEY_SECRET
-  IF NOT FOUND: HARD STOP — "RAZORPAY_KEY_SECRET secret not set."
-  OUTPUT  : "✓ RAZORPAY_KEY_SECRET set as function secret"
+  ACTION  : POST https://api.supabase.com/v1/projects/[ref]/secrets
+            Body: [{ "name": "RAZORPAY_KEY_SECRET", "value": "[PAYCRAFT_RAZORPAY_KEY_SECRET]" }]
+  VERIFY  : HTTP 201 AND secret appears in GET /secrets
+  IF NOT FOUND: HARD STOP — "RAZORPAY_KEY_SECRET not deployed."
+  OUTPUT  : "✓ RAZORPAY_KEY_SECRET deployed via Management API"
 ```
 
 ### STEP 2.10 — Apply migration 005_registered_devices.sql (device binding table)
@@ -398,6 +379,104 @@ OUTPUT  : "✓ Migration 006 applied:"
          "    get_active_devices() RPC"
 ```
 
+### STEP 2.11B — Apply migration 008_fix_register_device_dedup.sql (register_device dedup fix)
+
+```
+NOTE: This migration fixes a critical bug in register_device() where LIMIT 1 without
+      ORDER BY could pick a stale/wrong active row, causing spurious conflicts and
+      accumulating duplicate active registrations on each app reinstall.
+      Uses CREATE OR REPLACE FUNCTION — safe to re-run (always idempotent).
+
+--- Idempotency check: does the current function already have the dedup fix? ---
+CHECK: SELECT prosrc FROM pg_proc
+       JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+       WHERE pg_namespace.nspname = 'public' AND pg_proc.proname = 'register_device'
+
+IF FOUND AND prosrc CONTAINS 'ORDER BY registered_at DESC':
+  OUTPUT: "ℹ register_device() already has dedup fix (ORDER BY registered_at DESC) — skipping (idempotent)"
+  SKIP to STEP 2.12
+
+IF NOT FOUND OR prosrc does NOT contain 'ORDER BY registered_at DESC':
+  ACTION  : Read file: {paycraft_root}/server/migrations/008_fix_register_device_dedup.sql
+  ACTION  : POST https://api.supabase.com/v1/projects/[ref]/database/query
+            Header: Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+            Body: {"query": "[SQL content from 008_fix_register_device_dedup.sql]"}
+  VERIFY  : HTTP 200 AND no "error" in response
+  IF ERROR:
+    HARD STOP: "Migration 008 failed.
+                Error: [exact error from response]
+                This migration fixes the register_device() dedup bug — required for
+                correct device binding behavior.
+                Manual fix: copy SQL to Supabase SQL editor at
+                https://supabase.com/dashboard/project/{ref}/sql"
+
+  VERIFY applied:
+    SELECT prosrc FROM pg_proc
+    JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+    WHERE pg_namespace.nspname = 'public' AND pg_proc.proname = 'register_device'
+    CHECK: prosrc CONTAINS 'ORDER BY registered_at DESC'
+    IF NOT: HARD STOP "Migration 008 applied but function body missing ORDER BY fix."
+
+OUTPUT  : "✓ Migration 008 applied (register_device() dedup fix: ORDER BY + duplicate cleanup)"
+```
+
+### STEP 2.11C — Apply migration 009_device_id.sql (hardware device identity)
+
+```
+NOTE: This migration adds a hardware-unique device_id column to registered_devices and
+      updates register_device() to use it for same-device detection.
+      Security fix: replaces insecure platform+device_name check (model labels are not unique).
+      Backward compat: p_device_id DEFAULT NULL — old 4-arg clients continue working.
+      Uses CREATE OR REPLACE FUNCTION — safe to re-run (idempotent).
+
+--- Idempotency check: does device_id column already exist? ---
+CHECK: SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name   = 'registered_devices'
+         AND column_name  = 'device_id'
+
+IF FOUND:
+  OUTPUT: "ℹ registered_devices.device_id column already exists — skipping column add (idempotent)"
+  SKIP column ALTER (still apply CREATE OR REPLACE FUNCTION to ensure latest RPC logic)
+
+--- Idempotency check: does the RPC already accept p_device_id? ---
+CHECK: SELECT prosrc FROM pg_proc
+       JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+       WHERE pg_namespace.nspname = 'public' AND pg_proc.proname = 'register_device'
+
+IF FOUND AND prosrc CONTAINS 'p_device_id':
+  OUTPUT: "ℹ register_device() already accepts p_device_id — skipping (idempotent)"
+  SKIP to STEP 2.12
+
+IF NOT:
+  ACTION  : Read file: {paycraft_root}/server/migrations/009_device_id.sql
+  ACTION  : POST https://api.supabase.com/v1/projects/[ref]/database/query
+            Header: Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+            Body: {"query": "[SQL content from 009_device_id.sql]"}
+  VERIFY  : HTTP 200 AND no "error" in response
+  IF ERROR:
+    HARD STOP: "Migration 009 failed.
+                Error: [exact error from response]
+                This migration adds hardware device_id for secure same-device detection.
+                Manual fix: copy SQL to Supabase SQL editor at
+                https://supabase.com/dashboard/project/{ref}/sql"
+
+  VERIFY applied:
+    SELECT column_name FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name   = 'registered_devices'
+      AND column_name  = 'device_id'
+    IF NOT FOUND: HARD STOP "Migration 009 applied but device_id column not found."
+
+    SELECT prosrc FROM pg_proc
+    JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+    WHERE pg_namespace.nspname = 'public' AND pg_proc.proname = 'register_device'
+    CHECK: prosrc CONTAINS 'p_device_id'
+    IF NOT: HARD STOP "Migration 009 applied but register_device() missing p_device_id param."
+
+OUTPUT  : "✓ Migration 009 applied (device_id column + hardware-unique same-device detection)"
+```
+
 ### STEP 2.12 — Apply migration 007_otp_send_gate.sql (OTP rate limiting)
 
 ```
@@ -432,157 +511,179 @@ OUTPUT  : "✓ Migration 007 applied (otp_send_log table + check_otp_gate() RPC)
 ### STEP 2.13 — Deploy otp-send-hook Edge Function
 
 ```
-NOTE: This Edge Function fires after every OTP email is dispatched by Supabase Auth.
-      It increments the daily send counter in otp_send_log so the app can monitor
-      Brevo's free limit (300 emails/day) and show a manual support fallback.
+NOTE: Deployed via Supabase Management API — no CLI required.
+      Fires after every OTP email dispatched by Supabase Auth.
+      Increments daily counter in otp_send_log (monitors Brevo 300/day free limit).
 
-PRE-CHECK: supabase --version (same as STEP 2.8 CLI version gate)
-           IF OUTDATED or NOT FOUND: follow same install/upgrade flow as STEP 2.8
+PRE-CHECK — already deployed?
+  GET https://api.supabase.com/v1/projects/[ref]/functions
+  Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+  FIND: slug = "otp-send-hook" AND status = "ACTIVE"
+  IF FOUND: OUTPUT "ℹ otp-send-hook already ACTIVE — skipping deploy (idempotent)"
+            SKIP to STEP 2.14
 
-ACTION  : supabase functions deploy otp-send-hook
-            --project-ref [PAYCRAFT_SUPABASE_PROJECT_REF]
-            --no-verify-jwt
-          (Run from {paycraft_root} — function is in {paycraft_root}/server/functions/otp-send-hook/)
+ACTION  : Read function source:
+          {paycraft_root}/server/functions/otp-send-hook/index.ts
 
-VERIFY  : supabase functions list --project-ref [ref]
-          → otp-send-hook appears with status = ACTIVE
-IF NOT ACTIVE:
-  HARD STOP: "otp-send-hook not active after deploy.
-              Logs: supabase functions logs otp-send-hook --project-ref {ref}"
+ACTION  : POST https://api.supabase.com/v1/projects/[ref]/functions
+          Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+          Content-Type: application/json
+          Body: {
+            "slug": "otp-send-hook",
+            "name": "otp-send-hook",
+            "body": "[full contents of index.ts as a JSON string]",
+            "verify_jwt": false
+          }
+VERIFY  : HTTP 201
+IF NOT 201:
+  HARD STOP: "otp-send-hook deploy failed (HTTP [status]).
+              Error: [response body]"
 
-OUTPUT  : "✓ otp-send-hook Edge Function deployed (ACTIVE)"
+VERIFY ACTIVE:
+  GET https://api.supabase.com/v1/projects/[ref]/functions
+  FIND: slug = "otp-send-hook" AND status = "ACTIVE"
+  IF NOT ACTIVE: HARD STOP "otp-send-hook deployed but not ACTIVE."
+
+OUTPUT  : "✓ otp-send-hook deployed via Management API (ACTIVE)"
 ```
 
-### STEP 2.14 — Configure Brevo SMTP in Supabase Auth
+### STEP 2.14 — Configure Brevo SMTP + deploy secret (fully automated)
 
 ```
 NOTE: Brevo's free tier gives 300 emails/day — sufficient for OTP sends.
-      Without custom SMTP, Supabase uses its own email service which has stricter limits.
-      This is a MANUAL step — it requires the Supabase Dashboard UI.
+      All configuration is done via API — no browser steps required.
 
-READ from .env:
-  PAYCRAFT_BREVO_SMTP_USER  (your Brevo login email)
-  PAYCRAFT_BREVO_SMTP_KEY   (Brevo SMTP key — NOT the API key, the SMTP-specific key)
+━━━ STEP 2.14A — Get Brevo API key ━━━
 
-IF either is EMPTY:
-  DISPLAY:
-    "⛔ Brevo SMTP not configured — REQUIRED for OTP device transfer emails."
-    ""
-    "Without Brevo SMTP, Supabase uses its own limited mailer which may silently"
-    "fail OTP sends. The single-device binding feature depends on OTP delivery."
-    ""
-    "To get Brevo SMTP credentials (free, 300 emails/day):"
-    "  1. Sign up at https://www.brevo.com (free, no credit card)"
-    "  2. Go to: Senders & IP → SMTP & API → SMTP tab"
-    "  3. Copy:"
-    "     • Login (your Brevo email)"
-    "     • Master password OR generate an SMTP Key"
-    "  4. Add to .env:"
-    "     PAYCRAFT_BREVO_SMTP_USER=your@email.com"
-    "     PAYCRAFT_BREVO_SMTP_KEY=your-smtp-key"
-    ""
-    "[C] I've added the keys → continue"
-    "[D] Defer — mark as INCOMPLETE (⚠ blocks Production Ready gate until resolved)"
-    ""
-    "⚠️  There is no skip. [D] defers — it does not bypass. Resolve before going live."
-  WAIT: user picks [C] or [D]
-  IF [D]:
-    MARK: smtp_configured = false
-    WRITE to memory.json: smtp_status = "INCOMPLETE"
-    DISPLAY: "⚠️  Brevo SMTP deferred — marked INCOMPLETE in memory.json."
-             "    Status matrix will show ⚠ PENDING."
-             "    Production Ready gate will HARD STOP until this is resolved."
-             "    Resume: /paycraft-adopt → [F] Fix specific phase → Phase 2 → Step 2.14"
-    CONTINUE to STEP 2.15
+CHECK .env for BREVO_API_KEY:
+  IF present and non-empty: use it → skip asking
+  IF missing:
+    DISPLAY:
+      "Brevo API key needed for OTP email delivery (free — 300 emails/day)."
+      ""
+      "Get it in 2 steps:"
+      "  1. Sign up at https://www.brevo.com (free, no credit card)"
+      "  2. Go to: top-right menu → API Keys → Create API key → copy"
+      ""
+      "Enter your Brevo API key:"
+    WAIT: user pastes key
+    WRITE to .env: BREVO_API_KEY={key}
 
-READ: PAYCRAFT_BREVO_SMTP_USER and PAYCRAFT_BREVO_SMTP_KEY from .env
+━━━ STEP 2.14B — Resolve Brevo account email via API ━━━
 
-DISPLAY MANUAL STEP:
-  "Configure Brevo SMTP in Supabase Dashboard (manual — no API for this):"
-  ""
-  "  1. Open: https://supabase.com/dashboard/project/{PAYCRAFT_SUPABASE_PROJECT_REF}/settings/auth"
-  "  2. Scroll to: Email Settings → SMTP Settings section"
-  "  3. Enable custom SMTP"
-  "  4. Fill in:"
-  "     Host     : smtp-relay.brevo.com"
-  "     Port     : 587"
-  "     User     : {PAYCRAFT_BREVO_SMTP_USER}"
-  "     Password : {PAYCRAFT_BREVO_SMTP_KEY}"
-  "     Sender   : {PAYCRAFT_BREVO_SMTP_USER}  (or a verified sender address)"
-  "  5. Click Save"
-  ""
-  "Press Enter when saved."
-WAIT: user presses Enter
+ACTION  : GET https://api.brevo.com/v3/account
+          Header: api-key: {BREVO_API_KEY}
+VERIFY  : HTTP 200
+IF HTTP 401:
+  HARD STOP: "Brevo API key invalid (HTTP 401).
+              Check the key at: https://app.brevo.com/settings/keys/api
+              Then re-enter it."
+IF HTTP != 200:
+  HARD STOP: "Brevo API unreachable (HTTP [status]).
+              Check internet connection and try again."
 
-VERIFY (manual confirmation):
-  DISPLAY: "Supabase should now send OTP emails via Brevo."
-           "[Y] I see 'SMTP Settings saved' ✓   [N] I see an error"
-  WAIT: user picks
-  IF [N]:
-    DISPLAY: "Common issues:"
-             "  • Port 587 blocked? Try port 465 (TLS)"
-             "  • SMTP key expired? Regenerate in Brevo → SMTP & API"
-             "  • Domain not verified? Add your domain in Brevo → Senders"
-    WAIT: user resolves and confirms
+EXTRACT: email = response.email  (Brevo account login email)
+OUTPUT  : "✓ Brevo account verified: {email}"
 
+━━━ STEP 2.14C — Push BREVO_API_KEY to Supabase Edge Function secrets ━━━
+
+PRE-CHECK: GET /v1/projects/[ref]/secrets → BREVO_API_KEY already present?
+  IF PRESENT: OUTPUT "ℹ BREVO_API_KEY already in Supabase secrets (idempotent)"
+              SKIP to 2.14D
+
+ACTION  : POST https://api.supabase.com/v1/projects/[ref]/secrets
+          Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+          Content-Type: application/json
+          Body: [{ "name": "BREVO_API_KEY", "value": "{BREVO_API_KEY}" }]
+VERIFY  : HTTP 201
+VERIFY  : GET /secrets → BREVO_API_KEY present
+IF NOT: HARD STOP "BREVO_API_KEY not found in Supabase secrets after push."
+
+OUTPUT  : "✓ BREVO_API_KEY deployed to Supabase Edge Function secrets"
+
+━━━ STEP 2.14D — Configure Brevo SMTP in Supabase Auth via Management API ━━━
+
+PRE-CHECK: GET /v1/projects/[ref]/config/auth
+  IF smtp_host = "smtp-relay.brevo.com" AND smtp_user non-empty:
+    OUTPUT "ℹ Brevo SMTP already configured (idempotent)"
+    SKIP to STEP 2.15
+
+ACTION  : PATCH https://api.supabase.com/v1/projects/[ref]/config/auth
+          Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+          Content-Type: application/json
+          Body: {
+            "smtp_admin_email": "{email from 2.14B}",
+            "smtp_host":        "smtp-relay.brevo.com",
+            "smtp_port":        587,
+            "smtp_user":        "{email from 2.14B}",
+            "smtp_pass":        "{BREVO_API_KEY}",
+            "smtp_sender_name": "PayCraft",
+            "smtp_max_frequency": 60
+          }
+VERIFY  : HTTP 200
+IF NOT 200:
+  HARD STOP: "Brevo SMTP config failed (HTTP [status]).
+              Error: [response body]
+              Check PAYCRAFT_SUPABASE_ACCESS_TOKEN is valid."
+
+VERIFY applied:
+  GET /v1/projects/[ref]/config/auth → smtp_host = "smtp-relay.brevo.com"
+  IF NOT: HARD STOP "SMTP config not saved."
+
+WRITE to .env: PAYCRAFT_BREVO_SMTP_USER={email}
 MARK: smtp_configured = true
-OUTPUT: "✓ Brevo SMTP configured in Supabase Auth"
-        "  Host: smtp-relay.brevo.com:587"
-        "  User: {PAYCRAFT_BREVO_SMTP_USER}"
+WRITE to memory.json: smtp_status = "COMPLETE"
+
+OUTPUT  : "✓ Brevo SMTP configured in Supabase Auth via API"
+          "  Host:  smtp-relay.brevo.com:587"
+          "  Login: {email}"
 ```
 
-### STEP 2.15 — Wire otp-send-hook as Supabase Auth Hook
+### STEP 2.15 — Wire otp-send-hook as Supabase Auth Hook (fully automated)
 
 ```
-NOTE: Auth Hooks run server-side after Supabase performs an auth action.
-      Wiring otp-send-hook as the "Send Email" hook means it fires after
-      every OTP email is dispatched — incrementing the daily counter in otp_send_log.
+NOTE: Auth Hook wiring via Supabase Management API — no browser steps required.
 
-THIS IS A MANUAL STEP — Supabase Auth Hooks cannot be wired via API.
+HOOK_URL = "https://[PAYCRAFT_SUPABASE_PROJECT_REF].supabase.co/functions/v1/otp-send-hook"
 
-DISPLAY:
-  "Wire the otp-send-hook Edge Function as a Supabase Auth Hook:"
-  ""
-  "  1. Open: https://supabase.com/dashboard/project/{PAYCRAFT_SUPABASE_PROJECT_REF}/auth/hooks"
-  "  2. Under 'Send Email' → click 'Add Hook'"
-  "  3. Select: 'Supabase Edge Functions'"
-  "  4. Choose function: otp-send-hook"
-  "  5. Click 'Save'"
-  ""
-  "  Expected result: 'Send Email' hook shows otp-send-hook as ACTIVE"
-  ""
-  "Press Enter when wired."
-WAIT: user presses Enter
+PRE-CHECK: GET /v1/projects/[ref]/config/auth
+  IF hook_send_email_enabled = true AND hook_send_email_uri = {HOOK_URL}:
+    OUTPUT "ℹ Send Email Auth Hook already wired (idempotent)"
+    MARK: otp_hook_wired = true
+    WRITE to memory.json: otp_hook_status = "COMPLETE"
+    SKIP to Phase 2 Post-Phase Verification
 
-DISPLAY: "Confirm: Is 'otp-send-hook' listed as active under Auth → Hooks → Send Email?"
-         "[Y] Yes, wired   [N] Not showing"
-WAIT: user picks
-IF [N]:
-  DISPLAY: "Troubleshooting:"
-           "  • Is otp-send-hook deployed and ACTIVE? Check Step 2.13."
-           "  • Auth Hooks require Supabase project on Pro plan or above."
-           "    Free plan does NOT support Auth Hooks — upgrade is required."
-           "    Without this hook, the daily OTP counter will not update."
-           "    This means the Brevo 300/day limit will not be enforced,"
-           "    risking silent OTP failures if the limit is hit."
+ACTION  : PATCH https://api.supabase.com/v1/projects/[ref]/config/auth
+          Authorization: Bearer [PAYCRAFT_SUPABASE_ACCESS_TOKEN]
+          Content-Type: application/json
+          Body: {
+            "hook_send_email_enabled": true,
+            "hook_send_email_uri": "{HOOK_URL}"
+          }
+VERIFY  : HTTP 200
+IF NOT 200:
+  DISPLAY: "Auth Hook PATCH failed (HTTP [status])."
+           "This may mean the project is on Supabase Free plan — Auth Hooks require Pro."
            ""
-           "[R] Retry   [D] Defer — mark as INCOMPLETE (⚠ blocks Production Ready)"
-           ""
-           "⚠️  There is no skip. Auth Hook wiring is required for device binding to"
-           "    function reliably. [D] defers — it does not remove the requirement."
+           "[U] Upgrade to Pro at: https://supabase.com/dashboard/project/[ref]/settings/billing"
+           "    Then press Enter to retry."
+           "[D] Defer — mark as INCOMPLETE (⚠ OTP counter won't update, 300/day limit unmonitored)"
   WAIT: user picks
   IF [D]:
-    MARK: otp_hook_wired = false
     WRITE to memory.json: otp_hook_status = "INCOMPLETE"
-    DISPLAY: "⚠️  Auth Hook deferred — marked INCOMPLETE in memory.json."
-             "    Status matrix will show ⚠ PENDING."
-             "    Production Ready gate will HARD STOP until this is resolved."
-             "    Resume: /paycraft-adopt → [F] Fix specific phase → Phase 2 → Step 2.15"
+    DISPLAY: "⚠️  Auth Hook deferred — INCOMPLETE in memory.json. Resolve before going live."
     CONTINUE
-  IF [R]: loop back to DISPLAY above
+  IF [U]: wait → retry PATCH → IF still fails: HARD STOP
+
+VERIFY wired:
+  GET /v1/projects/[ref]/config/auth
+  VERIFY: hook_send_email_enabled = true AND hook_send_email_uri = {HOOK_URL}
+  IF NOT: HARD STOP "Auth Hook not saved after PATCH."
 
 MARK: otp_hook_wired = true
-OUTPUT: "✓ otp-send-hook wired as Auth Hook (Send Email)"
+WRITE to memory.json: otp_hook_status = "COMPLETE"
+OUTPUT  : "✓ otp-send-hook wired as Auth Hook (Send Email) via Management API"
+          "  URI: {HOOK_URL}"
 ```
 
 ---
@@ -617,10 +718,7 @@ CHECK 4: stripe-webhook (or razorpay-webhook) Edge Function status
   Authorization: Bearer {PAYCRAFT_SUPABASE_ACCESS_TOKEN}
   FIND: function with slug "{provider}-webhook"
   EXPECT: status = "ACTIVE"
-  IF NOT FOUND: HARD STOP — "Edge Function not found.
-                              Fix: supabase functions deploy {provider}-webhook
-                                   --project-ref {ref}
-                                   --no-verify-jwt"
+  IF NOT FOUND: HARD STOP — "Edge Function not found. Re-run Step 2.8 to deploy via Management API."
   IF status != ACTIVE: HARD STOP — "Edge Function status is [{status}].
                                       Fix: check logs:
                                       supabase functions logs {provider}-webhook --project-ref {ref}"
@@ -643,6 +741,27 @@ CHECK 7: check_premium_with_device() RPC exists
   EXPECT: count = 1
   IF FAIL: HARD STOP — "check_premium_with_device() RPC not found. Re-run Step 2.11."
 
+CHECK 7B: register_device() has dedup fix (migration 008)
+  SELECT prosrc FROM pg_proc
+  JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+  WHERE pg_namespace.nspname = 'public' AND pg_proc.proname = 'register_device'
+  EXPECT: prosrc CONTAINS 'ORDER BY registered_at DESC'
+  IF FAIL: HARD STOP — "register_device() is missing the dedup fix. Re-run Step 2.11B."
+
+CHECK 7C: registered_devices has device_id column and register_device() accepts p_device_id (migration 009)
+  SELECT column_name FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name   = 'registered_devices'
+    AND column_name  = 'device_id'
+  EXPECT: 1 row returned
+  IF FAIL: HARD STOP — "device_id column not found in registered_devices. Re-run Step 2.11C."
+
+  SELECT prosrc FROM pg_proc
+  JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+  WHERE pg_namespace.nspname = 'public' AND pg_proc.proname = 'register_device'
+  EXPECT: prosrc CONTAINS 'p_device_id'
+  IF FAIL: HARD STOP — "register_device() is missing p_device_id param. Re-run Step 2.11C."
+
 CHECK 8: otp_send_log table exists
   SELECT COUNT(*) FROM information_schema.tables
   WHERE table_schema='public' AND table_name='otp_send_log'
@@ -661,7 +780,8 @@ OUTPUT:
   ✓ get_subscription() RPC: CALLABLE
   ✓ {provider}-webhook: ACTIVE
   ✓ registered_devices table: EXISTS
-  ✓ register_device() RPC: EXISTS
+  ✓ register_device() RPC: EXISTS (dedup fix: ORDER BY registered_at DESC, device_id: supported)
+  ✓ registered_devices.device_id: column EXISTS
   ✓ check_premium_with_device() RPC: EXISTS
   ✓ otp_send_log table: EXISTS
   ✓ otp-send-hook: ACTIVE
@@ -699,8 +819,8 @@ OUTPUT: "✓ Phase 2 state saved → .paycraft/memory.json"
 ║  ✓ Provider API key set as function secret                               ║
 ║                                                                          ║
 ║  DEVICE BINDING (PayCraft ≥ 1.3.0)                                      ║
-║  ✓ registered_devices table — EXISTS                                    ║
-║  ✓ register_device() RPC — EXISTS                                       ║
+║  ✓ registered_devices table — EXISTS (device_id column: present)         ║
+║  ✓ register_device() RPC — EXISTS (dedup fix + device_id support)       ║
 ║  ✓ check_premium_with_device() RPC — EXISTS                             ║
 ║  ✓ transfer_to_device() RPC — EXISTS                                    ║
 ║  ✓ otp_send_log table — EXISTS                                          ║

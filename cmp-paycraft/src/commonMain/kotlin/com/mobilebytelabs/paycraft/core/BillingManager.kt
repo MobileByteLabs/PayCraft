@@ -1,6 +1,7 @@
 package com.mobilebytelabs.paycraft.core
 
 import com.mobilebytelabs.paycraft.model.BillingState
+import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import kotlinx.coroutines.flow.StateFlow
 
@@ -19,14 +20,45 @@ interface BillingManager {
     /** Refreshes premium status using stored device token. */
     fun refreshStatus()
 
-    /** Called after OAuth or OTP verification to transfer subscription to this device. */
-    suspend fun transferToDevice()
+    /**
+     * PRIMARY ownership verification gate (Gate 1).
+     *
+     * Verifies a Google or Apple ID token via Supabase Auth, extracts the verified email,
+     * and registers this device. The client app is responsible for triggering the platform
+     * OAuth flow and passing the resulting ID token here.
+     *
+     * After this call, [billingState] emits [BillingState.Premium], [BillingState.Free],
+     * [BillingState.DeviceConflict], or [BillingState.Error].
+     */
+    suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String)
 
-    /** Sends an OTP to the given email for ownership verification. */
+    // ─── Device conflict resolution ──────────────────────────────────────────
+
+    /**
+     * Gate 1 — verify ownership via OTP code.
+     * Only use when OAuth is unavailable (custom-domain emails).
+     * On success, [billingState] emits [BillingState.OwnershipVerified].
+     * Returns false if the code is wrong.
+     */
+    suspend fun verifyOtpOwnership(email: String, otp: String): Boolean
+
+    /**
+     * Called after [BillingState.OwnershipVerified] is emitted and the user
+     * confirms the "Deactivate [device] and transfer here?" dialog.
+     * Executes the transfer and emits [BillingState.Premium] or [BillingState.Error].
+     */
+    suspend fun confirmDeviceTransfer()
+
+    // ─── Legacy / internal ───────────────────────────────────────────────────
+
+    /** @deprecated Use [verifyOtpOwnership] for conflict resolution. */
     suspend fun requestOtpVerification(email: String)
 
-    /** Verifies the OTP code. Returns true if correct. */
+    /** Internal: sends OTP via Supabase Auth. */
     suspend fun verifyOtp(email: String, otp: String): Boolean
+
+    /** Transfers subscription to this device (internal — called by confirmDeviceTransfer). */
+    suspend fun transferToDevice()
 
     /** Revokes the current device registration. User will need to re-register. */
     suspend fun revokeCurrentDevice()

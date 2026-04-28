@@ -1,9 +1,13 @@
 package com.mobilebytelabs.paycraft.network
 
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
+import com.mobilebytelabs.paycraft.model.OAuthProvider
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.providers.Apple
+import io.github.jan.supabase.auth.providers.Google
+import io.github.jan.supabase.auth.providers.builtin.IDToken
 import io.github.jan.supabase.auth.providers.builtin.OTP
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
@@ -55,6 +59,7 @@ interface PayCraftService {
         email: String,
         platform: String,
         deviceName: String,
+        deviceId: String,
         mode: String = "live",
     ): RegisterDeviceResult
 
@@ -69,6 +74,12 @@ interface PayCraftService {
     // OTP ownership verification
     suspend fun sendOtp(email: String)
     suspend fun verifyOtp(email: String, token: String): Boolean
+
+    /**
+     * Verifies a Google or Apple ID token via Supabase Auth (Gate 1).
+     * Returns the verified email address, or null if verification fails.
+     */
+    suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String?
 }
 
 // ─── Implementation ───────────────────────────────────────────────────────────
@@ -118,6 +129,7 @@ class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService 
         email: String,
         platform: String,
         deviceName: String,
+        deviceId: String,
         mode: String,
     ): RegisterDeviceResult {
         PayCraftLogger.onRpcCall("register_device", email)
@@ -127,6 +139,7 @@ class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService 
                 put("p_email", email)
                 put("p_platform", platform)
                 put("p_device_name", deviceName)
+                put("p_device_id", deviceId)
                 put("p_mode", mode)
             },
         ).decodeAs<JsonObject>()
@@ -204,5 +217,25 @@ class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService 
     } catch (e: Exception) {
         PayCraftLogger.onRpcError("verifyOtp", e.message)
         false
+    }
+
+    override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String? = try {
+        PayCraftLogger.onRpcCall("verifyOAuthToken", provider.name)
+        when (provider) {
+            OAuthProvider.GOOGLE -> auth.signInWith(IDToken) {
+                this.idToken = idToken
+                this.provider = Google
+            }
+            OAuthProvider.APPLE -> auth.signInWith(IDToken) {
+                this.idToken = idToken
+                this.provider = Apple
+            }
+        }
+        val email = auth.currentSessionOrNull()?.user?.email
+        PayCraftLogger.onRpcResult("verifyOAuthToken", "email=${email ?: "null"}")
+        email
+    } catch (e: Exception) {
+        PayCraftLogger.onRpcError("verifyOAuthToken", e.message)
+        null
     }
 }

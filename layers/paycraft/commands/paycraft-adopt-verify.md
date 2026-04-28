@@ -76,6 +76,18 @@ Query 7: SELECT COUNT(*) AS cnt FROM information_schema.routines
   IF NOT: HARD STOP — "check_premium_with_device() RPC not found. Re-run Phase 2 Step 2.11."
   OUTPUT: "  ✓ check_premium_with_device() RPC exists"
 
+Query 7B: SELECT COUNT(*) AS cnt FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'registered_devices'
+            AND column_name = 'device_id'
+  VERIFY: cnt = 1
+  IF NOT:
+    DISPLAY: "⚠️  registered_devices.device_id column missing — migration 009 not applied."
+             "  Fix: Run /paycraft-adopt → [F] Fix phase → Phase 2 → Step 2.11C."
+  IF cnt = 1:
+    OUTPUT: "  ✓ registered_devices.device_id column exists (migration 009 — hardware identity)"
+  NOTE: This check is non-blocking (not a HARD STOP) — device binding still works via
+        name-based fallback for old clients, but device_id column enables secure detection.
+
 Query 8: SELECT COUNT(*) AS cnt FROM information_schema.tables
          WHERE table_schema = 'public' AND table_name = 'otp_send_log'
   VERIFY: cnt = 1
@@ -102,6 +114,8 @@ OUTPUT: "  ✓ check_otp_gate() callable (available={available}, sends_today={se
 OUTPUT  : "✓ Schema check: table ✓  is_premium() ✓  get_subscription() ✓  UNIQUE ✓"
          "                registered_devices ✓  register_device() ✓"
          "                check_premium_with_device() ✓  otp_send_log ✓  check_otp_gate() ✓"
+         "                register_device() RPC: EXISTS (dedup fix: ORDER BY registered_at DESC,"
+         "                device_id: [supported ✓ / missing ⚠])"
 ```
 
 ### STEP 5.2 — Re-verify webhook is live

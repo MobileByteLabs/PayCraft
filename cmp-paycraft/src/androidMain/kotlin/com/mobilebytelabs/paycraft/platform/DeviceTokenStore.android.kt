@@ -16,8 +16,10 @@ actual object DeviceTokenStore {
     private const val KEY = "device_token"
 
     private var prefs: SharedPreferences? = null
+    internal var applicationContext: Context? = null
 
     fun init(context: Context) {
+        applicationContext = context.applicationContext
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()

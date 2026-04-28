@@ -405,6 +405,18 @@ fun PayCraftPaywallContent(
                         CircularProgressIndicator(modifier = Modifier.size(48.dp))
                     }
                 }
+
+                is BillingState.OwnershipVerified -> {
+                    // Ownership verified — host screen handles the transfer confirmation dialog.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(48.dp))
+                    }
+                }
             } // end when(billingState)
         } // end Column wrapper
     }

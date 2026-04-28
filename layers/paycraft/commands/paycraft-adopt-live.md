@@ -10,10 +10,25 @@
 ## Prerequisites
 
 ```
-VERIFY Phase 5B result: Read .paycraft/test_results/sandbox_test.json → result = "PASS"
-IF missing or result != "PASS":
-  HARD STOP: "Complete Phase 5B (sandbox test) before running live test."
-             "Run /paycraft-adopt → [B] Test sandbox first."
+-- Primary prereq check: read paycraft-matrix.yaml (new)
+MATRIX_PATH = {TARGET_APP_PATH}/.paycraft/paycraft-matrix.yaml
+IF MATRIX_PATH exists:
+  READ MATRIX_PATH → scenarios[S1].status
+  IF scenarios[S1].status = "pass":
+    OUTPUT: "✓ Sandbox test (S1): PASS — {scenarios[S1].last_run}"
+    → Proceed to key checks below
+  ELSE IF scenarios[S1].status = "fail":
+    HARD STOP: "S1 (sandbox test) failed last run. Fix sandbox issues first."
+               "Run /paycraft-adopt → [T] → S1 to re-run."
+  ELSE:
+    HARD STOP: "S1 (sandbox test) not yet completed. Run /paycraft-adopt → [B] first."
+
+-- Legacy fallback (matrix not found):
+ELSE:
+  VERIFY Phase 5B result: Read .paycraft/test_results/sandbox_test.json → result = "PASS"
+  IF missing or result != "PASS":
+    HARD STOP: "Complete Phase 5B (sandbox test) before running live test."
+               "Run /paycraft-adopt → [B] Test sandbox first."
 
 Read .env → MUST be ✓:
   - PAYCRAFT_STRIPE_LIVE_SECRET_KEY starts with "sk_live_"
@@ -213,6 +228,27 @@ WRITE: {target_app_path}/.paycraft/test_results/live_test.json
   "refund_issued": [true/false],
   "result": "PASS"
 }
+
+-- Also write to paycraft-matrix.yaml (S2 PASS):
+MATRIX_PATH = {target_app_path}/.paycraft/paycraft-matrix.yaml
+IF MATRIX_PATH exists:
+  UPDATE scenarios[S2]:
+    status: "pass"
+    last_run: "[ISO8601 UTC]"
+    email_used: "[live_email]"
+    plan_tested: "monthly"
+    fail_reason: null
+    result_detail: "webhook ✓, is_premium ✓, app_state=[confirmed/skipped], refund=[yes/no]"
+
+-- On failure at any 5C step — write S2 FAIL to matrix:
+IF any step fails:
+  IF MATRIX_PATH exists:
+    UPDATE scenarios[S2]:
+      status: "fail"
+      last_run: "[ISO8601 UTC]"
+      email_used: "[live_email or null]"
+      fail_reason: "[webhook_timeout | is_premium_false | mode_wrong | ...]"
+      result_detail: "[step that failed]: [error detail]"
 
 OUTPUT:
 "╔══ PHASE 5C COMPLETE — Live Test ═══════════════════════════════╗"

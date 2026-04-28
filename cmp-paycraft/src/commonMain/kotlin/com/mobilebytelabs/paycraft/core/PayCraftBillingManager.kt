@@ -3,7 +3,9 @@ package com.mobilebytelabs.paycraft.core
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.BillingState
+import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import com.mobilebytelabs.paycraft.model.VerificationMethod
 import com.mobilebytelabs.paycraft.network.OtpGateResult
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
@@ -37,6 +39,13 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
     private val _userEmail = MutableStateFlow<String?>(null)
     override val userEmail: StateFlow<String?> = _userEmail.asStateFlow()
 
+    /**
+     * Cached conflict info so that after OAuth or OTP verifies identity we can
+     * re-hydrate OwnershipVerified without losing conflicting device details.
+     * Cleared when conflict is resolved or user logs out.
+     */
+    private var lastConflict: BillingState.DeviceConflict? = null
+
     init {
         scope.launch {
             val savedEmail = store.getEmail()
@@ -60,7 +69,6 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         }
     }
 
-    /** Backward-compatible alias for registerAndLogin(). */
     override fun logIn(email: String) = registerAndLogin(email)
 
     override fun refreshStatus() {
@@ -74,6 +82,124 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         scope.launch { checkPremiumWithDeviceToken(email) }
     }
 
+    // ─── Gate 1: OAuth ────────────────────────────────────────────────────────
+
+    override suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String) {
+        // Capture conflict info before overwriting billingState with Loading
+        val priorConflict = _billingState.value as? BillingState.DeviceConflict
+            ?: lastConflict
+
+        _billingState.value = BillingState.Loading
+
+        val email = try {
+            service.verifyOAuthToken(provider, idToken)
+        } catch (e: Exception) {
+            PayCraftLogger.onError("loginWithOAuth", e.message)
+            _billingState.value = BillingState.Error(e.message ?: "OAuth verification failed")
+            return
+        }
+
+        if (email == null) {
+            _billingState.value = BillingState.Error("Could not verify your identity. Please try again.")
+            return
+        }
+
+        val normalized = email.trim().lowercase()
+        _userEmail.value = normalized
+        scope.launch { store.saveEmail(normalized) }
+
+        // If there's an active conflict and the verified email matches → ownership proven.
+        // Emit OwnershipVerified so the UI shows the transfer confirmation dialog.
+        val pendingToken = DeviceTokenStore.getToken()
+        if (priorConflict != null &&
+            pendingToken != null &&
+            priorConflict.email.equals(normalized, ignoreCase = true)
+        ) {
+            _billingState.value = BillingState.OwnershipVerified(
+                email = normalized,
+                pendingToken = pendingToken,
+                conflictingDeviceName = priorConflict.conflictingDeviceName,
+                conflictingLastSeen = priorConflict.conflictingLastSeen,
+                verifiedVia = VerificationMethod.OAUTH,
+                supportEmail = PayCraft.config?.supportEmail ?: "",
+            )
+            return
+        }
+
+        // No prior conflict — treat as a fresh login
+        performRegisterAndLogin(normalized)
+    }
+
+    // ─── Gate 2: OTP ──────────────────────────────────────────────────────────
+
+    override suspend fun requestOtpVerification(email: String) {
+        try {
+            service.sendOtp(email)
+        } catch (e: Exception) {
+            PayCraftLogger.onError("requestOtpVerification", e.message)
+        }
+    }
+
+    override suspend fun verifyOtpOwnership(email: String, otp: String): Boolean {
+        val ok = try {
+            service.verifyOtp(email, otp)
+        } catch (e: Exception) {
+            PayCraftLogger.onError("verifyOtpOwnership", e.message)
+            false
+        }
+
+        if (ok) {
+            val conflict = lastConflict
+            val pendingToken = DeviceTokenStore.getToken()
+            if (conflict != null && pendingToken != null) {
+                _billingState.value = BillingState.OwnershipVerified(
+                    email = email.trim().lowercase(),
+                    pendingToken = pendingToken,
+                    conflictingDeviceName = conflict.conflictingDeviceName,
+                    conflictingLastSeen = conflict.conflictingLastSeen,
+                    verifiedVia = VerificationMethod.OTP,
+                    supportEmail = PayCraft.config?.supportEmail ?: "",
+                )
+            }
+        }
+        return ok
+    }
+
+    override suspend fun verifyOtp(email: String, otp: String): Boolean = try {
+        service.verifyOtp(email, otp)
+    } catch (e: Exception) {
+        PayCraftLogger.onError("verifyOtp", e.message)
+        false
+    }
+
+    // ─── Confirm transfer (after user confirms the dialog) ───────────────────
+
+    override suspend fun confirmDeviceTransfer() {
+        val state = _billingState.value as? BillingState.OwnershipVerified ?: return
+        val email = state.email
+        val token = state.pendingToken
+        val mode = stripeMode
+
+        _billingState.value = BillingState.Loading
+
+        val ok = try {
+            service.transferToDevice(email, token, mode)
+        } catch (e: Exception) {
+            PayCraftLogger.onError("confirmDeviceTransfer", e.message)
+            false
+        }
+
+        if (ok) {
+            lastConflict = null
+            DeviceTokenStore.saveToken(token) // token is now ACTIVE
+            checkPremiumWithDeviceToken(email)
+        } else {
+            _billingState.value = BillingState.Error("Transfer failed. Please try again or contact support.")
+        }
+    }
+
+    // ─── Internal transfer (used by transferToDevice path) ───────────────────
+
     override suspend fun transferToDevice() {
         val email = _userEmail.value ?: return
         val token = DeviceTokenStore.getToken() ?: return
@@ -83,24 +209,10 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         } catch (e: Exception) {
             false
         }
-        if (ok) checkPremiumWithDeviceToken(email)
-    }
-
-    override suspend fun requestOtpVerification(email: String) {
-        try {
-            service.sendOtp(email)
-        } catch (
-            e: Exception,
-        ) {
-            PayCraftLogger.onError("requestOtpVerification", e.message)
+        if (ok) {
+            lastConflict = null
+            checkPremiumWithDeviceToken(email)
         }
-    }
-
-    override suspend fun verifyOtp(email: String, otp: String): Boolean = try {
-        service.verifyOtp(email, otp)
-    } catch (e: Exception) {
-        PayCraftLogger.onError("verifyOtp", e.message)
-        false
     }
 
     override suspend fun revokeCurrentDevice() {
@@ -121,6 +233,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         _isPremium.value = false
         _subscriptionStatus.value = SubscriptionStatus()
         _billingState.value = BillingState.Free
+        lastConflict = null
         scope.launch { store.clearEmail() }
     }
 
@@ -130,6 +243,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         val mode = stripeMode
         val platform = PlatformInfo.platform
         val deviceName = PlatformInfo.deviceName
+        val deviceId = PlatformInfo.deviceId
 
         // Fast path: existing token already validated by server
         val existingToken = DeviceTokenStore.getToken()
@@ -149,34 +263,35 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
 
         // Register this device with the server
         val reg = try {
-            service.registerDevice(email, platform, deviceName, mode)
+            service.registerDevice(email, platform, deviceName, deviceId, mode)
         } catch (e: Exception) {
             PayCraftLogger.onError("registerDevice", e.message)
             _billingState.value = BillingState.Error(e.message ?: "Device registration failed")
             return
         }
 
-        // Persist the server-issued token (even pending/conflict — stored for later activation)
+        // Persist the server-issued token (even pending — stored for later activation)
         DeviceTokenStore.saveToken(reg.deviceToken)
 
         if (!reg.conflict) {
-            // Token is active immediately — check premium
             checkPremiumWithDeviceToken(email)
         } else {
-            // Token is pending — need ownership verification before activation
             val gate = try {
                 service.checkOtpGate()
             } catch (e: Exception) {
                 OtpGateResult(false, 0, 300)
             }
-            _billingState.value = BillingState.DeviceConflict(
+            val conflict = BillingState.DeviceConflict(
                 email = email,
                 pendingToken = reg.deviceToken,
                 conflictingDeviceName = reg.conflictingDeviceName,
                 conflictingLastSeen = reg.conflictingLastSeen,
                 otpAvailable = gate.available,
+                otpDailyLimit = gate.limit,
                 supportEmail = PayCraft.config?.supportEmail ?: "",
             )
+            lastConflict = conflict
+            _billingState.value = conflict
         }
     }
 
@@ -185,7 +300,6 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         val mode = stripeMode
 
         if (token == null) {
-            // No token stored — need to register first
             performRegisterAndLogin(email)
             return
         }
@@ -193,7 +307,6 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         try {
             val result = service.checkPremiumWithDevice(email, token, mode)
             if (!result.tokenValid) {
-                // Token revoked on server — clear local copy and re-register
                 DeviceTokenStore.clearToken()
                 performRegisterAndLogin(email)
                 return

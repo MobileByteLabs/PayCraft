@@ -309,6 +309,17 @@ WRITE: {target_app_path}/.paycraft/test_results/sandbox_test.json
   "result": "PASS"
 }
 
+-- Also write to paycraft-matrix.yaml (S1 PASS):
+MATRIX_PATH = {target_app_path}/.paycraft/paycraft-matrix.yaml
+IF MATRIX_PATH exists:
+  UPDATE scenarios[S1]:
+    status: "pass"
+    last_run: "[ISO8601 UTC]"
+    email_used: "[test_email]"
+    plan_tested: "[plan]"
+    fail_reason: null
+    result_detail: "webhook ✓, is_premium ✓, plan=[plan], app_state=[confirmed/skipped]"
+
 OUTPUT:
 "╔══ PHASE 5B COMPLETE — Sandbox Test ════════════════════════════╗"
 "║                                                                  ║"
@@ -318,8 +329,31 @@ OUTPUT:
 "║  ✓ get_subscription() → plan=[plan] status=active              ║"
 "║  ✓ Logcat: TEST mode confirmed in configure() log              ║"
 "║  ✓ App premium state: [confirmed/skipped]                      ║"
+"║  ✓ Matrix updated: scenarios[S1].status=pass                   ║"
 "║                                                                  ║"
 "║  Ready to go live? → run /paycraft-adopt → [C] Test live       ║"
 "║  Need live keys?   → run /paycraft-adopt → [D] Keys guide      ║"
 "╚══════════════════════════════════════════════════════════════════╝"
+```
+
+## STEP 5B.8 — On failure at any step: write S1 FAIL to matrix
+
+```
+IF any step 5B.3–5B.6 fails (webhook timeout, is_premium=false, etc.):
+  MATRIX_PATH = {target_app_path}/.paycraft/paycraft-matrix.yaml
+  IF MATRIX_PATH exists:
+    UPDATE scenarios[S1]:
+      status: "fail"
+      last_run: "[ISO8601 UTC]"
+      email_used: "[test_email or null]"
+      fail_reason: "[webhook_timeout | is_premium_false | plan_id_wrong | app_state_fail]"
+      result_detail: "[step that failed]: [error detail]"
+  -- WRITE sandbox_test.json with result=FAIL as well for backward compat:
+  WRITE: {target_app_path}/.paycraft/test_results/sandbox_test.json
+  {
+    "tested_at": "[ISO8601 UTC]",
+    "email_used": "[test_email or null]",
+    "result": "FAIL",
+    "fail_reason": "[reason]"
+  }
 ```
