@@ -2,7 +2,7 @@
 #
 # Triggered when a version tag (v*.*.*) is pushed.
 # Runs the full quality gate, then creates a GitHub Release.
-# Creating the release automatically triggers publish.yml → Maven Central.
+# After release: trigger Maven Central publish manually via Actions → Publish → Run workflow.
 #
 # How to trigger:
 #   scripts/release.sh          ← recommended (runs checks locally first)
