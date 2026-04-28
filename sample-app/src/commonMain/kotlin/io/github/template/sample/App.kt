@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.mobilebytelabs.paycraft.sample.BillingStateDebugPanel
 import com.mobilebytelabs.paycraft.ui.PayCraftBanner
 import com.mobilebytelabs.paycraft.ui.PayCraftRestore
 import com.mobilebytelabs.paycraft.ui.PayCraftSheet
@@ -79,6 +80,9 @@ private fun SampleScreen() {
                 onRestoreClick = { showRestore = true },
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            // Debug panel — displays BillingState with testTag assertions
+            BillingStateDebugPanel(modifier = Modifier.fillMaxWidth())
 
             Spacer(modifier = Modifier.height(8.dp))
 

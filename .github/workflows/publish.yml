@@ -1,5 +1,8 @@
 # Publish to Maven Central
-# Triggered when a new release is created
+# Triggered when a new release is created, or manually via workflow_dispatch.
+#
+# Flow: release.yml creates a GitHub Release → triggers this workflow automatically.
+# Manual: Use workflow_dispatch to re-publish (e.g., if publish failed after release).
 
 name: Publish
 
@@ -7,6 +10,8 @@ on:
   # Triggered automatically when release.yml creates a GitHub Release
   release:
     types: [released, prereleased]
+  # Manual trigger for re-publish if needed
+  workflow_dispatch:
 
 jobs:
   # Publish to Maven Central (tests already passed in release.yml)

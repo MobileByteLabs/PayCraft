@@ -17,8 +17,14 @@ interface BillingManager {
     /** Legacy — kept for backward compatibility. Delegates to registerAndLogin(). */
     fun logIn(email: String)
 
-    /** Refreshes premium status using stored device token. */
-    fun refreshStatus()
+    /**
+     * Refreshes premium status using stored device token.
+     *
+     * Respects [SyncPolicy] by default — skips the network call if the local cache
+     * is still fresh. Pass [force] = true to always fetch from Supabase (e.g., after
+     * returning from a payment checkout where the server state may have changed).
+     */
+    fun refreshStatus(force: Boolean = false)
 
     /**
      * PRIMARY ownership verification gate (Gate 1).

@@ -339,10 +339,106 @@ IF NOT FOUND:
   DISPLAY: "⚠️  Missing: LifecycleEventEffect(Lifecycle.Event.ON_RESUME) in paywall screen"
            "  Without this, premium status won't refresh after Stripe checkout."
            "  Add to your paywall Composable (commonMain):"
-           "  LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { subscriptionManager.refreshStatus() }"
-  NOTE: This is a WARNING (not hard stop) — app will still work but status refresh requires app restart.
+           "  LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {"
+           "      billingManager.refreshStatus()  // smart sync: skips if fresh"
+           "  }"
+           ""
+           "  For post-checkout polling (webhook may take a few seconds):"
+           "  if (cameFromCheckout && !isPremium) {"
+           "      repeat(4) { delay(3_000); billingManager.refreshStatus(force = true) }"
+           "  }"
+  NOTE: This is a WARNING (not hard stop) — smart sync (≥1.4.0) ensures cache-first,
+        but without ON_RESUME the post-checkout polling won't detect new premium state.
 ELSE:
   OUTPUT: "✓ ON_RESUME subscription refresh present in commonMain"
+
+VERIFY: Does post-checkout polling use refreshStatus(force = true)?
+  GREP: "refreshStatus(force" OR "refreshStatus(force = true)" in commonMain paywall
+  IF FOUND: OUTPUT: "✓ Post-checkout force refresh configured"
+  IF NOT FOUND:
+    DISPLAY: "⚠️  Post-checkout polling uses refreshStatus() without force=true."
+             "  PayCraft ≥ 1.4.0 defaults to smart sync (skips if cache is fresh)."
+             "  After checkout, the server state may have changed — use force=true."
+    NOTE: This is a WARNING (not hard stop) — ON_RESUME without force still works
+          once the SyncPolicy interval expires.
+```
+
+### STEP 5.8C — Google OAuth Android client verification (device conflict resolution)
+
+```
+⚠️ REQUIRED for device conflict → "Continue with Google" flow to work.
+   Without registered Android OAuth clients, CredentialManager returns error silently.
+
+READ: PAYCRAFT_GOOGLE_WEB_CLIENT_ID from .env
+IF EMPTY:
+  DISPLAY: "⚠️  PAYCRAFT_GOOGLE_WEB_CLIENT_ID not set — Google OAuth disabled."
+           "  Device conflict resolution will only have OTP option."
+           "  To enable: add Web Client ID from Google Cloud Console."
+  SKIP remaining 5.8C checks
+  OUTPUT: "⏭ Google OAuth check skipped (no Web Client ID)"
+
+IF NON-EMPTY:
+  EXTRACT project_number from client ID (first segment before '-')
+  DISPLAY: "Google Cloud project: {project_number}"
+
+  --- Check 1: Release build Android client ---
+  READ: applicationId from build.gradle.kts (cmp-android)
+        → parse: applicationId = ... ?: "fallback" → extract fallback value
+  READ: release keystore SHA-1
+        → keytool -list -v -keystore {keystore_path} -alias {alias} -storepass {password}
+        → extract SHA1 fingerprint
+
+  DISPLAY:
+    "Release Android OAuth client required in Google Cloud Console:"
+    "  Package name : {applicationId}"
+    "  SHA-1        : {sha1_fingerprint}"
+    ""
+    "Verify at: https://console.cloud.google.com/apis/credentials?project={project_id}"
+
+  --- Check 2: Debug build Android client ---
+  READ: debug keystore SHA-1
+        → keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android
+        → extract SHA1 fingerprint
+
+  DETERMINE debug package name:
+    IF build has demo flavor: "{applicationId}.demo.debug"
+    ELSE: "{applicationId}.debug"
+    (Check buildTypes and productFlavors in build.gradle.kts)
+
+  DISPLAY:
+    "Debug Android OAuth client required in Google Cloud Console:"
+    "  Package name : {debug_package_name}"
+    "  SHA-1        : {debug_sha1_fingerprint}"
+
+  --- Verification ---
+  DISPLAY:
+    "┌─ Google OAuth Android Clients ─────────────────────────────────────┐"
+    "│ Web Client ID  : {PAYCRAFT_GOOGLE_WEB_CLIENT_ID}                   │"
+    "│                                                                     │"
+    "│ Required Android clients in Google Cloud Console:                   │"
+    "│  1. Release: {applicationId} + SHA-1: {release_sha1}               │"
+    "│  2. Debug:   {debug_package_name} + SHA-1: {debug_sha1}            │"
+    "│                                                                     │"
+    "│ Without these, 'Continue with Google' fails silently on device.     │"
+    "│ Error: GetCredentialResponse error returned from framework          │"
+    "└────────────────────────────────────────────────────────────────────┘"
+    ""
+    "[Y] Both Android clients registered   [N] Not yet — show setup steps"
+
+  IF [N]:
+    DISPLAY:
+      "Setup steps:"
+      "  1. Go to https://console.cloud.google.com/apis/credentials"
+      "  2. Select your project"
+      "  3. Create Credentials → OAuth client ID → Android"
+      "  4. Enter package name + SHA-1 for EACH build variant"
+      "  5. Save — propagation takes ~5 minutes"
+      ""
+      "  The Web Client ID stays the same in app code."
+      "  Android clients just authorize the package+SHA pair."
+    HARD STOP: "Register Android OAuth clients before proceeding."
+
+  OUTPUT: "✓ Google OAuth Android clients verified (release + debug)"
 ```
 
 ### STEP 5.9 — Client app build check (if Phase 4 ran)
@@ -732,13 +828,22 @@ IF [N]:
 DISPLAY:
   "In the app: navigate to Settings → Premium / Paywall screen."
   ""
-  "Expected logcat:"
-  "  D PayCraft: refreshStatus() — no stored email → Free (UI should prompt sign-in)"
-  "    OR"
+  "Expected logcat (PayCraft ≥ 1.4.0 smart sync):"
+  ""
+  "  FIRST LAUNCH (no cache):"
+  "  D PayCraft: [init] savedEmail={email}, stripeMode=test"
+  "  D PayCraft: [init] No cache → fetching from Supabase"
   "  D PayCraft: refreshStatus() → checking status for: {email}"
-  "  D PayCraft: RPC is_premium(email={email})"
-  "  D PayCraft:   ↳ is_premium result: false"
-  "  D PayCraft: isPremium=false for {email} — no active subscription found"
+  "  D PayCraft: [refreshStatus] Cache fresh → skipping (force=false)"
+  ""
+  "  SUBSEQUENT LAUNCHES (cache hit — no Loading flash):"
+  "  D PayCraft: [init] Cache hit: isPremium=false, lastSynced=..."
+  "  D PayCraft: [init] Cache fresh → skipping network call"
+  "  D PayCraft: refreshStatus() → checking status for: {email}"
+  "  D PayCraft: [refreshStatus] Cache fresh → skipping (force=false)"
+  ""
+  "  Note: 'Cache fresh → skipping' means smart sync is working correctly."
+  "  PayCraft only calls Supabase when cache is stale (based on SyncPolicy)."
   ""
   "[Y] I see the paywall   [N] Paywall not showing"
 
@@ -766,17 +871,26 @@ DISPLAY:
 DISPLAY:
   "After returning to app, ON_RESUME fires automatically."
   ""
-  "Expected logcat:"
+  "Expected logcat (PayCraft ≥ 1.4.0 smart sync):"
+  ""
+  "  IF post-checkout polling uses refreshStatus(force = true):"
   "  D PayCraft: refreshStatus() → checking status for: {email}"
-  "  D PayCraft: RPC is_premium(email={email})"
-  "  D PayCraft:   ↳ is_premium result: true"
+  "  D PayCraft: [checkPremiumWithDeviceToken] email={email}, token=srv_..., mode=test"
+  "  D PayCraft: RPC check_premium_with_device(email={email} (token=srv_..., mode=test))"
+  "  D PayCraft:   ↳ check_premium_with_device result: isPremium=true, tokenValid=true"
+  "  D PayCraft: [applyPremiumResult] email={email}, isPremium=true, mode=test"
   "  D PayCraft: ✓ isPremium=true — plan=yearly, provider=stripe, expires=..., willRenew=true"
+  ""
+  "  IF only refreshStatus() (no force): cache may be fresh → skips network."
+  "  In that case, wait for the polling loop (force=true every 3s) to detect the change."
   ""
   "Expected UI: paywall shows 'ACTIVE ✓' banner, plan listed with green checkmark."
   ""
   "[Y] Logs show isPremium=true AND UI shows active  ✓  → SANDBOX DEVICE TEST PASSED"
-  "[N] Still showing free — check webhook:"
-  "    supabase functions logs stripe-webhook --project-ref {PAYCRAFT_SUPABASE_PROJECT_REF}"
+  "[N] Still showing free — troubleshoot:"
+  "    1. Check webhook: supabase functions logs stripe-webhook --project-ref {ref}"
+  "    2. Ensure post-checkout polling uses refreshStatus(force = true)"
+  "    3. Cache may be stale — wait for SyncPolicy interval or force manually"
 
 --- Write Phase 5C result ---
 
@@ -986,6 +1100,13 @@ OUTPUT: "✓ Phase 5 state saved → .paycraft/memory.json"
 ║  ✓ DeviceConflict bottom sheet — OTP verify + support fallback          ║
 ║  ✓ PayCraftBanner in {billing_card_file}:{billing_card_line}            ║
 ║  ✓ Build: compiles clean                                                 ║
+║                                                                          ║
+║  SMART SYNC (PayCraft ≥ 1.4.0)                                          ║
+║  ✓ Cache-first init — no Loading flash for returning users              ║
+║  ✓ SyncPolicy: weekly/daily/hourly based on subscription expiry          ║
+║  ✓ refreshStatus() defaults to smart (skips if cache fresh)              ║
+║  ✓ refreshStatus(force=true) for post-checkout polling                   ║
+║  ✓ logOut() clears cache — next login fetches fresh from Supabase        ║
 ║                                                                          ║
 ║  E2E VERIFICATION                                                        ║
 ║  ✓ DB write: service_role INSERT succeeded                               ║

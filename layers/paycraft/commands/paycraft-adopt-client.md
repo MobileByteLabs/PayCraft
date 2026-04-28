@@ -20,10 +20,11 @@ PayCraft is a **Kotlin Multiplatform library**. Every integration step MUST targ
 | Add `PayCraft.configure()` in Android Application class | Add in `initPayCraft()` called from the KMP Koin init block |
 | Add `PayCraftPlatform.init()` anywhere other than `androidMain` (Android) or `iosMain` (iOS) | `PayCraftPlatform.init()` is the ONLY call allowed in platform-specific code — everything else is commonMain |
 | Call `subscriptionManager.refreshStatus()` in `Activity.onResume()` | Call `subscriptionManager.refreshStatus()` inside `LifecycleEventEffect(Lifecycle.Event.ON_RESUME)` in the paywall/settings Composable |
+| Call `refreshStatus()` after checkout without `force=true` | Call `refreshStatus(force = true)` in post-checkout polling — smart sync (≥1.4.0) skips network if cache is fresh |
 | Call `billingManager.logIn(email)` directly | Call `billingManager.registerAndLogin(email)` — registers device + detects conflicts before logging in (PayCraft ≥ 1.3.0) |
 | Skip `DeviceTokenStore.init(context)` on Android | Call `PayCraftPlatform.init(context)` (which calls `DeviceTokenStore.init(context)`) in `androidMain` before Koin starts |
 
-**Subscription refresh after checkout — KMP pattern:**
+**Subscription refresh after checkout — KMP pattern (PayCraft ≥ 1.4.0 smart sync):**
 ```kotlin
 // In PaywallScreen.kt (commonMain) — NOT in MainActivity.kt
 import androidx.lifecycle.Lifecycle
@@ -31,12 +32,33 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 
 @Composable
 fun PaywallScreen(...) {
+    var cameFromCheckout by remember { mutableStateOf(false) }
+
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        subscriptionManager.refreshStatus()   // fires on every resume, including return from Stripe
+        // Smart sync (≥1.4.0): default force=false respects cache freshness.
+        // Normal resume → skips network if cache is fresh (no Loading flash).
+        billingManager.refreshStatus()
+
+        // Post-checkout: force=true bypasses cache — webhook may have just updated Supabase.
+        if (cameFromCheckout && !isPremium) {
+            coroutineScope.launch {
+                repeat(4) {
+                    delay(3_000)
+                    billingManager.refreshStatus(force = true)  // poll for webhook propagation
+                }
+            }
+        }
     }
     // ...
 }
 ```
+
+**Smart sync behavior (PayCraft ≥ 1.4.0):**
+- `refreshStatus()` — respects `SyncPolicy` (skips network if cache is fresh)
+- `refreshStatus(force = true)` — always fetches from Supabase (use after checkout, device transfer)
+- `registerAndLogin(email)` — always fetches (new login = no cache reliance)
+- `logOut()` — clears cache + email (next login = full Supabase sync)
+- App launch: cached status shown synchronously (no Loading spinner), background sync only if stale
 
 **Why:** `LifecycleEventEffect` is from `androidx.lifecycle:lifecycle-runtime-compose` which is KMP-compatible (Jetbrains Lifecycle). It works on Android, iOS, and Desktop — no platform fork needed.
 
@@ -892,6 +914,12 @@ OUTPUT: "✓ Phase 4 state saved → .paycraft/memory.json"
 ║  ✓ BillingState.DeviceConflict detected via LaunchedEffect                ║
 ║  ✓ Conflict resolution UI: OTP verify + Contact Support fallback          ║
 ║  ✓ verifyOtp() + transferToDevice() wired                                 ║
+║                                                                             ║
+║  SMART SYNC (PayCraft ≥ 1.4.0) — automatic, no client code needed        ║
+║  ✓ Cache-first init (no Loading flash for returning users)                ║
+║  ✓ refreshStatus() respects SyncPolicy (weekly/daily/hourly)              ║
+║  ✓ Post-checkout uses refreshStatus(force = true) for polling             ║
+║  ✓ logOut() clears cache atomically                                        ║
 ║                                                                             ║
 ║  ✓ memory.json updated (locations remembered for future runs)              ║
 ║                                                                             ║

@@ -10,7 +10,11 @@ plugins {
 }
 
 kotlin {
-    androidTarget()
+    androidTarget {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+        }
+    }
 
     jvm("desktop")
 
@@ -51,6 +55,17 @@ kotlin {
 
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)
+            implementation(libs.koin.android)
+        }
+
+        val androidInstrumentedTest by getting {
+            dependencies {
+                implementation(libs.compose.ui.test.junit4)
+                implementation(libs.koin.test)
+                implementation(libs.koin.test.junit4)
+                implementation(libs.kotlinx.coroutines.test)
+                implementation(libs.junit)
+            }
         }
 
         commonMain.dependencies {
@@ -63,6 +78,10 @@ kotlin {
 
             // Include the library
             implementation(project(":cmp-paycraft"))
+
+            // Koin (not transitive from cmp-paycraft)
+            implementation(libs.koin.core)
+            implementation(libs.koin.compose)
         }
 
         desktopMain.dependencies {
@@ -90,6 +109,7 @@ android {
                 .toInt()
         versionCode = 1
         versionName = "1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     packaging {
@@ -108,6 +128,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+}
+
+dependencies {
+    debugImplementation(libs.compose.ui.test.manifest)
 }
 
 compose.desktop {

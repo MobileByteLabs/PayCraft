@@ -9,6 +9,6 @@ actual object PlatformInfo {
         get() = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}"
     actual val deviceId: String
         get() = DeviceTokenStore.applicationContext?.let { ctx ->
-            Settings.Secure.getString(ctx, Settings.Secure.ANDROID_ID)
+            Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ANDROID_ID)
         } ?: "android-unknown"
 }

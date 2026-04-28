@@ -47,13 +47,36 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
     private var lastConflict: BillingState.DeviceConflict? = null
 
     init {
+        // Synchronous cache read — runs before any UI frame (no Loading flash)
+        val cached = store.getCachedSubscriptionStatus()
+        val lastSynced = store.getLastSyncedAt()
+        if (cached != null) {
+            applyCachedStatus(cached)
+            PayCraftLogger.onFlow("init", "Cache hit: isPremium=${cached.isPremium}, lastSynced=$lastSynced")
+        }
+
+        // Async: email fetch (suspend) + conditional Supabase sync
         scope.launch {
             val savedEmail = store.getEmail()
-            if (!savedEmail.isNullOrEmpty()) {
-                _userEmail.value = savedEmail
+            PayCraftLogger.onFlow("init", "savedEmail=${savedEmail ?: "null"}, stripeMode=$stripeMode")
+            if (savedEmail.isNullOrEmpty()) {
+                PayCraftLogger.onFlow("init", "No saved email → Free")
+                _billingState.value = BillingState.Free
+                return@launch
+            }
+
+            _userEmail.value = savedEmail
+
+            if (cached == null) {
+                // No cache — must fetch from Supabase
+                PayCraftLogger.onFlow("init", "No cache → fetching from Supabase")
+                checkPremiumWithDeviceToken(savedEmail)
+            } else if (SyncPolicy.isSyncDue(cached, lastSynced)) {
+                // Cache applied above — background sync only if due
+                PayCraftLogger.onFlow("init", "Cache stale → background sync")
                 checkPremiumWithDeviceToken(savedEmail)
             } else {
-                _billingState.value = BillingState.Free
+                PayCraftLogger.onFlow("init", "Cache fresh → skipping network call")
             }
         }
     }
@@ -71,13 +94,39 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
 
     override fun logIn(email: String) = registerAndLogin(email)
 
-    override fun refreshStatus() {
+    override fun refreshStatus(force: Boolean) {
         val email = _userEmail.value
+        val currentState = _billingState.value
         PayCraftLogger.onRefreshStatus(email)
+
+        // Don't refresh while a conflict/verification/transfer flow is active —
+        // the concurrent re-register would overwrite OwnershipVerified with DeviceConflict.
+        if (currentState is BillingState.DeviceConflict ||
+            currentState is BillingState.OwnershipVerified ||
+            currentState is BillingState.Loading
+        ) {
+            PayCraftLogger.onFlow(
+                "refreshStatus",
+                "SKIPPED — active flow in progress (state=${currentState::class.simpleName})",
+            )
+            return
+        }
+
         if (email == null) {
             _billingState.value = BillingState.Free
             return
         }
+
+        // Smart sync: skip network if cache is fresh (unless force=true)
+        if (!force) {
+            val cached = store.getCachedSubscriptionStatus()
+            val lastSynced = store.getLastSyncedAt()
+            if (cached != null && !SyncPolicy.isSyncDue(cached, lastSynced)) {
+                PayCraftLogger.onFlow("refreshStatus", "Cache fresh → skipping (force=false)")
+                return
+            }
+        }
+
         _billingState.value = BillingState.Loading
         scope.launch { checkPremiumWithDeviceToken(email) }
     }
@@ -85,9 +134,14 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
     // ─── Gate 1: OAuth ────────────────────────────────────────────────────────
 
     override suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String) {
+        PayCraftLogger.onFlow("loginWithOAuth", "provider=$provider, idToken=${idToken.take(20)}...")
         // Capture conflict info before overwriting billingState with Loading
         val priorConflict = _billingState.value as? BillingState.DeviceConflict
             ?: lastConflict
+        PayCraftLogger.onFlow(
+            "loginWithOAuth",
+            "priorConflict=${priorConflict != null}, lastConflict=${lastConflict != null}",
+        )
 
         _billingState.value = BillingState.Loading
 
@@ -99,7 +153,10 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
             return
         }
 
+        PayCraftLogger.onFlow("loginWithOAuth", "verifiedEmail=${email ?: "null"}")
+
         if (email == null) {
+            PayCraftLogger.onFlow("loginWithOAuth", "→ Error: could not verify identity")
             _billingState.value = BillingState.Error("Could not verify your identity. Please try again.")
             return
         }
@@ -109,12 +166,18 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         scope.launch { store.saveEmail(normalized) }
 
         // If there's an active conflict and the verified email matches → ownership proven.
-        // Emit OwnershipVerified so the UI shows the transfer confirmation dialog.
         val pendingToken = DeviceTokenStore.getToken()
+        PayCraftLogger.onFlow(
+            "loginWithOAuth",
+            "pendingToken=${pendingToken?.take(
+                20,
+            )}, conflictEmail=${priorConflict?.email}, normalizedEmail=$normalized",
+        )
         if (priorConflict != null &&
             pendingToken != null &&
             priorConflict.email.equals(normalized, ignoreCase = true)
         ) {
+            PayCraftLogger.onFlow("loginWithOAuth", "→ OwnershipVerified (conflict match + token present)")
             _billingState.value = BillingState.OwnershipVerified(
                 email = normalized,
                 pendingToken = pendingToken,
@@ -127,6 +190,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         }
 
         // No prior conflict — treat as a fresh login
+        PayCraftLogger.onFlow("loginWithOAuth", "→ No prior conflict, performing fresh register+login")
         performRegisterAndLogin(normalized)
     }
 
@@ -175,10 +239,39 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
     // ─── Confirm transfer (after user confirms the dialog) ───────────────────
 
     override suspend fun confirmDeviceTransfer() {
-        val state = _billingState.value as? BillingState.OwnershipVerified ?: return
+        // Try current billingState first; fall back to lastConflict + stored token if a race overwrote it
+        var state = _billingState.value as? BillingState.OwnershipVerified
+        PayCraftLogger.onFlow(
+            "confirmDeviceTransfer",
+            "currentState=${_billingState.value::class.simpleName}, isOwnershipVerified=${state != null}",
+        )
+        if (state == null && lastConflict != null) {
+            // Race condition recovery: refreshStatus overwrote OwnershipVerified → DeviceConflict
+            val token = DeviceTokenStore.getToken()
+            PayCraftLogger.onFlow(
+                "confirmDeviceTransfer",
+                "Race recovery: lastConflict=${lastConflict != null}, storedToken=${token?.take(20)}",
+            )
+            if (token != null && lastConflict != null) {
+                state = BillingState.OwnershipVerified(
+                    email = lastConflict!!.email,
+                    pendingToken = token,
+                    conflictingDeviceName = lastConflict!!.conflictingDeviceName,
+                    conflictingLastSeen = lastConflict!!.conflictingLastSeen,
+                    verifiedVia = VerificationMethod.OAUTH,
+                    supportEmail = lastConflict!!.supportEmail,
+                )
+                PayCraftLogger.onFlow("confirmDeviceTransfer", "→ Recovered OwnershipVerified from lastConflict")
+            }
+        }
+        if (state == null) {
+            PayCraftLogger.onFlow("confirmDeviceTransfer", "→ ABORT: no OwnershipVerified state available")
+            return
+        }
         val email = state.email
         val token = state.pendingToken
         val mode = stripeMode
+        PayCraftLogger.onFlow("confirmDeviceTransfer", "email=$email, token=${token.take(20)}, mode=$mode")
 
         _billingState.value = BillingState.Loading
 
@@ -189,11 +282,14 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
             false
         }
 
+        PayCraftLogger.onFlow("confirmDeviceTransfer", "transferResult=$ok")
         if (ok) {
             lastConflict = null
             DeviceTokenStore.saveToken(token) // token is now ACTIVE
+            PayCraftLogger.onFlow("confirmDeviceTransfer", "→ Token saved, checking premium status...")
             checkPremiumWithDeviceToken(email)
         } else {
+            PayCraftLogger.onFlow("confirmDeviceTransfer", "→ FAILED — showing error")
             _billingState.value = BillingState.Error("Transfer failed. Please try again or contact support.")
         }
     }
@@ -223,6 +319,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
             service.revokeDevice(email, token, mode)
         } catch (e: Exception) { /* log */ }
         DeviceTokenStore.clearToken()
+        store.clearCache()
         _billingState.value = BillingState.Free
         _isPremium.value = false
     }
@@ -234,6 +331,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         _subscriptionStatus.value = SubscriptionStatus()
         _billingState.value = BillingState.Free
         lastConflict = null
+        store.clearCache()
         scope.launch { store.clearEmail() }
     }
 
@@ -244,24 +342,37 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         val platform = PlatformInfo.platform
         val deviceName = PlatformInfo.deviceName
         val deviceId = PlatformInfo.deviceId
+        PayCraftLogger.onFlow(
+            "performRegisterAndLogin",
+            "email=$email, mode=$mode, platform=$platform, deviceName=$deviceName, deviceId=$deviceId",
+        )
 
         // Fast path: existing token already validated by server
         val existingToken = DeviceTokenStore.getToken()
+        PayCraftLogger.onFlow("performRegisterAndLogin", "existingToken=${existingToken?.take(20) ?: "null"}")
         if (existingToken != null) {
             val check = try {
                 service.checkPremiumWithDevice(email, existingToken, mode)
             } catch (e: Exception) {
+                PayCraftLogger.onFlow("performRegisterAndLogin", "checkPremium exception: ${e.message}")
                 null
             }
+            PayCraftLogger.onFlow(
+                "performRegisterAndLogin",
+                "fastPath check: tokenValid=${check?.tokenValid}, isPremium=${check?.isPremium}",
+            )
             if (check?.tokenValid == true) {
+                PayCraftLogger.onFlow("performRegisterAndLogin", "→ Fast path: token valid, applying result")
                 applyPremiumResult(email, check.isPremium, mode)
                 return
             }
             // Token was revoked — clear and re-register below
+            PayCraftLogger.onFlow("performRegisterAndLogin", "→ Token invalid/revoked, clearing and re-registering")
             DeviceTokenStore.clearToken()
         }
 
         // Register this device with the server
+        PayCraftLogger.onFlow("performRegisterAndLogin", "Calling registerDevice...")
         val reg = try {
             service.registerDevice(email, platform, deviceName, deviceId, mode)
         } catch (e: Exception) {
@@ -270,17 +381,31 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
             return
         }
 
+        PayCraftLogger.onFlow(
+            "performRegisterAndLogin",
+            "registerDevice result: token=${reg.deviceToken.take(
+                20,
+            )}, conflict=${reg.conflict}, conflictDevice=${reg.conflictingDeviceName}",
+        )
+
         // Persist the server-issued token (even pending — stored for later activation)
         DeviceTokenStore.saveToken(reg.deviceToken)
 
         if (!reg.conflict) {
+            PayCraftLogger.onFlow("performRegisterAndLogin", "→ No conflict, checking premium...")
             checkPremiumWithDeviceToken(email)
         } else {
+            PayCraftLogger.onFlow("performRegisterAndLogin", "→ CONFLICT detected! Checking OTP gate...")
             val gate = try {
                 service.checkOtpGate()
             } catch (e: Exception) {
+                PayCraftLogger.onFlow("performRegisterAndLogin", "OTP gate error: ${e.message}")
                 OtpGateResult(false, 0, 300)
             }
+            PayCraftLogger.onFlow(
+                "performRegisterAndLogin",
+                "OTP gate: available=${gate.available}, sendsToday=${gate.sendsToday}",
+            )
             val conflict = BillingState.DeviceConflict(
                 email = email,
                 pendingToken = reg.deviceToken,
@@ -291,6 +416,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
                 supportEmail = PayCraft.config?.supportEmail ?: "",
             )
             lastConflict = conflict
+            PayCraftLogger.onFlow("performRegisterAndLogin", "→ Setting BillingState.DeviceConflict")
             _billingState.value = conflict
         }
     }
@@ -298,19 +424,30 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
     private suspend fun checkPremiumWithDeviceToken(email: String) {
         val token = DeviceTokenStore.getToken()
         val mode = stripeMode
+        PayCraftLogger.onFlow(
+            "checkPremiumWithDeviceToken",
+            "email=$email, token=${token?.take(20) ?: "null"}, mode=$mode",
+        )
 
         if (token == null) {
+            PayCraftLogger.onFlow("checkPremiumWithDeviceToken", "→ No token, performing register+login")
             performRegisterAndLogin(email)
             return
         }
 
         try {
             val result = service.checkPremiumWithDevice(email, token, mode)
+            PayCraftLogger.onFlow(
+                "checkPremiumWithDeviceToken",
+                "result: isPremium=${result.isPremium}, tokenValid=${result.tokenValid}",
+            )
             if (!result.tokenValid) {
+                PayCraftLogger.onFlow("checkPremiumWithDeviceToken", "→ Token invalid, clearing and re-registering")
                 DeviceTokenStore.clearToken()
                 performRegisterAndLogin(email)
                 return
             }
+            PayCraftLogger.onFlow("checkPremiumWithDeviceToken", "→ Token valid, applying premium result")
             applyPremiumResult(email, result.isPremium, mode)
         } catch (e: Exception) {
             PayCraftLogger.onError("checkPremiumWithDeviceToken", e.message)
@@ -318,7 +455,18 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         }
     }
 
+    private fun applyCachedStatus(cached: SubscriptionStatus) {
+        _isPremium.value = cached.isPremium
+        _subscriptionStatus.value = cached
+        _billingState.value = if (cached.isPremium) {
+            BillingState.Premium(cached)
+        } else {
+            BillingState.Free
+        }
+    }
+
     private suspend fun applyPremiumResult(email: String, isPremium: Boolean, mode: String) {
+        PayCraftLogger.onFlow("applyPremiumResult", "email=$email, isPremium=$isPremium, mode=$mode")
         _isPremium.value = isPremium
         if (isPremium) {
             val sub = try {
@@ -336,6 +484,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
             )
             _subscriptionStatus.value = status
             _billingState.value = BillingState.Premium(status)
+            store.cacheSubscriptionStatus(status)
             PayCraftLogger.onStatusResult(
                 email = email,
                 isPremium = true,
@@ -345,8 +494,10 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
                 willRenew = sub?.cancelAtPeriodEnd != true,
             )
         } else {
-            _subscriptionStatus.value = SubscriptionStatus(isPremium = false, email = email)
+            val status = SubscriptionStatus(isPremium = false, email = email)
+            _subscriptionStatus.value = status
             _billingState.value = BillingState.Free
+            store.cacheSubscriptionStatus(status)
             PayCraftLogger.onStatusResult(
                 email = email,
                 isPremium = false,

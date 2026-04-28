@@ -1,23 +1,16 @@
-# CI Workflow for PayCraft KMP Library
-# Runs quality checks (Spotless, Detekt) + builds/tests across all platforms
+# CI Workflow — delegates to mbl-actionhub reusable CI workflow
 #
 # Triggers:
-#   - push to development or main
-#   - pull_request targeting development or main
+#   - push to development or main (full build — all modules always verified)
 #   - workflow_call (invoked by publish.yml before every Maven publish)
 #
-# Flow: detect-changes → quality → build (JVM/iOS tests) → build-all (all targets, macOS runner)
-# Smart detection: on push/PR only changed cmp-* modules are tested.
-# workflow_call (publish gate) always builds all modules.
-# Supports multi-module out of the box — add cmp-* dirs and they are auto-discovered.
+# PRs are handled separately by pr-check.yml (fast gate, quality + JVM only).
 
 name: CI
 
 on:
   push:
-    branches: [ "main", "development" ]
-  pull_request:
-    branches: [ "main", "development" ]
+    branches: [ "development", "main" ]
   workflow_call:
 
 permissions:
@@ -28,244 +21,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Detect which cmp-* modules changed
-  detect-changes:
-    name: Detect Changed Modules
-    runs-on: ubuntu-latest
-    outputs:
-      modules: ${{ steps.detect.outputs.modules }}
-      build_all: ${{ steps.detect.outputs.build_all }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Detect changed cmp-* modules
-        id: detect
-        run: |
-          # workflow_call (publish gate) always builds everything
-          if [ "${{ github.event_name }}" = "workflow_call" ]; then
-            echo "build_all=true" >> $GITHUB_OUTPUT
-            echo "modules=" >> $GITHUB_OUTPUT
-            echo "▶ Publish gate — building all modules"
-            exit 0
-          fi
-
-          BASE_SHA=$(git merge-base HEAD "origin/${{ github.base_ref || 'development' }}" 2>/dev/null || git rev-parse HEAD~1)
-          CHANGED=$(git diff --name-only "$BASE_SHA" HEAD)
-
-          echo "Changed files:"
-          echo "$CHANGED"
-
-          # Root config change → all modules
-          if echo "$CHANGED" | grep -qE "^(build\.gradle\.kts|settings\.gradle\.kts|gradle/|buildSrc/|gradle\.properties|\.github/)"; then
-            echo "build_all=true" >> $GITHUB_OUTPUT
-            echo "modules=" >> $GITHUB_OUTPUT
-            echo "▶ Root config changed — building all modules"
-            exit 0
-          fi
-
-          # Extract distinct changed cmp-* modules
-          MODULES=$(echo "$CHANGED" \
-            | grep "^cmp-" \
-            | cut -d/ -f1 \
-            | sort -u \
-            | tr '\n' ' ' \
-            | sed 's/ $//')
-
-          if [ -z "$MODULES" ]; then
-            echo "build_all=false" >> $GITHUB_OUTPUT
-            echo "modules=NONE" >> $GITHUB_OUTPUT
-            echo "▶ No cmp-* modules changed — skipping build/test"
-          else
-            echo "build_all=false" >> $GITHUB_OUTPUT
-            echo "modules=$MODULES" >> $GITHUB_OUTPUT
-            echo "▶ Changed modules: $MODULES"
-          fi
-
-  # Code quality checks
-  quality:
-    name: Code Quality
-    runs-on: ubuntu-latest
-    needs: detect-changes
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Validate Gradle Wrapper
-        uses: gradle/actions/wrapper-validation@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Run Spotless Check
-        run: ./gradlew spotlessCheck
-
-      - name: Run Detekt
-        run: ./gradlew detekt
-
-      - name: Upload Detekt Report
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: detekt-report
-          path: build/reports/detekt/
-
-  # Build and test on multiple platforms (smart: only changed modules)
-  build:
-    name: Build & Test (${{ matrix.name }})
-    needs: [detect-changes, quality]
-    if: needs.detect-changes.outputs.modules != 'NONE'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: JVM
-            target: jvmTest
-            os: ubuntu-latest
-          - name: iOS Simulator
-            target: iosSimulatorArm64Test
-            os: macos-latest
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Validate Gradle Wrapper
-        uses: gradle/actions/wrapper-validation@v4
-
-      - name: Cache Kotlin/Native
-        uses: actions/cache@v4
-        with:
-          path: ~/.konan
-          key: ${{ runner.os }}-konan-${{ hashFiles('**/*.gradle.kts') }}
-          restore-keys: |
-            ${{ runner.os }}-konan-
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Run Tests (smart — changed modules only)
-        run: |
-          BUILD_ALL="${{ needs.detect-changes.outputs.build_all }}"
-          MODULES="${{ needs.detect-changes.outputs.modules }}"
-
-          if [ "$BUILD_ALL" = "true" ] || [ -z "$MODULES" ]; then
-            TASKS=""
-            for dir in cmp-*/; do
-              [ -d "$dir" ] && TASKS="$TASKS :${dir%/}:${{ matrix.target }}"
-            done
-          else
-            TASKS=""
-            for MODULE in $MODULES; do
-              [ -d "${MODULE}/" ] && TASKS="$TASKS :${MODULE}:${{ matrix.target }}"
-            done
-          fi
-
-          if [ -z "$TASKS" ]; then
-            echo "No modules with ${{ matrix.target }} target — skipping"
-            exit 0
-          fi
-
-          echo "Running: ./gradlew $TASKS --parallel"
-          ./gradlew $TASKS --parallel
-
-      - name: Upload Test Reports
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: test-reports-${{ matrix.name }}
-          path: |
-            **/build/reports/tests/
-            **/build/test-results/
-
-  # API compatibility check
-  api-check:
-    name: API Compatibility
-    needs: [detect-changes, quality]
-    if: needs.detect-changes.outputs.modules != 'NONE'
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Check API Compatibility
-        run: ./gradlew apiCheck || echo "API check not configured"
-
-  # Build all library modules for all targets
-  build-all:
-    name: Build All Libraries (All Targets)
-    needs: [detect-changes, build]
-    if: always() && needs.detect-changes.outputs.modules != 'NONE' && needs.build.result != 'failure'
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Cache Kotlin/Native
-        uses: actions/cache@v4
-        with:
-          path: ~/.konan
-          key: ${{ runner.os }}-konan-${{ hashFiles('**/*.gradle.kts') }}
-          restore-keys: |
-            ${{ runner.os }}-konan-
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build All Libraries (All Targets)
-        run: |
-          MODULES=""
-          for dir in cmp-*/; do
-            if [ -d "$dir" ]; then
-              MODULE="${dir%/}"
-              MODULES="$MODULES :$MODULE:assemble"
-              echo "▶ $MODULE"
-            fi
-          done
-          echo "Running: ./gradlew $MODULES --parallel"
-          ./gradlew $MODULES --parallel
-
-      - name: Build Summary
-        run: |
-          echo "## 📦 Library Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Module | Version | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|---------|--------|" >> $GITHUB_STEP_SUMMARY
-          for dir in cmp-*/; do
-            if [ -d "$dir" ]; then
-              MODULE="${dir%/}"
-              VERSION=$(grep -m1 'version = ' "${dir}build.gradle.kts" 2>/dev/null | sed 's/.*"\(.*\)".*/\1/' || echo "N/A")
-              echo "| $MODULE | $VERSION | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-            fi
-          done
+  ci:
+    uses: MobileByteLabs/mbl-actionhub/.github/workflows/ci-kmp-library.yml@v1.1.1
+    with:
+      module-pattern: 'cmp-'
+      java-version: '21'
+      java-distribution: 'zulu'
+      run-quality: true
