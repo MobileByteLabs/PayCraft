@@ -65,7 +65,7 @@ object PayCraftLogger {
         if (email == null) {
             Logger.d(TAG) { "refreshStatus() — no stored email → Free (UI should prompt sign-in)" }
         } else {
-            Logger.d(TAG) { "refreshStatus() → checking status for: $email" }
+            Logger.d(TAG) { "refreshStatus() → checking status for: ${redactEmail(email)}" }
         }
     }
 
@@ -80,16 +80,18 @@ object PayCraftLogger {
         if (!enabled) return
         if (isPremium) {
             Logger.d(TAG) {
-                "✓ isPremium=true — email=$email, plan=$plan, provider=$provider, expires=$expiresAt, willRenew=$willRenew"
+                "✓ isPremium=true — email=${redactEmail(
+                    email,
+                )}, plan=$plan, provider=$provider, expires=$expiresAt, willRenew=$willRenew"
             }
         } else {
-            Logger.d(TAG) { "isPremium=false for $email — no active subscription found" }
+            Logger.d(TAG) { "isPremium=false for ${redactEmail(email)} — no active subscription found" }
         }
     }
 
     fun onLogIn(email: String) {
         if (!enabled) return
-        Logger.d(TAG) { "logIn($email) → saving + checking status..." }
+        Logger.d(TAG) { "logIn(${redactEmail(email)}) → saving + checking status..." }
     }
 
     fun onLogOut() {
@@ -99,9 +101,9 @@ object PayCraftLogger {
 
     // ── Network ──────────────────────────────────────────────────────────────
 
-    fun onRpcCall(function: String, email: String) {
+    fun onRpcCall(function: String, detail: String) {
         if (!enabled) return
-        Logger.d(TAG) { "RPC $function(email=$email)" }
+        Logger.d(TAG) { "RPC $function($detail)" }
     }
 
     fun onRpcResult(function: String, result: String) {
@@ -134,6 +136,14 @@ object PayCraftLogger {
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /** Redact email for safe logging: "rajanmaurya@gmail.com" → "r***@gmail.com" */
+    private fun redactEmail(email: String?): String {
+        if (email == null) return "null"
+        val parts = email.split("@")
+        if (parts.size != 2) return "***"
+        return "${parts[0].take(1)}***@${parts[1]}"
+    }
 
     private fun linkStatus(count: Int, total: Int, phase: String): String = when {
         count == total -> "✓ $count/$total configured"

@@ -1,0 +1,23 @@
+# Keep Supabase free tier alive — prevents 7-day inactivity pause
+#
+# Pings the Supabase REST endpoint weekly. Costs $0 on GitHub Actions free tier.
+# Required secrets: SUPABASE_URL, SUPABASE_ANON_KEY
+
+name: Keep Supabase Alive
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly — Sunday midnight UTC
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        run: |
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}")
+          echo "Supabase responded with HTTP $STATUS"
+          [ "$STATUS" -lt 400 ] || exit 1

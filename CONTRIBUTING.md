@@ -1,6 +1,6 @@
-# Contributing to TEMPLATE_LIBRARY_NAME
+# Contributing to PayCraft
 
-Thank you for your interest in contributing! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to PayCraft! This document provides guidelines and instructions for contributing.
 
 ## Getting Started
 
@@ -13,17 +13,14 @@ Thank you for your interest in contributing! This document provides guidelines a
 - JDK 17 or higher
 - Android SDK (for Android target)
 - Xcode (for iOS target, macOS only)
-- Kotlin 2.0+
+- Kotlin 2.1+
 
 ### Setup
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/TEMPLATE_REPO.git
-cd TEMPLATE_REPO
-
-# Set up git hooks
-bash scripts/setup-hooks.sh
+git clone https://github.com/YOUR_USERNAME/PayCraft.git
+cd PayCraft
 
 # Build the project
 ./gradlew build
@@ -69,7 +66,7 @@ Before committing, run:
 
 ## Pull Request Process
 
-1. Create a feature branch from `main`
+1. Create a feature branch from `development`
 2. Make your changes
 3. Ensure all tests pass
 4. Update documentation if needed

@@ -4,9 +4,17 @@ import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import com.russhwolf.settings.Settings
 
-class PayCraftSettingsStore : PayCraftStore {
-
-    private val settings = Settings()
+/**
+ * Settings-backed persistence for subscription cache and email.
+ *
+ * Accepts an injected [Settings] instance so platforms can provide encrypted storage:
+ * - **Android**: `SharedPreferencesSettings(encryptedSharedPreferences)` via EncryptedSharedPreferences
+ * - **iOS**: Default `Settings()` (NSUserDefaults — encrypted at rest via iOS Data Protection)
+ * - **Desktop/Web**: Default `Settings()` (acceptable risk for non-mobile)
+ *
+ * Falls back to default `Settings()` if no instance is injected.
+ */
+class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCraftStore {
 
     override suspend fun saveEmail(email: String) {
         settings.putString(KEY_EMAIL, email)
