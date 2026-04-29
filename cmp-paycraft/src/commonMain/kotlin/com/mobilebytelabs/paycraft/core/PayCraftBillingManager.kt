@@ -286,7 +286,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         PayCraftLogger.onFlow("confirmDeviceTransfer", "transferResult=$ok")
         if (ok) {
             lastConflict = null
-            DeviceTokenStore.saveToken(token) // token is now ACTIVE
+            DeviceTokenStore.saveToken(pendingToken) // token is now ACTIVE
             PayCraftLogger.onFlow("confirmDeviceTransfer", "→ Token saved, checking premium status...")
             checkPremiumWithDeviceToken(email)
         } else {
