@@ -90,6 +90,7 @@ temp/
 # npm (if using Kotlin/JS)
 node_modules/
 package-lock.json
+!docusaurus/package-lock.json
 
 # Documentation build
 docs/_build/
