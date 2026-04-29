@@ -25,10 +25,13 @@ permissions:
 
 jobs:
   publish:
-    uses: MobileByteLabs/mbl-actionhub/.github/workflows/publish-kmp-library.yml@v1.0.7
+    uses: MobileByteLabs/mbl-actionhub/.github/workflows/publish-kmp-library.yml@v1.0.8
     with:
       module-pattern: 'cmp-'
       module: ${{ inputs.module || '' }}
+      group-id: 'io.github.mobilebytelabs'
+      artifact-id: 'cmp-paycraft'
+      version: '1.4.0'
       java-version: '21'
       java-distribution: 'zulu'
       sonatype-host: 'CENTRAL_PORTAL'
