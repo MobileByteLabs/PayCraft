@@ -313,7 +313,7 @@ Self-hosted users: omit the API key — RPCs default to single-tenant mode.
 - [Customization](docs/CUSTOMIZATION.md) — theme, slot API, custom UI
 - [Security](docs/SECURITY.md) — webhook verification, key management, RLS
 - [Claude Skills](docs/CLAUDE_SKILLS.md) — all available Claude commands
-- [Docusaurus site](docusaurus/) — full documentation site (per-platform guides, concepts)
+- [Documentation site](https://mobilebytelabs.github.io/PayCraft/) — full Docusaurus site (per-platform guides, concepts)
 
 ---
 
@@ -358,6 +358,15 @@ See [`plugin-template/`](plugin-template/) for a starter template.
 ./scripts/release.sh
 # or: /lib-release in Claude Code
 ```
+
+## Live Services
+
+| Service | URL |
+|---------|-----|
+| Documentation | [mobilebytelabs.github.io/PayCraft](https://mobilebytelabs.github.io/PayCraft/) |
+| Dashboard | [dashboard-chi-ashen-99.vercel.app](https://dashboard-chi-ashen-99.vercel.app) |
+| CLI | [npmjs.com/package/paycraft](https://www.npmjs.com/package/paycraft) |
+| SDK | [Maven Central](https://central.sonatype.com/artifact/io.github.mobilebytelabs/paycraft) |
 
 ## Contributing
 
