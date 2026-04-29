@@ -38,7 +38,7 @@ if (mcUsername.isNotBlank()) {
 }
 
 group = "io.github.mobilebytelabs"
-version = "1.4.0"
+version = findProperty("VERSION_NAME")?.toString() ?: "1.4.0"
 
 @OptIn(ExperimentalKotlinGradlePluginApi::class, ExperimentalWasmDsl::class)
 kotlin {
