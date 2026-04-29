@@ -8,7 +8,7 @@ name: Deploy Docs
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "development" ]
     paths:
       - 'docs/**'
       - 'docusaurus/**'
