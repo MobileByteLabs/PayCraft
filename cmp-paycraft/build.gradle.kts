@@ -38,7 +38,6 @@ if (mcUsername.isNotBlank()) {
 }
 
 group = "io.github.mobilebytelabs"
-version = findProperty("VERSION_NAME")?.toString() ?: "1.4.0"
 
 @OptIn(ExperimentalKotlinGradlePluginApi::class, ExperimentalWasmDsl::class)
 kotlin {
@@ -139,8 +138,6 @@ kotlin {
 mavenPublishing {
     publishToMavenCentral()
     if (signingKey.isNotBlank()) signAllPublications()
-
-    coordinates(group.toString(), "cmp-paycraft", version.toString())
 
     pom {
         name = "PayCraft"
