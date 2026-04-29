@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/MobileByteLabs/PayCraft/actions/workflows/gradle.yml/badge.svg)](https://github.com/MobileByteLabs/PayCraft/actions/workflows/gradle.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.mobilebytelabs/paycraft?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.mobilebytelabs/paycraft)
+[![npm](https://img.shields.io/npm/v/paycraft?label=CLI)](https://www.npmjs.com/package/paycraft)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.1.0-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
@@ -9,16 +10,29 @@
 
 Self-hosted, provider-agnostic billing library for Kotlin Multiplatform apps.
 Uses **Supabase** as the source of truth — your app never talks to a payment provider directly.
+Open-source SDK + optional [hosted dashboard](https://dashboard-chi-ashen-99.vercel.app) for subscriber management and analytics.
 
 ```
-Client App ──→ PayCraft ──→ Supabase (source of truth)
-                             ↑
-Payment Provider ──webhook──┘
+Client App ──→ PayCraft SDK ──→ Supabase (source of truth)
+                                  ↑
+Payment Provider ──webhook──────┘
+                                  ↑
+Dashboard ──────────────────────┘
 ```
 
 ---
 
-## Adopt with Claude AI (Recommended)
+## Quick Start
+
+### Option A: CLI (fastest)
+
+```bash
+npx paycraft init
+```
+
+The CLI scaffolds your Supabase schema, Edge Functions, and app configuration interactively.
+
+### Option B: Claude AI (recommended for KMP apps)
 
 The fastest way to add PayCraft billing to your KMP app — no cloning, no setup, one prompt.
 
@@ -111,11 +125,16 @@ No full re-setup. Subscriber data migration included (optional).
 
 ## Features
 
-- **Provider-agnostic** — Stripe, Razorpay, or bring your own checkout URLs
+- **Multi-provider** — Stripe, Razorpay, Paddle, PayPal, LemonSqueezy, Flutterwave, Paystack, Midtrans, BTCPay, or bring your own
 - **No fees** — zero per-transaction cuts (beyond your payment provider)
-- **Self-hosted** — you own the data in your own Supabase project
+- **Self-hosted or Cloud** — own your data in Supabase, or use the hosted dashboard
+- **Multi-tenant** — single deployment serves multiple apps with isolated data
 - **KMP + Compose** — works on Android, iOS, macOS, JVM, JS, and Wasm
+- **Device binding** — per-device premium verification with conflict resolution
 - **Paywall UI included** — `PayCraftSheet`, `PayCraftBanner`, `PayCraftRestore` out of the box
+- **Plugin system** — community-contributed providers as separate Maven artifacts
+- **Web dashboard** — subscriber management, revenue analytics, webhook monitoring
+- **CLI tooling** — `npx paycraft init` scaffolds everything in minutes
 - **Koin DI** — drop in `PayCraftModule`, get `BillingManager` everywhere
 
 ---
@@ -208,11 +227,18 @@ if (isPremium) PremiumContent() else FreeContent()
 
 ## Providers
 
-| Provider | Status | Checkout | Notes |
-|----------|--------|----------|-------|
-| Stripe | Stable | Payment Links | Webhook: `stripe-webhook` |
-| Razorpay | Stable | Payment Links | Webhook: `razorpay-webhook` |
-| Custom | Stable | Any URL | Implement `PaymentProvider` interface |
+| Provider | Status | Checkout | Webhook |
+|----------|--------|----------|---------|
+| Stripe | Stable | Payment Links | `stripe-webhook` |
+| Razorpay | Stable | Payment Links | `razorpay-webhook` |
+| Paddle | Ready | Overlay Checkout | `paddle-webhook` |
+| PayPal | Ready | Smart Buttons | `paypal-webhook` |
+| LemonSqueezy | Ready | Hosted Checkout | `lemonsqueezy-webhook` |
+| Flutterwave | Ready | Standard Checkout | `flutterwave-webhook` |
+| Paystack | Ready | Popup Checkout | `paystack-webhook` |
+| Midtrans | Ready | Snap | `midtrans-webhook` |
+| BTCPay | Ready | Invoice | `btcpay-webhook` |
+| Custom | Stable | Any URL | Implement `PaymentProvider` |
 
 ## UI Components
 
@@ -237,14 +263,83 @@ if (isPremium) PremiumContent() else FreeContent()
 
 ---
 
+## Dashboard
+
+The PayCraft web dashboard provides tenant admins with:
+
+- **Subscriber management** — search, filter, export, manual actions
+- **Revenue analytics** — MRR, churn, cohorts, LTV
+- **Webhook monitoring** — delivery status, payload inspection, manual retry
+- **Provider configuration** — manage keys, test connectivity
+- **Usage & billing** — for multi-tenant cloud deployments
+
+Live: [dashboard-chi-ashen-99.vercel.app](https://dashboard-chi-ashen-99.vercel.app)
+
+---
+
+## Architecture
+
+PayCraft uses a multi-tenant architecture where each app gets isolated data within a shared Supabase deployment:
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  App A      │     │  App B      │     │  App C      │
+│  (SDK)      │     │  (SDK)      │     │  (SDK)      │
+└──────┬──────┘     └──────┬──────┘     └──────┬──────┘
+       │                   │                   │
+       │  X-PayCraft-API-Key header            │
+       └───────────┬───────┴───────────────────┘
+                   ▼
+          ┌────────────────┐
+          │   Supabase     │
+          │  (RPCs + RLS)  │◄──── Webhooks (per-tenant URLs)
+          └────────┬───────┘
+                   ▼
+          ┌────────────────┐
+          │   Dashboard    │
+          │  (Next.js)     │
+          └────────────────┘
+```
+
+Self-hosted users: omit the API key — RPCs default to single-tenant mode.
+
+---
+
 ## Documentation
 
 - [Quick Start](docs/QUICK_START.md) — manual 15-minute setup guide
 - [Architecture](docs/ARCHITECTURE.md) — how it works under the hood
-- [Providers](docs/PROVIDERS.md) — Stripe, Razorpay, custom
+- [Providers](docs/PROVIDERS.md) — all 9 providers + custom
 - [Customization](docs/CUSTOMIZATION.md) — theme, slot API, custom UI
-- [Security](docs/SECURITY.md) — webhook verification, key management
+- [Security](docs/SECURITY.md) — webhook verification, key management, RLS
 - [Claude Skills](docs/CLAUDE_SKILLS.md) — all available Claude commands
+- [Docusaurus site](docusaurus/) — full documentation site (per-platform guides, concepts)
+
+---
+
+## Platform Examples
+
+See [`paycraft-sample/`](paycraft-sample/) for minimal per-platform projects:
+
+- [`android-compose/`](paycraft-sample/android-compose/) — Android Compose + Koin
+- [`ios-swiftui/`](paycraft-sample/ios-swiftui/) — SwiftUI wrapper
+- [`desktop-jvm/`](paycraft-sample/desktop-jvm/) — Desktop Compose
+- [`web-wasm/`](paycraft-sample/web-wasm/) — Browser WasmJs
+
+---
+
+## Plugin System
+
+Create custom provider plugins as separate Maven artifacts:
+
+```kotlin
+class MyGatewayPlugin : ProviderPlugin {
+    override val providerId = "my-gateway"
+    override fun createProvider(config: PluginConfig): PaymentProvider { ... }
+}
+```
+
+See [`plugin-template/`](plugin-template/) for a starter template.
 
 ---
 
