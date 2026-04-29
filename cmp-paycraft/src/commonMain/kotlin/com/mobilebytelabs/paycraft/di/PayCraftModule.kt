@@ -29,6 +29,7 @@ val PayCraftModule = module {
     single<PayCraftService> {
         PayCraftServiceImpl(
             client = get<SupabaseClient>(qualifier = named("paycraft")),
+            apiKey = PayCraft.requireConfig().apiKey,
         )
     }
 

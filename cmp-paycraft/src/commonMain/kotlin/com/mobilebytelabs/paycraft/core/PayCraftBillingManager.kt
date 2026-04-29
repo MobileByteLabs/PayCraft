@@ -269,14 +269,15 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
             return
         }
         val email = state.email
-        val token = state.pendingToken
-        val mode = stripeMode
-        PayCraftLogger.onFlow("confirmDeviceTransfer", "email=$email, token=${token.take(20)}, mode=$mode")
+        val pendingToken = state.pendingToken
+        // For transfer, the pending token itself serves as the server_token auth
+        // (it was issued to this email during register_device)
+        PayCraftLogger.onFlow("confirmDeviceTransfer", "email=$email, pendingToken=${pendingToken.take(20)}")
 
         _billingState.value = BillingState.Loading
 
         val ok = try {
-            service.transferToDevice(email, token, mode)
+            service.transferToDevice(pendingToken, pendingToken)
         } catch (e: Exception) {
             PayCraftLogger.onError("confirmDeviceTransfer", e.message)
             false
@@ -285,7 +286,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         PayCraftLogger.onFlow("confirmDeviceTransfer", "transferResult=$ok")
         if (ok) {
             lastConflict = null
-            DeviceTokenStore.saveToken(token) // token is now ACTIVE
+            DeviceTokenStore.saveToken(pendingToken) // token is now ACTIVE
             PayCraftLogger.onFlow("confirmDeviceTransfer", "→ Token saved, checking premium status...")
             checkPremiumWithDeviceToken(email)
         } else {
@@ -299,9 +300,8 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
     override suspend fun transferToDevice() {
         val email = _userEmail.value ?: return
         val token = DeviceTokenStore.getToken() ?: return
-        val mode = stripeMode
         val ok = try {
-            service.transferToDevice(email, token, mode)
+            service.transferToDevice(token, token)
         } catch (e: Exception) {
             false
         }
@@ -314,9 +314,8 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
     override suspend fun revokeCurrentDevice() {
         val email = _userEmail.value ?: return
         val token = DeviceTokenStore.getToken() ?: return
-        val mode = stripeMode
         try {
-            service.revokeDevice(email, token, mode)
+            service.revokeDevice(token, token)
         } catch (e: Exception) { /* log */ }
         DeviceTokenStore.clearToken()
         store.clearCache()
@@ -352,7 +351,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         PayCraftLogger.onFlow("performRegisterAndLogin", "existingToken=${existingToken?.take(20) ?: "null"}")
         if (existingToken != null) {
             val check = try {
-                service.checkPremiumWithDevice(email, existingToken, mode)
+                service.checkPremiumWithDevice(existingToken)
             } catch (e: Exception) {
                 PayCraftLogger.onFlow("performRegisterAndLogin", "checkPremium exception: ${e.message}")
                 null
@@ -436,7 +435,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         }
 
         try {
-            val result = service.checkPremiumWithDevice(email, token, mode)
+            val result = service.checkPremiumWithDevice(token)
             PayCraftLogger.onFlow(
                 "checkPremiumWithDeviceToken",
                 "result: isPremium=${result.isPremium}, tokenValid=${result.tokenValid}",
@@ -469,8 +468,9 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         PayCraftLogger.onFlow("applyPremiumResult", "email=$email, isPremium=$isPremium, mode=$mode")
         _isPremium.value = isPremium
         if (isPremium) {
+            val token = DeviceTokenStore.getToken()
             val sub = try {
-                service.getSubscription(email, mode)
+                if (token != null) service.getSubscription(token) else null
             } catch (e: Exception) {
                 null
             }

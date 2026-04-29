@@ -48,6 +48,8 @@ data class PayCraftConfig(
     val plans: List<BillingPlan>,
     val benefits: List<BillingBenefit>,
     val supportEmail: String,
+    // PayCraft Cloud API key (pk_test_ or pk_live_). Null = self-hosted single-tenant.
+    val apiKey: String? = null,
 )
 
 class PayCraftConfigBuilder {
@@ -57,10 +59,16 @@ class PayCraftConfigBuilder {
     private var plans: List<BillingPlan> = emptyList()
     private var benefits: List<BillingBenefit> = emptyList()
     private var supportEmail: String = ""
+    private var apiKey: String? = null
 
     fun supabase(url: String, anonKey: String) {
         this.supabaseUrl = url
         this.supabaseAnonKey = anonKey
+    }
+
+    /** Set PayCraft Cloud API key for multi-tenant mode. Omit for self-hosted. */
+    fun cloud(apiKey: String) {
+        this.apiKey = apiKey
     }
 
     fun provider(provider: PaymentProvider) {
@@ -100,6 +108,7 @@ class PayCraftConfigBuilder {
             plans = plans.sortedBy { it.rank },
             benefits = benefits,
             supportEmail = supportEmail,
+            apiKey = apiKey,
         )
     }
 }

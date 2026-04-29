@@ -538,6 +538,7 @@ After auto-verify loop completes, display action menu:
 ║  [P] Production ready    — Run all 7 gates, certify, save to .paycraft/        ║
 ║  [T] Test scenarios      — 15-scenario matrix: purchase/restore/conflict/neg   ║
 ║  [X] Clean up test data  — Delete mode='test' rows from subscriptions table    ║
+║  [Z] Cloud deploy        — Full E2E deployment (migrations+functions+secrets)   ║
 ║  [Q] Quit                                                                       ║
 ╚═════════════════════════════════════════════════════════════════════════════════╝
 ```
@@ -554,6 +555,7 @@ After auto-verify loop completes, display action menu:
 - [P] → load `layers/paycraft/commands/paycraft-adopt-production.md` → run production readiness check
 - [T] → load `layers/paycraft/commands/paycraft-adopt-scenarios.md` → run Phase 5T (scenario matrix)
 - [X] → inline cleanup: query count WHERE mode='test', confirm, DELETE WHERE mode='test', show result
+- [Z] → load `layers/paycraft/commands/paycraft-adopt-cloud.md` → run Cloud E2E deployment (migrations + Edge Functions + secrets + Stripe products + smoke test)
 - [Q] → exit
 
 **[X] Clean up test data — inline logic:**

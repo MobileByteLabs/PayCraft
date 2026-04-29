@@ -23,42 +23,51 @@ serve(async (req) => {
     return new Response("Missing stripe-signature", { status: 400 });
   }
 
+  // Extract optional tenant_id from URL path:
+  // /stripe-webhook/{tenant_id} → multi-tenant
+  // /stripe-webhook             → single-tenant (self-hosted)
+  const url = new URL(req.url);
+  const pathParts = url.pathname.split("/").filter(Boolean);
+  // Path: ["functions", "v1", "stripe-webhook", maybe-tenant-id]
+  const tenantId: string | null = pathParts.length > 3 ? pathParts[3] : null;
+
   const body = await req.text();
 
-  // Verify signature — try test secret first, then live secret.
-  // Whichever succeeds determines the mode; event.livemode is the final authority.
-  let event: Stripe.Event | null = null;
-  let stripeMode: "test" | "live" = "test";
-  let stripeClient: Stripe | null = stripeTest || stripeLive;
-
-  if (testWebhookSecret) {
-    try {
-      const client = stripeTest || stripeLive!;
-      event = await client.webhooks.constructEventAsync(body, signature, testWebhookSecret);
-    } catch { /* try live */ }
+  // Determine mode from the raw payload BEFORE signature verification.
+  // This prevents a compromised test secret from forging live events.
+  let parsedBody: { livemode?: boolean };
+  try {
+    parsedBody = JSON.parse(body);
+  } catch {
+    return new Response("Invalid JSON body", { status: 400 });
   }
 
-  if (!event && liveWebhookSecret && liveWebhookSecret !== testWebhookSecret) {
-    try {
-      const client = stripeLive || stripeTest!;
-      event = await client.webhooks.constructEventAsync(body, signature, liveWebhookSecret);
-    } catch (err) {
-      console.error("Webhook signature verification failed:", err.message);
-      return new Response(`Webhook Error: ${err.message}`, { status: 400 });
-    }
+  const isLive = parsedBody.livemode === true;
+  const webhookSecret = isLive ? liveWebhookSecret : testWebhookSecret;
+  const stripeClient = isLive ? (stripeLive || stripeTest) : (stripeTest || stripeLive);
+
+  if (!webhookSecret) {
+    console.error(`No webhook secret configured for ${isLive ? "live" : "test"} mode`);
+    return new Response("Webhook secret not configured for this mode", { status: 500 });
   }
 
-  if (!event) {
-    return new Response("No valid webhook secret matched the signature", { status: 400 });
+  if (!stripeClient) {
+    console.error(`No Stripe client available for ${isLive ? "live" : "test"} mode`);
+    return new Response("Stripe client not configured for this mode", { status: 500 });
   }
 
-  // event.livemode is the source of truth — overrides which secret verified first
-  stripeMode = event.livemode ? "live" : "test";
-  stripeClient = stripeMode === "live"
-    ? (stripeLive || stripeTest)
-    : (stripeTest || stripeLive);
+  // Verify signature with the CORRECT key — no fallback to other mode
+  let event: Stripe.Event;
+  try {
+    event = await stripeClient.webhooks.constructEventAsync(body, signature, webhookSecret);
+  } catch (err) {
+    console.error(`Webhook signature verification failed (${isLive ? "live" : "test"}):`, err.message);
+    return new Response(`Webhook Error: ${err.message}`, { status: 400 });
+  }
 
-  console.log(`Received event: ${event.type} | mode=${stripeMode}`);
+  const stripeMode: "test" | "live" = isLive ? "live" : "test";
+
+  console.log(`Received event: ${event.type} | mode=${stripeMode} | tenant=${tenantId || "self-hosted"}`);
 
   try {
     switch (event.type) {
@@ -84,6 +93,8 @@ serve(async (req) => {
             periodStart: new Date(sub.current_period_start * 1000),
             periodEnd: new Date(sub.current_period_end * 1000),
             cancelAtPeriodEnd: sub.cancel_at_period_end,
+            tenantId,
+            eventType: event.type,
           });
         }
         break;
@@ -103,6 +114,8 @@ serve(async (req) => {
           periodStart: new Date(sub.current_period_start * 1000),
           periodEnd: new Date(sub.current_period_end * 1000),
           cancelAtPeriodEnd: sub.cancel_at_period_end,
+          tenantId,
+          eventType: event.type,
         });
         break;
       }
@@ -121,6 +134,8 @@ serve(async (req) => {
             periodStart: null,
             periodEnd: null,
             cancelAtPeriodEnd: false,
+            tenantId,
+            eventType: event.type,
           });
         }
         break;

@@ -41,9 +41,9 @@ class FakePayCraftService : PayCraftService {
     var checkPremiumResponses: MutableList<PremiumCheckResult>? = null
     private var checkPremiumCallIndex = 0
 
-    override suspend fun isPremium(email: String, mode: String) = isPremiumResponse
+    override suspend fun isPremium(serverToken: String) = isPremiumResponse
 
-    override suspend fun getSubscription(email: String, mode: String) = subscriptionResponse
+    override suspend fun getSubscription(serverToken: String) = subscriptionResponse
 
     override suspend fun registerDevice(
         email: String,
@@ -57,7 +57,7 @@ class FakePayCraftService : PayCraftService {
         return registerDeviceResponse
     }
 
-    override suspend fun checkPremiumWithDevice(email: String, deviceToken: String, mode: String): PremiumCheckResult {
+    override suspend fun checkPremiumWithDevice(serverToken: String): PremiumCheckResult {
         checkPremiumCallCount++
         shouldThrowOnCheckPremium?.let { throw it }
         checkPremiumResponses?.let { list ->
@@ -68,12 +68,12 @@ class FakePayCraftService : PayCraftService {
         return checkPremiumResponse
     }
 
-    override suspend fun transferToDevice(email: String, newToken: String, mode: String): Boolean {
+    override suspend fun transferToDevice(serverToken: String, newDeviceToken: String): Boolean {
         transferCallCount++
         return transferResponse
     }
 
-    override suspend fun revokeDevice(email: String, deviceToken: String, mode: String) = revokeResponse
+    override suspend fun revokeDevice(serverToken: String, targetToken: String) = revokeResponse
 
     override suspend fun checkOtpGate() = otpGateResponse
 

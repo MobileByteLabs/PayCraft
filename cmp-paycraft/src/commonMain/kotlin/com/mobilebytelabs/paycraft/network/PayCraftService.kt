@@ -50,11 +50,11 @@ data class OtpGateResult(val available: Boolean, val sendsToday: Int, val limit:
 // ─── Interface ────────────────────────────────────────────────────────────────
 
 interface PayCraftService {
-    // Legacy
-    suspend fun isPremium(email: String, mode: String = "live"): Boolean
-    suspend fun getSubscription(email: String, mode: String = "live"): SubscriptionDto?
+    // Server-token-based RPCs (Migration 013 — token replaces email in all queries)
+    suspend fun isPremium(serverToken: String): Boolean
+    suspend fun getSubscription(serverToken: String): SubscriptionDto?
 
-    // Device-binding RPCs
+    // Device registration (entry point — still requires email)
     suspend fun registerDevice(
         email: String,
         platform: String,
@@ -63,11 +63,10 @@ interface PayCraftService {
         mode: String = "live",
     ): RegisterDeviceResult
 
-    suspend fun checkPremiumWithDevice(email: String, deviceToken: String, mode: String = "live"): PremiumCheckResult
-
-    suspend fun transferToDevice(email: String, newToken: String, mode: String = "live"): Boolean
-
-    suspend fun revokeDevice(email: String, deviceToken: String, mode: String = "live"): Boolean
+    // Server-token-based device RPCs
+    suspend fun checkPremiumWithDevice(serverToken: String): PremiumCheckResult
+    suspend fun transferToDevice(serverToken: String, newDeviceToken: String): Boolean
+    suspend fun revokeDevice(serverToken: String, targetToken: String): Boolean
 
     suspend fun checkOtpGate(): OtpGateResult
 
@@ -84,18 +83,18 @@ interface PayCraftService {
 
 // ─── Implementation ───────────────────────────────────────────────────────────
 
-class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService {
+class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey: String? = null) : PayCraftService {
 
     private val postgrest get() = client.postgrest
     private val auth get() = client.auth
 
-    override suspend fun isPremium(email: String, mode: String): Boolean = try {
-        PayCraftLogger.onRpcCall("is_premium", email)
+    override suspend fun isPremium(serverToken: String): Boolean = try {
+        PayCraftLogger.onRpcCall("is_premium", "token=${serverToken.take(12)}...")
         val result = postgrest.rpc(
             function = "is_premium",
             parameters = buildJsonObject {
-                put("user_email", email)
-                put("stripe_mode", mode)
+                put("p_server_token", serverToken)
+                apiKey?.let { put("p_api_key", it) }
             },
         ).data
         val decoded = result.trim().toBooleanStrictOrNull() ?: false
@@ -106,13 +105,13 @@ class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService 
         false
     }
 
-    override suspend fun getSubscription(email: String, mode: String): SubscriptionDto? = try {
-        PayCraftLogger.onRpcCall("get_subscription", email)
+    override suspend fun getSubscription(serverToken: String): SubscriptionDto? = try {
+        PayCraftLogger.onRpcCall("get_subscription", "token=${serverToken.take(12)}...")
         val sub = postgrest.rpc(
             function = "get_subscription",
             parameters = buildJsonObject {
-                put("user_email", email)
-                put("stripe_mode", mode)
+                put("p_server_token", serverToken)
+                apiKey?.let { put("p_api_key", it) }
             },
         ).decodeList<SubscriptionDto>().firstOrNull()
         PayCraftLogger.onRpcResult(
@@ -134,7 +133,7 @@ class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService 
     ): RegisterDeviceResult {
         PayCraftLogger.onRpcCall(
             "register_device",
-            "$email (platform=$platform, device=$deviceName, id=$deviceId, mode=$mode)",
+            "email=***, platform=$platform, device=$deviceName, mode=$mode",
         )
         val r = postgrest.rpc(
             function = "register_device",
@@ -144,6 +143,7 @@ class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService 
                 put("p_device_name", deviceName)
                 put("p_device_id", deviceId)
                 put("p_mode", mode)
+                apiKey?.let { put("p_api_key", it) }
             },
         ).decodeAs<JsonObject>()
         val result = RegisterDeviceResult(
@@ -161,14 +161,13 @@ class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService 
         return result
     }
 
-    override suspend fun checkPremiumWithDevice(email: String, deviceToken: String, mode: String): PremiumCheckResult {
-        PayCraftLogger.onRpcCall("check_premium_with_device", "$email (token=${deviceToken.take(20)}, mode=$mode)")
+    override suspend fun checkPremiumWithDevice(serverToken: String): PremiumCheckResult {
+        PayCraftLogger.onRpcCall("check_premium_with_device", "token=${serverToken.take(12)}...")
         val r = postgrest.rpc(
             function = "check_premium_with_device",
             parameters = buildJsonObject {
-                put("p_email", email)
-                put("p_device_token", deviceToken)
-                put("p_mode", mode)
+                put("p_server_token", serverToken)
+                apiKey?.let { put("p_api_key", it) }
             },
         ).decodeAs<JsonObject>()
         val result = PremiumCheckResult(
@@ -182,14 +181,17 @@ class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService 
         return result
     }
 
-    override suspend fun transferToDevice(email: String, newToken: String, mode: String): Boolean {
-        PayCraftLogger.onRpcCall("transfer_to_device", "$email (newToken=${newToken.take(20)}, mode=$mode)")
+    override suspend fun transferToDevice(serverToken: String, newDeviceToken: String): Boolean {
+        PayCraftLogger.onRpcCall(
+            "transfer_to_device",
+            "token=${serverToken.take(12)}..., newToken=${newDeviceToken.take(12)}...",
+        )
         val r = postgrest.rpc(
             function = "transfer_to_device",
             parameters = buildJsonObject {
-                put("p_email", email)
-                put("p_new_token", newToken)
-                put("p_mode", mode)
+                put("p_server_token", serverToken)
+                put("p_new_device_token", newDeviceToken)
+                apiKey?.let { put("p_api_key", it) }
             },
         ).decodeAs<JsonObject>()
         val transferred = r["transferred"]?.jsonPrimitive?.boolean ?: false
@@ -197,14 +199,14 @@ class PayCraftServiceImpl(private val client: SupabaseClient) : PayCraftService 
         return transferred
     }
 
-    override suspend fun revokeDevice(email: String, deviceToken: String, mode: String): Boolean {
-        PayCraftLogger.onRpcCall("revoke_device", email)
+    override suspend fun revokeDevice(serverToken: String, targetToken: String): Boolean {
+        PayCraftLogger.onRpcCall("revoke_device", "token=${serverToken.take(12)}...")
         val r = postgrest.rpc(
             function = "revoke_device",
             parameters = buildJsonObject {
-                put("p_email", email)
-                put("p_device_token", deviceToken)
-                put("p_mode", mode)
+                put("p_server_token", serverToken)
+                put("p_target_token", targetToken)
+                apiKey?.let { put("p_api_key", it) }
             },
         ).decodeAs<JsonObject>()
         return r["revoked"]?.jsonPrimitive?.boolean ?: false

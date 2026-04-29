@@ -1,0 +1,27 @@
+# Weekly database backup — stores pg_dump as GitHub Actions artifact
+#
+# Free tier: artifacts retained 30 days, unlimited storage for public repos.
+# Required secrets: SUPABASE_DB_URL (postgresql://...)
+
+name: Database Backup
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'  # Sunday 2AM UTC
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump database
+        run: |
+          pg_dump "${{ secrets.SUPABASE_DB_URL }}" | gzip > backup-$(date +%Y%m%d).sql.gz
+          ls -lh backup-*.sql.gz
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: backup-*.sql.gz
+          retention-days: 30
