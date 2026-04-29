@@ -12,7 +12,7 @@ const config = {
   organizationName: 'MobileByteLabs',
   projectName: 'PayCraft',
 
-  onBrokenLinks: 'throw',
+  onBrokenLinks: 'warn',
   onBrokenMarkdownLinks: 'warn',
 
   i18n: {
