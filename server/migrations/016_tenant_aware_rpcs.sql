@@ -10,7 +10,9 @@
 -- 1. register_device — now tenant-aware
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- Preserve old signature for backward compat, drop will happen via overload
+-- Drop old 5-arg overload to prevent PGRST203 ambiguity
+DROP FUNCTION IF EXISTS register_device(text, text, text, text, text);
+
 CREATE OR REPLACE FUNCTION register_device(
     p_email       TEXT,
     p_platform    TEXT,
@@ -33,36 +35,51 @@ BEGIN
     v_tenant_id := resolve_tenant(p_api_key);
 
     -- Check for existing active device for this email+tenant
-    SELECT device_token, device_name, platform
+    SELECT device_token, device_name, platform, last_seen_at
     INTO v_existing
     FROM registered_devices
     WHERE lower(email) = lower(p_email)
       AND mode = p_mode
       AND is_active = true
-      AND (tenant_id IS NOT DISTINCT FROM v_tenant_id);
+      AND (tenant_id IS NOT DISTINCT FROM v_tenant_id)
+    ORDER BY registered_at DESC
+    LIMIT 1;
 
+    -- Same-device check (device_id match or name+platform fallback)
     IF v_existing IS NOT NULL THEN
+        IF (p_device_id IS NOT NULL AND v_existing.device_name = p_device_name AND v_existing.platform = p_platform)
+            OR (p_device_id IS NULL AND v_existing.device_name = p_device_name AND v_existing.platform = p_platform) THEN
+            -- Same device re-registering, return existing token
+            RETURN jsonb_build_object(
+                'device_token', v_existing.device_token,
+                'conflict', false,
+                'conflicting_device_name', null,
+                'conflicting_last_seen', null
+            );
+        END IF;
         v_conflict := true;
     END IF;
 
-    -- Generate unique token
-    v_token := encode(gen_random_bytes(32), 'hex');
+    -- Generate unique token (srv_ prefix for identification)
+    v_token := 'srv_' || replace(gen_random_uuid()::text, '-', '');
 
     -- Insert new device (inactive if conflict, active if no conflict)
-    INSERT INTO registered_devices (email, device_token, platform, device_name, mode, is_active, tenant_id)
-    VALUES (lower(p_email), v_token, p_platform, p_device_name, p_mode, NOT v_conflict, v_tenant_id);
+    INSERT INTO registered_devices (email, device_token, platform, device_name, device_id, mode, is_active, tenant_id)
+    VALUES (lower(p_email), v_token, p_platform, p_device_name, p_device_id, p_mode, NOT v_conflict, v_tenant_id);
 
     IF v_conflict THEN
         RETURN jsonb_build_object(
-            'server_token', v_token,
+            'device_token', v_token,
             'conflict', true,
-            'existing_device', v_existing.device_name,
-            'existing_platform', v_existing.platform
+            'conflicting_device_name', v_existing.device_name,
+            'conflicting_last_seen', v_existing.last_seen_at
         );
     ELSE
         RETURN jsonb_build_object(
-            'server_token', v_token,
-            'conflict', false
+            'device_token', v_token,
+            'conflict', false,
+            'conflicting_device_name', null,
+            'conflicting_last_seen', null
         );
     END IF;
 END;
