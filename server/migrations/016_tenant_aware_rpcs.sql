@@ -51,7 +51,7 @@ BEGIN
             OR (p_device_id IS NULL AND v_existing.device_name = p_device_name AND v_existing.platform = p_platform) THEN
             -- Same device re-registering, return existing token
             RETURN jsonb_build_object(
-                'device_token', v_existing.device_token,
+                'server_token', v_existing.device_token,
                 'conflict', false,
                 'conflicting_device_name', null,
                 'conflicting_last_seen', null
@@ -69,14 +69,14 @@ BEGIN
 
     IF v_conflict THEN
         RETURN jsonb_build_object(
-            'device_token', v_token,
+            'server_token', v_token,
             'conflict', true,
             'conflicting_device_name', v_existing.device_name,
             'conflicting_last_seen', v_existing.last_seen_at
         );
     ELSE
         RETURN jsonb_build_object(
-            'device_token', v_token,
+            'server_token', v_token,
             'conflict', false,
             'conflicting_device_name', null,
             'conflicting_last_seen', null

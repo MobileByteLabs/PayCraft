@@ -147,7 +147,7 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
             },
         ).decodeAs<JsonObject>()
         val result = RegisterDeviceResult(
-            deviceToken = r["device_token"]!!.jsonPrimitive.content,
+            deviceToken = r["server_token"]!!.jsonPrimitive.content,
             conflict = r["conflict"]?.jsonPrimitive?.boolean ?: false,
             conflictingDeviceName = r["conflicting_device_name"]?.jsonPrimitive?.contentOrNull,
             conflictingLastSeen = r["conflicting_last_seen"]?.jsonPrimitive?.contentOrNull,
