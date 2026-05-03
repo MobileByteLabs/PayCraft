@@ -100,3 +100,6 @@ site/
 .env
 .env.local
 .env.*.local
+
+# CLI build output
+cli/dist/
