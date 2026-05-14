@@ -1,9 +1,30 @@
 # paycraft-adopt-verify — Phase 5: End-to-End Verification
 
 > **PHASE 5 of 5** — Verifies the entire stack is operational.
+> Accepts optional `[mode]` arg: `test` | `live`. Overrides PAYCRAFT_MODE in .env.
 > 9 steps. Fully automated — no user action gates.
 > Writes a real row to the DB, reads it back through RPCs, then deletes it.
 > HARD STOP on any failed check. Print final live mode checklist at the end.
+
+---
+
+## Arg Parsing — Resolve Mode
+
+```
+IF command arg is "test" OR "live":
+  RESOLVED_MODE = arg value ("test" or "live")
+  DISPLAY: "Mode override: RESOLVED_MODE=[RESOLVED_MODE] (from command arg)"
+ELSE IF arg is non-empty AND not "test" OR "live":
+  HARD STOP: "Unknown mode '[arg]'. Use: /paycraft-adopt-verify test   OR   /paycraft-adopt-verify live"
+ELSE:
+  READ PAYCRAFT_MODE from .env
+  RESOLVED_MODE = PAYCRAFT_MODE if non-empty ELSE "test"
+  DISPLAY: "Mode: RESOLVED_MODE=[RESOLVED_MODE] (from PAYCRAFT_MODE in .env)"
+
+NOTE: All steps below use RESOLVED_MODE wherever PAYCRAFT_MODE was previously read.
+      This means a single .env can hold both test + live keys while you verify each
+      mode independently without editing the file.
+```
 
 ---
 
@@ -132,6 +153,48 @@ IF 500  : HARD STOP — "Webhook crashed (500). Check logs:
 OUTPUT  : "✓ Webhook live — returns 400 for unsigned (correct)"
 ```
 
+### STEP 5.2B — Verify webhook signature verification works (test + live secrets)
+
+```
+NOTE: Use RESOLVED_MODE (resolved from arg or .env above)
+READ    : PAYCRAFT_STRIPE_TEST_WEBHOOK_SECRET from .env
+READ    : PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET from .env
+
+IF stripe provider:
+  FOR EACH mode in ["test", "live"]:
+    SKIP if secret for that mode is empty
+
+    --- Build a minimal signed Stripe event payload ---
+    timestamp   = current Unix seconds (e.g. 1715000000)
+    payload     = '{"id":"evt_verify_[mode]","object":"event","type":"ping","livemode":[mode=="live"],"data":{"object":{}}}'
+    signed_payload = "[timestamp].[payload]"
+    signature   = HMAC-SHA256(signed_payload, secret_for_mode)
+    stripe_sig  = "t=[timestamp],v1=[signature]"
+
+    ACTION  : POST https://[PAYCRAFT_SUPABASE_URL]/functions/v1/stripe-webhook
+              Header: Content-Type: application/json
+              Header: stripe-signature: [stripe_sig]
+              Body: [payload]
+
+    ACCEPT  : HTTP 200 (event type "ping" is unhandled -> falls through -> returns {"received":true})
+    ACCEPT  : HTTP 400 with body containing "No signatures found" OR "timestamp" (clock skew only)
+              NOTE: 400 with clock-skew message means the secret IS correct but the timestamp
+                    is too old -- this counts as a PASS for secret verification.
+    REJECT  : HTTP 400 with body NOT containing any signature-related message -> secret mismatch
+    REJECT  : HTTP 500 -> function crashed after signature passed -> code bug
+
+    IF accepted:
+      OUTPUT: "  checkmark stripe-webhook: [mode] signing secret verified (PAYCRAFT_STRIPE_[MODE]_WEBHOOK_SECRET)"
+    IF rejected (400, secret mismatch):
+      HARD STOP: "Stripe webhook signature verification FAILED for [mode] mode.
+                  The PAYCRAFT_STRIPE_[MODE]_WEBHOOK_SECRET in .env does not match what is
+                  registered in Stripe Dashboard -> Webhooks -> [endpoint] -> Signing secret.
+                  Fix: supabase secrets set PAYCRAFT_STRIPE_[MODE]_WEBHOOK_SECRET=<correct-secret>
+                       --project-ref [PAYCRAFT_SUPABASE_PROJECT_REF]"
+
+OUTPUT  : "checkmark Webhook secrets verified (test checkmark  live checkmark)"
+```
+
 ### STEP 5.3 — Write test subscription row (service role)
 
 ```
@@ -163,7 +226,8 @@ ACTION  : POST https://[PAYCRAFT_SUPABASE_URL]/rest/v1/subscriptions
             "status": "active",
             "current_period_start": "[current UTC time in ISO8601 format — e.g. 2026-04-25T10:00:00Z]",
             "current_period_end": "[30 days from now in UTC — e.g. 2026-05-25T10:00:00Z]",
-            "cancel_at_period_end": false
+            "cancel_at_period_end": false,
+            "mode": "[PAYCRAFT_MODE — 'test' or 'live']"
           }
           NOTE: Timestamps MUST use UTC (Z suffix). is_premium() checks current_period_end > now()
                 using Postgres now() which is UTC. Non-UTC timestamps may cause is_premium() to
@@ -209,10 +273,14 @@ OUTPUT  : "✓ Test row confirmed in subscriptions (status: active)"
 ### STEP 5.5 — Verify is_premium() returns true for test row
 
 ```
+NOTE: Use RESOLVED_MODE (resolved from arg or .env above)
+
 ACTION  : POST https://[PAYCRAFT_SUPABASE_URL]/rest/v1/rpc/is_premium
           Header: apikey: [PAYCRAFT_SUPABASE_ANON_KEY]
           Header: Content-Type: application/json
-          Body: {"user_email": "e2e-verify@paycraft.io"}
+          Body: {"user_email": "e2e-verify@paycraft.io", "stripe_mode": "[RESOLVED_MODE]"}
+          NOTE: stripe_mode matches PAYCRAFT_MODE so test rows (mode='test') are found
+                in test mode and live rows (mode='live') are found in live mode.
 
 VERIFY  : HTTP 200
 VERIFY  : Parse response body as JSON
@@ -225,7 +293,9 @@ IF result === false OR result === "false":
               - Does it check status = 'active'?
               - Does it match email case-insensitively? (use lower())
               - Is current_period_end > now() in the WHERE clause?
-              - Did the test row timestamps have Z suffix (UTC)? See Step 5.3 note."
+              - Did the test row timestamps have Z suffix (UTC)? See Step 5.3 note.
+              - Does stripe_mode param ([RESOLVED_MODE]) match the mode column in the row?
+                Test rows need mode='test'; live rows need mode='live'."
 IF result is string "true" (not boolean true):
   DISPLAY : "ℹ️  RPC returned string 'true' — this is acceptable, treated as PASS"
 OUTPUT  : "✓ is_premium() returns true for active subscriber (via anon key)"
@@ -274,7 +344,7 @@ IF PAYCRAFT_PLAN_COUNT is empty OR = "0":
               Run /paycraft-adopt and select [F] Fix specific phase → Phase 1 to configure plans."
 
 READ    : PAYCRAFT_PROVIDER from .env
-READ    : PAYCRAFT_MODE from .env (default to "test" if absent)
+NOTE: Use RESOLVED_MODE (resolved from arg or .env above)
 
 FOR EACH PLAN i = 1..PLAN_COUNT:
   READ    : PAYCRAFT_PLAN_[i]_ID (e.g. "monthly")
@@ -308,7 +378,7 @@ FOR EACH PLAN i = 1..PLAN_COUNT:
 
   OUTPUT  : "  ✓ [link_key]: [url]"
 
-OUTPUT : "✓ All [N] payment links present (mode=[PAYCRAFT_MODE])"
+OUTPUT : "✓ All [N] payment links present (mode=[RESOLVED_MODE])"
 ```
 
 ### STEP 5.8B — KMP integration audit (no platform-specific billing code)
@@ -540,7 +610,7 @@ OUTPUT: "✓ Setup config saved → .paycraft/config.json"
 
 --- 5.10C: Write deployment.json (resource IDs, no secrets) ---
 
-READ    : PAYCRAFT_MODE from .env (default "test")
+NOTE: Use RESOLVED_MODE (resolved from arg or .env above)
 
 COLLECT from .env and current session:
   supabase_ref    = PAYCRAFT_SUPABASE_PROJECT_REF
@@ -582,7 +652,7 @@ Content:
   },
   "provider": {
     "name": "[stripe|razorpay]",
-    "mode": "[PAYCRAFT_MODE]",
+    "mode": "[RESOLVED_MODE]",
     "livemode": [true if mode=live, false if mode=test],
     "account_id": "[acct_xxx or rzp_test_xxx prefix]",
     "product_id": "[prod_xxx or null for razorpay]",
@@ -1153,7 +1223,8 @@ Print this after the summary:
 ║                                                                       ║
 ║  Step 3: LIVE webhook is created in Phase 3B (Step 3B.5)             ║
 ║    • Signing secret saved to PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET     ║
-║    • Also set on Supabase: supabase secrets set STRIPE_WEBHOOK_SECRET ║
+║    • Set on Supabase (PAYCRAFT_ naming):                              ║
+║        supabase secrets set PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET=<secret>
 ║                                                                       ║
 ║  Step 4: Update initPayCraft() in your app                            ║
 ║    • SUPABASE_URL and SUPABASE_ANON_KEY are the same (no change)     ║

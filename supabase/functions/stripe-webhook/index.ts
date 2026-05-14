@@ -2,12 +2,17 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.0.0?target=deno";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
-  apiVersion: "2023-10-16",
-  httpClient: Stripe.createFetchHttpClient(),
-});
+const testWebhookSecret = Deno.env.get("PAYCRAFT_STRIPE_TEST_WEBHOOK_SECRET")!;
+const liveWebhookSecret = Deno.env.get("PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET")!;
+const testSecretKey = Deno.env.get("PAYCRAFT_STRIPE_TEST_SECRET_KEY")!;
+const liveSecretKey = Deno.env.get("PAYCRAFT_STRIPE_LIVE_SECRET_KEY")!;
 
-const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
+function stripeClient(secretKey: string): Stripe {
+  return new Stripe(secretKey, {
+    apiVersion: "2023-10-16",
+    httpClient: Stripe.createFetchHttpClient(),
+  });
+}
 
 serve(async (req) => {
   const signature = req.headers.get("stripe-signature");
@@ -17,15 +22,28 @@ serve(async (req) => {
 
   const body = await req.text();
 
+  // Auto-detect test vs live by trying both secrets.
+  // Whichever verifies determines which Stripe key to use for API calls.
+  const verifier = stripeClient(testSecretKey); // any instance works for sig verification
   let event: Stripe.Event;
+  let mode: "test" | "live";
+  let stripe: Stripe;
   try {
-    event = await stripe.webhooks.constructEventAsync(body, signature, webhookSecret);
-  } catch (err) {
-    console.error("Webhook signature verification failed:", err.message);
-    return new Response(`Webhook Error: ${err.message}`, { status: 400 });
+    event = await verifier.webhooks.constructEventAsync(body, signature, testWebhookSecret);
+    mode = "test";
+    stripe = stripeClient(testSecretKey);
+  } catch {
+    try {
+      event = await verifier.webhooks.constructEventAsync(body, signature, liveWebhookSecret);
+      mode = "live";
+      stripe = stripeClient(liveSecretKey);
+    } catch (err) {
+      console.error("Webhook signature verification failed for both test and live secrets:", err.message);
+      return new Response(`Webhook Error: ${err.message}`, { status: 400 });
+    }
   }
 
-  console.log(`Received event: ${event.type}`);
+  console.log(`Received event: ${event.type} [mode=${mode}]`);
 
   try {
     switch (event.type) {
@@ -45,12 +63,20 @@ serve(async (req) => {
             provider: "stripe",
             customerId: session.customer as string,
             subscriptionId: session.subscription as string,
-            plan: session.metadata?.plan_id || sub.items.data[0]?.price?.metadata?.plan_id || sub.items.data[0]?.price?.id || "unknown",
+            plan: session.metadata?.plan_id
+              || sub.items.data[0]?.price?.metadata?.paycraft_plan
+              || sub.items.data[0]?.price?.metadata?.plan_id
+              || sub.items.data[0]?.price?.id
+              || "unknown",
             status: "active",
             periodStart: new Date(sub.current_period_start * 1000),
             periodEnd: new Date(sub.current_period_end * 1000),
             cancelAtPeriodEnd: sub.cancel_at_period_end,
+            mode,
+            eventType: event.type,
           });
+        } else {
+          console.log(`Skipping upsert: mode=${session.mode}, email=${email ?? "null"}`);
         }
         break;
       }
@@ -68,6 +94,8 @@ serve(async (req) => {
           periodStart: new Date(sub.current_period_start * 1000),
           periodEnd: new Date(sub.current_period_end * 1000),
           cancelAtPeriodEnd: sub.cancel_at_period_end,
+          mode,
+          eventType: event.type,
         });
         break;
       }
@@ -85,6 +113,8 @@ serve(async (req) => {
             periodStart: null,
             periodEnd: null,
             cancelAtPeriodEnd: false,
+            mode,
+            eventType: event.type,
           });
         }
         break;
@@ -95,7 +125,7 @@ serve(async (req) => {
     return new Response(`Processing Error: ${err.message}`, { status: 500 });
   }
 
-  return new Response(JSON.stringify({ received: true }), {
+  return new Response(JSON.stringify({ received: true, mode }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
