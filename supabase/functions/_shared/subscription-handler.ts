@@ -17,8 +17,8 @@ interface SubscriptionEvent {
   cancelAtPeriodEnd: boolean;
   /** "test" for sk_test_ keys, "live" for sk_live_ keys. Prevents sandbox rows affecting is_premium() in production. */
   mode: "test" | "live";
-  /** Tenant ID from webhook URL path. NULL = single-tenant (self-hosted). */
-  tenantId: string | null;
+  /** Tenant ID from webhook URL path. Omit or null = single-tenant (self-hosted). */
+  tenantId?: string | null;
   /** Stripe event type for webhook logging. */
   eventType?: string;
 }
