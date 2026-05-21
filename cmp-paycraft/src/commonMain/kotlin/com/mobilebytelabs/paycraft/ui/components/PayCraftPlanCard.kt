@@ -40,7 +40,9 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_active_desc
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_description
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_disabled_description
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_selected_description
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_trial_description
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_popular_badge
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_chip
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import org.jetbrains.compose.resources.stringResource
@@ -55,7 +57,17 @@ fun PayCraftPlanCard(
     isDisabled: Boolean,
     onSelect: (BillingPlan) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Whether to show this plan's trial affordance ("N-day free trial" chip).
+     * Default true preserves call-site compatibility, but the paywall passes
+     * the server-derived [com.mobilebytelabs.paycraft.network.PayCraftService.isTrialEligible]
+     * result so users who have already trialed don't see the offer again (TR-006).
+     */
+    eligibleForTrial: Boolean = true,
 ) {
+    // Trial chip visible only when this plan offers a trial, user is eligible,
+    // and they aren't already on this plan (active plans show the Active badge instead).
+    val showTrialChip = plan.trialDays != null && eligibleForTrial && !isActive && !isDisabled
     val borderColor by animateColorAsState(
         targetValue = when {
             isActive -> MaterialTheme.colorScheme.primary
@@ -80,6 +92,13 @@ fun PayCraftPlanCard(
     val cd = when {
         isActive -> stringResource(Res.string.paycraft_plan_active_description, plan.name)
         isDisabled -> stringResource(Res.string.paycraft_plan_disabled_description, plan.name)
+        showTrialChip -> stringResource(
+            Res.string.paycraft_plan_trial_description,
+            plan.name,
+            plan.trialDays,
+            plan.price,
+            plan.interval,
+        )
         isSelected -> stringResource(
             Res.string.paycraft_plan_selected_description,
             plan.name,
@@ -151,6 +170,16 @@ fun PayCraftPlanCard(
                         },
                         modifier = Modifier.testTag(PayCraftTestTags.PLAN_CARD_INTERVAL),
                     )
+                    if (showTrialChip) {
+                        Spacer(Modifier.size(4.dp))
+                        Text(
+                            text = stringResource(Res.string.paycraft_trial_chip, plan.trialDays),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.testTag(PayCraftTestTags.PLAN_CARD_TRIAL_CHIP),
+                        )
+                    }
                 }
                 Text(
                     text = plan.price,

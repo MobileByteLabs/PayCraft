@@ -18,7 +18,20 @@ data class SubscriptionStatus(
 sealed interface BillingState {
     data object Loading : BillingState
     data object Free : BillingState
-    data class Premium(val status: SubscriptionStatus) : BillingState
+
+    /**
+     * Active or trialing subscription.
+     *
+     * [trial] is non-null when the underlying subscription is currently in its
+     * free-trial window (`status = 'trialing'` server-side, `trial_end > now()`).
+     * Consumer UI may key on `trial != null` to show trial-specific affordances
+     * ("Trial ends in N days") instead of standard premium messaging.
+     */
+    data class Premium(
+        val status: SubscriptionStatus,
+        val trial: TrialInfo? = null,
+    ) : BillingState
+
     data class Error(val message: String) : BillingState
 
     /**

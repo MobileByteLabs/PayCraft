@@ -31,6 +31,21 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
     init {
         loadConfig()
         observeBillingState()
+        fetchTrialEligibility()
+    }
+
+    /**
+     * Server-derived trial eligibility (TR-006). Result flows into
+     * [PayCraftPaywallState.isTrialEligible] which the paywall passes down to
+     * [com.mobilebytelabs.paycraft.ui.components.PlanSelector]. Fetched once on
+     * VM init — re-runs only when the user logs in (handled by observeBillingState
+     * via billingState transitions, since login triggers a Premium/Free re-emit).
+     */
+    private fun fetchTrialEligibility() {
+        viewModelScope.launch {
+            val eligible = billingManager.checkTrialEligibility()
+            _state.update { current -> current.copy(isTrialEligible = eligible) }
+        }
     }
 
     private fun loadConfig() {

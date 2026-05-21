@@ -123,4 +123,12 @@
 
     <!-- Upgrade CTA -->
     <string name="paycraft_upgrade_plan">Upgrade Plan</string>
+
+    <!-- Trial (v1.1) -->
+    <string name="paycraft_trial_chip">%1$d-day free trial</string>
+    <string name="paycraft_trial_cta">Start %1$d-day free trial</string>
+    <string name="paycraft_trial_banner_title">Trial Active</string>
+    <string name="paycraft_trial_banner_ends_in">Trial ends in %1$d days</string>
+    <string name="paycraft_trial_banner_ends_today">Trial ends today</string>
+    <string name="paycraft_plan_trial_description">%1$s plan with %2$d-day free trial, %3$s per %4$s after</string>
 </resources>

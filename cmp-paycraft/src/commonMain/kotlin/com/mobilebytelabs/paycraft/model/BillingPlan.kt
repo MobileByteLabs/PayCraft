@@ -7,4 +7,11 @@ data class BillingPlan(
     val interval: String,
     val rank: Int,
     val isPopular: Boolean = false,
-)
+    val trialDays: Int? = null,
+) {
+    init {
+        require(trialDays == null || trialDays >= 1) {
+            "trialDays must be null (no trial offered) or >= 1; got $trialDays. Use null to disable."
+        }
+    }
+}

@@ -17,6 +17,8 @@ object PayCraftTestTags {
     const val PLAN_CARD_PRICE = "paycraft_plan_card_price"
     const val PLAN_CARD_NAME = "paycraft_plan_card_name"
     const val PLAN_CARD_INTERVAL = "paycraft_plan_card_interval"
+    const val PLAN_CARD_TRIAL_CHIP = "paycraft_plan_card_trial_chip"
+    const val TRIAL_BANNER = "paycraft_trial_banner"
 
     // Benefits list
     const val BENEFITS_LIST = "paycraft_benefits_list"

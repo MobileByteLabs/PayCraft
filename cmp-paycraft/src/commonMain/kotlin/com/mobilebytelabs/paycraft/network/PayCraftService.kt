@@ -32,6 +32,10 @@ data class SubscriptionDto(
     val currentPeriodEnd: String? = null,
     @SerialName("cancel_at_period_end")
     val cancelAtPeriodEnd: Boolean? = null,
+    @SerialName("trial_start")
+    val trialStart: String? = null,
+    @SerialName("trial_end")
+    val trialEnd: String? = null,
 )
 
 // ─── Device-binding result types ─────────────────────────────────────────────
@@ -53,6 +57,19 @@ interface PayCraftService {
     // Server-token-based RPCs (Migration 013 — token replaces email in all queries)
     suspend fun isPremium(serverToken: String): Boolean
     suspend fun getSubscription(serverToken: String): SubscriptionDto?
+
+    /**
+     * Server-derived trial eligibility (Migration 026 — TR-006).
+     *
+     * Returns `true` iff the email bound to [serverToken] has no historical
+     * subscription row with `trial_end IS NOT NULL`. Once a trial is recorded,
+     * no second trial is possible. Returns `true` for an unregistered token
+     * (treat as new user — adopt-flow may call before login completes).
+     *
+     * Network failures return `false` (conservative — better to suppress a
+     * trial CTA than to wrongly offer one to a user who's already trialed).
+     */
+    suspend fun isTrialEligible(serverToken: String): Boolean
 
     // Device registration (entry point — still requires email)
     suspend fun registerDevice(
@@ -122,6 +139,23 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
     } catch (e: Exception) {
         PayCraftLogger.onRpcError("get_subscription", e.message)
         null
+    }
+
+    override suspend fun isTrialEligible(serverToken: String): Boolean = try {
+        PayCraftLogger.onRpcCall("is_trial_eligible", "token=${serverToken.take(12)}...")
+        val result = postgrest.rpc(
+            function = "is_trial_eligible",
+            parameters = buildJsonObject {
+                put("p_server_token", serverToken)
+                apiKey?.let { put("p_api_key", it) }
+            },
+        ).data
+        val decoded = result.trim().toBooleanStrictOrNull() ?: false
+        PayCraftLogger.onRpcResult("is_trial_eligible", decoded.toString())
+        decoded
+    } catch (e: Exception) {
+        PayCraftLogger.onRpcError("is_trial_eligible", e.message)
+        false
     }
 
     override suspend fun registerDevice(

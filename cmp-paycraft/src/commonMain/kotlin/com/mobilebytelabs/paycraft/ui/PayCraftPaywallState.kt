@@ -21,6 +21,14 @@ data class PayCraftPaywallState(
     val currentPlanRank: Int = 0,
     val isRestoring: Boolean = false,
     val restoreResult: RestoreResult? = null,
+    /**
+     * Server-derived trial eligibility. Defaults to `true` (optimistic — suppress
+     * the trial CTA only after the server explicitly says the user is ineligible,
+     * never block first-time users behind a network roundtrip). The ViewModel
+     * sets this to the result of `PayCraftService.isTrialEligible(serverToken)`
+     * once on paywall load.
+     */
+    val isTrialEligible: Boolean = true,
 ) {
     val isLoggedIn: Boolean get() = userEmail != null
     val isPremium: Boolean get() = billingState is BillingState.Premium

@@ -28,7 +28,21 @@ Yes, Apache 2.0. Fork it, modify it, use it commercially.
 
 **Does PayCraft support free trials?**
 
-Yes. If a subscription has `status = 'trialing'`, `is_premium()` returns `true`. Configure trials in your Stripe/Razorpay dashboard.
+Yes. Two layers:
+
+1. **`is_premium()` already accepts `'trialing'`** — a trialing subscription is treated as premium, no client work required for basic gating.
+
+2. **Since v1.1 (migration 026):** the library actively surfaces trial state via `BillingManager.isInTrial`, `trialEndsAt`, and `BillingState.Premium.trial: TrialInfo?`. The paywall shows a "Start N-day free trial" CTA when `BillingPlan(trialDays = N)` is configured and `is_trial_eligible(token)` returns true. Eligibility is server-derived (`subscriptions.trial_end IS NOT NULL`) so a user can't get two trials by reinstalling.
+
+To enable: re-run `/paycraft-adopt-stripe` (it now prompts for `trial_period_days` per plan) and declare `BillingPlan(trialDays = 7)` in your consumer app's `PayCraft.configure { plans(...) }` call. See [ARCHITECTURE.md § Trials](ARCHITECTURE.md#trials-since-v11) for the full data flow.
+
+**Why does the trial CTA still show "Start 7-day free trial" when my Stripe price says 14 days?**
+
+`BillingPlan.trialDays` is a display hint, not a billing contract. Stripe is authoritative at checkout time. The library does not reconcile the two. Keep them aligned by reconfiguring through `/paycraft-adopt-stripe` — it writes both the Stripe Price's `trial_period_days` and the `PAYCRAFT_PLAN_[i]_TRIAL_DAYS` .env entry that your `BillingPlan` declaration reads.
+
+**Can a user start a second trial by reinstalling the app?**
+
+No. Eligibility is server-derived. The `is_trial_eligible(server_token)` RPC checks `NOT EXISTS (SELECT 1 FROM subscriptions WHERE email = $1 AND trial_end IS NOT NULL)`. A single historical trial disqualifies the email permanently. The client-side `BillingManager.checkTrialEligibility()` thin-wraps this call and the paywall suppresses the trial CTA when it returns false.
 
 **How does restore purchase work?**
 

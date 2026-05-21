@@ -55,6 +55,18 @@ FOR EACH PLAN i = 1..PAYCRAFT_PLAN_COUNT:
                         [2] Quarterly (every 3 months)
                         [3] Yearly (every year)"
 
+  TRIAL CONFIGURATION (PayCraft v1.1, TR-005):
+    READ: PAYCRAFT_PLAN_[i]_TRIAL_DAYS from .env (optional)
+    IF NOT SET:
+      ASK USER (AskUserQuestion): same prompt as paycraft-adopt-stripe step 3A.3.
+      WRITE: PAYCRAFT_PLAN_[i]_TRIAL_DAYS=[N or empty] to .env
+    NOTE: Razorpay (unlike Stripe) does NOT accept `trial_period_days` at plan
+          creation. Trials in Razorpay are implemented per-subscription via
+          `start_at = now + trialDays * 86400` at subscription creation time
+          (handled by the consumer app's checkout flow, not by this adopt step).
+          The value captured here drives the consumer's `BillingPlan(trialDays = N)`
+          declaration and the paywall CTA copy — symmetric with the Stripe path.
+
   ACTION  : POST https://api.razorpay.com/v1/plans
             Auth: Basic [KEY_ID]:[KEY_SECRET]
             Body:
@@ -68,7 +80,11 @@ FOR EACH PLAN i = 1..PAYCRAFT_PLAN_COUNT:
                 "currency": "[PAYCRAFT_CURRENCY]",
                 "description": "PayCraft [plan_name] plan"
               },
-              "notes": {"paycraft_plan": "[plan_id]", "paycraft_test": "true"}
+              "notes": {
+                "paycraft_plan": "[plan_id]",
+                "paycraft_test": "true",
+                "paycraft_trial_days": "[PAYCRAFT_PLAN_[i]_TRIAL_DAYS or empty]"
+              }
             }
   VERIFY  : HTTP 200 AND response.id starts with "plan_"
   IF HTTP 400:
@@ -163,6 +179,30 @@ IF NOT FOUND:
 VERIFY  : Re-read .env → PAYCRAFT_RAZORPAY_WEBHOOK_SECRET non-empty
 OUTPUT  : "✓ Razorpay webhook secret: set in .env + Supabase function secrets"
 ```
+
+---
+
+## Trial Support Notes
+
+Razorpay implements trials via per-subscription `start_at` (Unix seconds —
+when the first invoice fires). Unlike Stripe's `trial_period_days` on the
+Price, Razorpay trials are configured at subscription creation, not at plan
+creation. PayCraft's `server/functions/razorpay-webhook/index.ts` derives
+`trial_start` / `trial_end` from `subscription.start_at > created_at`.
+
+When you create a subscription with a trial, include both:
+  - `notes.paycraft_email` = "user@example.com"  ← required for email upsert
+  - `start_at` = now() + (trialDays × 86400)     ← Unix seconds
+  - `notes.paycraft_trial_days` = "{N}"          ← informational; trial period
+                                                   is enforced by start_at
+  - `notes.paycraft_plan` = "{plan_id}"          ← maps to PayCraft plan ID
+  - `notes.paycraft_mode` = "test" or "live"     ← optional optimization
+
+Without `notes.paycraft_email`, the webhook handler can still update
+subscriptions by `provider_subscription_id` on renewals/cancellations, but
+the initial `subscription.activated` event won't be a full upsert — the
+subscription row won't be created until the consumer registers a device
+with the same email.
 
 ---
 

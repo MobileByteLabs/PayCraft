@@ -11,11 +11,41 @@ interface BillingManager {
     val billingState: StateFlow<BillingState>
     val userEmail: StateFlow<String?>
 
+    /**
+     * True iff the current subscription is in its free-trial window
+     * (`status = 'trialing'` and `trial_end > now()` server-side).
+     *
+     * Standalone flow for direct binding from consumer UI — equivalent to
+     * `(billingState as? BillingState.Premium)?.trial != null` but avoids
+     * `when`-block boilerplate. Refreshed on every [refreshStatus].
+     */
+    val isInTrial: StateFlow<Boolean>
+
+    /**
+     * ISO-8601 UTC timestamp when the current trial ends, or null if not in a trial.
+     * Mirrors [com.mobilebytelabs.paycraft.model.TrialInfo.endsAt] for direct
+     * `collectAsState()` binding. Refreshed on every [refreshStatus].
+     */
+    val trialEndsAt: StateFlow<String?>
+
     /** Registers this device with the server and checks premium status. Replaces logIn(). */
     fun registerAndLogin(email: String)
 
     /** Legacy — kept for backward compatibility. Delegates to registerAndLogin(). */
     fun logIn(email: String)
+
+    /**
+     * Server-derived trial eligibility (TR-006).
+     *
+     * Returns `true` if the current user (resolved via device token) has not yet
+     * consumed a free trial — i.e. no historical subscription row records a
+     * `trial_end`. The UI uses this to suppress the trial CTA for repeat users.
+     *
+     * On any failure (network, no token, no email), returns `true` (optimistic
+     * — let the server reject at checkout time rather than block first-time
+     * users behind a flaky network call).
+     */
+    suspend fun checkTrialEligibility(): Boolean
 
     /**
      * Refreshes premium status using stored device token.

@@ -67,6 +67,8 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_support_i
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_upgrade_cd
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_upgrade_subtitle
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_upgrade_title
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_banner_ends_in
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_banner_ends_today
 import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
@@ -146,6 +148,7 @@ fun PayCraftBanner(
             when (state) {
                 is BillingState.Premium -> PremiumBannerCard(
                     status = state.status,
+                    trial = state.trial,
                     plans = plans,
                     topTierPlan = plans.maxByOrNull { it.rank },
                     supportEmail = supportEmail,
@@ -280,6 +283,7 @@ private fun FreeBannerCard(
 @Composable
 private fun PremiumBannerCard(
     status: SubscriptionStatus,
+    trial: com.mobilebytelabs.paycraft.model.TrialInfo?,
     plans: List<BillingPlan>,
     topTierPlan: BillingPlan?,
     supportEmail: String,
@@ -344,6 +348,22 @@ private fun PremiumBannerCard(
                         style = MaterialTheme.typography.bodyMedium,
                         color = colorGold,
                         fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                // Trial countdown (v1.1) — overrides the plan subtitle visually when present.
+                if (trial != null) {
+                    Spacer(Modifier.height(2.dp))
+                    val trialText = if (trial.daysRemaining <= 0) {
+                        stringResource(Res.string.paycraft_trial_banner_ends_today)
+                    } else {
+                        stringResource(Res.string.paycraft_trial_banner_ends_in, trial.daysRemaining)
+                    }
+                    Text(
+                        text = trialText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.92f),
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.testTag(PayCraftTestTags.TRIAL_BANNER),
                     )
                 }
             }
