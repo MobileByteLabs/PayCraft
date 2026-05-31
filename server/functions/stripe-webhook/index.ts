@@ -82,17 +82,23 @@ serve(async (req) => {
 
         if (session.mode === "subscription" && email) {
           const sub = await stripeClient!.subscriptions.retrieve(session.subscription as string);
+          // Stripe: `status === "trialing"` when the subscription is in its trial window.
+          // `trial_start` / `trial_end` are unix seconds on the Subscription object.
+          // The library forwards both so the row reflects whatever the provider says.
+          const status = sub.status === "trialing" ? "trialing" : "active";
           await handleSubscriptionEvent({
             email,
             provider: "stripe",
             customerId: session.customer as string,
             subscriptionId: session.subscription as string,
             plan: session.metadata?.plan_id || sub.items.data[0]?.price?.metadata?.plan_id || sub.items.data[0]?.price?.id || "unknown",
-            status: "active",
+            status,
             mode: stripeMode,
             periodStart: new Date(sub.current_period_start * 1000),
             periodEnd: new Date(sub.current_period_end * 1000),
             cancelAtPeriodEnd: sub.cancel_at_period_end,
+            trialStart: sub.trial_start ? new Date(sub.trial_start * 1000) : null,
+            trialEnd: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
             tenantId,
             eventType: event.type,
           });
@@ -114,6 +120,8 @@ serve(async (req) => {
           periodStart: new Date(sub.current_period_start * 1000),
           periodEnd: new Date(sub.current_period_end * 1000),
           cancelAtPeriodEnd: sub.cancel_at_period_end,
+          trialStart: sub.trial_start ? new Date(sub.trial_start * 1000) : null,
+          trialEnd: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
           tenantId,
           eventType: event.type,
         });

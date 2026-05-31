@@ -18,6 +18,12 @@ fun PlanSelector(
     onPlanSelected: (BillingPlan) -> Unit,
     isPremium: Boolean,
     modifier: Modifier = Modifier,
+    /**
+     * Server-derived trial eligibility from `PayCraftService.isTrialEligible`.
+     * Default true keeps existing call-sites compatible; the paywall passes the
+     * fetched value so users who have already trialed don't see the offer (TR-006).
+     */
+    isTrialEligible: Boolean = true,
 ) {
     Column(
         modifier = modifier
@@ -34,6 +40,7 @@ fun PlanSelector(
                 isActive = isActive,
                 isDisabled = isDisabled,
                 onSelect = onPlanSelected,
+                eligibleForTrial = isTrialEligible,
             )
         }
     }

@@ -11,16 +11,20 @@ interface SubscriptionEvent {
   customerId: string | null;
   subscriptionId: string;
   plan: string | null;
-  status: "active" | "canceled" | "past_due" | "unpaid" | string;
+  status: "active" | "canceled" | "past_due" | "unpaid" | "trialing" | string;
   periodStart: Date | null;
   periodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
   /** "test" for sk_test_ keys, "live" for sk_live_ keys. Prevents sandbox rows affecting is_premium() in production. */
   mode: "test" | "live";
-  /** Tenant ID from webhook URL path. Omit or null = single-tenant (self-hosted). */
-  tenantId?: string | null;
+  /** Tenant ID from webhook URL path. NULL = single-tenant (self-hosted). */
+  tenantId: string | null;
   /** Stripe event type for webhook logging. */
   eventType?: string;
+  /** Provider-emitted trial start. NULL when no trial. PayCraft v1.1 (AR-010, TR-001). */
+  trialStart?: Date | null;
+  /** Provider-emitted trial end. NULL when no trial. Client computes isInTrial from this. */
+  trialEnd?: Date | null;
 }
 
 export async function handleSubscriptionEvent(data: SubscriptionEvent) {
@@ -44,6 +48,8 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
         current_period_start: data.periodStart?.toISOString(),
         current_period_end: data.periodEnd?.toISOString(),
         cancel_at_period_end: data.cancelAtPeriodEnd,
+        trial_start: data.trialStart?.toISOString() ?? null,
+        trial_end: data.trialEnd?.toISOString() ?? null,
         updated_at: new Date().toISOString(),
       };
       if (data.tenantId) row.tenant_id = data.tenantId;
@@ -64,6 +70,14 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
       };
       if (data.periodStart) updateData.current_period_start = data.periodStart.toISOString();
       if (data.periodEnd) updateData.current_period_end = data.periodEnd.toISOString();
+      // Trial fields: only update if provided. `undefined` skips; explicit `null` clears.
+      // Provider may emit trial_end on subscription.updated when a trial is extended.
+      if (data.trialStart !== undefined) {
+        updateData.trial_start = data.trialStart?.toISOString() ?? null;
+      }
+      if (data.trialEnd !== undefined) {
+        updateData.trial_end = data.trialEnd?.toISOString() ?? null;
+      }
 
       let query = supabase
         .from("subscriptions")

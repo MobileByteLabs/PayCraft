@@ -53,6 +53,7 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_retry
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_get_premium
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_subscribe_cta
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_cta
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_upgrade_plan
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_upgrade_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_what_you_get
@@ -266,6 +267,7 @@ fun PayCraftPaywallContent(
                                 currentPlanRank = state.currentPlanRank,
                                 onPlanSelected = { onAction(PayCraftPaywallAction.SelectPlan(it)) },
                                 isPremium = true,
+                                isTrialEligible = state.isTrialEligible,
                             )
                         }
 
@@ -349,6 +351,7 @@ fun PayCraftPaywallContent(
                                 currentPlanRank = 0,
                                 onPlanSelected = { onAction(PayCraftPaywallAction.SelectPlan(it)) },
                                 isPremium = false,
+                                isTrialEligible = state.isTrialEligible,
                             )
                         }
 
@@ -382,9 +385,15 @@ fun PayCraftPaywallContent(
                                 )
                             } else {
                                 Text(
-                                    text = state.selectedPlan?.let {
-                                        val cta = Res.string.paycraft_subscribe_cta
-                                        stringResource(cta, it.name, it.price, it.interval)
+                                    text = state.selectedPlan?.let { plan ->
+                                        // Trial CTA wins when the selected plan offers a trial
+                                        // AND the user is server-derived-eligible (TR-006).
+                                        val offerTrial = plan.trialDays != null && state.isTrialEligible
+                                        if (offerTrial) {
+                                            stringResource(Res.string.paycraft_trial_cta, plan.trialDays)
+                                        } else {
+                                            stringResource(Res.string.paycraft_subscribe_cta, plan.name, plan.price, plan.interval)
+                                        }
                                     } ?: stringResource(Res.string.paycraft_get_premium),
                                     style = MaterialTheme.typography.labelLarge,
                                 )
