@@ -5,10 +5,15 @@ import { usePathname } from "next/navigation"
 import { clsx } from "clsx"
 
 const navItems = [
-  { href: "/subscribers", label: "Subscribers", icon: "Users" },
-  { href: "/analytics", label: "Analytics", icon: "BarChart3" },
-  { href: "/webhooks", label: "Webhooks", icon: "Webhook" },
-  { href: "/settings", label: "Settings", icon: "Settings" },
+  { href: "/products", label: "Products", icon: "P" },
+  { href: "/providers", label: "Providers", icon: "C" },
+  { href: "/paywall", label: "Paywall", icon: "L" },
+  { href: "/subscribers", label: "Subscribers", icon: "U" },
+  { href: "/analytics", label: "Analytics", icon: "B" },
+  { href: "/webhooks", label: "Webhooks", icon: "W" },
+  { href: "/billing", label: "Billing", icon: "$" },
+  { href: "/audit", label: "Audit log", icon: "A" },
+  { href: "/settings", label: "Settings", icon: "S" },
 ]
 
 export function Sidebar({ tenantName }: { tenantName: string }) {
