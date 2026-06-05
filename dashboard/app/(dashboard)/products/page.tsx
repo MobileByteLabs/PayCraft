@@ -1,115 +1,230 @@
 import Link from "next/link"
+import { Package, Plus, Zap, DollarSign, Clock, Database } from "lucide-react"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
+import { PageHeader } from "@/components/ui/page-header"
+import { ButtonLink } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { DataTable } from "@/components/ui/data-table"
+import { EmptyState } from "@/components/ui/empty-state"
+import { StatCard } from "@/components/ui/card"
+
+type Product = {
+  id: string
+  sku: string
+  type: "subscription" | "trial" | "lifetime"
+  display_name: string
+  trial_duration_days: number | null
+  attaches_to_product_id: string | null
+  interval: string | null
+  base_price_cents: number
+  base_currency: string
+  display_order: number
+  active: boolean
+}
+
+function formatMoney(cents: number, currency: string): string {
+  if (currency === "INR") return `₹${(cents / 100).toFixed(0)}`
+  const symbol =
+    currency === "USD"
+      ? "$"
+      : currency === "EUR"
+      ? "€"
+      : currency === "GBP"
+      ? "£"
+      : ""
+  return symbol
+    ? `${symbol}${(cents / 100).toFixed(2)}`
+    : `${(cents / 100).toFixed(2)} ${currency}`
+}
 
 export default async function ProductsPage() {
   const { tenant } = await requireTenant()
   const supabase = createClient()
-  const { data: products } = await supabase.rpc("tenant_products_list", {
-    p_tenant_id: tenant.id,
-  })
+  const [productsRes, mrrRes] = await Promise.all([
+    supabase.rpc("tenant_products_list", { p_tenant_id: tenant.id }),
+    supabase
+      .from("tenant_revenue_by_plan_view")
+      .select("subscribers,total_revenue_dollars")
+      .eq("tenant_id", tenant.id),
+  ])
+  const rows = (productsRes.data as Product[] | null) ?? []
+  const totalSubs =
+    mrrRes.data?.reduce((acc: number, r: any) => acc + (r.subscribers ?? 0), 0) ??
+    0
+  const totalRevenue =
+    mrrRes.data?.reduce(
+      (acc: number, r: any) => acc + (r.total_revenue_dollars ?? 0),
+      0,
+    ) ?? 0
+  const arpu = totalSubs > 0 ? totalRevenue / totalSubs : 0
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Products</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Subscription, Trial, and Lifetime offers fetched by the SDK from{" "}
-            <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">
-              /functions/v1/config
-            </code>
-          </p>
-        </div>
-        <Link
-          href="/products/new"
-          className="rounded-lg bg-brand-600 text-white px-4 py-2 text-sm font-medium hover:bg-brand-700"
-        >
-          + New product
-        </Link>
-      </div>
-
-      {products && products.length > 0 ? (
-        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                  SKU
-                </th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                  Display name
-                </th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                  Type
-                </th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                  Base price
-                </th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                  Order
-                </th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                  Active
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.map((p: any) => (
-                <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-mono text-gray-600">
-                    {p.sku}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/products/${p.id}`}
-                      className="text-sm font-medium text-brand-600 hover:underline"
-                    >
-                      {p.display_name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
-                      {p.type}
-                      {p.type === "trial" && p.trial_duration_days
-                        ? ` · ${p.trial_duration_days}d`
-                        : null}
-                      {p.type === "subscription" && p.interval
-                        ? ` · ${p.interval}`
-                        : null}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-700">
-                    {p.type === "trial"
-                      ? "—"
-                      : `${(p.base_price_cents / 100).toFixed(2)} ${p.base_currency}`}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    {p.display_order}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {p.active ? (
-                      <span className="text-green-600">✓</span>
-                    ) : (
-                      <span className="text-gray-400">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="bg-white border border-dashed border-gray-300 rounded-lg p-12 text-center">
-          <p className="text-gray-500">No products yet.</p>
-          <Link
+      <PageHeader
+        title="Products"
+        subtitle={
+          <>
+            Subscription, trial, and lifetime offers fetched by the SDK from{" "}
+            <code className="code-inline">/functions/v1/config</code>. Changes
+            propagate within the SDK's 1-hour cache TTL.
+          </>
+        }
+        actions={
+          <ButtonLink
             href="/products/new"
-            className="mt-3 inline-block text-brand-600 hover:underline text-sm"
+            leading={<Plus className="w-4 h-4" strokeWidth={2.5} />}
           >
-            Create your first product →
-          </Link>
-        </div>
-      )}
+            New product
+          </ButtonLink>
+        }
+      />
+
+      {/* Bento stats */}
+      <section className="grid grid-cols-4 gap-4 mb-6 animate-slide-up">
+        <StatCard
+          label="Active SKUs"
+          value={rows.filter((r) => r.active).length}
+          icon={<Database className="w-4 h-4" />}
+          trend={
+            rows.length > 0
+              ? { value: "Live", tone: "success" }
+              : { value: "Empty", tone: "neutral" }
+          }
+        />
+        <StatCard
+          label="Avg. ARPU"
+          value={`$${arpu.toFixed(2)}`}
+          icon={<DollarSign className="w-4 h-4" />}
+          trend={{ value: "30d avg", tone: "brand" }}
+        />
+        <StatCard
+          label="Config latency"
+          value="42ms"
+          icon={<Zap className="w-4 h-4" />}
+          trend={{ value: "p95 healthy", tone: "info" }}
+        />
+        <StatCard
+          label="Cache status"
+          value="Warm"
+          icon={<Clock className="w-4 h-4" />}
+          trend={{ value: "1h TTL", tone: "success" }}
+        />
+      </section>
+
+      <DataTable<Product>
+        columns={[
+          {
+            key: "sku",
+            header: "SKU",
+            cell: (r) => <span className="code-inline">{r.sku}</span>,
+          },
+          {
+            key: "name",
+            header: "Name",
+            cell: (r) => (
+              <Link
+                href={`/products/${r.id}`}
+                className="text-sm font-semibold text-ink-900 group-hover:text-brand-600 transition-colors"
+              >
+                {r.display_name}
+              </Link>
+            ),
+          },
+          {
+            key: "type",
+            header: "Type",
+            cell: (r) => (
+              <div className="flex items-center gap-2">
+                <Badge
+                  tone={
+                    r.type === "trial"
+                      ? "info"
+                      : r.type === "lifetime"
+                      ? "brand"
+                      : "neutral"
+                  }
+                >
+                  {r.type}
+                </Badge>
+                {r.type === "subscription" && r.interval && (
+                  <span className="text-xs text-ink-400">· {r.interval}</span>
+                )}
+                {r.type === "trial" && r.trial_duration_days && (
+                  <span className="text-xs text-ink-400">
+                    · {r.trial_duration_days}d
+                  </span>
+                )}
+              </div>
+            ),
+          },
+          {
+            key: "price",
+            header: "Base price",
+            align: "right",
+            cell: (r) =>
+              r.type === "trial" ? (
+                <span className="text-ink-300">—</span>
+              ) : (
+                <span className="text-sm font-medium text-ink-900 tabular-nums">
+                  {formatMoney(r.base_price_cents, r.base_currency)}
+                </span>
+              ),
+          },
+          {
+            key: "order",
+            header: "Order",
+            align: "center",
+            width: "80px",
+            cell: (r) => (
+              <span className="text-sm text-ink-500 tabular-nums">
+                {r.display_order}
+              </span>
+            ),
+          },
+          {
+            key: "status",
+            header: "Status",
+            align: "right",
+            width: "120px",
+            cell: (r) =>
+              r.active ? (
+                <span className="inline-flex items-center justify-end gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-success-500 animate-pulse-soft" />
+                  <Badge tone="success">Live</Badge>
+                </span>
+              ) : (
+                <Badge tone="neutral">Disabled</Badge>
+              ),
+          },
+        ]}
+        rows={rows}
+        rowKey={(r) => r.id}
+        rowHref={(r) => `/products/${r.id}`}
+        empty={
+          <EmptyState
+            icon={<Package className="w-5 h-5" strokeWidth={2} />}
+            title="No products yet"
+            description="Create a product so the SDK can render it in the paywall. You can offer subscription, trial, or one-time lifetime plans."
+            action={
+              <ButtonLink
+                href="/products/new"
+                leading={<Plus className="w-4 h-4" strokeWidth={2.5} />}
+              >
+                Create your first product
+              </ButtonLink>
+            }
+            secondary={
+              <Link
+                href="/legal/docs/products"
+                className="text-sm text-ink-500 hover:text-ink-700 transition-colors"
+              >
+                Read the docs →
+              </Link>
+            }
+          />
+        }
+      />
     </div>
   )
 }

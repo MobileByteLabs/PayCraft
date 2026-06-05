@@ -1,18 +1,23 @@
+import Link from "next/link"
+import crypto from "crypto"
+import { Check, ExternalLink, Plug } from "lucide-react"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
-import crypto from "crypto"
+import { PageHeader } from "@/components/ui/page-header"
+import { Card, CardBody } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Button, ButtonLink } from "@/components/ui/button"
 
-const OAUTH_PROVIDERS = ["stripe"] as const
 const MANUAL_PROVIDERS = [
-  "razorpay",
-  "paddle",
-  "paypal",
-  "flutterwave",
-  "paystack",
-  "midtrans",
-  "btcpay",
-  "lemonsqueezy",
-] as const
+  { key: "razorpay", label: "Razorpay", locale: "India + 100 countries" },
+  { key: "paddle", label: "Paddle", locale: "Worldwide MoR" },
+  { key: "paypal", label: "PayPal", locale: "US, GB, EU" },
+  { key: "flutterwave", label: "Flutterwave", locale: "Africa" },
+  { key: "paystack", label: "Paystack", locale: "Nigeria" },
+  { key: "midtrans", label: "Midtrans", locale: "Indonesia" },
+  { key: "btcpay", label: "BTCPay", locale: "Crypto" },
+  { key: "lemonsqueezy", label: "Lemon Squeezy", locale: "Worldwide MoR" },
+]
 
 export default async function ProvidersPage() {
   const { tenant } = await requireTenant()
@@ -32,126 +37,214 @@ export default async function ProvidersPage() {
   const stripeConnected = oauthRes.data
   const manual = manualRes.data ?? []
 
-  // HMAC-signed state to match the edge function's CSRF check.
-  const oauthState =
-    tenant.id +
-    "." +
-    crypto
-      .createHmac("sha256", process.env.PAYCRAFT_OAUTH_STATE_SECRET ?? "dev-secret")
-      .update(tenant.id)
-      .digest("hex")
-      .substring(0, 16)
-
   const stripeClientId = process.env.PAYCRAFT_PLATFORM_STRIPE_CLIENT_ID
-  const redirectUri = `${process.env.NEXT_PUBLIC_PAYCRAFT_SUPABASE_URL}/functions/v1/stripe-connect-oauth`
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_PAYCRAFT_SUPABASE_URL ??
+    process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const stateSecret =
+    process.env.PAYCRAFT_OAUTH_STATE_SECRET ?? "dev-secret-for-local-only"
+  const sig = crypto
+    .createHmac("sha256", stateSecret)
+    .update(tenant.id)
+    .digest("hex")
+    .substring(0, 16)
+  const oauthState = `${tenant.id}.${sig}`
   const stripeOAuthUrl = stripeClientId
-    ? `https://connect.stripe.com/oauth/v2/authorize?response_type=code&client_id=${stripeClientId}&scope=read_write&redirect_uri=${encodeURIComponent(redirectUri)}&state=${oauthState}`
+    ? `https://connect.stripe.com/oauth/v2/authorize?response_type=code&client_id=${stripeClientId}&scope=read_write&redirect_uri=${encodeURIComponent(
+        `${supabaseUrl}/functions/v1/stripe-connect-oauth`,
+      )}&state=${oauthState}`
     : null
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900">Payment providers</h1>
-      <p className="text-sm text-gray-500 mb-8">
-        Connect at least one. The SDK shows a bottom-sheet picker when 2+
-        providers are enabled for the user's locale.
-      </p>
+      <PageHeader
+        title="Payment providers"
+        subtitle="Connect at least one. The SDK shows a bottom-sheet picker when 2+ providers are enabled for the user's locale."
+      />
 
-      <section>
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">
-          Connect via OAuth
-        </h2>
+      {/* OAuth */}
+      <section className="mb-10 animate-slide-up">
+        <div className="mb-3 flex items-baseline justify-between">
+          <h2 className="text-2xs uppercase font-bold tracking-widest text-ink-500">
+            Connect via OAuth
+          </h2>
+          <p className="text-xs text-ink-500">30-second flow</p>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="rounded-lg border border-gray-200 bg-white p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-medium text-gray-900">Stripe</div>
-                <div className="text-xs text-gray-500 mt-0.5">
-                  Card, UPI, wallets — globally
+          <Card className="!shadow-md">
+            <CardBody>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-[#635BFF]/10 flex items-center justify-center">
+                    <span className="text-[#635BFF] font-bold text-base">
+                      Stripe
+                    </span>
+                  </div>
                 </div>
+                {stripeConnected ? (
+                  <Badge tone="success" dot>
+                    Connected
+                  </Badge>
+                ) : (
+                  <Badge tone="neutral">Not connected</Badge>
+                )}
               </div>
               {stripeConnected ? (
-                <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
-                  Connected
-                </span>
+                <div className="space-y-2 text-xs">
+                  <Row label="Account">
+                    <code className="font-mono text-ink-700 text-2xs">
+                      {stripeConnected.stripe_account_id}
+                    </code>
+                  </Row>
+                  <Row label="Mode">
+                    {stripeConnected.livemode ? (
+                      <Badge tone="success">Live</Badge>
+                    ) : (
+                      <Badge tone="info">Test</Badge>
+                    )}
+                  </Row>
+                  <Row label="Linked">
+                    <span className="tabular-nums text-ink-600">
+                      {new Date(
+                        stripeConnected.connected_at as string,
+                      ).toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </span>
+                  </Row>
+                  <div className="mt-4 flex items-center gap-2 border-t border-ink-100 pt-3">
+                    <Button variant="ghost" size="sm">
+                      Disconnect
+                    </Button>
+                    <Button variant="secondary" size="sm">
+                      Test webhook
+                    </Button>
+                  </div>
+                </div>
               ) : (
-                <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">
-                  Not connected
-                </span>
+                <>
+                  <p className="text-xs text-ink-500 mb-4 leading-relaxed">
+                    Connect via OAuth — about 30 seconds. Works in 40+ countries
+                    with cards, UPI, wallets, and bank debits.
+                  </p>
+                  <ul className="text-2xs text-ink-500 space-y-1 mb-4">
+                    <li className="flex items-center gap-1.5">
+                      <Check className="w-3 h-3 text-success-600" strokeWidth={3} />
+                      Live + Test modes
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <Check className="w-3 h-3 text-success-600" strokeWidth={3} />
+                      Fee: 2.9% + $0.30 / charge
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <Check className="w-3 h-3 text-success-600" strokeWidth={3} />
+                      40+ countries
+                    </li>
+                  </ul>
+                  {stripeOAuthUrl ? (
+                    <ButtonLink
+                      href={stripeOAuthUrl}
+                      className="w-full justify-center"
+                      trailing={
+                        <ExternalLink className="w-3.5 h-3.5" strokeWidth={2} />
+                      }
+                    >
+                      Connect with Stripe
+                    </ButtonLink>
+                  ) : (
+                    <div className="rounded-lg bg-warning-50 border border-warning-200 px-3 py-2 text-2xs text-warning-700">
+                      Set{" "}
+                      <code className="font-mono">
+                        PAYCRAFT_PLATFORM_STRIPE_CLIENT_ID
+                      </code>{" "}
+                      in the dashboard environment to enable OAuth.
+                    </div>
+                  )}
+                </>
               )}
+            </CardBody>
+          </Card>
+
+          <Card className="!border-dashed flex items-center justify-center">
+            <div className="text-center p-8">
+              <Plug className="w-5 h-5 text-ink-400 mx-auto mb-2" strokeWidth={2} />
+              <p className="text-sm font-medium text-ink-700">
+                More OAuth providers coming
+              </p>
+              <p className="text-xs text-ink-500 mt-1">
+                Razorpay OAuth, Paddle Connect, and PayPal Marketplace are on
+                the v2.0.x roadmap.
+              </p>
             </div>
-            {stripeConnected ? (
-              <div className="mt-3 text-xs text-gray-500 space-y-0.5">
-                <div>
-                  Account:{" "}
-                  <code className="font-mono">
-                    {stripeConnected.stripe_account_id}
-                  </code>
-                </div>
-                <div>
-                  Mode: {stripeConnected.livemode ? "Live" : "Test"}
-                </div>
-                <div>
-                  Linked:{" "}
-                  {new Date(
-                    stripeConnected.connected_at as string,
-                  ).toLocaleDateString()}
-                </div>
-              </div>
-            ) : stripeOAuthUrl ? (
-              <a
-                href={stripeOAuthUrl}
-                className="mt-3 inline-block rounded bg-brand-600 text-white px-4 py-1.5 text-sm font-medium hover:bg-brand-700"
-              >
-                Connect Stripe
-              </a>
-            ) : (
-              <div className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-                Set <code>PAYCRAFT_PLATFORM_STRIPE_CLIENT_ID</code> in the
-                dashboard environment to enable OAuth. See docs.
-              </div>
-            )}
-          </div>
+          </Card>
         </div>
       </section>
 
-      <section className="mt-10">
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">
-          Manual key entry
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {/* Manual key entry */}
+      <section className="animate-slide-up">
+        <div className="mb-3 flex items-baseline justify-between">
+          <h2 className="text-2xs uppercase font-bold tracking-widest text-ink-500">
+            Manual key entry
+          </h2>
+          <p className="text-xs text-ink-500">
+            8 providers — paste your live + test keys
+          </p>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {MANUAL_PROVIDERS.map((p) => {
-            const configured = manual.find((m: any) => m.provider === p)
+            const configured = manual.find((m: any) => m.provider === p.key)
             return (
-              <div
-                key={p}
-                className="rounded-lg border border-gray-200 bg-white p-4"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="font-medium text-gray-900 capitalize">
-                    {p}
+              <Card key={p.key} className="hover:shadow-md transition-shadow">
+                <CardBody>
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold text-ink-900">{p.label}</div>
+                    {configured ? (
+                      <span className="text-success-600">
+                        <Check className="w-3.5 h-3.5" strokeWidth={3} />
+                      </span>
+                    ) : (
+                      <span className="text-ink-300">—</span>
+                    )}
                   </div>
-                  {configured ? (
-                    <span className="text-xs text-green-700">✓</span>
-                  ) : (
-                    <span className="text-xs text-gray-400">—</span>
+                  <div className="text-2xs text-ink-500 mt-1">{p.locale}</div>
+                  {configured && configured.supported_locales && (
+                    <div className="mt-2 text-2xs text-ink-500">
+                      Locales:{" "}
+                      <span className="font-mono">
+                        {(configured.supported_locales as string[]).join(", ")}
+                      </span>
+                    </div>
                   )}
-                </div>
-                {configured && configured.supported_locales && (
-                  <div className="mt-2 text-xs text-gray-500">
-                    Locales: {(configured.supported_locales as string[]).join(", ")}
-                  </div>
-                )}
-                <a
-                  href={`/providers/${p}`}
-                  className="mt-3 inline-block text-xs font-medium text-brand-600 hover:underline"
-                >
-                  {configured ? "Edit keys →" : "Add keys →"}
-                </a>
-              </div>
+                  <Link
+                    href={`/providers/${p.key}`}
+                    className="mt-3 inline-block text-xs font-medium text-brand-600 hover:text-brand-700"
+                  >
+                    {configured ? "Edit keys →" : "Add keys →"}
+                  </Link>
+                </CardBody>
+              </Card>
             )
           })}
         </div>
       </section>
+    </div>
+  )
+}
+
+function Row({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-ink-500">{label}</span>
+      <span className="text-ink-700">{children}</span>
     </div>
   )
 }
