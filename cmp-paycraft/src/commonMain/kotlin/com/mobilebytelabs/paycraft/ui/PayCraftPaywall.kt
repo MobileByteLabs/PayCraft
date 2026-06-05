@@ -392,7 +392,12 @@ fun PayCraftPaywallContent(
                                         if (offerTrial) {
                                             stringResource(Res.string.paycraft_trial_cta, plan.trialDays)
                                         } else {
-                                            stringResource(Res.string.paycraft_subscribe_cta, plan.name, plan.price, plan.interval)
+                                            stringResource(
+                                                Res.string.paycraft_subscribe_cta,
+                                                plan.name,
+                                                plan.price,
+                                                plan.interval,
+                                            )
                                         }
                                     } ?: stringResource(Res.string.paycraft_get_premium),
                                     style = MaterialTheme.typography.labelLarge,

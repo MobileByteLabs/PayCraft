@@ -27,10 +27,7 @@ sealed interface BillingState {
      * Consumer UI may key on `trial != null` to show trial-specific affordances
      * ("Trial ends in N days") instead of standard premium messaging.
      */
-    data class Premium(
-        val status: SubscriptionStatus,
-        val trial: TrialInfo? = null,
-    ) : BillingState
+    data class Premium(val status: SubscriptionStatus, val trial: TrialInfo? = null) : BillingState
 
     data class Error(val message: String) : BillingState
 

@@ -10,7 +10,4 @@ package com.mobilebytelabs.paycraft.model
  * clamped to ≥ 0). It is a snapshot, not a live counter — callers that need a
  * fresher value should call [com.mobilebytelabs.paycraft.core.BillingManager.refreshStatus].
  */
-data class TrialInfo(
-    val endsAt: String,
-    val daysRemaining: Int,
-)
+data class TrialInfo(val endsAt: String, val daysRemaining: Int)

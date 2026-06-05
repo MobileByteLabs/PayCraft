@@ -7,12 +7,12 @@ import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.model.TrialInfo
 import com.mobilebytelabs.paycraft.model.VerificationMethod
-import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import com.mobilebytelabs.paycraft.network.OtpGateResult
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
 import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
+import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import com.mobilebytelabs.paycraft.provider.StripeProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -493,8 +493,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         }
     }
 
-    private fun buildTrialInfo(trialEnd: String?): TrialInfo? =
-        computeTrialInfo(trialEnd, currentTimeMillis())
+    private fun buildTrialInfo(trialEnd: String?): TrialInfo? = computeTrialInfo(trialEnd, currentTimeMillis())
 
     private suspend fun applyPremiumResult(email: String, isPremium: Boolean, mode: String) {
         PayCraftLogger.onFlow("applyPremiumResult", "email=$email, isPremium=$isPremium, mode=$mode")
