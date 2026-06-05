@@ -1,0 +1,101 @@
+version: "3.9"
+
+# PayCraft self-host stack (Enterprise tier deployment).
+# Single-file orchestration of Postgres + GoTrue auth + Kong gateway + edge runtime + dashboard.
+# Apply migrations 014-037 via ./migrations-bootstrap.sh after first boot.
+
+services:
+  db:
+    image: supabase/postgres:15.1.0.117
+    container_name: paycraft_db
+    ports: ["54322:5432"]
+    environment:
+      POSTGRES_PASSWORD: ${PAYCRAFT_DB_PASSWORD:?set PAYCRAFT_DB_PASSWORD in .env}
+      POSTGRES_DB: postgres
+      JWT_SECRET: ${PAYCRAFT_JWT_SECRET:?set PAYCRAFT_JWT_SECRET in .env}
+    volumes:
+      - paycraft-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  auth:
+    image: supabase/gotrue:v2.151.0
+    container_name: paycraft_auth
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${PAYCRAFT_DB_PASSWORD}@db:5432/postgres
+      GOTRUE_JWT_SECRET: ${PAYCRAFT_JWT_SECRET}
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_SITE_URL: ${PAYCRAFT_DASHBOARD_URL:-http://localhost:3000}
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      API_EXTERNAL_URL: ${PAYCRAFT_API_URL:-http://localhost:54321}
+    restart: unless-stopped
+
+  edge-runtime:
+    image: supabase/edge-runtime:v1.65.5
+    container_name: paycraft_edge_runtime
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      JWT_SECRET: ${PAYCRAFT_JWT_SECRET}
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_ANON_KEY: ${PAYCRAFT_ANON_KEY:?set PAYCRAFT_ANON_KEY in .env}
+      SUPABASE_SERVICE_ROLE_KEY: ${PAYCRAFT_SERVICE_ROLE_KEY:?set PAYCRAFT_SERVICE_ROLE_KEY in .env}
+      PAYCRAFT_TOKEN_ENCRYPTION_KEY: ${PAYCRAFT_TOKEN_ENCRYPTION_KEY:?set PAYCRAFT_TOKEN_ENCRYPTION_KEY in .env}
+      PAYCRAFT_PLATFORM_STRIPE_SECRET_KEY: ${PAYCRAFT_PLATFORM_STRIPE_SECRET_KEY:-}
+      PAYCRAFT_OAUTH_STATE_SECRET: ${PAYCRAFT_OAUTH_STATE_SECRET:?set PAYCRAFT_OAUTH_STATE_SECRET in .env}
+      PAYCRAFT_DASHBOARD_URL: ${PAYCRAFT_DASHBOARD_URL:-http://localhost:3000}
+    volumes:
+      - ../../supabase/functions:/home/deno/functions:ro
+    command:
+      - start
+      - --main-service
+      - /home/deno/functions/main
+    restart: unless-stopped
+
+  kong:
+    image: kong:3.7
+    container_name: paycraft_kong
+    ports: ["54321:8000"]
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+    volumes:
+      - ./kong.yml:/home/kong/kong.yml:ro
+    depends_on:
+      - auth
+      - edge-runtime
+    restart: unless-stopped
+
+  dashboard:
+    image: node:20-bookworm-slim
+    container_name: paycraft_dashboard
+    working_dir: /app
+    ports: ["3000:3000"]
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL: ${PAYCRAFT_API_URL:-http://localhost:54321}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${PAYCRAFT_ANON_KEY}
+      NEXT_PUBLIC_PAYCRAFT_SUPABASE_URL: ${PAYCRAFT_API_URL:-http://localhost:54321}
+      NEXT_PUBLIC_PAYCRAFT_SUPABASE_ANON_KEY: ${PAYCRAFT_ANON_KEY}
+      NEXT_PUBLIC_PAYCRAFT_DASHBOARD_URL: ${PAYCRAFT_DASHBOARD_URL:-http://localhost:3000}
+      SUPABASE_SERVICE_ROLE_KEY: ${PAYCRAFT_SERVICE_ROLE_KEY}
+      PAYCRAFT_OAUTH_STATE_SECRET: ${PAYCRAFT_OAUTH_STATE_SECRET}
+      PAYCRAFT_PLATFORM_STRIPE_CLIENT_ID: ${PAYCRAFT_PLATFORM_STRIPE_CLIENT_ID:-}
+    volumes:
+      - ../../dashboard:/app
+    command: ["sh", "-c", "npm install --no-audit --no-fund && npm run build && npm run start -- -p 3000 -H 0.0.0.0"]
+    depends_on:
+      - kong
+    restart: unless-stopped
+
+volumes:
+  paycraft-db:
