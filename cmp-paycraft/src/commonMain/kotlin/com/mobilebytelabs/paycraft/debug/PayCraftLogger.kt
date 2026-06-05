@@ -23,6 +23,19 @@ object PayCraftLogger {
 
     // ── Configuration ────────────────────────────────────────────────────────
 
+    fun onInitialize(
+        backendName: String,
+        apiKeyPrefix: String,
+        debug: Boolean,
+    ) {
+        if (!enabled) return
+        Logger.d(TAG) { "══ PayCraft.initialize() ════════════════════════════" }
+        Logger.d(TAG) { "  Backend  = $backendName" }
+        Logger.d(TAG) { "  API key  = $apiKeyPrefix" }
+        Logger.d(TAG) { "  Debug    = $debug" }
+        Logger.d(TAG) { "══════════════════════════════════════════════════════" }
+    }
+
     fun onConfigure(
         provider: String,
         modeLabel: String,
