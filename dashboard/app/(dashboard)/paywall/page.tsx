@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
+import { PageHeader } from "@/components/ui/page-header"
+import { Badge } from "@/components/ui/badge"
 import { PaywallDesigner } from "@/components/paywall/paywall-designer"
 
 export default async function PaywallPage() {
@@ -13,6 +15,14 @@ export default async function PaywallPage() {
     .select("entitlements,attribution_required")
     .eq("tier_name", tenant.plan)
     .single()
+  const { data: products } = await supabase
+    .from("tenant_products")
+    .select(
+      "id,sku,type,display_name,interval,base_price_cents,base_currency,display_order,trial_duration_days,attaches_to_product_id",
+    )
+    .eq("tenant_id", tenant.id)
+    .eq("active", true)
+    .order("display_order")
 
   const canRemoveAttribution =
     Array.isArray(tier?.entitlements) &&
@@ -20,11 +30,15 @@ export default async function PaywallPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900">Paywall designer</h1>
-      <p className="text-sm text-gray-500 mb-6">
-        Pick a template + theme — the SDK renders this directly. Changes go
-        live on the next config fetch (max 1h cached).
-      </p>
+      <PageHeader
+        title="Paywall designer"
+        subtitle="Pick a template + theme — the SDK renders this directly. Changes propagate within the SDK's 1-hour cache TTL."
+        badge={
+          <Badge tone="info" dot>
+            Live preview
+          </Badge>
+        }
+      />
       <PaywallDesigner
         initial={
           paywall ?? {
@@ -33,11 +47,12 @@ export default async function PaywallPage() {
             theme_jsonb: {},
             branding: "attribution",
             custom_footer: null,
-            primary_color: "#6B4FE3",
+            primary_color: "#7C3AED",
             font_family: "Inter",
             support_email: tenant.owner_email,
           }
         }
+        products={products ?? []}
         canRemoveAttribution={canRemoveAttribution}
         plan={tenant.plan}
       />
