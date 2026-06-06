@@ -5,16 +5,16 @@ import type { Tenant } from "./types"
 /** Get the current user's tenant. Redirects to login if not authenticated. */
 export async function requireTenant(): Promise<{ tenant: Tenant; userId: string }> {
   const supabase = createClient()
-  const { data: { session } } = await supabase.auth.getSession()
+  const { data: { user }, error } = await supabase.auth.getUser()
 
-  if (!session) {
+  if (error || !user) {
     redirect("/auth/login")
   }
 
   const { data: admin } = await supabase
     .from("tenant_admins")
     .select("tenant_id")
-    .eq("user_id", session.user.id)
+    .eq("user_id", user.id)
     .single()
 
   if (!admin) {
@@ -31,5 +31,5 @@ export async function requireTenant(): Promise<{ tenant: Tenant; userId: string 
     redirect("/auth/login")
   }
 
-  return { tenant: tenant as Tenant, userId: session.user.id }
+  return { tenant: tenant as Tenant, userId: user.id }
 }

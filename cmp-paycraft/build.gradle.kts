@@ -106,6 +106,15 @@ kotlin {
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+            implementation(compose.uiTest)
+        }
+
+        val jvmTest by getting {
+            dependencies {
+                // Skiko native runtime — required for runComposeUiTest on the JVM target
+                implementation(compose.desktop.currentOs)
+            }
         }
     }
 }
@@ -115,7 +124,7 @@ mavenPublishing {
 
     pom {
         name = "PayCraft"
-        description = "Self-hosted, multi-provider billing library for KMP apps. Stripe, Razorpay, and more."
+        description = "Multi-provider KMP subscription billing — paycraft.cloud SaaS. Stripe, Razorpay, and more."
         inceptionYear = "2026"
         url = "https://github.com/MobileByteLabs/PayCraft/"
 

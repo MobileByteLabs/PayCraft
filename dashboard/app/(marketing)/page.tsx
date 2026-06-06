@@ -1,370 +1,256 @@
 import Link from "next/link"
-import {
-  ArrowRight,
-  Code2,
-  LayoutDashboard,
-  Server,
-  ShieldCheck,
-} from "lucide-react"
+import { ArrowRight, Zap, CheckCircle2, TrendingUp, Plus } from "lucide-react"
 import { ButtonLink } from "@/components/ui/button"
 
 export default function LandingPage() {
   return (
     <>
-      {/* HERO */}
-      <section className="relative pt-24 pb-32 overflow-hidden">
-        {/* Background gradient + grid */}
-        <div className="absolute inset-0 -z-10">
-          <div className="absolute inset-0 bg-gradient-to-b from-brand-50/30 via-white to-white" />
-          <div
-            className="absolute inset-0 opacity-[0.04]"
-            style={{
-              backgroundImage:
-                "radial-gradient(circle at 1px 1px, #18181B 1px, transparent 0)",
-              backgroundSize: "32px 32px",
-            }}
-          />
+      {/* Hero */}
+      <section className="max-w-7xl mx-auto px-6 text-center pt-24 pb-24 overflow-hidden">
+        {/* Badge */}
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-50 text-brand-700 border border-brand-100 mb-6">
+          <Zap className="w-4 h-4 fill-brand-600 text-brand-600" />
+          <span className="text-xs font-bold uppercase tracking-wider">v2.0 is now live</span>
         </div>
-        <div className="absolute top-32 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-brand-200 rounded-full opacity-20 blur-[150px] -z-10" />
 
-        <div className="max-w-5xl mx-auto px-6 text-center">
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 border border-brand-200 px-3 py-1 mb-8 animate-fade-in">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse-soft" />
-            <span className="text-xs font-semibold text-brand-700">
-              v2.0 — Cloud SaaS now in preview
-            </span>
-          </div>
-          <h1 className="text-7xl font-bold tracking-tight text-ink-900 text-balance leading-[1.05] animate-slide-up">
-            One SDK call.
-            <br />
-            <span className="text-brand-600">All your billing.</span>
-          </h1>
-          <p
-            className="text-lg text-ink-600 mt-8 max-w-2xl mx-auto text-pretty leading-relaxed animate-slide-up"
-            style={{ animationDelay: "60ms" }}
+        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight text-ink-950 mb-6 leading-[1.1]">
+          Billing infrastructure for <br />
+          <span className="text-gradient-violet">KMP apps</span>
+        </h1>
+
+        <p className="max-w-2xl mx-auto text-lg md:text-xl text-ink-500 mb-10 leading-relaxed">
+          Any provider. Any platform. 15 minutes to integrate. PayCraft handles
+          subscriptions, trials, and paywalls — configured in your dashboard, not
+          in code.
+        </p>
+
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <ButtonLink
+            href="/auth/login"
+            size="lg"
+            trailing={<ArrowRight className="w-5 h-5" />}
+            className="w-full sm:w-auto shadow-lg shadow-brand-500/20"
           >
-            PayCraft is the multi-provider subscription billing platform for
-            Kotlin Multiplatform. Wire in Stripe, Razorpay, and 8 more —
-            configure plans, pricing, and paywall in the dashboard, integrate
-            with one line.
-          </p>
-
-          {/* Code block */}
-          <div
-            className="mt-12 max-w-2xl mx-auto animate-slide-up"
-            style={{ animationDelay: "120ms" }}
+            Get started free
+          </ButtonLink>
+          <ButtonLink
+            href="/docs"
+            size="lg"
+            variant="ghost"
+            className="w-full sm:w-auto"
           >
-            <div className="rounded-2xl bg-ink-950 border border-ink-900 shadow-2xl shadow-brand-900/20 overflow-hidden">
-              <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-ink-800">
-                <span className="w-2.5 h-2.5 rounded-full bg-ink-700" />
-                <span className="w-2.5 h-2.5 rounded-full bg-ink-700" />
-                <span className="w-2.5 h-2.5 rounded-full bg-ink-700" />
-                <span className="ml-auto text-2xs font-mono text-ink-500">
-                  Application.kt
-                </span>
-              </div>
-              <pre className="px-6 py-5 text-left text-[13px] font-mono text-ink-300 leading-relaxed overflow-x-auto">
-                <code>
-                  <span className="text-brand-300">PayCraft</span>
-                  <span className="text-ink-400">.</span>
-                  <span className="text-info-300">initialize</span>
-                  <span className="text-ink-400">(</span>
-                  <span className="text-ink-400">apiKey = </span>
-                  <span className="text-success-300">"pk_live_…"</span>
-                  <span className="text-ink-400">)</span>
-                  {"\n\n"}
-                  <span className="text-brand-300">PayCraftPaywall</span>
-                  <span className="text-ink-400">()</span>
-                </code>
-              </pre>
-            </div>
-          </div>
-
-          {/* CTAs */}
-          <div
-            className="mt-10 flex flex-wrap items-center justify-center gap-3 animate-slide-up"
-            style={{ animationDelay: "180ms" }}
-          >
-            <ButtonLink
-              href="/auth/signup"
-              size="lg"
-              trailing={<ArrowRight className="w-4 h-4" strokeWidth={2.5} />}
-            >
-              Start free
-            </ButtonLink>
-            <ButtonLink href="/pricing" size="lg" variant="ghost">
-              See pricing
-            </ButtonLink>
-          </div>
-
-          {/* Social proof */}
-          <div className="mt-20 animate-fade-in" style={{ animationDelay: "250ms" }}>
-            <p className="text-2xs uppercase font-semibold tracking-widest text-ink-400 mb-6">
-              Trusted by developers building with
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3 text-ink-400">
-              {[
-                "Reels Downloader",
-                "Mood Movies",
-                "FocusFlow",
-                "PocketPay",
-                "QuickWord",
-                "PlanIt",
-              ].map((n) => (
-                <span
-                  key={n}
-                  className="text-sm font-semibold tracking-tight grayscale opacity-70"
-                >
-                  {n}
-                </span>
-              ))}
-            </div>
-          </div>
+            View documentation
+          </ButtonLink>
         </div>
       </section>
 
-      {/* WHY PAYCRAFT */}
-      <section className="py-20 border-t border-ink-100">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-12">
-            <p className="text-2xs uppercase font-semibold tracking-widest text-brand-600 mb-2">
-              Why PayCraft
-            </p>
-            <h2 className="text-4xl font-bold tracking-tight text-ink-900 text-balance">
-              The billing platform built for KMP.
-            </h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <FeatureCard
-              icon={<LayoutDashboard className="w-5 h-5" />}
-              title="Multi-provider checkout"
-              body="Wire Stripe, Razorpay, Paddle, and 7 more behind a single SDK. The bottom-sheet picker shows only providers eligible for the user's locale."
-            />
-            <FeatureCard
-              icon={<Code2 className="w-5 h-5" />}
-              title="Dashboard-driven"
-              body="Change products, pricing, and paywall design in the dashboard. The SDK refreshes config within 1 hour — no app store re-submit."
-            />
-            <FeatureCard
-              icon={<Server className="w-5 h-5" />}
-              title="Self-host ready"
-              body="Enterprise tier ships a Docker compose stack under BSL license. Run PayCraft on your own infra. Same SDK, your data."
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* CODE-VS-DASHBOARD */}
-      <section className="py-20 border-t border-ink-100">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-12">
-            <h2 className="text-4xl font-bold tracking-tight text-ink-900 text-balance leading-tight">
-              Code stays simple.
-              <br />
-              Dashboard does the heavy lifting.
-            </h2>
-            <p className="text-ink-500 text-base mt-4 max-w-2xl mx-auto text-pretty">
-              Your app calls{" "}
-              <code className="code-inline">PayCraft.initialize</code>. Everything else
-              — products, providers, paywall, pricing, trials — happens in the
-              dashboard.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start mt-16">
-            {/* IDE-style code */}
-            <div className="rounded-2xl bg-ink-950 border border-ink-900 shadow-2xl shadow-brand-900/20 overflow-hidden">
-              <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-ink-800">
-                <span className="w-2.5 h-2.5 rounded-full bg-ink-700" />
-                <span className="w-2.5 h-2.5 rounded-full bg-ink-700" />
-                <span className="w-2.5 h-2.5 rounded-full bg-ink-700" />
-                <span className="ml-auto text-2xs font-mono text-ink-500">
-                  composeApp/Application.kt
-                </span>
-              </div>
-              <pre className="px-6 py-5 text-left text-[13px] font-mono text-ink-300 leading-relaxed">
-                <code>
-                  <span className="text-info-300">import</span>
-                  <span className="text-ink-400">
-                    {" com.mobilebytelabs.paycraft.*"}
-                  </span>
-                  {"\n\n"}
-                  <span className="text-info-300">class</span>
-                  <span className="text-warning-300"> MyApplication </span>
-                  <span className="text-ink-400">: </span>
-                  <span className="text-warning-300">Application</span>
-                  <span className="text-ink-400">{"() {"}</span>
-                  {"\n    "}
-                  <span className="text-info-300">override fun</span>
-                  <span className="text-warning-300"> onCreate</span>
-                  <span className="text-ink-400">{"() {"}</span>
-                  {"\n        "}
-                  <span className="text-brand-300">PayCraft</span>
-                  <span className="text-ink-400">.</span>
-                  <span className="text-info-300">initialize</span>
-                  <span className="text-ink-400">(</span>
-                  {"\n            "}
-                  <span className="text-ink-400">apiKey = </span>
-                  <span className="text-success-300">"pk_live_8f0c…"</span>
-                  {"\n        "}
-                  <span className="text-ink-400">)</span>
-                  {"\n    "}
-                  <span className="text-ink-400">{"}"}</span>
-                  {"\n"}
-                  <span className="text-ink-400">{"}"}</span>
-                </code>
-              </pre>
-            </div>
-
-            {/* Dashboard preview */}
-            <div className="relative">
-              <div className="absolute -inset-4 bg-brand-100/40 rounded-3xl blur-3xl -z-10" />
-              <div className="rounded-2xl border border-ink-200 shadow-xl overflow-hidden bg-white transform lg:rotate-1 hover:rotate-0 transition-transform duration-500">
-                <div className="bg-ink-50 border-b border-ink-200 px-4 py-3 flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-danger-400" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-warning-400" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-success-400" />
-                  <span className="ml-3 text-xs text-ink-500 font-mono">
-                    paycraft.cloud/products
-                  </span>
+      {/* Dual Card Section */}
+      <section className="max-w-7xl mx-auto px-6 mb-32">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+          {/* Left: Terminal / Code Card */}
+          <div
+            className="rounded-2xl p-px shadow-2xl overflow-hidden"
+            style={{ background: "linear-gradient(135deg, #18181B 0%, #27272A 100%)" }}
+          >
+            <div className="bg-ink-900 rounded-[14px] h-full flex flex-col">
+              {/* Title bar */}
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-ink-800">
+                <div className="flex gap-1.5">
+                  <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/40" />
+                  <div className="w-3 h-3 rounded-full bg-amber-500/20 border border-amber-500/40" />
+                  <div className="w-3 h-3 rounded-full bg-green-500/20 border border-green-500/40" />
                 </div>
-                <div className="p-5 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-bold text-ink-900">
-                      Products
-                    </h3>
-                    <span className="text-2xs bg-brand-600 text-white px-2 py-1 rounded font-bold">
-                      + NEW
-                    </span>
+                <div className="ml-4 text-[11px] font-mono text-ink-500 uppercase tracking-widest">
+                  MainApplication.kt
+                </div>
+              </div>
+
+              {/* Code body */}
+              <div className="p-6 font-mono text-sm leading-relaxed overflow-x-auto flex-1">
+                {[
+                  { n: 1, content: <><span className="text-purple-400">package</span><span className="text-ink-400"> com.example.app</span></> },
+                  { n: 2, content: <span> </span> },
+                  { n: 3, content: <><span className="text-purple-400">fun</span><span className="text-blue-400"> initBilling</span><span className="text-ink-400">{"() {"}</span></> },
+                  { n: 4, content: <><span className="text-ink-400">{"  "}</span><span className="text-brand-400">PayCraft</span><span className="text-ink-400">.</span><span className="text-yellow-200">initialize</span><span className="text-ink-400">{"("}</span></> },
+                  { n: 5, content: <><span className="text-ink-400">{"    apiKey = "}</span><span className="text-green-400">{'"pk_live_8392-xx-921"'}</span><span className="text-ink-400">,</span></> },
+                  { n: 6, content: <><span className="text-ink-400">{"    sandbox = "}</span><span className="text-orange-400">false</span></> },
+                  { n: 7, content: <span className="text-ink-400">{"  )"}</span> },
+                  { n: 8, content: <span className="text-ink-400">{"}"}</span> },
+                ].map((row) => (
+                  <div key={row.n} className="flex gap-4">
+                    <span className="text-ink-700 select-none w-4 shrink-0">{row.n}</span>
+                    <span>{row.content}</span>
                   </div>
-                  {[
-                    {
-                      sku: "monthly",
-                      name: "Monthly Premium",
-                      tag: "SUB",
-                      price: "$1.99",
-                      tone: "neutral",
-                    },
-                    {
-                      sku: "yearly",
-                      name: "Yearly Premium",
-                      tag: "SUB",
-                      price: "$19.99",
-                      tone: "neutral",
-                    },
-                    {
-                      sku: "lifetime",
-                      name: "Lifetime Access",
-                      tag: "LIFE",
-                      price: "$49.99",
-                      tone: "brand",
-                    },
-                    {
-                      sku: "trial-7d",
-                      name: "7-day Trial",
-                      tag: "TRIAL",
-                      price: "—",
-                      tone: "info",
-                    },
-                  ].map((p) => (
-                    <div
-                      key={p.sku}
-                      className="flex items-center justify-between px-3 py-2 rounded-lg border border-ink-200/60 hover:bg-ink-50/60 transition-colors"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <code className="text-2xs font-mono text-ink-500">
-                          {p.sku}
-                        </code>
-                        <span className="text-xs font-semibold text-ink-900">
-                          {p.name}
-                        </span>
-                        <span
-                          className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border ${
-                            p.tone === "brand"
-                              ? "bg-brand-50 text-brand-700 border-brand-200"
-                              : p.tone === "info"
-                              ? "bg-info-50 text-info-700 border-info-200"
-                              : "bg-ink-100 text-ink-700 border-ink-200"
-                          }`}
-                        >
-                          {p.tag}
-                        </span>
-                      </div>
-                      <span className="text-xs font-semibold text-ink-900 tabular-nums">
-                        {p.price}
-                      </span>
-                    </div>
-                  ))}
+                ))}
+              </div>
+
+              {/* Footer hint */}
+              <div className="mt-auto border-t border-ink-800 p-4 bg-ink-950/50">
+                <p className="text-xs text-ink-500">
+                  Unified Kotlin Multiplatform API works on Android, iOS, and Web.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Dashboard Mockup */}
+          <div className="bg-white border border-ink-200 rounded-2xl p-8 shadow-xl flex flex-col justify-between">
+            <div>
+              <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h3 className="text-ink-900 font-bold text-lg leading-tight">
+                    Revenue Overview
+                  </h3>
+                  <p className="text-ink-500 text-sm">Last 30 days active performance</p>
+                </div>
+                <div className="bg-brand-50 text-brand-700 px-3 py-1 rounded-full text-xs font-bold">
+                  LIVE MODE
                 </div>
               </div>
+
+              <div className="grid grid-cols-2 gap-6 mb-10">
+                <div className="space-y-1">
+                  <p className="text-ink-500 text-[11px] font-bold uppercase tracking-wider">MRR</p>
+                  <p className="text-3xl font-black text-ink-950 tracking-tighter">$12,400</p>
+                  <div className="flex items-center gap-1 text-green-600 text-xs font-bold">
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    12.5%
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-ink-500 text-[11px] font-bold uppercase tracking-wider">
+                    Active Subscribers
+                  </p>
+                  <p className="text-3xl font-black text-ink-950 tracking-tighter">847</p>
+                  <div className="flex items-center gap-1 text-green-600 text-xs font-bold">
+                    <Plus className="w-3.5 h-3.5" />
+                    42 today
+                  </div>
+                </div>
+              </div>
+
+              {/* Bar chart */}
+              <div className="h-32 flex items-end gap-2 px-2">
+                <div className="flex-1 bg-brand-100 rounded-t-sm h-[40%]" />
+                <div className="flex-1 bg-brand-100 rounded-t-sm h-[55%]" />
+                <div className="flex-1 bg-brand-100 rounded-t-sm h-[45%]" />
+                <div className="flex-1 bg-brand-200 rounded-t-sm h-[70%]" />
+                <div className="flex-1 bg-brand-300 rounded-t-sm h-[85%]" />
+                <div className="flex-1 bg-brand-500 rounded-t-sm h-[95%]" />
+                <div className="flex-1 bg-brand-600 rounded-t-sm h-[80%]" />
+              </div>
+            </div>
+
+            {/* Provider status row */}
+            <div className="mt-8 p-4 bg-ink-50 rounded-xl border border-ink-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-ink-900 flex items-center justify-center text-white">
+                  <svg
+                    className="w-4 h-4"
+                    fill="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M4 6h16M4 10h16M4 14h16M4 18h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+                  </svg>
+                </div>
+                <div className="text-sm">
+                  <p className="text-ink-900 font-bold">Stripe Integrated</p>
+                  <p className="text-ink-500 text-xs">Ready to collect payments</p>
+                </div>
+              </div>
+              <CheckCircle2 className="w-5 h-5 text-green-500" />
             </div>
           </div>
         </div>
       </section>
 
-      {/* CTA SECTION */}
-      <section className="py-24 border-t border-ink-100">
-        <div className="max-w-3xl mx-auto px-6">
-          <div className="relative rounded-3xl bg-gradient-to-br from-brand-600 via-brand-700 to-brand-900 overflow-hidden p-12 text-center text-white">
-            <div
-              className="absolute inset-0 opacity-[0.06]"
-              style={{
-                backgroundImage:
-                  "radial-gradient(circle at 1px 1px, white 1px, transparent 0)",
-                backgroundSize: "24px 24px",
-              }}
-            />
-            <div className="absolute -top-32 -right-32 w-80 h-80 bg-brand-400 rounded-full opacity-30 blur-[100px]" />
+      {/* Three-column Features */}
+      <section className="max-w-7xl mx-auto px-6 pb-32">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+          {/* Feature 1 */}
+          <div className="flex flex-col items-start gap-4 p-4 hover:bg-white hover:shadow-sm rounded-2xl transition-all border border-transparent hover:border-ink-100">
+            <div className="w-12 h-12 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center">
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M3 3h18v3H3zm0 9h18v3H3zm0 9h18v3H3z" opacity=".3" />
+                <path d="M3 6h18v3H3zm0 9h18v3H3z" />
+              </svg>
+            </div>
+            <div>
+              <h4 className="text-ink-900 font-bold text-xl mb-2">Any Provider</h4>
+              <p className="text-ink-500 text-sm leading-relaxed">
+                Connect Stripe, Razorpay, or Apple/Google Pay in a single
+                interface. Mix and match providers based on geographic region
+                with zero code changes.
+              </p>
+            </div>
+            <div className="flex gap-3 mt-2">
+              <div className="h-6 px-2 bg-ink-100 border border-ink-200 rounded flex items-center grayscale opacity-70">
+                <span className="text-[10px] font-bold text-ink-600 uppercase">Stripe</span>
+              </div>
+              <div className="h-6 px-2 bg-ink-100 border border-ink-200 rounded flex items-center grayscale opacity-70">
+                <span className="text-[10px] font-bold text-ink-600 uppercase">Razorpay</span>
+              </div>
+            </div>
+          </div>
 
-            <h2 className="relative text-4xl font-bold tracking-tight text-balance leading-tight">
-              Ship subscription billing in 15 minutes.
-            </h2>
-            <p className="relative text-white/70 mt-3 text-base text-pretty">
-              Free tier is forever. No card required.
-            </p>
-            <div className="relative mt-8 flex items-center justify-center gap-3">
-              <ButtonLink
-                href="/auth/signup"
-                size="lg"
-                className="!bg-white !text-brand-700 !shadow-lg hover:!bg-ink-50"
-                trailing={<ArrowRight className="w-4 h-4" strokeWidth={2.5} />}
-              >
-                Get your API key
-              </ButtonLink>
-              <ButtonLink
-                href="/docs/quickstart-cloud"
-                size="lg"
-                variant="ghost"
-                className="!text-white hover:!bg-white/10"
-              >
-                Read the docs
-              </ButtonLink>
+          {/* Feature 2 */}
+          <div className="flex flex-col items-start gap-4 p-4 hover:bg-white hover:shadow-sm rounded-2xl transition-all border border-transparent hover:border-ink-100">
+            <div className="w-12 h-12 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <rect x="3" y="3" width="7" height="7" rx="1" />
+                <rect x="14" y="3" width="7" height="7" rx="1" />
+                <rect x="3" y="14" width="7" height="7" rx="1" />
+                <rect x="14" y="14" width="7" height="7" rx="1" />
+              </svg>
+            </div>
+            <div>
+              <h4 className="text-ink-900 font-bold text-xl mb-2">Cloud Config</h4>
+              <p className="text-ink-500 text-sm leading-relaxed">
+                Update pricing, trial lengths, and entitlement names instantly
+                from your dashboard. No more waiting for app store reviews to
+                change your business model.
+              </p>
+            </div>
+            <Link
+              href="/docs"
+              className="mt-2 text-xs font-bold text-brand-600 flex items-center gap-1 hover:gap-2 transition-all"
+            >
+              Explore Dashboard <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+
+          {/* Feature 3 */}
+          <div className="flex flex-col items-start gap-4 p-4 hover:bg-white hover:shadow-sm rounded-2xl transition-all border border-transparent hover:border-ink-100">
+            <div className="w-12 h-12 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm0 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10-10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zm0 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+              </svg>
+            </div>
+            <div>
+              <h4 className="text-ink-900 font-bold text-xl mb-2">KMP Native</h4>
+              <p className="text-ink-500 text-sm leading-relaxed">
+                True multiplatform support. Write your billing logic once in
+                shared code. Fully supports Android, iOS, and Desktop with a
+                native SDK feel.
+              </p>
+            </div>
+            <div className="flex gap-4 mt-2 text-ink-400">
+              <div className="flex items-center gap-1">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M17.523 15.341a1.2 1.2 0 01-.001 1.699l-1.697 1.697a1.2 1.2 0 01-1.698 0l-2.549-2.549a5.5 5.5 0 01-6.437-8.68l2.293 2.293a2.5 2.5 0 003.535 3.535l2.005 2.005zm1.435-8.683a5.5 5.5 0 00-6.437-1.017L14.82 7.94a2.5 2.5 0 013.535 3.535l-2.293 2.293a5.5 5.5 0 001.017-6.437l1.879-1.879 2.293 2.293a1.2 1.2 0 000-1.698l-1.697-1.697a1.2 1.2 0 00-1.596 0z" />
+                </svg>
+                <span className="text-[10px] font-bold uppercase tracking-wider">Android</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
+                </svg>
+                <span className="text-[10px] font-bold uppercase tracking-wider">iOS</span>
+              </div>
             </div>
           </div>
         </div>
       </section>
     </>
-  )
-}
-
-function FeatureCard({
-  icon,
-  title,
-  body,
-}: {
-  icon: React.ReactNode
-  title: string
-  body: string
-}) {
-  return (
-    <div className="p-6 rounded-2xl border border-ink-200 bg-white hover:border-brand-200 hover:shadow-md transition-all">
-      <div className="w-10 h-10 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center mb-4">
-        {icon}
-      </div>
-      <h3 className="text-lg font-bold tracking-tight text-ink-900">
-        {title}
-      </h3>
-      <p className="text-sm text-ink-500 mt-2 leading-relaxed">{body}</p>
-    </div>
   )
 }

@@ -10,13 +10,19 @@ import {
   TrendingUp,
   Users,
   Webhook,
+  PlusCircle,
+  RefreshCw,
+  UserPlus,
+  LayoutDashboard,
+  XCircle,
+  CreditCard as CreditCardIcon,
+  ChevronRight,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
 import { PageHeader } from "@/components/ui/page-header"
-import { Card, CardBody, StatCard } from "@/components/ui/card"
-import { Button, ButtonLink } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+import { Card, CardBody } from "@/components/ui/card"
+import { ButtonLink } from "@/components/ui/button"
 
 interface ChecklistItem {
   label: string
@@ -134,7 +140,7 @@ export default async function HomePage() {
   return (
     <div>
       <PageHeader
-        title={`Welcome, ${tenant.owner_email.split("@")[0]}`}
+        title={`Welcome back, ${tenant.owner_email.split("@")[0]}`}
         subtitle={
           <>
             <span className="font-medium text-ink-700">{tenant.name}</span> ·{" "}
@@ -145,221 +151,229 @@ export default async function HomePage() {
         }
       />
 
-      {/* Quick stats */}
-      <section className="grid grid-cols-4 gap-4 mb-8 animate-slide-up">
-        <StatCard
-          label="MRR"
-          value={`$${mrr.toFixed(0)}`}
-          icon={<TrendingUp className="w-4 h-4" />}
-          trend={
-            mrr > 0
-              ? { value: "+12%", tone: "success" }
-              : { value: "Start now", tone: "brand" }
-          }
-        />
-        <StatCard
-          label="Active subs"
-          value={activeSubs.toLocaleString()}
-          icon={<Users className="w-4 h-4" />}
-          helper={
-            trialSubs > 0 ? (
-              <span className="tabular-nums">{trialSubs} trialing</span>
-            ) : undefined
-          }
-        />
-        <StatCard
-          label="Active products"
-          value={productCount}
-          icon={<Package className="w-4 h-4" />}
-          trend={
-            productCount > 0
-              ? { value: "Live", tone: "success" }
-              : { value: "Empty", tone: "neutral" }
-          }
-        />
-        <StatCard
-          label="Webhook success"
-          value={`${(webhookSuccessRate * 100).toFixed(1)}%`}
-          icon={<Webhook className="w-4 h-4" />}
-          trend={{
-            value: webhookTotal === 0 ? "—" : "Healthy",
-            tone: webhookTotal === 0 ? "neutral" : "success",
-          }}
-        />
+      {/* Stats Grid — 4 cards matching Stitch design */}
+      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 animate-slide-up">
+        {/* MRR */}
+        <div className="bg-white border border-ink-200 p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex justify-between items-start mb-4">
+            <p className="text-sm font-bold text-ink-500 uppercase tracking-wider">MRR</p>
+            <span className="text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full text-[10px] font-bold flex items-center gap-1">
+              <TrendingUp className="w-3 h-3" />
+              {mrr > 0 ? "+12%" : "Start now"}
+            </span>
+          </div>
+          <h3 className="text-3xl font-bold text-ink-900 tracking-tight">${mrr.toFixed(0)}</h3>
+        </div>
+
+        {/* Active Subs */}
+        <div className="bg-white border border-ink-200 p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex justify-between items-start mb-4">
+            <p className="text-sm font-bold text-ink-500 uppercase tracking-wider">Active subs</p>
+            {trialSubs > 0 ? (
+              <span className="text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full text-[10px] font-bold flex items-center gap-1">
+                <Users className="w-3 h-3" />
+                {trialSubs} trialing
+              </span>
+            ) : (
+              <span className="text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full text-[10px] font-bold flex items-center gap-1">
+                <Users className="w-3 h-3" />
+                Active
+              </span>
+            )}
+          </div>
+          <h3 className="text-3xl font-bold text-ink-900 tracking-tight">{activeSubs.toLocaleString()}</h3>
+        </div>
+
+        {/* Active Products */}
+        <div className="bg-white border border-ink-200 p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex justify-between items-start mb-4">
+            <p className="text-sm font-bold text-ink-500 uppercase tracking-wider">Products</p>
+            <span className={`px-2 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 ${productCount > 0 ? "text-emerald-600 bg-emerald-50" : "text-ink-500 bg-ink-100"}`}>
+              <Package className="w-3 h-3" />
+              {productCount > 0 ? "Live" : "Empty"}
+            </span>
+          </div>
+          <h3 className="text-3xl font-bold text-ink-900 tracking-tight">{productCount}</h3>
+        </div>
+
+        {/* Webhook Success */}
+        <div className="bg-white border border-ink-200 p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex justify-between items-start mb-4">
+            <p className="text-sm font-bold text-ink-500 uppercase tracking-wider">Webhook success</p>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${webhookTotal > 0 ? "bg-emerald-500 animate-pulse" : "bg-ink-300"}`} />
+            </div>
+          </div>
+          <h3 className="text-3xl font-bold text-ink-900 tracking-tight">
+            {webhookTotal === 0 ? "—" : `${(webhookSuccessRate * 100).toFixed(1)}%`}
+          </h3>
+        </div>
       </section>
 
-      {/* Onboarding checklist */}
-      <Card className="mb-8 animate-slide-up">
-        <div className="px-5 py-4 border-b border-ink-100 flex items-start justify-between gap-4">
+      {/* Onboarding Checklist */}
+      <div className="bg-white border border-ink-200 rounded-xl shadow-sm mb-8 overflow-hidden animate-slide-up">
+        <div className="p-6 border-b border-ink-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h3 className="text-sm font-semibold text-ink-900">
-              Get the most out of PayCraft
-            </h3>
-            <p className="text-xs text-ink-500 mt-0.5">
-              {checklistDone} of {checklist.length} complete
-            </p>
+            <div className="flex items-center gap-3">
+              <h3 className="text-lg font-bold text-ink-900">Get the most out of PayCraft</h3>
+              <span className="bg-ink-100 text-ink-500 px-2.5 py-0.5 rounded-full text-[11px] font-bold">
+                {checklistDone} of {checklist.length} complete
+              </span>
+            </div>
+            <div className="mt-3 w-64 h-2 bg-ink-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-brand-600 transition-all duration-1000"
+                style={{ width: `${checklistProgress}%` }}
+              />
+            </div>
           </div>
-          <Badge
-            tone={
-              checklistDone === checklist.length
-                ? "success"
-                : checklistDone > 0
-                ? "brand"
-                : "neutral"
-            }
-          >
-            {checklistProgress}%
-          </Badge>
         </div>
-        <div className="h-1 w-full bg-ink-100">
-          <div
-            className="h-full bg-brand-600 transition-all duration-700 ease-out"
-            style={{ width: `${checklistProgress}%` }}
-          />
-        </div>
-        <CardBody className="!p-0">
-          <ul className="divide-y divide-ink-100">
-            {checklist.map((item) => (
-              <li key={item.label}>
-                <Link
-                  href={item.href}
-                  className="flex items-center gap-3 px-5 py-3 hover:bg-ink-50/50 group transition-colors"
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-8 gap-y-2 p-6">
+          {checklist.map((item) => (
+            <Link
+              key={item.label}
+              href={item.href}
+              className="flex items-center justify-between group py-2"
+            >
+              <div className="flex items-center gap-3">
+                {item.done ? (
+                  <div className="w-5 h-5 rounded-full bg-brand-600 flex items-center justify-center text-white flex-shrink-0">
+                    <CheckCircle2 className="w-3 h-3" strokeWidth={3} />
+                  </div>
+                ) : (
+                  <div className="w-5 h-5 border-2 border-ink-200 rounded-full flex-shrink-0" />
+                )}
+                <span
+                  className={
+                    item.done
+                      ? "text-sm text-ink-400 line-through font-medium"
+                      : "text-sm text-ink-700 font-medium"
+                  }
                 >
-                  {item.done ? (
-                    <CheckCircle2
-                      className="w-4 h-4 text-success-600 flex-shrink-0"
-                      strokeWidth={2.5}
-                    />
-                  ) : (
-                    <Circle
-                      className="w-4 h-4 text-ink-300 flex-shrink-0"
-                      strokeWidth={2}
-                    />
-                  )}
-                  <span
-                    className={
-                      item.done
-                        ? "text-sm text-ink-500 line-through"
-                        : "text-sm text-ink-900 font-medium flex-1"
-                    }
-                  >
-                    {item.label}
-                  </span>
-                  {!item.done && (
-                    <span className="text-xs text-brand-600 font-medium group-hover:translate-x-0.5 transition-transform">
-                      Go →
-                    </span>
-                  )}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </CardBody>
-      </Card>
+                  {item.label}
+                </span>
+              </div>
+              {!item.done && (
+                <span className="text-brand-600 text-sm font-bold opacity-0 group-hover:opacity-100 transition-opacity ml-2 flex-shrink-0">
+                  Go →
+                </span>
+              )}
+            </Link>
+          ))}
+        </div>
+      </div>
 
-      {/* Activity + actions */}
-      <div className="grid grid-cols-3 gap-6">
-        <div className="col-span-2">
-          <Card>
-            <div className="px-5 py-4 border-b border-ink-100 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-ink-900">
-                Recent activity
-              </h3>
+      {/* Two Column Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Recent Activity */}
+        <div className="lg:col-span-8 bg-white border border-ink-200 rounded-xl shadow-sm">
+          <div className="p-6 border-b border-ink-100 flex items-center justify-between">
+            <h3 className="text-sm font-bold text-ink-500 uppercase tracking-wider">Recent Activity</h3>
+            <Link
+              href="/audit"
+              className="text-xs font-bold text-brand-600 hover:underline"
+            >
+              View All Audit Logs
+            </Link>
+          </div>
+          {auditLog.length === 0 ? (
+            <div className="p-8 text-center">
+              <Activity className="w-5 h-5 text-ink-300 mx-auto mb-2" />
+              <p className="text-sm text-ink-500">
+                No activity yet. Once you configure products and providers,
+                every change will show up here.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-ink-100">
+              {auditLog.map((row: any) => (
+                <div key={row.id} className="p-4 flex items-center justify-between hover:bg-ink-50 transition-colors">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                      row.actor_type === "user"
+                        ? "bg-blue-50 text-blue-600"
+                        : row.actor_type === "webhook"
+                        ? "bg-ink-100 text-ink-600"
+                        : "bg-brand-50 text-brand-600"
+                    }`}>
+                      {row.actor_type === "user" ? (
+                        <UserPlus className="w-4 h-4" />
+                      ) : row.actor_type === "webhook" ? (
+                        <Webhook className="w-4 h-4" />
+                      ) : (
+                        <Activity className="w-4 h-4" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-ink-900">{row.action}</p>
+                      <p className="text-xs text-ink-500 font-medium capitalize">{row.actor_type}</p>
+                    </div>
+                  </div>
+                  <span className="text-xs text-ink-400 font-medium flex-shrink-0">
+                    {relativeTime(row.ts)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Quick Actions + CTA */}
+        <div className="lg:col-span-4 space-y-6">
+          <div className="bg-white border border-ink-200 rounded-xl shadow-sm p-6">
+            <h3 className="text-sm font-bold text-ink-500 uppercase tracking-wider mb-6">Quick Actions</h3>
+            <div className="grid grid-cols-1 gap-3">
               <Link
-                href="/audit"
-                className="text-xs text-brand-600 hover:text-brand-700 font-medium"
+                href="/products/new"
+                className="w-full flex items-center gap-3 px-4 py-3 bg-ink-50 hover:bg-ink-100 border border-ink-200 rounded-lg text-sm font-semibold transition-all group"
               >
-                View all →
+                <Package className="w-4 h-4 text-brand-600 flex-shrink-0" />
+                <span className="text-ink-900 flex-1">New product</span>
+                <ChevronRight className="w-4 h-4 text-ink-300 group-hover:text-ink-400 group-hover:translate-x-0.5 transition-all" />
+              </Link>
+              <Link
+                href="/providers"
+                className="w-full flex items-center gap-3 px-4 py-3 bg-ink-50 hover:bg-ink-100 border border-ink-200 rounded-lg text-sm font-semibold transition-all group"
+              >
+                <Plug className="w-4 h-4 text-brand-600 flex-shrink-0" />
+                <span className="text-ink-900 flex-1">Connect another provider</span>
+                <ChevronRight className="w-4 h-4 text-ink-300 group-hover:text-ink-400 group-hover:translate-x-0.5 transition-all" />
+              </Link>
+              <Link
+                href="/team"
+                className="w-full flex items-center gap-3 px-4 py-3 bg-ink-50 hover:bg-ink-100 border border-ink-200 rounded-lg text-sm font-semibold transition-all group"
+              >
+                <UserPlus className="w-4 h-4 text-brand-600 flex-shrink-0" />
+                <span className="text-ink-900 flex-1">Invite teammate</span>
+                <ChevronRight className="w-4 h-4 text-ink-300 group-hover:text-ink-400 group-hover:translate-x-0.5 transition-all" />
+              </Link>
+              <Link
+                href="/paywall"
+                className="w-full flex items-center gap-3 px-4 py-3 bg-ink-50 hover:bg-ink-100 border border-ink-200 rounded-lg text-sm font-semibold transition-all group"
+              >
+                <LayoutDashboard className="w-4 h-4 text-brand-600 flex-shrink-0" />
+                <span className="text-ink-900 flex-1">Test paywall</span>
+                <ChevronRight className="w-4 h-4 text-ink-300 group-hover:text-ink-400 group-hover:translate-x-0.5 transition-all" />
               </Link>
             </div>
-            <CardBody className="!p-0">
-              {auditLog.length === 0 ? (
-                <div className="px-5 py-10 text-center">
-                  <Activity className="w-5 h-5 text-ink-300 mx-auto mb-2" />
-                  <p className="text-sm text-ink-500">
-                    No activity yet. Once you configure products and
-                    providers, this is where every change will show up.
-                  </p>
-                </div>
-              ) : (
-                <ul className="divide-y divide-ink-100">
-                  {auditLog.map((row: any) => (
-                    <li
-                      key={row.id}
-                      className="flex items-center gap-3 px-5 py-3"
-                    >
-                      <span
-                        className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
-                          row.actor_type === "user"
-                            ? "bg-info-50 text-info-700 border-info-200"
-                            : row.actor_type === "webhook"
-                            ? "bg-ink-100 text-ink-700 border-ink-200"
-                            : "bg-brand-50 text-brand-700 border-brand-200"
-                        }`}
-                      >
-                        {row.actor_type}
-                      </span>
-                      <span className="text-sm font-medium text-ink-900 flex-1 truncate">
-                        {row.action}
-                      </span>
-                      <span className="text-xs text-ink-400 font-mono tabular-nums flex-shrink-0">
-                        {relativeTime(row.ts)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardBody>
-          </Card>
-        </div>
-
-        <Card>
-          <div className="px-5 py-4 border-b border-ink-100">
-            <h3 className="text-sm font-semibold text-ink-900">Quick actions</h3>
           </div>
-          <CardBody className="space-y-2">
-            <ButtonLink
-              href="/products/new"
-              variant="secondary"
-              leading={<Package className="w-4 h-4" />}
-              className="w-full justify-start"
-            >
-              New product
-            </ButtonLink>
-            <ButtonLink
-              href="/providers"
-              variant="secondary"
-              leading={<Plug className="w-4 h-4" />}
-              className="w-full justify-start"
-            >
-              Connect provider
-            </ButtonLink>
-            <ButtonLink
-              href="/team"
-              variant="secondary"
-              leading={<Users className="w-4 h-4" />}
-              className="w-full justify-start"
-            >
-              Invite teammate
-            </ButtonLink>
-            <ButtonLink
-              href="/settings/api-keys"
-              variant="secondary"
-              leading={<KeyRound className="w-4 h-4" />}
-              className="w-full justify-start"
-            >
-              View API keys
-            </ButtonLink>
-            <ButtonLink
-              href="/billing"
-              variant="secondary"
-              leading={<CreditCard className="w-4 h-4" />}
-              className="w-full justify-start"
-            >
-              Billing & usage
-            </ButtonLink>
-          </CardBody>
-        </Card>
+
+          {/* Mini CTA Card */}
+          <div className="bg-brand-600 rounded-xl p-6 text-white relative overflow-hidden group">
+            <div className="relative z-10">
+              <h4 className="font-bold text-lg leading-tight mb-2">Automate your reporting</h4>
+              <p className="text-brand-100 text-xs mb-4 leading-relaxed">
+                Send weekly performance summaries directly to your Slack channel.
+              </p>
+              <button className="bg-white text-brand-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-brand-50 transition-colors">
+                Configure Slack
+              </button>
+            </div>
+            <div className="absolute -right-4 -bottom-4 opacity-10 group-hover:scale-110 transition-transform duration-500">
+              <TrendingUp className="w-32 h-32" />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )

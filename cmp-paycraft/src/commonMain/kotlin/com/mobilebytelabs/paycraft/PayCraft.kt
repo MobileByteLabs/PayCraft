@@ -2,6 +2,7 @@ package com.mobilebytelabs.paycraft
 
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.PaywallDto
+import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.BillingBenefit
@@ -108,6 +109,16 @@ object PayCraft {
 
     fun checkout(plan: BillingPlan, email: String? = null) {
         val url = requireConfig().provider.getCheckoutUrl(plan, email)
+        PayCraftPlatform.openUrl(url)
+    }
+
+    /**
+     * Checkout via a specific provider picked by the user in [ProviderBottomSheet].
+     * Used by the multi-provider flow; single-provider apps use [checkout] instead.
+     */
+    internal fun checkoutWithProvider(plan: BillingPlan, provider: ProviderDto, email: String? = null) {
+        val adapter = SuiteProviderAdapter(provider)
+        val url = adapter.getCheckoutUrl(plan, email)
         PayCraftPlatform.openUrl(url)
     }
 

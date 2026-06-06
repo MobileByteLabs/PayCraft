@@ -1,0 +1,36 @@
+# Supabase production project configuration
+# Project ref: to be replaced with actual production ref at deploy time
+
+[project]
+id = "paycraft-cloud-prod"
+region = "us-east-1"
+
+[db]
+port = 5432
+shadow_port = 5433
+major_version = 15
+
+[api]
+enabled = true
+port = 54321
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[auth]
+site_url = "https://paycraft.cloud"
+additional_redirect_urls = ["https://paycraft.cloud/auth/callback"]
+jwt_expiry = 3600
+enable_signup = true
+email_confirm_changes = true
+
+[auth.sms]
+enabled = false
+
+[auth.email]
+enable_confirmations = true
+
+[storage]
+enabled = false
+
+[functions]
+verify_jwt = true

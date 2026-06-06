@@ -46,6 +46,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.presentation.Branding
+import com.mobilebytelabs.paycraft.presentation.ProviderBottomSheet
+import com.mobilebytelabs.paycraft.presentation.components.BrandingFooter
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_choose_plan
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_contact_support_email
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_description
@@ -306,6 +309,13 @@ fun PayCraftPaywallContent(
                                 }
                             }
                         }
+
+                        // Branding footer — auto-hides when branding = None (Pro+ tier)
+                        val paywallDto = PayCraft.suiteConfig?.paywall
+                        BrandingFooter(
+                            branding = Branding.parse(paywallDto?.branding ?: "attribution"),
+                            customFooterText = paywallDto?.customFooter,
+                        )
                     }
                 }
 
@@ -404,6 +414,13 @@ fun PayCraftPaywallContent(
                                 )
                             }
                         }
+
+                        // Branding footer — auto-hides when branding = None (Pro+ tier)
+                        val paywallDto = PayCraft.suiteConfig?.paywall
+                        BrandingFooter(
+                            branding = Branding.parse(paywallDto?.branding ?: "attribution"),
+                            customFooterText = paywallDto?.customFooter,
+                        )
                     }
                 }
 
@@ -433,6 +450,19 @@ fun PayCraftPaywallContent(
                 }
             } // end when(billingState)
         } // end Column wrapper
+    }
+
+    // Provider-picker bottom sheet — floats above the Scaffold via Dialog layer
+    val sheetTarget = state.providerSheetTarget
+    if (sheetTarget != null) {
+        ProviderBottomSheet(
+            providers = state.suiteProviders,
+            maxVisible = 4,
+            onProviderPicked = { provider ->
+                onAction(PayCraftPaywallAction.CheckoutWithProvider(sheetTarget, provider))
+            },
+            onDismiss = { onAction(PayCraftPaywallAction.DismissProviderSheet) },
+        )
     }
 }
 

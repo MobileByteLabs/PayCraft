@@ -1,4 +1,3 @@
-import Link from "next/link"
 import {
   ArrowUpRight,
   Calendar,
@@ -11,10 +10,8 @@ import {
 } from "lucide-react"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
-import { PageHeader } from "@/components/ui/page-header"
 import { ButtonLink } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardBody } from "@/components/ui/card"
 import { clsx } from "clsx"
 
 interface TierDef {
@@ -86,36 +83,43 @@ export default async function BillingPage() {
   const overWarn = subUsageRatio >= 0.8
   const overLimit = subUsageRatio >= 1.0
 
+  const planBadgeTone =
+    tenant.plan === "enterprise"
+      ? "brand"
+      : tenant.plan === "pro"
+      ? "success"
+      : "neutral"
+
   return (
     <div>
-      <PageHeader
-        title="Billing"
-        subtitle="Your tier, usage meters, and entitlements. Limits are tunable post-launch via the tier_definitions config table — no code redeploy needed."
-        badge={
-          <Badge
-            tone={
-              tenant.plan === "enterprise"
-                ? "brand"
-                : tenant.plan === "pro"
-                ? "success"
-                : "neutral"
-            }
-            dot={tenant.plan === "free" && overWarn}
+      <div className="flex justify-between items-start mb-10">
+        <div className="max-w-2xl">
+          <div className="flex items-center gap-3 mb-2">
+            <h2 className="text-3xl font-semibold tracking-tight text-ink-900">
+              Billing
+            </h2>
+            <Badge tone={planBadgeTone} dot={tenant.plan === "free" && overWarn}>
+              {tier?.display_name ?? tenant.plan}
+            </Badge>
+          </div>
+          <p className="text-ink-500 text-base leading-relaxed">
+            Your tier, usage meters, and upgrade options. Limits are tunable
+            post-launch via the{" "}
+            <code className="bg-ink-100 px-1 rounded text-ink-800">
+              tier_definitions
+            </code>{" "}
+            config table — no code redeploy needed.
+          </p>
+        </div>
+        {tenant.plan !== "enterprise" && (
+          <ButtonLink
+            href="/billing/upgrade"
+            leading={<ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />}
           >
-            {tier?.display_name ?? tenant.plan}
-          </Badge>
-        }
-        actions={
-          tenant.plan !== "enterprise" && (
-            <ButtonLink
-              href="/billing/upgrade"
-              leading={<ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />}
-            >
-              Upgrade
-            </ButtonLink>
-          )
-        }
-      />
+            Upgrade
+          </ButtonLink>
+        )}
+      </div>
 
       {/* Grace warning */}
       {overWarn && tenant.plan === "free" && (
@@ -141,7 +145,8 @@ export default async function BillingPage() {
         </div>
       )}
 
-      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-10 animate-slide-up">
+      {/* Usage Stats Grid */}
+      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <UsageMeter
           label="Active subscribers"
           icon={<Users className="w-4 h-4" />}
@@ -155,83 +160,100 @@ export default async function BillingPage() {
           limit={tier?.max_webhook_events_per_month ?? null}
         />
         <UsageMeter
-          label="Connected providers"
-          icon={<Webhook className="w-4 h-4" />}
-          current={providerCount}
-          limit={tier?.max_connected_providers ?? null}
-        />
-        <UsageMeter
           label="Active products"
           icon={<Package className="w-4 h-4" />}
           current={productCount}
           limit={tier?.max_products ?? null}
         />
+        <div className="bg-white border border-ink-200 rounded-xl p-5 shadow-[0_2px_4px_rgba(0,0,0,0.02)]">
+          <div className="flex justify-between items-start mb-4">
+            <span className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">
+              Analytics retention
+            </span>
+            <div className="w-7 h-7 rounded-md bg-ink-100 text-ink-500 flex items-center justify-center flex-shrink-0">
+              <Calendar className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-2xl font-bold tabular-nums text-ink-900">
+              {tier?.analytics_retention_days ?? 7} days
+            </span>
+            <span className="text-brand-600 text-[10px] font-bold uppercase tracking-wider mt-1">
+              {tier?.display_name ?? tenant.plan} tier
+            </span>
+          </div>
+        </div>
       </section>
 
-      <Card>
-        <div className="px-5 py-4 border-b border-ink-100 flex items-center gap-2">
-          <Crown className="w-4 h-4 text-brand-600" />
-          <h2 className="text-sm font-semibold text-ink-900">
-            Tier entitlements
-          </h2>
-          <span className="text-xs text-ink-500 ml-auto">
-            What's included in {tier?.display_name}
+      {/* Tier Entitlements Card */}
+      <div className="bg-white border border-ink-200 rounded-xl overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.03)]">
+        <div className="px-6 py-5 border-b border-ink-100 flex justify-between items-center bg-ink-50/30">
+          <div className="flex items-center gap-3">
+            <Crown className="w-4 h-4 text-amber-500" />
+            <h3 className="font-semibold text-ink-900">Tier entitlements</h3>
+          </div>
+          <span className="text-sm text-ink-500 font-medium">
+            What&apos;s included in {tier?.display_name ?? tenant.plan}
           </span>
         </div>
-        <CardBody className="!py-2">
+        <div className="divide-y divide-ink-100">
           {Object.entries(ENTITLEMENT_LABELS).map(([gate, label]) => {
             const enabled = (tier?.entitlements ?? []).includes(gate)
             return (
               <div
                 key={gate}
-                className="flex items-center gap-3 py-2"
+                className={clsx(
+                  "px-6 py-4 flex justify-between items-center transition-colors",
+                  enabled
+                    ? "hover:bg-ink-50/50"
+                    : "opacity-50 bg-ink-50/20",
+                )}
               >
-                <div
+                <span
                   className={clsx(
-                    "w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0",
-                    enabled
-                      ? "bg-success-100 text-success-700"
-                      : "bg-ink-100 text-ink-300",
-                  )}
-                >
-                  {enabled ? (
-                    <Check className="w-3 h-3" strokeWidth={3} />
-                  ) : (
-                    <span className="w-1.5 h-px bg-current" />
-                  )}
-                </div>
-                <div
-                  className={clsx(
-                    "text-sm flex-1",
-                    enabled ? "text-ink-900" : "text-ink-500",
+                    "text-sm font-medium",
+                    enabled ? "text-ink-700" : "text-ink-500",
                   )}
                 >
                   {label}
+                </span>
+                <div
+                  className={clsx(
+                    "flex items-center gap-2",
+                    enabled ? "text-success-600" : "text-ink-400",
+                  )}
+                >
+                  <span className="text-[11px] font-bold uppercase tracking-wider">
+                    {enabled ? "Enabled" : "Disabled"}
+                  </span>
+                  {enabled ? (
+                    <div className="w-5 h-5 rounded-full bg-success-100 text-success-700 flex items-center justify-center">
+                      <Check className="w-3 h-3" strokeWidth={3} />
+                    </div>
+                  ) : (
+                    <span className="w-5 h-px bg-ink-300 inline-block" />
+                  )}
                 </div>
               </div>
             )
           })}
-        </CardBody>
-      </Card>
-
-      {tier && (
-        <p className="mt-6 text-xs text-ink-500 text-center max-w-2xl mx-auto">
-          {tier.base_price_cents === 0 ? (
-            "Free forever — no card required."
-          ) : (
-            <>
-              Pro is{" "}
-              <span className="font-medium text-ink-700 tabular-nums">
-                ${(tier.base_price_cents / 100).toFixed(0)}/mo
-              </span>{" "}
-              base + ${(tier.metered_per_subscriber_cents / 100).toFixed(2)} per
-              subscriber over{" "}
-              {tier.max_active_subscribers?.toLocaleString()} (metered via
-              Stripe).
-            </>
-          )}
-        </p>
-      )}
+        </div>
+        <div className="px-6 py-4 bg-ink-50 border-t border-ink-100">
+          <p className="text-[11px] text-ink-500">
+            {tier?.base_price_cents === 0 ? (
+              "Free forever — no card required."
+            ) : (
+              <>
+                Pro is ${(tier!.base_price_cents / 100).toFixed(0)}/mo base + $
+                {(tier!.metered_per_subscriber_cents / 100).toFixed(2)} per
+                subscriber over{" "}
+                {tier?.max_active_subscribers?.toLocaleString()} (metered via
+                Stripe).
+              </>
+            )}
+          </p>
+        </div>
+      </div>
     </div>
   )
 }
@@ -252,20 +274,20 @@ function UsageMeter({
   const overWarn = limit !== null && current >= limit * 0.8
 
   return (
-    <Card className="p-5">
-      <div className="flex items-start justify-between gap-2">
-        <div className="text-2xs font-semibold text-ink-500 uppercase tracking-wider">
+    <div className="bg-white border border-ink-200 rounded-xl p-5 shadow-[0_2px_4px_rgba(0,0,0,0.02)]">
+      <div className="flex justify-between items-start mb-4">
+        <span className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">
           {label}
-        </div>
+        </span>
         <div className="w-7 h-7 rounded-md bg-ink-100 text-ink-500 flex items-center justify-center flex-shrink-0">
           {icon}
         </div>
       </div>
-      <div className="flex items-baseline gap-1.5 mt-3">
-        <span className="text-2xl font-bold text-ink-900 tabular-nums tracking-tight">
+      <div className="flex items-baseline gap-1.5 mb-3">
+        <span className="text-2xl font-bold tabular-nums text-ink-900">
           {current.toLocaleString()}
         </span>
-        <span className="text-xs text-ink-500 tabular-nums">
+        <span className="text-ink-400 text-sm tabular-nums">
           /{" "}
           {limit === null ? (
             <InfinityIcon className="w-3 h-3 inline-block" />
@@ -275,7 +297,7 @@ function UsageMeter({
         </span>
       </div>
       {limit !== null && (
-        <div className="mt-3 h-1 w-full bg-ink-100 rounded-full overflow-hidden">
+        <div className="w-full bg-ink-100 h-1.5 rounded-full overflow-hidden">
           <div
             className={clsx(
               "h-full rounded-full transition-all duration-500",
@@ -289,6 +311,6 @@ function UsageMeter({
           />
         </div>
       )}
-    </Card>
+    </div>
   )
 }

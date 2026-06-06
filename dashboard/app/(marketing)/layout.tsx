@@ -58,7 +58,7 @@ function Header() {
           >
             Sign in
           </Link>
-          <ButtonLink href="/auth/signup" size="sm">
+          <ButtonLink href="/auth/login" size="sm">
             Start free
           </ButtonLink>
         </nav>

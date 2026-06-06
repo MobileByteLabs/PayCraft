@@ -1,8 +1,7 @@
 import Link from "next/link"
-import { Check, X } from "lucide-react"
+import { Check, CheckCircle2 } from "lucide-react"
 import { createClient } from "@/lib/supabase-server"
 import { ButtonLink } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 
 interface Tier {
   tier_name: "free" | "pro" | "enterprise"
@@ -19,31 +18,6 @@ interface Tier {
   base_currency: string
   metered_per_subscriber_cents: number
 }
-
-const FEATURE_ROWS = [
-  { label: "Active subscribers", key: "max_active_subscribers" as const },
-  {
-    label: "Webhook events / month",
-    key: "max_webhook_events_per_month" as const,
-  },
-  { label: "Connected providers", key: "max_connected_providers" as const },
-  { label: "Products", key: "max_products" as const },
-  { label: "Dashboard team members", key: "max_dashboard_users" as const },
-  {
-    label: "Analytics retention",
-    key: "analytics_retention_days" as const,
-    formatter: (v: number) => `${v} days`,
-  },
-]
-
-const ENTITLEMENT_ROWS = [
-  { label: "Multi-provider bottom sheet", gate: "multi_provider" },
-  { label: "Remove PayCraft attribution", gate: "remove_attribution" },
-  { label: "90-day analytics retention", gate: "analytics_90day" },
-  { label: "Unlimited team members", gate: "team_size_unlimited" },
-  { label: "Custom paywall branding", gate: "custom_branding" },
-  { label: "Self-host Enterprise license", gate: "self_host_license" },
-]
 
 export default async function PricingPage() {
   const supabase = createClient()
@@ -63,312 +37,264 @@ export default async function PricingPage() {
   const enterprise = tiersByName["enterprise"]
 
   return (
-    <>
-      <section className="relative pt-24 pb-12">
-        <div className="absolute inset-0 -z-10 bg-gradient-to-b from-brand-50/30 via-white to-white" />
-        <div className="max-w-3xl mx-auto px-6 text-center animate-fade-in">
-          <p className="text-2xs uppercase font-semibold tracking-widest text-brand-600 mb-2">
-            Pricing
-          </p>
-          <h1 className="text-5xl font-bold tracking-tight text-ink-900 text-balance">
-            Start free. Pay as you grow.
-          </h1>
-          <p className="text-lg text-ink-500 mt-6 text-pretty leading-relaxed">
-            Free forever for small apps. Pro for growing teams. Enterprise when
-            you need self-host or a signed DPA.
-          </p>
+    <main className="pt-24 pb-24 px-6">
+      {/* Hero */}
+      <section className="max-w-4xl mx-auto text-center mb-20">
+        <h1 className="text-5xl md:text-6xl font-extrabold text-ink-950 tracking-tighter mb-6">
+          Pricing
+        </h1>
+        <p className="text-xl text-ink-500">Start free. Pay as you grow.</p>
+      </section>
+
+      {/* Pricing Cards */}
+      <section className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8 mb-24 items-center">
+        {/* Free */}
+        <div className="bg-white border border-ink-200 rounded-xl p-8 flex flex-col transition-all hover:shadow-md hover:-translate-y-1">
+          <div className="mb-8">
+            <h3 className="text-lg font-bold text-ink-950 mb-2">Free</h3>
+            <div className="flex items-baseline gap-1">
+              <span className="text-4xl font-extrabold text-ink-950">
+                {free ? "$0" : "$0"}
+              </span>
+            </div>
+            <p className="text-sm text-ink-500 mt-2">Forever, no card required</p>
+          </div>
+
+          <ul className="space-y-4 mb-10 flex-grow">
+            <FeatureItem>
+              {free?.max_active_subscribers ?? 100} active subscribers
+            </FeatureItem>
+            <FeatureItem>
+              {(free?.max_webhook_events_per_month ?? 10000).toLocaleString()} webhook events/month
+            </FeatureItem>
+            <FeatureItem>1 connected provider</FeatureItem>
+            <FeatureItem>1 product</FeatureItem>
+            <FeatureItem>
+              {free?.max_dashboard_users ?? 3} dashboard users
+            </FeatureItem>
+            <FeatureItem>
+              {free?.analytics_retention_days ?? 7}-day analytics retention
+            </FeatureItem>
+            <InfoItem>Attribution footer required</InfoItem>
+          </ul>
+
+          <ButtonLink
+            href="/auth/login"
+            variant="secondary"
+            size="lg"
+            className="w-full justify-center border-2 border-brand-600 !text-brand-600 hover:!bg-brand-600 hover:!text-white transition-all"
+          >
+            Start free
+          </ButtonLink>
+        </div>
+
+        {/* Pro — featured */}
+        <div className="relative bg-white border-2 border-brand-600 rounded-xl p-8 flex flex-col shadow-xl shadow-brand-500/10 scale-105 z-10">
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-600 text-white text-[10px] font-bold tracking-widest px-3 py-1 rounded-full">
+            MOST POPULAR
+          </div>
+
+          <div className="mb-8">
+            <h3 className="text-lg font-bold text-ink-950 mb-2">Pro</h3>
+            <div className="flex items-baseline gap-1">
+              <span className="text-4xl font-extrabold text-ink-950">
+                ${pro ? Math.round(pro.base_price_cents / 100) : 29}
+              </span>
+              <span className="text-sm text-ink-500">/month</span>
+            </div>
+            <p className="text-[12px] text-ink-500 mt-2 leading-tight">
+              + ${pro ? (pro.metered_per_subscriber_cents / 100).toFixed(2) : "0.10"} per subscriber over{" "}
+              {(pro?.max_active_subscribers ?? 1000).toLocaleString()}
+            </p>
+          </div>
+
+          <ul className="space-y-4 mb-10 flex-grow">
+            <ProFeatureItem>
+              {(pro?.max_active_subscribers ?? 1000).toLocaleString()} subscribers included
+            </ProFeatureItem>
+            <ProFeatureItem>Unlimited webhook events</ProFeatureItem>
+            <ProFeatureItem>Unlimited providers</ProFeatureItem>
+            <ProFeatureItem>Unlimited products</ProFeatureItem>
+            <ProFeatureItem>Unlimited dashboard users</ProFeatureItem>
+            <ProFeatureItem>
+              {pro?.analytics_retention_days ?? 90}-day analytics retention
+            </ProFeatureItem>
+            <ProFeatureItem>Remove attribution footer</ProFeatureItem>
+          </ul>
+
+          <ButtonLink
+            href="/auth/login"
+            size="lg"
+            className="w-full justify-center shadow-lg shadow-brand-500/25"
+          >
+            Start Pro trial
+          </ButtonLink>
+        </div>
+
+        {/* Enterprise */}
+        <div className="bg-white border border-ink-200 rounded-xl p-8 flex flex-col transition-all hover:shadow-md hover:-translate-y-1">
+          <div className="mb-8">
+            <h3 className="text-lg font-bold text-ink-950 mb-2">Enterprise</h3>
+            <div className="flex items-baseline gap-1">
+              <span className="text-4xl font-extrabold text-ink-950">Custom</span>
+            </div>
+            <p className="text-sm text-ink-500 mt-2">Self-host license included</p>
+          </div>
+
+          <ul className="space-y-4 mb-10 flex-grow">
+            <FeatureItem>Everything in Pro (unlimited)</FeatureItem>
+            <FeatureItem>Self-host (BSL license)</FeatureItem>
+            <FeatureItem>Custom paywall branding</FeatureItem>
+            <FeatureItem>
+              {enterprise?.analytics_retention_days ?? 365}-day analytics retention
+            </FeatureItem>
+            <FeatureItem>Priority support + SLA</FeatureItem>
+            <FeatureItem>SOC 2 / GDPR compliance package</FeatureItem>
+          </ul>
+
+          <ButtonLink
+            href="mailto:sales@paycraft.cloud"
+            variant="secondary"
+            size="lg"
+            className="w-full justify-center border-2 border-ink-900 !text-ink-900 hover:!bg-ink-900 hover:!text-white transition-all"
+          >
+            Contact sales
+          </ButtonLink>
         </div>
       </section>
 
-      {/* Tier cards */}
-      <section className="pb-16">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 items-stretch animate-slide-up">
-            {free && <FreeCard tier={free} />}
-            {pro && <ProCard tier={pro} />}
-            {enterprise && <EnterpriseCard tier={enterprise} />}
-          </div>
-        </div>
+      {/* Comparison Table */}
+      <section className="max-w-7xl mx-auto overflow-x-auto pb-8">
+        <h2 className="text-2xl font-bold text-ink-950 mb-8 text-center">
+          Feature comparison
+        </h2>
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="text-left border-b border-ink-100">
+              <th className="py-6 font-semibold text-ink-500 text-[11px] uppercase tracking-wider w-2/5">
+                Feature
+              </th>
+              <th className="py-6 font-semibold text-ink-500 text-[11px] uppercase tracking-wider text-center">
+                Free
+              </th>
+              <th className="py-6 font-semibold text-ink-500 text-[11px] uppercase tracking-wider text-center">
+                Pro
+              </th>
+              <th className="py-6 font-semibold text-ink-500 text-[11px] uppercase tracking-wider text-center">
+                Enterprise
+              </th>
+            </tr>
+          </thead>
+          <tbody className="text-[13px]">
+            {[
+              {
+                label: "Included Subscribers",
+                free: (free?.max_active_subscribers ?? 100).toLocaleString(),
+                pro: (pro?.max_active_subscribers ?? 1000).toLocaleString(),
+                enterprise: "Custom",
+              },
+              {
+                label: "Monthly Webhook Events",
+                free: (free?.max_webhook_events_per_month ?? 10000).toLocaleString(),
+                pro: "Unlimited",
+                enterprise: "Unlimited",
+              },
+              {
+                label: "Connected Providers",
+                free: String(free?.max_connected_providers ?? 1),
+                pro: "Unlimited",
+                enterprise: "Unlimited",
+              },
+              {
+                label: "Dashboard Users",
+                free: String(free?.max_dashboard_users ?? 3),
+                pro: "Unlimited",
+                enterprise: "Unlimited",
+              },
+              {
+                label: "Analytics Retention",
+                free: `${free?.analytics_retention_days ?? 7} days`,
+                pro: `${pro?.analytics_retention_days ?? 90} days`,
+                enterprise: `${enterprise?.analytics_retention_days ?? 365} days`,
+              },
+            ].map((row) => (
+              <tr
+                key={row.label}
+                className="border-b border-ink-100 hover:bg-ink-50 transition-colors"
+              >
+                <td className="py-5 font-medium text-ink-950">{row.label}</td>
+                <td className="py-5 text-center text-ink-600">{row.free}</td>
+                <td className="py-5 text-center text-ink-600">{row.pro}</td>
+                <td className="py-5 text-center text-ink-600">{row.enterprise}</td>
+              </tr>
+            ))}
+
+            {/* Boolean feature rows */}
+            {[
+              { label: "Self-host Option", free: false, pro: false, enterprise: true },
+              { label: "Whitelabel Paywall", free: false, pro: true, enterprise: true },
+              { label: "Priority Support & SLA", free: false, pro: false, enterprise: true },
+            ].map((row) => (
+              <tr
+                key={row.label}
+                className="border-b border-ink-100 hover:bg-ink-50 transition-colors"
+              >
+                <td className="py-5 font-medium text-ink-950">{row.label}</td>
+                <td className="py-5 text-center">
+                  {row.free ? <Check className="inline-block w-4 h-4 text-green-500" strokeWidth={2.5} /> : <span className="text-ink-300">—</span>}
+                </td>
+                <td className="py-5 text-center">
+                  {row.pro ? <Check className="inline-block w-4 h-4 text-green-500" strokeWidth={2.5} /> : <span className="text-ink-300">—</span>}
+                </td>
+                <td className="py-5 text-center">
+                  {row.enterprise ? <Check className="inline-block w-4 h-4 text-green-500" strokeWidth={2.5} /> : <span className="text-ink-300">—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
 
-      {/* Comparison table */}
-      <section className="pb-24">
-        <div className="max-w-5xl mx-auto px-6">
-          <div className="rounded-2xl border border-ink-200 overflow-hidden bg-white">
-            <table className="w-full text-sm">
-              <thead className="bg-ink-50 border-b border-ink-200">
-                <tr>
-                  <th className="px-6 py-4 text-left text-2xs font-bold text-ink-500 uppercase tracking-widest">
-                    Compare
-                  </th>
-                  <th className="px-6 py-4 text-center text-2xs font-bold text-ink-500 uppercase tracking-widest">
-                    Free
-                  </th>
-                  <th className="px-6 py-4 text-center text-2xs font-bold text-brand-700 uppercase tracking-widest bg-brand-50/70">
-                    Pro
-                  </th>
-                  <th className="px-6 py-4 text-center text-2xs font-bold text-ink-500 uppercase tracking-widest">
-                    Enterprise
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-ink-100">
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="px-6 py-2 text-2xs font-bold uppercase tracking-widest text-ink-400 bg-ink-50/30"
-                  >
-                    Usage limits
-                  </td>
-                </tr>
-                {FEATURE_ROWS.map((row) => (
-                  <tr key={row.label}>
-                    <td className="px-6 py-3 text-ink-700">{row.label}</td>
-                    <td className="px-6 py-3 text-center text-ink-700 tabular-nums">
-                      {formatLimit(free?.[row.key], row.formatter)}
-                    </td>
-                    <td className="px-6 py-3 text-center text-ink-700 tabular-nums bg-brand-50/30">
-                      {formatLimit(pro?.[row.key], row.formatter)}
-                    </td>
-                    <td className="px-6 py-3 text-center text-ink-700 tabular-nums">
-                      {formatLimit(enterprise?.[row.key], row.formatter)}
-                    </td>
-                  </tr>
-                ))}
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="px-6 py-2 text-2xs font-bold uppercase tracking-widest text-ink-400 bg-ink-50/30"
-                  >
-                    Features
-                  </td>
-                </tr>
-                {ENTITLEMENT_ROWS.map((row) => (
-                  <tr key={row.gate}>
-                    <td className="px-6 py-3 text-ink-700">{row.label}</td>
-                    <Check3 ent={free?.entitlements} gate={row.gate} />
-                    <Check3
-                      ent={pro?.entitlements}
-                      gate={row.gate}
-                      highlight
-                    />
-                    <Check3 ent={enterprise?.entitlements} gate={row.gate} />
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="text-center mt-12 text-xs text-ink-500">
-            Questions about pricing?{" "}
-            <Link
-              href="mailto:sales@paycraft.cloud"
-              className="text-brand-600 hover:text-brand-700 font-medium"
-            >
-              sales@paycraft.cloud
-            </Link>
-          </div>
-        </div>
-      </section>
-    </>
+      <div className="text-center mt-12 text-xs text-ink-500">
+        Questions about pricing?{" "}
+        <Link
+          href="mailto:sales@paycraft.cloud"
+          className="text-brand-600 hover:text-brand-700 font-medium"
+        >
+          sales@paycraft.cloud
+        </Link>
+      </div>
+    </main>
   )
 }
 
-function FreeCard({ tier }: { tier: Tier }) {
+function FeatureItem({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-ink-200 bg-white p-6 flex flex-col">
-      <div className="text-sm font-semibold text-ink-700">
-        {tier.display_name}
-      </div>
-      <div className="mt-3 flex items-baseline">
-        <span className="text-4xl font-bold tracking-tight tabular-nums">
-          $0
-        </span>
-        <span className="ml-2 text-sm text-ink-500">forever</span>
-      </div>
-      <p className="text-xs text-ink-500 mt-2">
-        For experiments and side projects. No card required.
-      </p>
-      <ul className="mt-6 space-y-2.5 text-sm flex-1">
-        <Feature>
-          <span className="tabular-nums">
-            {tier.max_active_subscribers}
-          </span>{" "}
-          active subscribers
-        </Feature>
-        <Feature>
-          <span className="tabular-nums">
-            {tier.max_webhook_events_per_month?.toLocaleString()}
-          </span>{" "}
-          webhook events / mo
-        </Feature>
-        <Feature>1 connected provider</Feature>
-        <Feature>1 product</Feature>
-        <Feature>
-          <span className="tabular-nums">
-            {tier.analytics_retention_days}
-          </span>
-          -day analytics retention
-        </Feature>
-        <Disabled>Remove PayCraft attribution footer</Disabled>
-      </ul>
-      <ButtonLink
-        href="/auth/signup"
-        variant="secondary"
-        size="lg"
-        className="mt-8 w-full justify-center"
-      >
-        Start free
-      </ButtonLink>
-    </div>
-  )
-}
-
-function ProCard({ tier }: { tier: Tier }) {
-  return (
-    <div className="relative rounded-2xl bg-white p-6 flex flex-col ring-2 ring-brand-500 shadow-xl shadow-brand-500/15 md:scale-[1.03] md:-my-1">
-      <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-        <Badge tone="brand" className="!shadow-md">
-          Most popular
-        </Badge>
-      </div>
-      <div className="text-sm font-semibold text-brand-700">
-        {tier.display_name}
-      </div>
-      <div className="mt-3 flex items-baseline">
-        <span className="text-4xl font-bold tracking-tight tabular-nums">
-          ${(tier.base_price_cents / 100).toFixed(0)}
-        </span>
-        <span className="ml-2 text-sm text-ink-500">/ month</span>
-      </div>
-      <p className="text-xs text-ink-500 mt-2">
-        + $
-        {(tier.metered_per_subscriber_cents / 100).toFixed(2)} per subscriber
-        over {tier.max_active_subscribers?.toLocaleString()}.
-      </p>
-      <ul className="mt-6 space-y-2.5 text-sm flex-1">
-        <Feature>
-          <span className="tabular-nums">
-            {tier.max_active_subscribers?.toLocaleString()}
-          </span>{" "}
-          subscribers (then metered)
-        </Feature>
-        <Feature>Unlimited webhook events</Feature>
-        <Feature>Unlimited providers + products</Feature>
-        <Feature>Unlimited team members</Feature>
-        <Feature>
-          <span className="tabular-nums">
-            {tier.analytics_retention_days}
-          </span>
-          -day analytics retention
-        </Feature>
-        <Feature>Remove PayCraft attribution</Feature>
-      </ul>
-      <ButtonLink
-        href="/auth/signup?plan=pro"
-        size="lg"
-        className="mt-8 w-full justify-center"
-      >
-        Start Pro trial
-      </ButtonLink>
-    </div>
-  )
-}
-
-function EnterpriseCard({ tier }: { tier: Tier }) {
-  return (
-    <div className="rounded-2xl border border-ink-200 bg-white p-6 flex flex-col">
-      <div className="text-sm font-semibold text-ink-700">
-        {tier.display_name}
-      </div>
-      <div className="mt-3 flex items-baseline">
-        <span className="text-4xl font-bold tracking-tight">Custom</span>
-      </div>
-      <p className="text-xs text-ink-500 mt-2">
-        Self-host license, custom branding, signed DPA.
-      </p>
-      <ul className="mt-6 space-y-2.5 text-sm flex-1">
-        <Feature>Everything in Pro, no limits</Feature>
-        <Feature>Self-host (BSL license)</Feature>
-        <Feature>Custom paywall branding</Feature>
-        <Feature>
-          <span className="tabular-nums">
-            {tier.analytics_retention_days}
-          </span>
-          -day analytics retention
-        </Feature>
-        <Feature>Priority support + SLA</Feature>
-        <Feature>SOC 2 / GDPR / DPA package</Feature>
-      </ul>
-      <ButtonLink
-        href="mailto:sales@paycraft.cloud"
-        variant="secondary"
-        size="lg"
-        className="mt-8 w-full justify-center"
-      >
-        Contact sales
-      </ButtonLink>
-    </div>
-  )
-}
-
-function Feature({ children }: { children: React.ReactNode }) {
-  return (
-    <li className="flex items-start gap-2 text-ink-700">
-      <span className="w-4 h-4 rounded-full bg-success-100 text-success-700 flex items-center justify-center flex-shrink-0 mt-0.5">
-        <Check className="w-2.5 h-2.5" strokeWidth={3} />
-      </span>
+    <li className="flex items-start gap-3 text-sm text-ink-700">
+      <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
       <span>{children}</span>
     </li>
   )
 }
 
-function Disabled({ children }: { children: React.ReactNode }) {
+function ProFeatureItem({ children }: { children: React.ReactNode }) {
   return (
-    <li className="flex items-start gap-2 text-ink-400">
-      <span className="w-4 h-4 rounded-full bg-ink-100 text-ink-400 flex items-center justify-center flex-shrink-0 mt-0.5">
-        <X className="w-2.5 h-2.5" strokeWidth={3} />
-      </span>
+    <li className="flex items-start gap-3 text-sm text-ink-700">
+      <CheckCircle2 className="w-5 h-5 text-brand-600 shrink-0 mt-0.5" />
       <span>{children}</span>
     </li>
   )
 }
 
-function Check3({
-  ent,
-  gate,
-  highlight,
-}: {
-  ent: string[] | undefined
-  gate: string
-  highlight?: boolean
-}) {
-  const has = ent?.includes(gate) ?? false
+function InfoItem({ children }: { children: React.ReactNode }) {
   return (
-    <td
-      className={`px-6 py-3 text-center ${
-        highlight ? "bg-brand-50/30" : ""
-      }`}
-    >
-      {has ? (
-        <Check
-          className="inline-block w-4 h-4 text-success-600"
-          strokeWidth={3}
-        />
-      ) : (
-        <span className="text-ink-300">—</span>
-      )}
-    </td>
+    <li className="flex items-start gap-3 text-sm text-ink-400">
+      <span className="w-5 h-5 shrink-0 flex items-center justify-center mt-0.5 text-ink-400">
+        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+        </svg>
+      </span>
+      <span>{children}</span>
+    </li>
   )
-}
-
-function formatLimit(
-  value: number | null | undefined,
-  formatter?: (v: number) => string,
-): React.ReactNode {
-  if (value === null || value === undefined) {
-    return <span className="text-ink-400">∞</span>
-  }
-  if (formatter) return formatter(value)
-  return value.toLocaleString()
 }

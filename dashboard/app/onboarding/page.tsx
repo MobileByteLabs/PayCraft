@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
@@ -8,12 +8,12 @@ import {
   ArrowRight,
   Check,
   Copy,
-  CreditCard,
   KeyRound,
   Package,
+  Rocket,
   Sparkles,
 } from "lucide-react"
-import { Button, ButtonLink } from "@/components/ui/button"
+import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 
 type Step = 1 | 2 | 3 | 4
@@ -21,7 +21,7 @@ type Step = 1 | 2 | 3 | 4
 const STEPS = [
   { num: 1, label: "App name" },
   { num: 2, label: "Connect provider" },
-  { num: 3, label: "First product" },
+  { num: 3, label: "Create product" },
   { num: 4, label: "Get API key" },
 ]
 
@@ -58,83 +58,174 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-brand-50/40 via-white to-white">
-      {/* Top bar */}
-      <header className="border-b border-ink-100 bg-white/70 backdrop-blur-md sticky top-0 z-30">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-sm shadow-brand-500/30">
-              <Sparkles className="w-4 h-4 text-white" strokeWidth={2.5} />
-            </div>
-            <div>
-              <div className="text-sm font-bold tracking-tight text-ink-900 leading-none">
-                PayCraft
-              </div>
-              <div className="text-[10px] text-ink-400 font-medium mt-0.5">
-                by MobileByteSensei
-              </div>
-            </div>
-          </Link>
-          <Badge tone="neutral">Step {step} of 4</Badge>
+    <div className="min-h-screen bg-ink-50 flex flex-col items-center justify-center p-4">
+      {/* Brand logo */}
+      <div className="mb-8 flex flex-col items-center">
+        <div className="w-10 h-10 rounded-md bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-sm shadow-brand-500/30 mb-2">
+          <Sparkles className="w-5 h-5 text-white" strokeWidth={2.5} />
         </div>
-        {/* Progress bar */}
-        <div className="max-w-3xl mx-auto px-6 pb-4">
-          <div className="flex items-center gap-1">
-            {STEPS.map((s) => (
-              <div
-                key={s.num}
-                className={`h-1 flex-1 rounded-full transition-colors ${
-                  s.num <= step ? "bg-brand-600" : "bg-ink-200"
-                }`}
-              />
-            ))}
-          </div>
-          <div className="grid grid-cols-4 gap-1 mt-2 text-2xs">
-            {STEPS.map((s) => (
-              <span
-                key={s.num}
-                className={`tracking-wide ${
-                  s.num === step
-                    ? "font-bold text-brand-700"
-                    : s.num < step
-                    ? "font-medium text-success-600"
-                    : "text-ink-400"
-                }`}
-              >
-                {s.num < step ? "✓ " : ""}
-                {s.label}
-              </span>
-            ))}
-          </div>
-        </div>
-      </header>
+        <span className="text-ink-900 font-bold tracking-tight text-xl">PayCraft Cloud</span>
+      </div>
 
-      <main className="max-w-3xl mx-auto px-6 py-16 animate-slide-up">
-        {step === 1 && (
-          <Step1
-            appName={appName}
-            setAppName={setAppName}
-            onContinue={provision}
-            creating={creating}
-            error={error}
-          />
-        )}
-        {step === 2 && tenant && (
-          <Step2 tenant={tenant} onContinue={() => setStep(3)} onBack={() => setStep(1)} />
-        )}
-        {step === 3 && tenant && (
-          <Step3 tenant={tenant} onContinue={() => setStep(4)} onBack={() => setStep(2)} />
-        )}
-        {step === 4 && tenant && (
-          <Step4
-            tenant={tenant}
-            copied={copied}
-            setCopied={setCopied}
-            onFinish={() => router.push("/dashboard")}
-            onBack={() => setStep(3)}
-          />
-        )}
+      {/* Onboarding card */}
+      <main className="w-full max-w-[640px] bg-white rounded-xl border border-ink-200 shadow-sm overflow-hidden">
+        {/* Step progress header */}
+        <div className="px-8 py-6 border-b border-ink-100 bg-ink-50/50">
+          <nav className="flex items-center justify-between">
+            {STEPS.map((s, i) => {
+              const isActive = s.num === step
+              const isDone = s.num < step
+              return (
+                <div key={s.num} className="flex items-center flex-1">
+                  <div
+                    className={`flex flex-col gap-1 items-start ${
+                      isActive ? "" : "opacity-50"
+                    }`}
+                  >
+                    <span
+                      className={`text-[10px] uppercase tracking-wider font-bold ${
+                        isActive || isDone ? "text-brand-600" : "text-ink-400"
+                      }`}
+                    >
+                      Step {s.num}
+                    </span>
+                    <span
+                      className={`text-xs font-semibold ${
+                        isActive ? "text-brand-600" : isDone ? "text-ink-500" : "text-ink-500"
+                      }`}
+                    >
+                      {s.label}
+                    </span>
+                    <div
+                      className={`h-1 rounded-full mt-1 transition-all ${
+                        isActive ? "w-24 bg-brand-600" : isDone ? "w-24 bg-brand-400" : "w-12 bg-ink-200"
+                      }`}
+                    />
+                  </div>
+                  {i < STEPS.length - 1 && (
+                    <div className="flex-1 h-[1px] bg-ink-200 mx-4 mt-6" />
+                  )}
+                </div>
+              )
+            })}
+          </nav>
+        </div>
+
+        {/* Step content */}
+        <div className="p-8 md:p-12">
+          {step === 1 && (
+            <Step1
+              appName={appName}
+              setAppName={setAppName}
+              onContinue={provision}
+              creating={creating}
+              error={error}
+            />
+          )}
+          {step === 2 && tenant && (
+            <Step2
+              tenant={tenant}
+              onContinue={() => setStep(3)}
+              onBack={() => setStep(1)}
+            />
+          )}
+          {step === 3 && tenant && (
+            <Step3
+              tenant={tenant}
+              onContinue={() => setStep(4)}
+              onBack={() => setStep(2)}
+            />
+          )}
+          {step === 4 && tenant && (
+            <Step4
+              tenant={tenant}
+              copied={copied}
+              setCopied={setCopied}
+              onFinish={() => router.push("/dashboard")}
+              onBack={() => setStep(3)}
+            />
+          )}
+        </div>
+
+        {/* Footer actions */}
+        <div className="px-8 py-6 bg-ink-50 border-t border-ink-200 flex items-center justify-between">
+          {step === 1 ? (
+            <button
+              type="button"
+              disabled
+              className="px-4 py-2 text-sm font-medium text-ink-400 cursor-not-allowed"
+            >
+              Back
+            </button>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              leading={<ArrowLeft className="w-4 h-4" strokeWidth={2} />}
+              onClick={() => setStep((step - 1) as Step)}
+            >
+              Back
+            </Button>
+          )}
+
+          {step === 1 && (
+            <Button
+              type="button"
+              onClick={provision}
+              loading={creating}
+              disabled={!appName.trim()}
+              trailing={<ArrowRight className="w-4 h-4" strokeWidth={2.5} />}
+            >
+              Continue
+            </Button>
+          )}
+          {step === 2 && (
+            <Button
+              type="button"
+              onClick={() => setStep(3)}
+              trailing={<ArrowRight className="w-4 h-4" strokeWidth={2.5} />}
+            >
+              Continue
+            </Button>
+          )}
+          {step === 3 && (
+            <Button
+              type="button"
+              onClick={() => setStep(4)}
+              trailing={<ArrowRight className="w-4 h-4" strokeWidth={2.5} />}
+            >
+              Continue
+            </Button>
+          )}
+          {step === 4 && (
+            <Button
+              type="button"
+              onClick={() => router.push("/dashboard")}
+              trailing={<ArrowRight className="w-4 h-4" strokeWidth={2.5} />}
+            >
+              Go to dashboard
+            </Button>
+          )}
+        </div>
       </main>
+
+      {/* Global footer */}
+      <footer className="mt-8 text-center">
+        <div className="flex justify-center gap-6 mb-4">
+          <Link href="#" className="text-xs text-ink-400 hover:text-ink-600 transition-colors">
+            Documentation
+          </Link>
+          <Link href="#" className="text-xs text-ink-400 hover:text-ink-600 transition-colors">
+            Privacy Policy
+          </Link>
+          <Link href="#" className="text-xs text-ink-400 hover:text-ink-600 transition-colors">
+            Support
+          </Link>
+        </div>
+        <p className="text-[11px] text-ink-400 font-medium tracking-wide">
+          © 2024 MOBILEBYTESENSEI. POWERED BY PAYCRAFT CLOUD.
+        </p>
+      </footer>
     </div>
   )
 }
@@ -153,46 +244,61 @@ function Step1({
   error: string | null
 }) {
   return (
-    <div className="max-w-md mx-auto">
-      <h1 className="text-3xl font-bold tracking-tight text-ink-900">
-        Name your app
-      </h1>
-      <p className="text-ink-500 text-sm mt-2">
-        This is the name shown to your team in the dashboard. You can rename
-        anytime.
-      </p>
+    <div>
+      <header className="mb-10">
+        <h1 className="text-2xl font-extrabold text-ink-900 tracking-tight mb-2">
+          Name your app
+        </h1>
+        <p className="text-ink-500 text-sm">
+          This is how PayCraft identifies your app across all platforms.
+        </p>
+      </header>
       <form
         onSubmit={(e) => {
           e.preventDefault()
           onContinue()
         }}
-        className="mt-8 space-y-4"
+        className="space-y-6"
       >
-        <input
-          required
-          autoFocus
-          value={appName}
-          onChange={(e) => setAppName(e.target.value)}
-          placeholder="Reels Downloader"
-          className="input text-base !py-3"
-        />
+        <div className="space-y-2">
+          <label
+            htmlFor="app_name"
+            className="block text-sm font-semibold text-ink-700"
+          >
+            App name
+          </label>
+          <input
+            id="app_name"
+            required
+            autoFocus
+            value={appName}
+            onChange={(e) => setAppName(e.target.value)}
+            placeholder="My Awesome App"
+            className="w-full px-4 py-3 rounded-lg border border-ink-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all text-ink-900 placeholder:text-ink-400 text-sm"
+          />
+          <p className="text-xs text-ink-400">You can change this later in Settings.</p>
+        </div>
+
         {error && (
           <div className="rounded-lg bg-danger-50 border border-danger-200 text-danger-700 px-3 py-2 text-sm">
             {error}
           </div>
         )}
-        <div className="flex items-center justify-between">
-          <span className="text-2xs text-ink-400">
-            We'll provision a tenant + API keys instantly.
-          </span>
-          <Button
-            type="submit"
-            loading={creating}
-            disabled={!appName.trim()}
-            trailing={<ArrowRight className="w-4 h-4" strokeWidth={2.5} />}
-          >
-            Create app
-          </Button>
+
+        {/* KMP context callout */}
+        <div className="p-4 bg-brand-50 rounded-lg border border-brand-100 flex items-start gap-4">
+          <div className="p-2 bg-white rounded-md border border-brand-200 shrink-0">
+            <Rocket className="w-5 h-5 text-brand-600" strokeWidth={2} />
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold text-brand-900">
+              Setting up Kotlin Multiplatform?
+            </h4>
+            <p className="text-xs text-brand-700 leading-relaxed mt-0.5">
+              PayCraft Cloud automatically handles platform-specific billing logic
+              for Android, iOS, and Web using your app name as the project anchor.
+            </p>
+          </div>
         </div>
       </form>
     </div>
@@ -209,37 +315,35 @@ function Step2({
 }) {
   return (
     <div>
-      <h1 className="text-3xl font-bold tracking-tight text-ink-900">
-        Connect a payment provider
-      </h1>
-      <p className="text-ink-500 text-sm mt-2 max-w-2xl">
-        We'll route checkout through this provider when your users hit the
-        paywall. You can add more later from your dashboard.
-      </p>
+      <header className="mb-10">
+        <h1 className="text-2xl font-extrabold text-ink-900 tracking-tight mb-2">
+          Connect a payment provider
+        </h1>
+        <p className="text-ink-500 text-sm">
+          We'll route checkout through this provider when your users hit the
+          paywall. You can add more later from your dashboard.
+        </p>
+      </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
-        <div className="relative rounded-2xl border-2 border-brand-500 bg-white p-6 shadow-lg shadow-brand-500/15">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="relative rounded-xl border-2 border-brand-500 bg-white p-5 shadow-lg shadow-brand-500/10">
           <Badge tone="brand" className="absolute -top-3 left-5">
             Recommended
           </Badge>
-          <div className="text-2xl font-bold text-[#635BFF]">stripe</div>
-          <p className="text-sm text-ink-600 mt-3 leading-relaxed">
+          <div className="text-xl font-bold text-[#635BFF] mb-3">stripe</div>
+          <p className="text-sm text-ink-600 leading-relaxed">
             Connect via OAuth — about 30 seconds. Works in 40+ countries with
             cards, UPI, wallets, and bank debits.
           </p>
           <ul className="text-xs text-ink-500 mt-4 space-y-1">
-            <li className="flex items-center gap-1.5">
-              <Check className="w-3 h-3 text-success-600" strokeWidth={3} />
-              Live + Test modes
-            </li>
-            <li className="flex items-center gap-1.5">
-              <Check className="w-3 h-3 text-success-600" strokeWidth={3} />
-              Fee: 2.9% + $0.30 / charge
-            </li>
-            <li className="flex items-center gap-1.5">
-              <Check className="w-3 h-3 text-success-600" strokeWidth={3} />
-              40+ countries
-            </li>
+            {["Live + Test modes", "Fee: 2.9% + $0.30 / charge", "40+ countries"].map(
+              (item) => (
+                <li key={item} className="flex items-center gap-1.5">
+                  <Check className="w-3 h-3 text-success-600" strokeWidth={3} />
+                  {item}
+                </li>
+              ),
+            )}
           </ul>
           <Button
             onClick={onContinue}
@@ -251,25 +355,21 @@ function Step2({
           </Button>
         </div>
 
-        <div className="rounded-2xl border border-ink-200 bg-white p-6">
-          <div className="text-2xl font-bold text-[#072654]">Razorpay</div>
-          <p className="text-sm text-ink-600 mt-3 leading-relaxed">
+        <div className="rounded-xl border border-ink-200 bg-white p-5">
+          <div className="text-xl font-bold text-[#072654] mb-3">Razorpay</div>
+          <p className="text-sm text-ink-600 leading-relaxed">
             Manual key entry. Best for India-focused apps with UPI, cards,
             netbanking, and wallets.
           </p>
           <ul className="text-xs text-ink-500 mt-4 space-y-1">
-            <li className="flex items-center gap-1.5">
-              <Check className="w-3 h-3 text-success-600" strokeWidth={3} />
-              Test + Live modes
-            </li>
-            <li className="flex items-center gap-1.5">
-              <Check className="w-3 h-3 text-success-600" strokeWidth={3} />
-              Fee: 2% cards / 0% UPI
-            </li>
-            <li className="flex items-center gap-1.5">
-              <Check className="w-3 h-3 text-success-600" strokeWidth={3} />
-              India + 100+ countries
-            </li>
+            {["Test + Live modes", "Fee: 2% cards / 0% UPI", "India + 100+ countries"].map(
+              (item) => (
+                <li key={item} className="flex items-center gap-1.5">
+                  <Check className="w-3 h-3 text-success-600" strokeWidth={3} />
+                  {item}
+                </li>
+              ),
+            )}
           </ul>
           <Button
             onClick={onContinue}
@@ -282,7 +382,7 @@ function Step2({
         </div>
       </div>
 
-      <div className="text-center mt-8 text-xs text-ink-500">
+      <div className="text-center mt-6 text-xs text-ink-500">
         Or{" "}
         <button
           type="button"
@@ -292,16 +392,6 @@ function Step2({
           skip for now
         </button>{" "}
         — connect later from the dashboard.
-      </div>
-
-      <div className="flex items-center justify-between mt-10">
-        <Button
-          onClick={onBack}
-          variant="ghost"
-          leading={<ArrowLeft className="w-4 h-4" strokeWidth={2} />}
-        >
-          Back
-        </Button>
       </div>
     </div>
   )
@@ -341,31 +431,33 @@ function Step3({
   }
 
   return (
-    <div className="max-w-xl mx-auto">
-      <div className="w-14 h-14 rounded-2xl bg-brand-50 mx-auto flex items-center justify-center mb-4">
-        <Package className="w-5 h-5 text-brand-600" strokeWidth={2} />
-      </div>
-      <h1 className="text-3xl font-bold tracking-tight text-ink-900 text-center">
-        Create your first product
-      </h1>
-      <p className="text-ink-500 text-sm mt-2 text-center">
-        You can edit, add trials, and configure locale pricing later.
-      </p>
+    <div>
+      <header className="mb-8">
+        <div className="w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center mb-4">
+          <Package className="w-5 h-5 text-brand-600" strokeWidth={2} />
+        </div>
+        <h1 className="text-2xl font-extrabold text-ink-900 tracking-tight mb-2">
+          Create your first product
+        </h1>
+        <p className="text-ink-500 text-sm">
+          You can edit, add trials, and configure locale pricing later.
+        </p>
+      </header>
 
       <form
         onSubmit={(e) => {
           e.preventDefault()
           save()
         }}
-        className="mt-8 space-y-4"
+        className="space-y-4"
       >
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-2">
           {(["subscription", "trial", "lifetime"] as const).map((t) => (
             <button
               key={t}
               type="button"
               onClick={() => setType(t)}
-              className={`rounded-lg border p-3 text-sm capitalize transition-all ${
+              className={`rounded-lg border p-2.5 text-xs capitalize transition-all font-medium ${
                 type === t
                   ? "border-brand-500 ring-2 ring-brand-100 text-brand-700 bg-brand-50/50"
                   : "border-ink-200 text-ink-700 hover:bg-ink-50"
@@ -375,47 +467,44 @@ function Step3({
             </button>
           ))}
         </div>
-        <input
-          required
-          value={sku}
-          onChange={(e) => setSku(e.target.value)}
-          placeholder="SKU (e.g. monthly)"
-          className="input"
-        />
-        <input
-          required
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Display name (e.g. Monthly Premium)"
-          className="input"
-        />
-        {type !== "trial" && (
+        <div className="space-y-2">
+          <label className="block text-sm font-semibold text-ink-700">SKU</label>
           <input
             required
-            type="number"
-            min={0}
-            value={price}
-            onChange={(e) => setPrice(parseInt(e.target.value || "0"))}
-            placeholder="Base price (cents)"
-            className="input"
+            value={sku}
+            onChange={(e) => setSku(e.target.value)}
+            placeholder="e.g. monthly"
+            className="w-full px-4 py-2.5 rounded-lg border border-ink-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all text-ink-900 text-sm"
           />
-        )}
-        <div className="flex items-center justify-between mt-6">
-          <Button
-            type="button"
-            onClick={onBack}
-            variant="ghost"
-            leading={<ArrowLeft className="w-4 h-4" strokeWidth={2} />}
-          >
-            Back
-          </Button>
-          <Button
-            type="submit"
-            trailing={<ArrowRight className="w-4 h-4" strokeWidth={2.5} />}
-          >
-            Create product
-          </Button>
         </div>
+        <div className="space-y-2">
+          <label className="block text-sm font-semibold text-ink-700">
+            Display name
+          </label>
+          <input
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Monthly Premium"
+            className="w-full px-4 py-2.5 rounded-lg border border-ink-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all text-ink-900 text-sm"
+          />
+        </div>
+        {type !== "trial" && (
+          <div className="space-y-2">
+            <label className="block text-sm font-semibold text-ink-700">
+              Base price (cents)
+            </label>
+            <input
+              required
+              type="number"
+              min={0}
+              value={price}
+              onChange={(e) => setPrice(parseInt(e.target.value || "0"))}
+              placeholder="199"
+              className="w-full px-4 py-2.5 rounded-lg border border-ink-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all text-ink-900 text-sm"
+            />
+          </div>
+        )}
       </form>
     </div>
   )
@@ -434,19 +523,21 @@ function Step4({
   onBack: () => void
 }) {
   return (
-    <div className="max-w-2xl mx-auto text-center">
-      <div className="w-14 h-14 rounded-2xl bg-success-50 mx-auto flex items-center justify-center mb-4">
-        <KeyRound className="w-5 h-5 text-success-600" strokeWidth={2} />
-      </div>
-      <h1 className="text-3xl font-bold tracking-tight text-ink-900">
-        Your API keys are ready
-      </h1>
-      <p className="text-ink-500 text-sm mt-2">
-        Use the test key during development and the live key in production.
-      </p>
+    <div>
+      <header className="mb-8">
+        <div className="w-12 h-12 rounded-2xl bg-success-50 flex items-center justify-center mb-4">
+          <KeyRound className="w-5 h-5 text-success-600" strokeWidth={2} />
+        </div>
+        <h1 className="text-2xl font-extrabold text-ink-900 tracking-tight mb-2">
+          Your API keys are ready
+        </h1>
+        <p className="text-ink-500 text-sm">
+          Use the test key during development and the live key in production.
+        </p>
+      </header>
 
-      <div className="mt-8 rounded-2xl bg-ink-950 text-left p-6 shadow-xl shadow-brand-900/20">
-        <div className="text-2xs uppercase tracking-widest font-semibold text-ink-500 mb-2">
+      <div className="rounded-2xl bg-ink-950 text-left p-5 shadow-xl shadow-brand-900/20">
+        <div className="text-[10px] uppercase tracking-widest font-semibold text-ink-500 mb-2">
           Test key
         </div>
         <div className="flex items-center gap-2">
@@ -468,7 +559,7 @@ function Step4({
             )}
           </button>
         </div>
-        <div className="text-2xs uppercase tracking-widest font-semibold text-ink-500 mt-5 mb-2">
+        <div className="text-[10px] uppercase tracking-widest font-semibold text-ink-500 mt-5 mb-2">
           Live key
         </div>
         <div className="flex items-center gap-2">
@@ -488,7 +579,7 @@ function Step4({
         </div>
       </div>
 
-      <div className="mt-6 rounded-xl bg-warning-50 border border-warning-200 px-4 py-3 text-left">
+      <div className="mt-4 rounded-xl bg-warning-50 border border-warning-200 px-4 py-3">
         <p className="text-xs text-warning-700">
           Save the <code className="font-mono">pk_live_…</code> key now — it
           won't be shown in full again. You can rotate it anytime from{" "}
@@ -496,7 +587,7 @@ function Step4({
         </p>
       </div>
 
-      <div className="mt-8 rounded-xl bg-ink-100/80 px-5 py-4 text-left">
+      <div className="mt-4 rounded-xl bg-ink-100/80 px-5 py-4">
         <p className="text-xs text-ink-700">
           <strong>Drop this into your app:</strong>
         </p>
@@ -504,15 +595,6 @@ function Step4({
           {`PayCraft.initialize(apiKey = "${tenant.api_key_test.substring(0, 16)}…")\nPayCraftPaywall()`}
         </pre>
       </div>
-
-      <Button
-        onClick={onFinish}
-        size="lg"
-        className="mt-8"
-        trailing={<ArrowRight className="w-4 h-4" strokeWidth={2.5} />}
-      >
-        Go to dashboard
-      </Button>
     </div>
   )
 }

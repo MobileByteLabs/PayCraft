@@ -93,3 +93,18 @@
   .text-balance { text-wrap: balance; }
   .text-pretty  { text-wrap: pretty; }
 }
+
+/* Gradient text — violet brand */
+.text-gradient-violet {
+  background: linear-gradient(to right, #7C3AED, #A78BFA);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glass card surface */
+.glass-card {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(228, 228, 231, 0.6);
+}

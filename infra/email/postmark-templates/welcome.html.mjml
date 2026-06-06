@@ -1,0 +1,30 @@
+<mjml>
+  <mj-head>
+    <mj-title>Welcome to PayCraft</mj-title>
+    <mj-font name="Inter" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" />
+    <mj-attributes>
+      <mj-all font-family="Inter, Arial, sans-serif" />
+    </mj-attributes>
+  </mj-head>
+  <mj-body background-color="#f9fafb">
+    <mj-section background-color="#ffffff" border-radius="8px" padding="32px">
+      <mj-column>
+        <mj-text font-size="28px" font-weight="700" color="#111827">Welcome to PayCraft</mj-text>
+        <mj-text font-size="16px" color="#374151">
+          Hi {{first_name}}, your app <strong>{{app_name}}</strong> is ready.
+        </mj-text>
+        <mj-text font-size="14px" color="#6b7280">
+          Your test API key:<br/>
+          <code style="background:#f3f4f6;padding:4px 8px;border-radius:4px;">{{api_key_test}}</code>
+        </mj-text>
+        <mj-button background-color="#7C3AED" color="#ffffff" border-radius="6px"
+                   font-size="14px" font-weight="600" href="{{dashboard_url}}">
+          Go to Dashboard →
+        </mj-button>
+        <mj-text font-size="13px" color="#9ca3af">
+          PayCraft by MobileByteSensei · <a href="https://paycraft.cloud/docs">Docs</a>
+        </mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

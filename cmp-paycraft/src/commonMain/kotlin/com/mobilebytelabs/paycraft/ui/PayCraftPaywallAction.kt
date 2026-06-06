@@ -1,5 +1,6 @@
 package com.mobilebytelabs.paycraft.ui
 
+import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 
@@ -7,6 +8,17 @@ sealed interface PayCraftPaywallAction {
     data class SelectPlan(val plan: BillingPlan) : PayCraftPaywallAction
     data class UpdateEmail(val email: String) : PayCraftPaywallAction
     data object Subscribe : PayCraftPaywallAction
+
+    // ─── Multi-provider picker ────────────────────────────────────────────────
+
+    /** Opens the provider-picker bottom sheet for [plan]. Dispatched by Subscribe when 2+ providers are available. */
+    data class ShowProviderSheet(val plan: BillingPlan) : PayCraftPaywallAction
+
+    /** Closes the provider-picker sheet without completing checkout. */
+    data object DismissProviderSheet : PayCraftPaywallAction
+
+    /** User selected [provider] in the sheet; proceed to checkout for [plan]. */
+    data class CheckoutWithProvider(val plan: BillingPlan, val provider: ProviderDto) : PayCraftPaywallAction
     data object ManageSubscription : PayCraftPaywallAction
     data object LogIn : PayCraftPaywallAction
     data object LogOut : PayCraftPaywallAction

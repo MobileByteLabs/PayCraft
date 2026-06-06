@@ -1,5 +1,6 @@
 package com.mobilebytelabs.paycraft.ui
 
+import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
@@ -21,6 +22,10 @@ data class PayCraftPaywallState(
     val currentPlanRank: Int = 0,
     val isRestoring: Boolean = false,
     val restoreResult: RestoreResult? = null,
+    /** Cloud-fetched provider list for the provider picker sheet. */
+    val suiteProviders: List<ProviderDto> = emptyList(),
+    /** Non-null while the provider-picker bottom sheet is open; carries the plan the user tapped. */
+    val providerSheetTarget: BillingPlan? = null,
     /**
      * Server-derived trial eligibility. Defaults to `true` (optimistic — suppress
      * the trial CTA only after the server explicitly says the user is ineligible,

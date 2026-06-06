@@ -1,0 +1,88 @@
+name: Deploy paycraft.cloud
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no actual deploy)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-cloud
+  cancel-in-progress: false
+
+jobs:
+  deploy-dashboard:
+    name: Deploy Next.js dashboard to Vercel
+    runs-on: ubuntu-latest
+    if: github.event.inputs.dry_run != 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build dashboard
+        run: pnpm --filter dashboard build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+
+      - name: Deploy to Vercel (production)
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+          working-directory: dashboard
+
+  deploy-functions:
+    name: Deploy Supabase edge functions
+    runs-on: ubuntu-latest
+    if: github.event.inputs.dry_run != 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy core functions
+        run: |
+          supabase functions deploy v2-config \
+            --project-ref ${{ secrets.SUPABASE_PROD_REF }}
+          supabase functions deploy v2-billing \
+            --project-ref ${{ secrets.SUPABASE_PROD_REF }}
+          supabase functions deploy stripe-connect-oauth \
+            --project-ref ${{ secrets.SUPABASE_PROD_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy webhook handlers
+        run: |
+          for fn in stripe razorpay paddle paypal lemon-squeezy flutterwave paystack midtrans btcpay; do
+            supabase functions deploy "${fn}-webhook" \
+              --project-ref ${{ secrets.SUPABASE_PROD_REF }}
+          done
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+  smoke:
+    name: Run production smoke tests
+    needs: [deploy-dashboard, deploy-functions]
+    uses: ./.github/workflows/cloud-smoke.yml
+    secrets: inherit

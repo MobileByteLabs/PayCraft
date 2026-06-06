@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
-import { ProductForm } from "@/components/products/product-form"
+import { ProductFormShell } from "@/components/products/product-form-shell"
 
 export default async function NewProductPage() {
   const { tenant } = await requireTenant()
@@ -26,13 +26,5 @@ export default async function NewProductPage() {
     active: true,
   }
 
-  return (
-    <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">New product</h1>
-      <p className="text-sm text-gray-500 mb-6">
-        The SDK will surface this product in the next config fetch.
-      </p>
-      <ProductForm initial={blank} subscriptions={subscriptions ?? []} />
-    </div>
-  )
+  return <ProductFormShell initial={blank} subscriptions={subscriptions ?? []} />
 }

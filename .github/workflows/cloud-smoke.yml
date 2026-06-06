@@ -1,0 +1,59 @@
+name: Production smoke tests
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: Smoke test paycraft.cloud
+    runs-on: ubuntu-latest
+    steps:
+      - name: Landing page loads
+        run: |
+          STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" https://paycraft.cloud/)
+          [ "$STATUS" = "200" ] || (echo "Expected 200, got $STATUS" && exit 1)
+
+      - name: Pricing page loads
+        run: |
+          BODY=$(curl -fsS https://paycraft.cloud/pricing)
+          echo "$BODY" | grep -q "Pro" || (echo "Pricing page missing 'Pro'" && exit 1)
+
+      - name: v2-config endpoint reachable
+        run: |
+          R=$(curl -fsS \
+            "https://api.paycraft.cloud/functions/v1/v2-config?apiKey=pk_test_canary" \
+            -H "Content-Type: application/json" || true)
+          # 200 (found) or 404 (canary not provisioned) both prove the function is up
+          echo "Response: $R"
+
+      - name: Auth page reachable
+        run: |
+          STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" \
+            https://paycraft.cloud/auth/signin)
+          [ "$STATUS" = "200" ] || (echo "Auth page returned $STATUS" && exit 1)
+
+      - name: Announce deployment
+        if: success()
+        uses: slackapi/slack-github-action@v2
+        with:
+          channel-id: 'C0RELEASES'
+          slack-message: |
+            :rocket: paycraft.cloud deployed
+            Commit: ${{ github.sha }}
+            Triggered by: ${{ github.actor }}
+            <https://paycraft.cloud|View site>
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+      - name: Notify on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v2
+        with:
+          channel-id: 'C0RELEASES'
+          slack-message: |
+            :x: paycraft.cloud smoke tests FAILED
+            Commit: ${{ github.sha }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}

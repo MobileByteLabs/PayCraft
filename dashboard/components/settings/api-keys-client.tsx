@@ -2,10 +2,9 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Check, Copy, Eye, EyeOff, RefreshCw } from "lucide-react"
-import { Card, CardBody } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { Check, Copy, Eye, EyeOff, RefreshCw, History } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { clsx } from "clsx"
 
 export function ApiKeysClient({
   test,
@@ -18,6 +17,7 @@ export function ApiKeysClient({
   const [revealed, setRevealed] = useState({ test: false, live: false })
   const [rotating, setRotating] = useState<"test" | "live" | null>(null)
   const [copied, setCopied] = useState<"test" | "live" | null>(null)
+  const [showToast, setShowToast] = useState(false)
 
   async function rotate(mode: "test" | "live") {
     const ok = confirm(
@@ -35,44 +35,60 @@ export function ApiKeysClient({
   async function copy(value: string, key: "test" | "live") {
     await navigator.clipboard.writeText(value)
     setCopied(key)
-    setTimeout(() => setCopied(null), 1500)
+    setShowToast(true)
+    setTimeout(() => {
+      setCopied(null)
+      setShowToast(false)
+    }, 2000)
   }
 
   return (
-    <div className="space-y-4">
-      <KeyCard
-        label="Test mode"
-        kind="test"
-        sublabel="Use during development; no real charges. Maps to /functions/v1/config locale fallbacks."
-        badge={<Badge tone="info">Sandbox</Badge>}
-        value={test}
-        revealed={revealed.test}
-        onToggle={() => setRevealed((r) => ({ ...r, test: !r.test }))}
-        onRotate={() => rotate("test")}
-        onCopy={() => copy(test, "test")}
-        rotating={rotating === "test"}
-        copied={copied === "test"}
-        meta="Last rotated 12 days ago"
-      />
-      <KeyCard
-        label="Live mode"
-        kind="live"
-        sublabel="Production key — guard carefully. Pushes real charges to your Stripe Connect account."
-        badge={<Badge tone="success">Production</Badge>}
-        value={live}
-        revealed={revealed.live}
-        onToggle={() => setRevealed((r) => ({ ...r, live: !r.live }))}
-        onRotate={() => rotate("live")}
-        onCopy={() => copy(live, "live")}
-        rotating={rotating === "live"}
-        copied={copied === "live"}
-        meta={
-          <span className="text-warning-700">
-            ⚠ Recommended: rotate every 90 days
-          </span>
-        }
-      />
-    </div>
+    <>
+      <div className="space-y-4">
+        <KeyCard
+          label="Test mode"
+          kind="test"
+          sublabel="Use during development; no real charges. Maps to /functions/v1/config locale fallbacks."
+          badge={<Badge tone="info">Sandbox</Badge>}
+          value={test}
+          revealed={revealed.test}
+          onToggle={() => setRevealed((r) => ({ ...r, test: !r.test }))}
+          onRotate={() => rotate("test")}
+          onCopy={() => copy(test, "test")}
+          rotating={rotating === "test"}
+          copied={copied === "test"}
+          meta="Last rotated 12 days ago"
+        />
+        <KeyCard
+          label="Live mode"
+          kind="live"
+          sublabel="Production key — guard carefully. Pushes real charges to your Stripe Connect account."
+          badge={<Badge tone="success">Production</Badge>}
+          value={live}
+          revealed={revealed.live}
+          onToggle={() => setRevealed((r) => ({ ...r, live: !r.live }))}
+          onRotate={() => rotate("live")}
+          onCopy={() => copy(live, "live")}
+          rotating={rotating === "live"}
+          copied={copied === "live"}
+          meta="Last rotated 47 days ago"
+          metaWarning="Recommended: rotate every 90 days"
+        />
+      </div>
+
+      {/* Copy Toast */}
+      <div
+        className={clsx(
+          "fixed bottom-8 right-8 bg-ink-900 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 transition-all duration-300 z-[100]",
+          showToast
+            ? "translate-y-0 opacity-100"
+            : "translate-y-24 opacity-0 pointer-events-none",
+        )}
+      >
+        <Check className="w-4 h-4 text-success-400" strokeWidth={2.5} />
+        <span className="text-sm font-medium">Copied to clipboard</span>
+      </div>
+    </>
   )
 }
 
@@ -89,6 +105,7 @@ function KeyCard({
   rotating,
   copied,
   meta,
+  metaWarning,
 }: {
   label: string
   kind: "test" | "live"
@@ -101,68 +118,85 @@ function KeyCard({
   onCopy: () => void
   rotating: boolean
   copied: boolean
-  meta?: React.ReactNode
+  meta?: string
+  metaWarning?: string
 }) {
-  const display = revealed
-    ? value
-    : value.substring(0, 12) + "•".repeat(Math.max(0, value.length - 12))
+  const masked =
+    value.substring(0, kind === "test" ? 8 : 8) +
+    "•".repeat(Math.max(0, value.length - 8))
+  const display = revealed ? value : masked
+
   return (
-    <Card>
-      <CardBody>
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-ink-900">{label}</span>
-              {badge}
-            </div>
-            <p className="text-xs text-ink-500 mt-1 leading-relaxed">{sublabel}</p>
-          </div>
-        </div>
+    <div className="bg-white border border-ink-200 rounded-xl p-6 shadow-sm">
+      <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <code className="flex-1 text-xs font-mono text-ink-700 bg-ink-50 border border-ink-200 px-3 py-2.5 rounded-lg break-all">
+          <h3 className="text-base font-bold text-ink-900">{label}</h3>
+          {badge}
+        </div>
+      </div>
+      <p className="text-sm text-ink-500 mb-6">{sublabel}</p>
+      <div className="flex flex-col md:flex-row gap-2">
+        <div className="flex-1 bg-ink-50 border border-ink-200 rounded-lg px-4 py-2.5 font-mono text-sm text-ink-600 flex items-center">
+          <span
+            className={clsx("flex-1 break-all", !revealed && "tracking-wider")}
+          >
             {display}
-          </code>
+          </span>
+        </div>
+        <div className="flex gap-2">
           <button
             type="button"
             onClick={onToggle}
-            className="btn-secondary btn-sm px-3 py-2.5"
+            className="flex items-center gap-2 px-3 py-2 bg-white border border-ink-200 rounded-lg text-xs font-semibold text-ink-700 hover:bg-ink-50 transition-colors"
             aria-label={revealed ? "Hide" : "Reveal"}
           >
             {revealed ? (
-              <EyeOff className="w-3.5 h-3.5" />
+              <EyeOff className="w-[18px] h-[18px]" />
             ) : (
-              <Eye className="w-3.5 h-3.5" />
-            )}
+              <Eye className="w-[18px] h-[18px]" />
+            )}{" "}
+            {revealed ? "Hide" : "Reveal"}
           </button>
           <button
             type="button"
             onClick={onCopy}
-            className="btn-secondary btn-sm px-3 py-2.5"
+            className="flex items-center gap-2 px-3 py-2 bg-white border border-ink-200 rounded-lg text-xs font-semibold text-ink-700 hover:bg-ink-50 transition-colors"
             aria-label="Copy"
           >
             {copied ? (
-              <Check className="w-3.5 h-3.5 text-success-600" />
+              <Check className="w-[18px] h-[18px] text-success-600" />
             ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
+              <Copy className="w-[18px] h-[18px]" />
+            )}{" "}
+            Copy
           </button>
           <button
             type="button"
             onClick={onRotate}
             disabled={rotating}
-            className="inline-flex items-center justify-center px-3 py-2.5 rounded-lg border border-warning-200 text-warning-700 text-xs font-medium hover:bg-warning-50 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-2 px-3 py-2 bg-white border border-orange-200 rounded-lg text-xs font-semibold text-orange-600 hover:bg-orange-50 transition-colors disabled:opacity-50"
           >
-            {rotating ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="w-3.5 h-3.5" />
-            )}
+            <RefreshCw
+              className={clsx("w-[18px] h-[18px]", rotating && "animate-spin")}
+            />{" "}
+            Rotate
           </button>
         </div>
+      </div>
+      <div className="mt-4 flex items-center justify-between text-[11px]">
         {meta && (
-          <div className="text-2xs text-ink-500 mt-3 font-medium">{meta}</div>
+          <div className="flex items-center gap-1.5 text-ink-400">
+            <History className="w-[14px] h-[14px]" />
+            {meta}
+          </div>
         )}
-      </CardBody>
-    </Card>
+        {metaWarning && (
+          <div className="flex items-center gap-1.5 text-orange-600 font-medium">
+            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse inline-block" />
+            {metaWarning}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
