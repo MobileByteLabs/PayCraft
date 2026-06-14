@@ -51,4 +51,8 @@ object PayCraftTestTags {
     const val PREMIUM_GUARD_LOCKED = "paycraft_premium_guard_locked"
     const val PREMIUM_GUARD_UNLOCKED = "paycraft_premium_guard_unlocked"
     const val PREMIUM_GUARD_UPGRADE_BUTTON = "paycraft_premium_guard_upgrade_button"
+
+    // Banner paywall (DisplayMode.Banner)
+    const val BANNER_PAYWALL = "paycraft_banner_paywall"
+    const val BANNER_LABEL = "paycraft_banner_label"
 }

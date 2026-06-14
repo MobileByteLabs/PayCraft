@@ -17,14 +17,16 @@ import com.mobilebytelabs.paycraft.model.BillingBenefit
 /**
  * Pre-built [BillingBenefit] instances for common use cases.
  *
- * Use these in [PayCraft.configure] to skip writing your own benefit list:
+ * When you author benefits in your PayCraft dashboard, the cloud-resolved [PaywallDto]
+ * is enough — these icons are only useful for local Compose previews or instrumentation
+ * tests that need to render a paywall without a network round-trip.
+ *
+ * Example (Compose preview):
  * ```kotlin
- * PayCraft.configure {
- *     benefits(
- *         PayCraftBenefits.unlockAll,
- *         PayCraftBenefits.adFree,
- *         PayCraftBenefits.hdDownloads,
- *     )
+ * @Preview
+ * @Composable
+ * fun PaywallPreview() {
+ *     PayCraftPaywallPreview(benefits = PayCraftBenefits.standard)
  * }
  * ```
  */

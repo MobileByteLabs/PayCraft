@@ -28,7 +28,8 @@ data class ProductDto(
     val sku: String,
     val type: String,                       // "subscription" | "trial" | "lifetime"
     @SerialName("display_name") val displayName: String,
-    @SerialName("trial_duration_days") val trialDurationDays: Int? = null,
+    @SerialName("trial_enabled") val trialEnabled: Boolean = true,
+    @SerialName("trial_duration_days") val trialDurationDays: Int? = 7,
     @SerialName("attaches_to_product_id") val attachesToProductId: String? = null,
     val interval: String? = null,           // "month" | "quarter" | "semiannual" | "year"
     @SerialName("base_price_cents") val basePriceCents: Int = 0,

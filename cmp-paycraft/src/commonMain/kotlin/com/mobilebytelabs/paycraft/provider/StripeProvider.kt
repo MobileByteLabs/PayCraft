@@ -35,7 +35,7 @@ class StripeProvider(
     override val name = "stripe"
     override val webhookFunctionName = "stripe-webhook"
 
-    /** Exposed for debug logging in PayCraft.configure(). */
+    /** Exposed for debug logging by [PayCraftLogger]. */
     internal val modeLabel
         get() = if (isTestMode) "TEST mode (sandbox — use 4242 test cards)" else "LIVE mode (production — real cards)"
     internal val testLinkCount get() = testPaymentLinks.count { it.value.isNotBlank() }

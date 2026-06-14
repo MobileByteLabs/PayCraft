@@ -1,39 +1,24 @@
 package com.mobilebytelabs.paycraft
 
 import com.mobilebytelabs.paycraft.config.ProductDto
-import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.provider.PaymentProvider
-import com.mobilebytelabs.paycraft.provider.StripeProvider
 
 /**
- * PayCraft — the single entry point.
- *
- * Two integration paths, both fully supported:
- *
- * **Cloud (recommended)** — products + providers + paywall configured at paycraft.cloud
+ * PayCraft — the single SDK entry point.
  *
  * ```kotlin
  * PayCraft.initialize(apiKey = "pk_live_…")
  * ```
  *
- * **In-code** — declare everything in the app (single-tenant deployments)
- *
- * ```kotlin
- * PayCraft.configure {
- *   supabase(url = "…", anonKey = "…")
- *   provider(StripeProvider(…))
- *   plans(BillingPlan(…))
- *   benefits(BillingBenefit(…))
- *   supportEmail("…")
- * }
- * ```
- *
- * Both produce a [PayCraftConfig] consumed by the rest of the SDK.
+ * All products, providers, pricing, and paywall styling are fetched from your PayCraft
+ * dashboard (https://paycraft.cloud) and refreshed on a tiered cache policy. The SDK
+ * exposes no other configuration surface — change anything in the dashboard, your apps
+ * pick it up on the next refresh.
  */
 object PayCraft {
 
@@ -50,9 +35,13 @@ object PayCraft {
         private set
 
     /**
-     * Cloud / Self-host / Mock initialization.
-     * Stores [apiKey] + [backend] so the lazy [SuiteConfig] fetcher can run on first
-     * paywall render. Apps may call [refreshConfig] to force-fetch immediately.
+     * Boot the SDK with a publishable PayCraft API key.
+     *
+     * @param apiKey   Publishable key from your PayCraft dashboard (`pk_test_…` or `pk_live_…`).
+     * @param backend  Where to fetch SuiteConfig — defaults to PayCraft Cloud. Self-hosted
+     *                 customers pass [PayCraftBackend.SelfHosted]; test code passes
+     *                 [PayCraftBackend.Mock] with a static [SuiteConfig].
+     * @param options  Optional locale override, cache-skip, and debug logging toggle.
      */
     fun initialize(
         apiKey: String,
@@ -73,39 +62,27 @@ object PayCraft {
             apiKeyPrefix = apiKey.substringBefore('_', "?") + "_…",
             debug = options.debug,
         )
-        // For Mock backend, build PayCraftConfig immediately from static SuiteConfig.
         if (backend is PayCraftBackend.Mock) {
             applySuiteConfig(backend.staticConfig)
         }
     }
 
-    /**
-     * Programmatic in-code configuration. Use this for self-host deployments where
-     * products, providers, and paywall live in the app, not the cloud.
-     */
-    fun configure(builder: PayCraftConfigBuilder.() -> Unit) {
-        val cfg = PayCraftConfigBuilder().apply(builder).build()
-        config = cfg
-        val stripe = cfg.provider as? StripeProvider
-        PayCraftLogger.onConfigure(
-            provider = cfg.provider.name,
-            modeLabel = stripe?.modeLabel ?: cfg.provider.name,
-            planCount = cfg.plans.size,
-            planIds = cfg.plans.joinToString { "${it.id}${if (it.isPopular) "*" else ""}" },
-            testLinks = stripe?.testLinkCount ?: -1,
-            liveLinks = stripe?.liveLinkCount ?: -1,
-            supabaseUrl = cfg.supabaseUrl,
-        )
-    }
-
     /** Apply a cloud-fetched [SuiteConfig] into the existing PayCraftConfig shape. */
     internal fun applySuiteConfig(suite: SuiteConfig) {
         this.suiteConfig = suite
-        this.config = suite.toPayCraftConfig(backend, apiKey)
+        val resolved = suite.toPayCraftConfig(backend, apiKey)
+        this.config = resolved
+        PayCraftLogger.onSuiteConfigApplied(
+            source = resolved.source.name,
+            productCount = suite.products.size,
+            providerCount = suite.providers.size,
+            primaryProvider = suite.providers.firstOrNull()?.provider ?: "none",
+            locale = suite.locale,
+        )
     }
 
     fun requireConfig(): PayCraftConfig =
-        config ?: error("PayCraft.initialize(apiKey) or PayCraft.configure { } must be called before use")
+        config ?: error("PayCraft.initialize(apiKey) must be called before use")
 
     fun checkout(plan: BillingPlan, email: String? = null) {
         val url = requireConfig().provider.getCheckoutUrl(plan, email)
@@ -113,7 +90,7 @@ object PayCraft {
     }
 
     /**
-     * Checkout via a specific provider picked by the user in [ProviderBottomSheet].
+     * Checkout via a specific provider picked by the user in `ProviderBottomSheet`.
      * Used by the multi-provider flow; single-provider apps use [checkout] instead.
      */
     internal fun checkoutWithProvider(plan: BillingPlan, provider: ProviderDto, email: String? = null) {
@@ -124,8 +101,7 @@ object PayCraft {
 
     fun manageSubscription(email: String) {
         val url = requireConfig().provider.getManageUrl(email)
-        val stripe = requireConfig().provider as? StripeProvider
-        PayCraftLogger.onManageSubscription(mode = stripe?.modeLabel ?: "unknown", url = url)
+        PayCraftLogger.onManageSubscription(mode = "cloud", url = url)
         if (url != null) PayCraftPlatform.openUrl(url)
     }
 }
@@ -144,63 +120,14 @@ data class PayCraftConfig(
     val benefits: List<BillingBenefit>,
     val supportEmail: String,
     val apiKey: String? = null,
-    val source: ConfigSource = ConfigSource.InCode,
+    val source: ConfigSource = ConfigSource.Cloud,
 )
 
-enum class ConfigSource { Cloud, SelfHosted, InCode, Mock }
-
-class PayCraftConfigBuilder {
-    private var supabaseUrl: String = ""
-    private var supabaseAnonKey: String = ""
-    private var provider: PaymentProvider? = null
-    private var plans: List<BillingPlan> = emptyList()
-    private var benefits: List<BillingBenefit> = emptyList()
-    private var supportEmail: String = ""
-    private var apiKey: String? = null
-
-    fun supabase(url: String, anonKey: String) {
-        this.supabaseUrl = url
-        this.supabaseAnonKey = anonKey
-    }
-
-    /** Set PayCraft Cloud API key alongside in-code config (hybrid mode). */
-    fun cloud(apiKey: String) {
-        this.apiKey = apiKey
-    }
-
-    fun provider(provider: PaymentProvider) {
-        this.provider = provider
-    }
-
-    fun plans(vararg plans: BillingPlan) { this.plans = plans.toList() }
-    fun plans(plans: List<BillingPlan>)   { this.plans = plans }
-
-    fun benefits(vararg benefits: BillingBenefit) { this.benefits = benefits.toList() }
-    fun benefits(benefits: List<BillingBenefit>)   { this.benefits = benefits }
-
-    fun supportEmail(email: String) { this.supportEmail = email }
-
-    internal fun build(): PayCraftConfig {
-        require(supabaseUrl.isNotBlank()) { "supabase(url, anonKey) must be configured" }
-        require(supabaseAnonKey.isNotBlank()) { "supabase(url, anonKey) must be configured" }
-        requireNotNull(provider) { "provider() must be configured" }
-        require(plans.isNotEmpty()) { "plans() must have at least one plan" }
-        return PayCraftConfig(
-            supabaseUrl = supabaseUrl,
-            supabaseAnonKey = supabaseAnonKey,
-            provider = provider!!,
-            plans = plans.sortedBy { it.rank },
-            benefits = benefits,
-            supportEmail = supportEmail,
-            apiKey = apiKey,
-            source = ConfigSource.InCode,
-        )
-    }
-}
+enum class ConfigSource { Cloud, SelfHosted, Mock }
 
 /**
  * Map a cloud-fetched [SuiteConfig] into the existing [PayCraftConfig] shape.
- * Provider construction is best-effort — the canonical "first provider" wins for the
+ * Provider construction is best-effort — the first registered provider wins for the
  * legacy single-provider field. Multi-provider apps consume `SuiteConfig.providers`
  * directly via the bottom-sheet picker.
  */
@@ -234,9 +161,13 @@ private fun List<ProductDto>.toBillingPlans(): List<BillingPlan> {
     val subscriptions = filter { it.type == "subscription" || it.type == "lifetime" }
         .sortedBy { it.displayOrder }
     val trials = filter { it.type == "trial" }
-    // For each subscription, attach trial_days if a trial dto references it.
     return subscriptions.mapIndexed { idx, dto ->
-        val trialDays = trials.firstOrNull { it.attachesToProductId == dto.id }?.trialDurationDays
+        val attachedTrial = trials.firstOrNull { it.attachesToProductId == dto.id }
+        val trialDays = when {
+            attachedTrial != null -> attachedTrial.trialDurationDays
+            dto.trialEnabled -> dto.trialDurationDays
+            else -> null
+        }
         BillingPlan(
             id = dto.sku,
             name = dto.displayName,
@@ -258,11 +189,13 @@ private fun formatMoney(amountCents: Int, currency: String): String = when (curr
     else -> "$currency ${amountCents / 100.0}"
 }
 
-/** Adapter that turns a cloud-fetched [com.mobilebytelabs.paycraft.config.ProviderDto] into the
- *  existing PaymentProvider interface. Locale-resolved checkout URL is taken from livePaymentLinks
- *  first, then testPaymentLinks. */
+/**
+ * Adapter that turns a cloud-fetched [com.mobilebytelabs.paycraft.config.ProviderDto] into the
+ * existing PaymentProvider interface. Locale-resolved checkout URL is taken from livePaymentLinks
+ * first, then testPaymentLinks.
+ */
 private class SuiteProviderAdapter(
-    private val dto: com.mobilebytelabs.paycraft.config.ProviderDto?,
+    private val dto: ProviderDto?,
 ) : PaymentProvider {
     override val name: String = dto?.provider ?: "cloud"
 

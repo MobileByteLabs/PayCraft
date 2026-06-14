@@ -71,12 +71,21 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Full-screen paywall. Observes [PayCraftPaywallViewModel] and delegates rendering.
+ * PayCraft paywall.
+ *
+ * Renders either a [DisplayMode.FullScreen] paywall (default) or a compact
+ * [DisplayMode.Banner] status strip — both observe the same [PayCraftPaywallViewModel]
+ * and react to the same `BillingState`. Hosts pick the shape that fits the surface
+ * they're rendering on.
+ *
+ * Banner-mode callers should treat [onDismiss] as "user tapped the banner" — typically
+ * a signal to show the full-screen paywall in a sheet or dialog.
  */
 @Composable
 fun PayCraftPaywall(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    displayMode: DisplayMode = DisplayMode.FullScreen,
     viewModel: PayCraftPaywallViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -92,12 +101,26 @@ fun PayCraftPaywall(
         }
     }
 
-    PayCraftPaywallContent(
-        state = state,
-        snackbarHostState = snackbarHostState,
-        onAction = viewModel::dispatch,
-        modifier = modifier,
-    )
+    when (displayMode) {
+        DisplayMode.Banner -> BannerPaywall(
+            state = state.billingState,
+            onTap = {
+                // Surface the latest state when the user taps an error banner; hosts
+                // wire onDismiss to open the full paywall sheet.
+                if (state.billingState is BillingState.Error) {
+                    viewModel.dispatch(PayCraftPaywallAction.RefreshStatus)
+                }
+                onDismiss()
+            },
+            modifier = modifier,
+        )
+        DisplayMode.FullScreen -> PayCraftPaywallContent(
+            state = state,
+            snackbarHostState = snackbarHostState,
+            onAction = viewModel::dispatch,
+            modifier = modifier,
+        )
+    }
 }
 
 /**

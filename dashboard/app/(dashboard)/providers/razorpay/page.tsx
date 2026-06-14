@@ -2,185 +2,203 @@
 
 import Link from "next/link"
 import { useState } from "react"
-import { ChevronRight, Eye, EyeOff, ArrowLeft } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { ChevronRight, Eye, EyeOff, ArrowLeft, CheckCircle2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardBody } from "@/components/ui/card"
 
-export default function RazorpayKeysPage() {
+interface KeyPair {
+  key_id: string
+  key_secret: string
+  webhook_secret: string
+}
+
+function KeyPairSection({
+  label,
+  idPlaceholder,
+  value,
+  onChange,
+}: {
+  label: string
+  idPlaceholder: string
+  value: KeyPair
+  onChange: (v: KeyPair) => void
+}) {
   const [showSecret, setShowSecret] = useState(false)
-  const [testMode, setTestMode] = useState(false)
+  return (
+    <div className="space-y-4">
+      <h4 className="text-sm font-bold text-ink-700">{label}</h4>
+      <div className="space-y-2">
+        <label className="text-[11px] font-bold uppercase tracking-wider text-ink-400 block">Key ID</label>
+        <input
+          type="text"
+          className="w-full px-4 py-2.5 bg-ink-50 border border-ink-200 rounded-lg text-sm font-mono focus:outline-none focus:border-brand-500"
+          placeholder={idPlaceholder}
+          value={value.key_id}
+          onChange={(e) => onChange({ ...value, key_id: e.target.value })}
+        />
+      </div>
+      <div className="space-y-2">
+        <label className="text-[11px] font-bold uppercase tracking-wider text-ink-400 block">Key Secret</label>
+        <div className="relative">
+          <input
+            type={showSecret ? "text" : "password"}
+            className="w-full px-4 py-2.5 bg-ink-50 border border-ink-200 rounded-lg text-sm font-mono focus:outline-none focus:border-brand-500 pr-10"
+            placeholder="••••••••••••"
+            value={value.key_secret}
+            onChange={(e) => onChange({ ...value, key_secret: e.target.value })}
+          />
+          <button
+            type="button"
+            onClick={() => setShowSecret((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-600"
+          >
+            {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+      <div className="space-y-2">
+        <label className="text-[11px] font-bold uppercase tracking-wider text-ink-400 block">Webhook Secret</label>
+        <input
+          type="text"
+          className="w-full px-4 py-2.5 bg-ink-50 border border-ink-200 rounded-lg text-sm font-mono focus:outline-none focus:border-brand-500"
+          placeholder="From Razorpay dashboard"
+          value={value.webhook_secret}
+          onChange={(e) => onChange({ ...value, webhook_secret: e.target.value })}
+        />
+      </div>
+    </div>
+  )
+}
+
+export default function RazorpayKeysPage() {
+  const router = useRouter()
   const [openStep, setOpenStep] = useState<number | null>(1)
-  const [form, setForm] = useState({
-    keyId: "",
-    keySecret: "",
-    webhookSecret: "",
-  })
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleChange = (field: keyof typeof form, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }))
+  const [test, setTest] = useState<KeyPair>({ key_id: "", key_secret: "", webhook_secret: "" })
+  const [live, setLive] = useState<KeyPair>({ key_id: "", key_secret: "", webhook_secret: "" })
+
+  async function save() {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/providers/razorpay", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          test_key_id: test.key_id,
+          test_key_secret: test.key_secret,
+          test_webhook_secret: test.webhook_secret,
+          live_key_id: live.key_id,
+          live_key_secret: live.key_secret,
+          live_webhook_secret: live.webhook_secret,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? "Save failed")
+      setSaved(true)
+      setTimeout(() => router.push("/providers?connected=razorpay"), 1500)
+    } catch (e: any) {
+      setError(String(e.message ?? e))
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const handleTestConnection = () => {
-    // Mock — no real API call
-    alert("Connection test triggered (no real call in demo mode)")
-  }
+  const allFilled = test.key_id && test.key_secret && test.webhook_secret &&
+    live.key_id && live.key_secret && live.webhook_secret
 
   return (
     <div>
-      {/* Breadcrumb + header */}
       <div className="mb-10 pt-10">
         <nav className="flex items-center gap-2 text-xs font-medium text-ink-400 mb-2">
-          <Link href="/settings" className="hover:text-ink-600 transition-colors">
-            Settings
-          </Link>
+          <Link href="/settings" className="hover:text-ink-600 transition-colors">Settings</Link>
           <ChevronRight className="w-3.5 h-3.5" />
-          <Link href="/providers" className="hover:text-ink-600 transition-colors">
-            Payment Providers
-          </Link>
+          <Link href="/providers" className="hover:text-ink-600 transition-colors">Payment Providers</Link>
           <ChevronRight className="w-3.5 h-3.5" />
           <span className="text-ink-900">Razorpay</span>
         </nav>
-
         <div className="flex items-center gap-4">
-          <Link
-            href="/providers"
-            className="w-10 h-10 flex items-center justify-center bg-white border border-ink-200 rounded-xl hover:border-ink-300 hover:shadow-sm transition-all text-ink-600"
-          >
+          <Link href="/providers" className="w-10 h-10 flex items-center justify-center bg-white border border-ink-200 rounded-xl hover:border-ink-300 hover:shadow-sm transition-all text-ink-600">
             <ArrowLeft className="w-4 h-4" strokeWidth={2} />
           </Link>
           <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-bold text-ink-900 tracking-tight">
-              Razorpay
-            </h2>
-            <Badge tone="warning">Not connected</Badge>
+            <h2 className="text-2xl font-bold text-ink-900 tracking-tight">Razorpay</h2>
+            {saved ? <Badge tone="success" dot>Connected</Badge> : <Badge tone="warning">Not connected</Badge>}
           </div>
         </div>
       </div>
 
-      <div className="max-w-2xl">
-        {/* Credentials form card */}
-        <Card className="mb-8 shadow-sm">
+      <div className="max-w-2xl space-y-8">
+        <Card className="shadow-sm">
           <div className="p-8 border-b border-ink-100">
-            <h3 className="text-lg font-bold text-ink-900">
-              Connect Razorpay
-            </h3>
+            <h3 className="text-lg font-bold text-ink-900">API Credentials</h3>
             <p className="text-sm text-ink-500 mt-1">
-              Enter your Razorpay API credentials. PayCraft uses these to verify
-              webhooks and fetch subscription data.
+              Enter both test and live key pairs. PayCraft validates each pair against Razorpay before saving.
             </p>
           </div>
+          <CardBody className="p-8 space-y-8">
+            <KeyPairSection
+              label="Test keys (rzp_test_...)"
+              idPlaceholder="rzp_test_..."
+              value={test}
+              onChange={setTest}
+            />
+            <hr className="border-ink-100" />
+            <KeyPairSection
+              label="Live keys (rzp_live_...)"
+              idPlaceholder="rzp_live_..."
+              value={live}
+              onChange={setLive}
+            />
 
-          <CardBody className="p-8 space-y-6">
-            {/* Key ID */}
-            <div className="space-y-2">
-              <label className="text-[13px] font-semibold text-ink-700 block">
-                Key ID
-              </label>
-              <input
-                type="text"
-                className="input w-full"
-                placeholder="rzp_live_..."
-                value={form.keyId}
-                onChange={(e) => handleChange("keyId", e.target.value)}
-              />
-            </div>
-
-            {/* Key Secret */}
-            <div className="space-y-2">
-              <label className="text-[13px] font-semibold text-ink-700 block">
-                Key Secret
-              </label>
-              <div className="relative">
-                <input
-                  type={showSecret ? "text" : "password"}
-                  className="input w-full pr-10"
-                  placeholder="rzp_live_secret..."
-                  value={form.keySecret}
-                  onChange={(e) => handleChange("keySecret", e.target.value)}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowSecret((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-600 transition-colors"
-                >
-                  {showSecret ? (
-                    <EyeOff className="w-4 h-4" strokeWidth={2} />
-                  ) : (
-                    <Eye className="w-4 h-4" strokeWidth={2} />
-                  )}
-                </button>
+            {error && (
+              <div className="rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700">
+                {error}
               </div>
-            </div>
-
-            {/* Webhook Secret */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <label className="text-[13px] font-semibold text-ink-700">
-                  Webhook Secret
-                </label>
-                <a
-                  href="https://razorpay.com/docs/webhooks/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-brand-600 font-medium hover:underline"
-                >
-                  Where to find this?
-                </a>
+            )}
+            {saved && (
+              <div className="flex items-center gap-2 text-sm text-success-700 bg-success-50 border border-success-200 px-4 py-3 rounded-lg">
+                <CheckCircle2 className="w-4 h-4" />
+                Keys validated and saved — redirecting…
               </div>
-              <input
-                type="text"
-                className="input w-full"
-                placeholder="From Razorpay dashboard"
-                value={form.webhookSecret}
-                onChange={(e) => handleChange("webhookSecret", e.target.value)}
-              />
-            </div>
+            )}
           </CardBody>
-
-          {/* Form footer */}
-          <div className="p-8 bg-ink-50/50 rounded-b-xl border-t border-ink-100 flex justify-center">
+          <div className="p-8 bg-ink-50/50 rounded-b-xl border-t border-ink-100 flex justify-end">
             <Button
               variant="primary"
               size="lg"
-              className="w-full md:w-auto px-8"
-              onClick={handleTestConnection}
+              onClick={save}
+              disabled={!allFilled || saving || saved}
             >
-              Test connection
+              {saving ? "Validating & saving…" : "Save Razorpay keys"}
             </Button>
           </div>
         </Card>
 
-        {/* Setup instructions (accordion-style) */}
-        <div className="space-y-3 mb-10">
+        <div className="space-y-3">
           <h4 className="text-[11px] font-bold text-ink-400 uppercase tracking-widest px-1">
             Setup Instructions
           </h4>
-
           {SETUP_STEPS.map((step) => (
-            <div
-              key={step.id}
-              className="bg-white border border-ink-200 rounded-xl overflow-hidden"
-            >
+            <div key={step.id} className="bg-white border border-ink-200 rounded-xl overflow-hidden">
               <button
                 type="button"
                 className="w-full flex items-center justify-between p-4 text-left hover:bg-ink-50 transition-colors"
-                onClick={() =>
-                  setOpenStep(openStep === step.id ? null : step.id)
-                }
+                onClick={() => setOpenStep(openStep === step.id ? null : step.id)}
               >
                 <div className="flex items-center gap-3">
                   <span className="w-6 h-6 flex items-center justify-center bg-ink-100 text-ink-600 text-[12px] font-bold rounded-full flex-shrink-0">
                     {step.id}
                   </span>
-                  <span className="text-sm font-semibold text-ink-900">
-                    {step.title}
-                  </span>
+                  <span className="text-sm font-semibold text-ink-900">{step.title}</span>
                 </div>
                 <ChevronRight
-                  className={`w-4 h-4 text-ink-400 transition-transform flex-shrink-0 ${
-                    openStep === step.id ? "rotate-90" : ""
-                  }`}
+                  className={`w-4 h-4 text-ink-400 transition-transform flex-shrink-0 ${openStep === step.id ? "rotate-90" : ""}`}
                   strokeWidth={2}
                 />
               </button>
@@ -193,32 +211,6 @@ export default function RazorpayKeysPage() {
             </div>
           ))}
         </div>
-
-        {/* Test mode toggle */}
-        <div className="flex items-center justify-between p-6 bg-brand-50/50 border border-brand-100 rounded-xl">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-brand-100 rounded-full flex items-center justify-center">
-              <span className="text-brand-600 text-base">⚗</span>
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-ink-900">
-                Enable Razorpay Test Mode
-              </h4>
-              <p className="text-xs text-ink-500">
-                Use test credentials to simulate transactions without real money.
-              </p>
-            </div>
-          </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              className="sr-only peer"
-              checked={testMode}
-              onChange={(e) => setTestMode(e.target.checked)}
-            />
-            <div className="w-11 h-6 bg-ink-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-ink-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600" />
-          </label>
-        </div>
       </div>
     </div>
   )
@@ -229,18 +221,18 @@ const SETUP_STEPS = [
     id: 1,
     title: "Create API keys in Razorpay Dashboard",
     content:
-      "Go to your Razorpay Dashboard &gt; Settings &gt; API Keys. Generate a new set of keys if you haven't already. Ensure you are copying the <strong>Live Mode</strong> keys for production environments.",
+      "Go to your Razorpay Dashboard → Settings → API Keys. Generate both <strong>Test Mode</strong> and <strong>Live Mode</strong> key pairs.",
   },
   {
     id: 2,
     title: "Enable webhook events",
     content:
-      "In the Webhooks section, add <code class=\"bg-ink-100 px-1 rounded text-brand-600\">https://api.paycraft.cloud/hooks/razorpay</code> as the endpoint and enable <code class=\"bg-ink-100 px-1 rounded\">subscription.charged</code> and <code class=\"bg-ink-100 px-1 rounded\">subscription.cancelled</code> events.",
+      "In Webhooks, add <code class=\"bg-ink-100 px-1 rounded text-brand-600\">/functions/v1/razorpay-webhook/{tenant_id}</code> as the endpoint. Enable <code>subscription.charged</code> and <code>subscription.cancelled</code>.",
   },
   {
     id: 3,
     title: "Copy webhook secret",
     content:
-      "During webhook creation, Razorpay will ask you to set a &lsquo;Secret&rsquo;. Enter a strong random string, save it in Razorpay, and then paste that exact same string into the <strong>Webhook Secret</strong> field above.",
+      "During webhook creation, Razorpay shows a <strong>Secret</strong> field. Set a strong random string there, then paste it into both test + live Webhook Secret fields above.",
   },
 ]

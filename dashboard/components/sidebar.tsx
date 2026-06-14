@@ -68,9 +68,10 @@ interface SidebarProps {
   tenantName: string
   tenantPlan: string
   ownerEmail: string
+  appSwitcher?: React.ReactNode
 }
 
-export function Sidebar({ tenantName, tenantPlan, ownerEmail }: SidebarProps) {
+export function Sidebar({ tenantName, tenantPlan, ownerEmail, appSwitcher }: SidebarProps) {
   const pathname = usePathname()
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-white border-r border-ink-200 flex flex-col py-6 px-4 z-50">
@@ -95,30 +96,36 @@ export function Sidebar({ tenantName, tenantPlan, ownerEmail }: SidebarProps) {
         </div>
       </Link>
 
-      {/* Tenant card */}
+      {/* App switcher / tenant card */}
       <div className="mb-7 px-2">
-        <div className="bg-ink-50 rounded-lg p-3 border border-ink-100 relative">
-          <span className="text-[10px] font-bold text-ink-400 tracking-widest uppercase block mb-1">
-            Tenant
-          </span>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-semibold text-ink-800 truncate">
-              {tenantName}
-            </span>
-            <span
-              className={clsx(
-                "text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider flex-shrink-0",
-                tenantPlan === "enterprise"
-                  ? "bg-brand-50 text-brand-700 border-brand-200"
-                  : tenantPlan === "pro"
-                  ? "bg-success-50 text-success-700 border-success-200"
-                  : "bg-ink-100 text-ink-700 border-ink-200",
-              )}
-            >
-              {tenantPlan}
-            </span>
+        {appSwitcher ? (
+          <div className="bg-ink-50 rounded-lg border border-ink-100">
+            {appSwitcher}
           </div>
-        </div>
+        ) : (
+          <div className="bg-ink-50 rounded-lg p-3 border border-ink-100 relative">
+            <span className="text-[10px] font-bold text-ink-400 tracking-widest uppercase block mb-1">
+              App
+            </span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-ink-800 truncate">
+                {tenantName}
+              </span>
+              <span
+                className={clsx(
+                  "text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider flex-shrink-0",
+                  tenantPlan === "enterprise"
+                    ? "bg-brand-50 text-brand-700 border-brand-200"
+                    : tenantPlan === "pro"
+                    ? "bg-success-50 text-success-700 border-success-200"
+                    : "bg-ink-100 text-ink-700 border-ink-200",
+                )}
+              >
+                {tenantPlan}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Nav */}

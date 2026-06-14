@@ -6,9 +6,6 @@ pluginManagement {
     }
 }
 
-// Migration tooling — composite build for the PayCraft v2 migration Gradle plugin
-includeBuild("build-logic")
-
 dependencyResolutionManagement {
     repositories {
         google()

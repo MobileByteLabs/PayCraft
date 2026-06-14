@@ -12,6 +12,7 @@ type Product = {
   sku: string
   type: "subscription" | "trial" | "lifetime"
   display_name: string
+  trial_enabled: boolean
   trial_duration_days: number | null
   attaches_to_product_id: string | null
   interval: string | null

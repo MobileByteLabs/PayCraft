@@ -12,6 +12,7 @@ interface ProductInput {
   type: ProductType
   display_name: string
   interval?: Interval | null
+  trial_enabled?: boolean
   trial_duration_days?: number | null
   attaches_to_product_id?: string | null
   base_price_cents: number
@@ -122,6 +123,30 @@ export function ProductForm({
             </select>
           </Field>
           <PriceFields p={p} setP={setP} />
+          <Field label="Free trial">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={p.trial_enabled ?? true}
+                onChange={(e) => setP({ ...p, trial_enabled: e.target.checked })}
+              />
+              Offer a free trial on first checkout
+            </label>
+          </Field>
+          {(p.trial_enabled ?? true) && (
+            <Field label="Trial duration (days)">
+              <input
+                type="number"
+                min={1}
+                max={365}
+                value={p.trial_duration_days ?? 7}
+                onChange={(e) =>
+                  setP({ ...p, trial_duration_days: parseInt(e.target.value || "7") })
+                }
+                className="input w-24"
+              />
+            </Field>
+          )}
         </>
       )}
 

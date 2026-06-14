@@ -1,18 +1,21 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import {
   ArrowLeft,
   CheckCircle2,
+  Globe,
   Info,
   Plus,
   Trash2,
 } from "lucide-react"
+import { resolveTemplatePrices } from "@/lib/pricing-template"
 
 type ProductType = "subscription" | "trial" | "lifetime"
 type Interval = "month" | "quarter" | "semiannual" | "year"
+type PricingMode = "auto" | "manual" | "global"
 
 interface ProductInput {
   id?: string
@@ -20,10 +23,14 @@ interface ProductInput {
   type: ProductType
   display_name: string
   interval?: Interval | null
+  trial_enabled?: boolean
   trial_duration_days?: number | null
   attaches_to_product_id?: string | null
   base_price_cents: number
   base_currency: string
+  pricing_mode: PricingMode
+  global_price_cents?: number | null
+  global_currency?: string | null
   display_order: number
   active: boolean
 }
@@ -59,11 +66,22 @@ export function ProductFormShell({
   subscriptions: Subscription[]
 }) {
   const router = useRouter()
-  const [p, setP] = useState<ProductInput>(initial)
+  const [p, setP] = useState<ProductInput>({ pricing_mode: "auto", ...initial })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [features, setFeatures] = useState<string[]>(["", "", ""])
   const [description, setDescription] = useState("")
+
+  // Multi-currency pricing state
+  const [pricingRows, setPricingRows] = useState(() =>
+    resolveTemplatePrices(initial.base_price_cents || 999),
+  )
+  // Re-compute auto rows when base price changes in Auto mode
+  useEffect(() => {
+    if (p.pricing_mode === "auto") {
+      setPricingRows(resolveTemplatePrices(p.base_price_cents || 999))
+    }
+  }, [p.base_price_cents, p.pricing_mode])
 
   // Derived preview values
   const previewName = p.display_name || "Pro Monthly Plan"
@@ -85,10 +103,25 @@ export function ProductFormShell({
     try {
       const url = p.id ? `/api/products/${p.id}` : "/api/products"
       const method = p.id ? "PATCH" : "POST"
+
+      // Include multi-currency rows for auto/manual mode so API can persist + sync to Stripe.
+      const apiPayload = {
+        ...p,
+        pricing_rows:
+          p.pricing_mode !== "global"
+            ? pricingRows.map((r) => ({
+                locale: r.country,
+                currency: r.currency,
+                amount_cents: r.amountCents,
+                source: p.pricing_mode === "auto" ? "stripe" : "manual",
+              }))
+            : [],
+      }
+
       const res = await fetch(url, {
         method,
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(p),
+        body: JSON.stringify(apiPayload),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -286,6 +319,51 @@ export function ProductFormShell({
                 </div>
               )}
 
+              {p.type === "subscription" && (
+                <div className="space-y-4 pt-2 border-t border-ink-100">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-ink-900">Free trial</div>
+                      <div className="text-xs text-ink-500">
+                        Let new customers try this plan before they're charged. Trial length applies on first checkout.
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={p.trial_enabled ?? true}
+                        onChange={(e) =>
+                          setP({ ...p, trial_enabled: e.target.checked })
+                        }
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-ink-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600" />
+                    </label>
+                  </div>
+
+                  {(p.trial_enabled ?? true) && (
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-ink-500 block">
+                        Trial duration (days)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={365}
+                        value={p.trial_duration_days ?? 7}
+                        onChange={(e) =>
+                          setP({
+                            ...p,
+                            trial_duration_days: parseInt(e.target.value || "7"),
+                          })
+                        }
+                        className="w-32 px-4 py-2.5 bg-ink-50/50 border border-ink-200 rounded-lg text-[14px] focus:outline-none focus:border-brand-500"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
               {p.type === "trial" && (
                 <>
                   <div className="space-y-2">
@@ -330,6 +408,105 @@ export function ProductFormShell({
                     </select>
                   </div>
                 </>
+              )}
+
+              {/* Multi-currency pricing mode (only for paid products) */}
+              {p.type !== "trial" && (
+                <div className="space-y-4 pt-2 border-t border-ink-100">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-3.5 h-3.5 text-ink-400" />
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-ink-500">
+                      Multi-currency pricing
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    {(["auto", "manual", "global"] as PricingMode[]).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setP({ ...p, pricing_mode: m })}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
+                          p.pricing_mode === m
+                            ? "bg-brand-600 text-white"
+                            : "bg-ink-100 text-ink-500 hover:bg-ink-200"
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-ink-400">
+                    {p.pricing_mode === "auto" && "Prices auto-computed from your USD reference using PPP bands. Saved to Stripe per country."}
+                    {p.pricing_mode === "manual" && "Set each country's price manually. Edit the amounts in the table below."}
+                    {p.pricing_mode === "global" && "One price for all countries. SDK always shows this price regardless of locale."}
+                  </p>
+
+                  {p.pricing_mode === "global" && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block">Global price (cents)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={p.global_price_cents ?? 999}
+                          onChange={(e) => setP({ ...p, global_price_cents: parseInt(e.target.value || "0") })}
+                          className="w-full px-3 py-2 bg-ink-50 border border-ink-200 rounded-lg text-sm focus:outline-none focus:border-brand-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block">Currency</label>
+                        <select
+                          value={p.global_currency ?? "USD"}
+                          onChange={(e) => setP({ ...p, global_currency: e.target.value })}
+                          className="w-full px-3 py-2 bg-ink-50 border border-ink-200 rounded-lg text-sm focus:outline-none focus:border-brand-500"
+                        >
+                          <option>USD</option><option>EUR</option><option>GBP</option>
+                          <option>INR</option><option>JPY</option><option>AUD</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {(p.pricing_mode === "auto" || p.pricing_mode === "manual") && (
+                    <div className="max-h-64 overflow-y-auto rounded-lg border border-ink-200">
+                      <table className="w-full text-xs">
+                        <thead className="bg-ink-50 sticky top-0">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-bold text-ink-500">Country</th>
+                            <th className="px-3 py-2 text-left font-bold text-ink-500">Currency</th>
+                            <th className="px-3 py-2 text-left font-bold text-ink-500">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pricingRows.map((r) => (
+                            <tr key={r.country} className="border-t border-ink-100">
+                              <td className="px-3 py-1.5 text-ink-600 font-medium">{r.country}</td>
+                              <td className="px-3 py-1.5 text-ink-500">{r.currency}</td>
+                              <td className="px-3 py-1.5">
+                                {p.pricing_mode === "manual" ? (
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={r.amountCents}
+                                    onChange={(e) => {
+                                      const v = parseInt(e.target.value || "0")
+                                      setPricingRows((prev) =>
+                                        prev.map((x) => x.country === r.country ? { ...x, amountCents: v } : x),
+                                      )
+                                    }}
+                                    className="w-24 px-2 py-1 border border-ink-200 rounded text-xs focus:outline-none focus:border-brand-500"
+                                  />
+                                ) : (
+                                  <span className="text-ink-700">{r.amountCents}</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* Display order & active */}

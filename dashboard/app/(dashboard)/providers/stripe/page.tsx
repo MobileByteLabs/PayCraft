@@ -84,6 +84,7 @@ export default function StripeConnectPage() {
                   size="lg"
                   className="w-full justify-center shadow-lg shadow-brand-500/20"
                   leading={<CreditCard className="w-4 h-4" strokeWidth={2} />}
+                  onClick={() => { window.location.href = "/api/providers/stripe/oauth/start" }}
                 >
                   Connect with Stripe
                 </Button>
@@ -151,6 +152,11 @@ export default function StripeConnectPage() {
                   variant="ghost"
                   size="sm"
                   className="w-full mt-2 border border-danger-200 text-danger-500 hover:bg-danger-50 hover:text-danger-600"
+                  onClick={async () => {
+                    if (!confirm("Disconnect Stripe? This revokes the webhook and access token.")) return
+                    await fetch("/api/providers/stripe/disconnect", { method: "POST" })
+                    window.location.reload()
+                  }}
                 >
                   Disconnect Account
                 </Button>

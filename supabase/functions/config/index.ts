@@ -78,9 +78,33 @@ serve(async (req: Request): Promise<Response> => {
       .single(),
   ])
 
-  // 4. Resolve per-locale price for each product
+  // 4. Resolve per-locale price for each product + project trial fields with safe
+  //    defaults so the SDK always receives a fully-formed ProductDto regardless of
+  //    how old a tenant's data is on disk.
   const pricedProducts = await Promise.all(
     (productsRes.data ?? []).map(async (p: Record<string, unknown>) => {
+      const trialEnabled = p.trial_enabled === undefined || p.trial_enabled === null
+        ? true
+        : Boolean(p.trial_enabled)
+      const trialDurationDays = typeof p.trial_duration_days === "number"
+        ? p.trial_duration_days
+        : 7
+
+      // Global mode: single price worldwide — skip tenant_pricing lookup.
+      if (p.pricing_mode === "global" && p.global_price_cents && p.global_currency) {
+        return {
+          ...p,
+          trial_enabled: trialEnabled,
+          trial_duration_days: trialDurationDays,
+          resolved_price: {
+            amount_cents: p.global_price_cents,
+            currency: p.global_currency,
+            source: "global",
+          },
+        }
+      }
+
+      // Auto / manual mode: resolve locale-specific price from tenant_pricing rows.
       const priceRes = await supabase.rpc("tenant_pricing_resolve", {
         p_tenant_id: tenantId,
         p_product_id: p.id,
@@ -98,7 +122,12 @@ serve(async (req: Request): Promise<Response> => {
             currency: p.base_currency,
             source: "fallback",
           }
-      return { ...p, resolved_price }
+      return {
+        ...p,
+        trial_enabled: trialEnabled,
+        trial_duration_days: trialDurationDays,
+        resolved_price,
+      }
     }),
   )
 

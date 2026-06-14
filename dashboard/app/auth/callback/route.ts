@@ -1,5 +1,4 @@
 import { createServerClient } from "@supabase/ssr"
-import { cookies } from "next/headers"
 import { NextRequest, NextResponse } from "next/server"
 
 export async function GET(request: NextRequest) {
@@ -11,9 +10,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/auth/login", origin))
   }
 
-  // In Next.js App Router route handlers, cookies() is mutable — set cookies here
-  // and they are automatically attached to any returned response, including redirects.
-  const cookieStore = cookies()
+  // Create the redirect response FIRST so auth cookies land on this exact
+  // response object — not on a separate cookieStore that won't transfer.
+  const response = NextResponse.redirect(new URL("/subscribers", origin))
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,16 +20,13 @@ export async function GET(request: NextRequest) {
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll()
+          return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            )
-          } catch {
-            // Should not throw in a route handler, but guard anyway
-          }
+          cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set(name, value)
+            response.cookies.set({ name, value, ...options })
+          })
         },
       },
     },
@@ -40,7 +36,9 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     console.error("[auth/callback] exchangeCodeForSession failed:", error.message)
-    return NextResponse.redirect(new URL(`/auth/login?error=${encodeURIComponent(error.message)}`, origin))
+    return NextResponse.redirect(
+      new URL(`/auth/login?error=${encodeURIComponent(error.message)}`, origin)
+    )
   }
 
   // Auto-provision tenant on first sign-in
@@ -82,5 +80,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.redirect(new URL("/subscribers", origin))
+  return response
 }

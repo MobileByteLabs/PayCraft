@@ -2,6 +2,7 @@ package com.mobilebytelabs.paycraft.presentation
 
 import kotlin.test.Test
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 
 class BrandingTest {
@@ -47,8 +48,7 @@ class BrandingTest {
     fun Attribution_is_not_None() {
         val a: Branding = Branding.Attribution
         val n: Branding = Branding.None
-        // distinct instances
-        assert(a != n)
+        assertNotEquals(a, n)
     }
 
     @Test

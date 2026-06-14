@@ -1,9 +1,45 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase-browser"
 import { Button } from "@/components/ui/button"
+
+/**
+ * Nuke any stale Supabase auth artifacts before initiating a fresh OAuth flow.
+ *
+ * Past failed flows (cancelled at Google, network blip during PKCE exchange,
+ * stale code_verifier cookies from an older `@supabase/ssr` version) can leave
+ * the browser holding cookies / localStorage keys that supabase-js still treats
+ * as "current". When the next signInWithOAuth fires, those stale artifacts get
+ * mixed into the new request and GoTrue rejects with `{"message":"Bad request"}`.
+ *
+ * Clearing on mount makes every visit to /auth/login a guaranteed clean slate.
+ * Safe to run unconditionally — there's no scenario where an already-signed-in
+ * user benefits from landing on the login page with their session intact.
+ */
+function purgeStaleSupabaseAuthState() {
+  if (typeof window === "undefined") return
+
+  try {
+    Object.keys(localStorage).forEach((k) => {
+      if (k.startsWith("sb-") || k.startsWith("supabase.")) localStorage.removeItem(k)
+    })
+    Object.keys(sessionStorage).forEach((k) => {
+      if (k.startsWith("sb-") || k.startsWith("supabase.")) sessionStorage.removeItem(k)
+    })
+    document.cookie
+      .split(";")
+      .map((c) => c.trim().split("=")[0])
+      .filter((n) => n.startsWith("sb-") || n.startsWith("supabase-") || n === "paycraft_active_app_id")
+      .forEach((name) => {
+        document.cookie = `${name}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT`
+        document.cookie = `${name}=; Path=/; Domain=${location.hostname}; Expires=Thu, 01 Jan 1970 00:00:00 GMT`
+      })
+  } catch {
+    // localStorage may throw in private-mode or strict-cookie browsers — ignore.
+  }
+}
 
 function GoogleIcon() {
   return (
@@ -41,9 +77,26 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const supabase = createClient()
 
+  // Purge stale Supabase auth state on every mount of /auth/login. Any prior
+  // failed OAuth round-trip can leave `sb-*` cookies / localStorage keys behind
+  // that poison the next signInWithOAuth call (GoTrue then 400s with
+  // {"message":"Bad request"} before the browser even reaches Google). This
+  // guarantees a clean slate.
+  useEffect(() => {
+    purgeStaleSupabaseAuthState()
+    // Tell gotrue-js to forget any in-memory session too — defense in depth.
+    void supabase.auth.signOut({ scope: "local" }).catch(() => {})
+  }, [supabase])
+
   async function signInWithGoogle() {
     setLoading(true)
     setError(null)
+
+    // Idempotent re-purge right before kicking off OAuth — protects against
+    // any state the user accumulated since the page first mounted (extensions,
+    // back-button into a stale tab, etc.).
+    purgeStaleSupabaseAuthState()
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -52,6 +105,9 @@ export default function LoginPage() {
       },
     })
     if (error) {
+      // If GoTrue rejected the call (e.g. lingering server-side state from a
+      // racing tab), nuke once more so the next click starts fresh.
+      purgeStaleSupabaseAuthState()
       setError(error.message)
       setLoading(false)
     }
