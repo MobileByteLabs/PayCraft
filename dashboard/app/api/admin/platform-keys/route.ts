@@ -111,7 +111,7 @@ async function validateStripeSecret(secret: string): Promise<string | null> {
     return "Secret key must start with `sk_test_` or `sk_live_`"
   }
   try {
-    const stripe = new Stripe(secret, { apiVersion: "2024-11-20.acacia" })
+    const stripe = new Stripe(secret, { apiVersion: "2026-05-27.dahlia" })
     // balance.retrieve() is the cheapest call that proves the key authenticates.
     await stripe.balance.retrieve()
     return null

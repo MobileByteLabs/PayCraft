@@ -4,6 +4,168 @@ import type { WebhookLog } from "@/lib/types"
 import { Plus, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react"
 import Link from "next/link"
 
+/**
+ * Per-provider webhook setup hints. Each entry is one collapsible
+ * `<details>` block on the page. Adding a new provider only needs
+ * a new row here — the URL template, events list, secret-source
+ * pointer, and test-event hint render automatically.
+ */
+const WEBHOOK_SETUP: Record<
+  string,
+  {
+    label: string
+    fnPath: string
+    events: string[]
+    secretSource: string
+    testEvent: string
+  }
+> = {
+  stripe: {
+    label: "Stripe",
+    fnPath: "stripe-webhook",
+    events: [
+      "customer.subscription.created",
+      "customer.subscription.updated",
+      "customer.subscription.deleted",
+      "invoice.paid",
+      "invoice.payment_failed",
+    ],
+    secretSource:
+      "Dashboard → Developers → Webhooks → your endpoint → Signing secret (whsec_…).",
+    testEvent:
+      "Send `customer.subscription.created` from the Stripe dashboard's `Send test webhook` button.",
+  },
+  razorpay: {
+    label: "Razorpay",
+    fnPath: "razorpay-webhook",
+    events: [
+      "subscription.activated",
+      "subscription.charged",
+      "subscription.cancelled",
+      "payment.captured",
+      "payment.failed",
+    ],
+    secretSource:
+      "Dashboard → Settings → Webhooks → your endpoint → Secret (the value you set when creating it).",
+    testEvent:
+      "Razorpay does not have a built-in tester — capture a ₹1 test payment to fire `payment.captured`.",
+  },
+  cashfree: {
+    label: "Cashfree",
+    fnPath: "cashfree-webhook",
+    events: [
+      "SUBSCRIPTION_NEW",
+      "SUBSCRIPTION_ACTIVE",
+      "SUBSCRIPTION_CANCELLED",
+      "PAYMENT_SUCCESS_WEBHOOK",
+    ],
+    secretSource:
+      "Merchant Dashboard → Developers → Webhooks → your endpoint → Verification Key.",
+    testEvent:
+      "Use Cashfree's Postman collection or the Developers → Webhooks → `Send Test` button.",
+  },
+}
+
+function WebhookSetupSection({
+  tenantId,
+  cloudUrl,
+  providers,
+}: {
+  tenantId: string
+  cloudUrl: string
+  providers: string[]
+}) {
+  const known = providers.filter((p) => WEBHOOK_SETUP[p])
+  if (known.length === 0) return null
+
+  return (
+    <section className="bg-white rounded-xl border border-ink-200 shadow-sm overflow-hidden">
+      <div className="p-4 border-b border-ink-100">
+        <h3 className="text-xs font-bold text-ink-900 uppercase tracking-wider">
+          Setup instructions
+        </h3>
+        <p className="text-xs text-ink-500 mt-1">
+          Register one webhook per provider so PayCraft Cloud stays in sync with
+          subscription + payment events.
+        </p>
+      </div>
+      <div className="divide-y divide-ink-100">
+        {known.map((p) => {
+          const cfg = WEBHOOK_SETUP[p]
+          const url = `${cloudUrl}/functions/v1/${cfg.fnPath}/${tenantId}`
+          return (
+            <details key={p} className="p-4 group">
+              <summary className="cursor-pointer flex items-center justify-between">
+                <span className="text-sm font-semibold text-ink-900">
+                  {cfg.label}
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wide bg-ink-100 text-ink-500 border border-ink-200 px-2 py-0.5 rounded group-open:hidden">
+                  Show
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wide bg-brand-50 text-brand-700 border border-brand-100 px-2 py-0.5 rounded hidden group-open:inline">
+                  Hide
+                </span>
+              </summary>
+              <div className="mt-4 space-y-4">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mb-1">
+                    Endpoint URL
+                  </div>
+                  <code className="block bg-ink-50 px-3 py-2 rounded text-[12px] font-mono break-all">
+                    {url}
+                  </code>
+                  <p className="text-[11px] text-ink-500 mt-1">
+                    Paste this into your {cfg.label} dashboard as the webhook
+                    endpoint. The tenant ID at the end scopes events to this
+                    app.
+                  </p>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mb-1">
+                    Events to subscribe
+                  </div>
+                  <ul className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                    {cfg.events.map((e) => (
+                      <li
+                        key={e}
+                        className="text-[12px] font-mono bg-ink-50/70 border border-ink-100 rounded px-2 py-1"
+                      >
+                        {e}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mb-1">
+                    Signing secret
+                  </div>
+                  <p className="text-[12px] text-ink-700">{cfg.secretSource}</p>
+                  <p className="text-[11px] text-ink-500 mt-1">
+                    Store the secret in PayCraft via{" "}
+                    <Link
+                      href="/settings/api-keys"
+                      className="text-brand-700 hover:underline"
+                    >
+                      Settings → API keys
+                    </Link>{" "}
+                    so the Edge Function can verify incoming signatures.
+                  </p>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mb-1">
+                    Send a test event
+                  </div>
+                  <p className="text-[12px] text-ink-700">{cfg.testEvent}</p>
+                </div>
+              </div>
+            </details>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 export default async function WebhooksPage({
   searchParams,
 }: {
@@ -33,6 +195,20 @@ export default async function WebhooksPage({
 
   const successCount = (logs ?? []).filter((l: WebhookLog) => l.status === "success").length
   const failedCount = (logs ?? []).filter((l: WebhookLog) => l.status === "failed").length
+
+  // Active providers for this tenant — drives which setup-instructions
+  // sections render below. Falls back to the full set if the query fails
+  // (e.g. fresh project with no rows yet) so onboarding still sees hints.
+  const { data: providerRows } = await supabase
+    .from("tenant_providers")
+    .select("provider")
+    .eq("tenant_id", tenant.id)
+    .eq("is_active", true)
+  const activeProviders =
+    providerRows && providerRows.length > 0
+      ? Array.from(new Set(providerRows.map((r: any) => r.provider as string)))
+      : ["stripe", "razorpay", "cashfree"]
+  const cloudUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""
 
   return (
     <div className="space-y-8">
@@ -109,6 +285,13 @@ export default async function WebhooksPage({
           </div>
         </div>
       </section>
+
+      {/* Per-provider setup hints — AC-34 */}
+      <WebhookSetupSection
+        tenantId={tenant.id}
+        cloudUrl={cloudUrl}
+        providers={activeProviders}
+      />
 
       {/* Delivery Log */}
       <section>

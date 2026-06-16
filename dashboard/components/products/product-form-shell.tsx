@@ -71,7 +71,7 @@ export function ProductFormShell({
   subscriptions: Subscription[]
 }) {
   const router = useRouter()
-  const [p, setP] = useState<ProductInput>({ pricing_mode: "auto", ...initial })
+  const [p, setP] = useState<ProductInput>({ ...initial, pricing_mode: initial.pricing_mode ?? "auto" })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [features, setFeatures] = useState<string[]>(["", "", ""])

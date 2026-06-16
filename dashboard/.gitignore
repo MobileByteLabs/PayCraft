@@ -4,3 +4,4 @@ out/
 .env.local
 .env
 .vercel
+tsconfig.tsbuildinfo

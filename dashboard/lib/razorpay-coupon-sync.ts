@@ -68,7 +68,7 @@ export async function syncCouponToRazorpay(opts: {
 
   let offerId: string
   try {
-    // @ts-expect-error razorpay node SDK types lag the REST API
+    // razorpay node SDK types lag the REST API; `offers` is REST-only
     const resp = await (client as any).offers.create(payload)
     offerId = resp.id
   } catch (e: any) {

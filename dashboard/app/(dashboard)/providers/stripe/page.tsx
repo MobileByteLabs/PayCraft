@@ -114,7 +114,7 @@ export default function StripeConnectPage() {
           <div className="flex items-center gap-3">
             <h2 className="text-2xl font-bold text-ink-900 tracking-tight">Stripe</h2>
             {statusLoading ? (
-              <Badge tone="default">Checking…</Badge>
+              <Badge tone="neutral">Checking…</Badge>
             ) : status?.connected ? (
               <Badge tone="success" dot>
                 Connected ({status.mode === "oauth" ? "via OAuth" : "via API keys"})

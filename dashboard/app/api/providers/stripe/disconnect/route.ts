@@ -48,7 +48,7 @@ export async function POST() {
   // 1. Revoke webhook endpoint on the connected account.
   if (data.webhook_endpoint_id) {
     try {
-      const connected = new Stripe(data.access_token, { apiVersion: "2024-11-20.acacia" })
+      const connected = new Stripe(data.access_token, { apiVersion: "2026-05-27.dahlia" })
       await connected.webhookEndpoints.del(data.webhook_endpoint_id)
     } catch (e: any) {
       console.error("[stripe-disconnect] webhook delete failed:", e.message)
@@ -58,7 +58,7 @@ export async function POST() {
   // 2. Deauthorize via platform.
   if (process.env.STRIPE_CONNECT_CLIENT_ID) {
     try {
-      const platform = getPlatformStripeClient()
+      const platform = await getPlatformStripeClient()
       await platform.oauth.deauthorize({
         client_id: process.env.STRIPE_CONNECT_CLIENT_ID,
         stripe_user_id: data.stripe_account_id,

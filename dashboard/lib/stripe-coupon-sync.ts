@@ -62,7 +62,7 @@ export async function syncCouponToStripe(opts: {
 
   const promo = await stripe.promotionCodes.create(
     {
-      coupon: coupon.id,
+      promotion: { type: "coupon", coupon: coupon.id },
       code: opts.code,
       active: true,
       max_redemptions: opts.maxRedemptions ?? undefined,

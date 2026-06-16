@@ -39,7 +39,7 @@ async function validateStripeSecret(
     return `${mode}_secret_key must start with ${prefix}`
   }
   try {
-    const client = new Stripe(secret, { apiVersion: "2024-11-20.acacia" })
+    const client = new Stripe(secret, { apiVersion: "2026-05-27.dahlia" })
     await client.balance.retrieve()
     return null
   } catch (e: any) {

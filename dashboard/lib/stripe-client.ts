@@ -23,7 +23,7 @@ import { createClient as createServiceClient } from "@supabase/supabase-js"
  *      auto-creation in the user's Stripe account.
  */
 
-const STRIPE_API_VERSION: Stripe.LatestApiVersion = "2024-11-20.acacia"
+const STRIPE_API_VERSION = "2026-05-27.dahlia" as const
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!
 

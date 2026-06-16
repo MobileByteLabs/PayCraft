@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
 
   // 3. Register webhook endpoint on the connected account.
   try {
-    const connected = new Stripe(tokenResp.access_token, { apiVersion: "2024-11-20.acacia" })
+    const connected = new Stripe(tokenResp.access_token, { apiVersion: "2026-05-27.dahlia" })
     const webhookUrl = `${SUPABASE_URL}/functions/v1/stripe-webhook/${verified.tenantId}`
     const we = await connected.webhookEndpoints.create({
       url: webhookUrl,

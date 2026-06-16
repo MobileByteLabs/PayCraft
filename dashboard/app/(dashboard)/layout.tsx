@@ -1,6 +1,7 @@
 import { cookies } from "next/headers"
 import { Sidebar } from "@/components/sidebar"
 import { AppSwitcher } from "@/components/app-switcher"
+import { GraceBanner } from "@/components/billing/GraceBanner"
 import { requireTenant, getUserApps } from "@/lib/tenant"
 import { createClient } from "@/lib/supabase-server"
 
@@ -29,6 +30,9 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-ink-50 antialiased">
+      {/* GraceBanner renders nothing for tenants outside warn/grace; sits above
+          nav so it's visible on every authenticated route (AC-44). */}
+      <GraceBanner />
       <Sidebar
         tenantName={tenant.name}
         tenantPlan={tenant.plan}

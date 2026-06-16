@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { ArrowLeft, Pencil, Tag } from "lucide-react"
+import { ArrowLeft, Pencil, Tag, Globe } from "lucide-react"
 import { notFound } from "next/navigation"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
@@ -74,13 +74,22 @@ export default async function ProductViewPage({
             fetch (max 1h cached client-side).
           </p>
         </div>
-        <Link
-          href={`/products/${params.id}/edit`}
-          className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-ink-900 text-white rounded-lg hover:bg-ink-800 flex-shrink-0"
-        >
-          <Pencil className="w-3.5 h-3.5" />
-          Edit product
-        </Link>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Link
+            href={`/products/${params.id}/pricing`}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-white text-ink-900 border border-ink-200 rounded-lg hover:bg-ink-50"
+          >
+            <Globe className="w-3.5 h-3.5" />
+            Locale pricing
+          </Link>
+          <Link
+            href={`/products/${params.id}/edit`}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-ink-900 text-white rounded-lg hover:bg-ink-800"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+            Edit product
+          </Link>
+        </div>
       </div>
 
       {/* Provider sync — first because it's the most-actioned panel after a save */}

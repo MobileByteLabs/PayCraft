@@ -4,7 +4,7 @@ import { requireTenant, getUserApps } from "@/lib/tenant"
 import { Plus, Smartphone } from "lucide-react"
 import { Card, CardBody } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { ButtonLink } from "@/components/ui/button"
 
 export default async function AppsPage() {
   const [{ tenant }, apps] = await Promise.all([requireTenant(), getUserApps()])
@@ -18,14 +18,13 @@ export default async function AppsPage() {
             Each app has its own API key, providers, and products.
           </p>
         </div>
-        <Button
-          as={Link}
+        <ButtonLink
           href="/apps/new"
           variant="primary"
           leading={<Plus className="w-4 h-4" />}
         >
           New app
-        </Button>
+        </ButtonLink>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -39,7 +38,7 @@ export default async function AppsPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-ink-900 truncate">{app.name}</div>
-                    <Badge tone={app.plan === "pro" ? "success" : "neutral"} size="sm">
+                    <Badge tone={app.plan === "pro" ? "success" : "neutral"}>
                       {app.plan}
                     </Badge>
                   </div>
