@@ -12,7 +12,7 @@ set -eo pipefail
 # ═══════════════════════════════════════════════════════════
 # Resolve paths
 # ═══════════════════════════════════════════════════════════
-PAYCRAFT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PAYCRAFT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FW_ROOT="$(cd "$PAYCRAFT_SRC/../../../../../.." && pwd)"
 STATE_DIR="$PAYCRAFT_SRC/infra/deploy/.state"
 LEDGER="$PAYCRAFT_SRC/infra/deploy/.deploy-ledger.jsonl"
@@ -34,6 +34,12 @@ KEEP_GOING=false
 VERBOSE=false
 SILENT=false
 NON_INTERACTIVE=false
+SUB_COMMAND=""
+
+# Sub-command detection (first positional arg)
+case "${1:-}" in
+    status|matrix|info)  SUB_COMMAND="$1"; shift ;;
+esac
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -357,6 +363,129 @@ log_ledger() {
 {"ts":"$ts","env":"$ENV_TARGET","status":"$status","duration_s":$total,"failed_phase":"$failed_phase","deploy_id":"$deploy_id","apply":$APPLY}
 JSON
 }
+
+# ═══════════════════════════════════════════════════════════
+# Status probe — produces structured state for matrix render
+# ═══════════════════════════════════════════════════════════
+emit_status() {
+    # YAML-like flat key/value output for easy parsing by Claude/jq/awk.
+
+    echo "─── env ─────────────────────────────────────────────"
+    printf "active_project: %s\n" "$(bash $FW_ROOT/core/scripts/session-resolve.sh 2>/dev/null || echo unknown)"
+    printf "target_env:     %s\n" "$ENV_TARGET"
+    printf "dashboard_path: %s\n" "$PAYCRAFT_SRC/dashboard"
+    printf "framework_supabase_project_ref: mlwfgytjxlqyfxcgpysm\n"
+    echo ""
+
+    echo "─── prereqs ────────────────────────────────────────"
+    printf "cli_vercel:    %s\n"   "$(command -v vercel >/dev/null && echo INSTALLED || echo MISSING)"
+    printf "cli_supabase:  %s\n"   "$(command -v supabase >/dev/null && echo INSTALLED || echo MISSING)"
+    printf "cli_jq:        %s\n"   "$(command -v jq >/dev/null && echo INSTALLED || echo MISSING)"
+    printf "auth_vercel:   %s\n"   "$(vercel whoami 2>/dev/null && echo LOGGED-IN || echo NOT-LOGGED-IN)" 2>/dev/null | head -1
+    printf "auth_supabase: %s\n"   "$(supabase projects list >/dev/null 2>&1 && echo LOGGED-IN || echo NOT-LOGGED-IN)"
+    printf "link_vercel:   %s\n"   "$([ -f $PAYCRAFT_SRC/dashboard/.vercel/project.json ] && echo LINKED || echo NOT-LINKED)"
+    printf "link_supabase: %s\n"   "$([ -f $PAYCRAFT_SRC/supabase/.temp/project-ref ] && echo LINKED || echo NOT-LINKED)"
+    printf "dashboard_node_modules: %s\n" "$([ -d $PAYCRAFT_SRC/dashboard/node_modules ] && echo PRESENT || echo MISSING)"
+    echo ""
+
+    echo "─── vault (14 secrets) ─────────────────────────────"
+    local total=0 present=0 missing=()
+    local SECRETS=(
+        mbs-paycraft-encryption-key
+        mbs-paycraft-stripe-platform-secret-key
+        mbs-paycraft-stripe-platform-publishable-key
+        mbs-paycraft-stripe-platform-webhook-secret
+        mbs-paycraft-stripe-connect-client-id
+        mbs-paycraft-razorpay-key-id
+        mbs-paycraft-razorpay-key-secret
+        mbs-paycraft-razorpay-webhook-secret
+        mbs-paycraft-resend-api-key
+        mbs-paycraft-sentry-dsn
+        mbs-paycraft-sentry-auth-token
+        mbs-paycraft-vercel-token
+        mbs-paycraft-vercel-org-id
+        mbs-paycraft-vercel-project-id
+    )
+    for a in "${SECRETS[@]}"; do
+        total=$((total + 1))
+        if bash "$FW_ROOT/core/scripts/secrets-get.sh" --alias "$a" --exists-only 2>/dev/null; then
+            present=$((present + 1))
+        else
+            missing+=("$a")
+        fi
+    done
+    printf "vault_present: %d\n" "$present"
+    printf "vault_missing: %d\n" "${#missing[@]}"
+    printf "vault_total:   %d\n" "$total"
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "vault_missing_list:"
+        for m in "${missing[@]}"; do printf "  - %s\n" "$m"; done
+    fi
+    echo ""
+
+    echo "─── phases ─────────────────────────────────────────"
+    for n in 0 1 2 3 4 5 6 7 8; do
+        local label=""
+        local marker="$STATE_DIR/phase-$n.done"
+        case "$n" in
+            0) label="BOOTSTRAP" ;;
+            1) label="PRE-FLIGHT" ;;
+            2) label="SECRETS SYNC" ;;
+            3) label="MIGRATIONS" ;;
+            4) label="BUILD" ;;
+            5) label="DEPLOY" ;;
+            6) label="DNS" ;;
+            7) label="DOMAIN ATTACH" ;;
+            8) label="HEALTH" ;;
+        esac
+        if [[ -f "$marker" ]]; then
+            local ts=$(stat -f %m "$marker" 2>/dev/null || stat -c %Y "$marker" 2>/dev/null)
+            local age_s=$(( $(date -u +%s) - ts ))
+            local age_h=$(( age_s / 3600 ))
+            printf "phase_%d: PASS (age %dh) %s\n" "$n" "$age_h" "$label"
+        else
+            printf "phase_%d: NOT-RUN %s\n" "$n" "$label"
+        fi
+    done
+    echo ""
+
+    echo "─── live state ─────────────────────────────────────"
+    local last_url
+    last_url=$(cat "$STATE_DIR/last-deploy-url" 2>/dev/null || echo "")
+    printf "last_deploy_url: %s\n" "$last_url"
+    printf "live_url:        https://paycraft.mobilebytesensei.com\n"
+
+    local cname
+    cname=$(dig +short paycraft.mobilebytesensei.com CNAME 2>/dev/null | head -1 | sed 's/\.$//')
+    if [[ "$cname" = "cname.vercel-dns.com" ]]; then
+        printf "dns_cname:       OK (paycraft → %s)\n" "$cname"
+    elif [[ -n "$cname" ]]; then
+        printf "dns_cname:       WRONG (paycraft → %s, expected cname.vercel-dns.com)\n" "$cname"
+    else
+        printf "dns_cname:       NOT-CONFIGURED\n"
+    fi
+
+    if [[ -n "$last_url" ]]; then
+        local http_status
+        http_status=$(curl -fsS -o /dev/null -w "%{http_code}" --max-time 8 "https://paycraft.mobilebytesensei.com" 2>/dev/null || echo "000")
+        printf "health_http:     %s\n" "$http_status"
+    else
+        printf "health_http:     not-deployed-yet\n"
+    fi
+    echo ""
+
+    echo "─── ledger (tail 3) ────────────────────────────────"
+    if [[ -f "$LEDGER" ]]; then
+        tail -3 "$LEDGER"
+    else
+        echo "(no deploys yet)"
+    fi
+}
+
+if [[ "$SUB_COMMAND" = "status" || "$SUB_COMMAND" = "matrix" || "$SUB_COMMAND" = "info" ]]; then
+    emit_status
+    exit 0
+fi
 
 # ═══════════════════════════════════════════════════════════
 # MAIN

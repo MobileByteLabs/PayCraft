@@ -13,7 +13,7 @@ VERBOSE=false
 [[ "${1:-}" = "--verbose" ]] && VERBOSE=true
 
 FW_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../../../.." && pwd)"
-PAYCRAFT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PAYCRAFT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 PASS=0
 FAIL=0

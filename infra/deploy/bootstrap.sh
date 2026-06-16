@@ -22,7 +22,7 @@
 #
 set -eo pipefail
 
-PAYCRAFT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PAYCRAFT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FW_ROOT="$(cd "$PAYCRAFT_SRC/../../../../../.." && pwd)"
 
 CHECK_ONLY=false
