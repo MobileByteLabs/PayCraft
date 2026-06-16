@@ -64,6 +64,10 @@ security find-generic-password -s paycraft.cloud -a paycraft-razorpay-webhook-se
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-razorpay-webhook-secret --stdin --account-email mobilebytesensei@gmail.com
 ```
 
+> **NOTE**: Razorpay MCP keys (for personal dev automation via Claude) are NOT a PayCraft deploy
+> dependency. They're tracked separately under registry group `mbs-razorpay-mcp` (user-scope) and
+> consumed by `core/scripts/razorpay-mcp-auth-export.sh`. See framework PR for that helper.
+
 ## Step 3 — Resend (1 secret)
 
 Sign up at https://resend.com → API Keys → Create API key (full access).
