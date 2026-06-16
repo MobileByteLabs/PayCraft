@@ -23,12 +23,7 @@ import com.mobilebytelabs.paycraft.model.Product
  *  - [Product.Lifetime] → "${displayName} · ${formattedPrice} (one-time)"
  */
 @Composable
-fun PlanCard(
-    product: Product,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    popular: Boolean = false,
-) {
+fun PlanCard(product: Product, onClick: () -> Unit, modifier: Modifier = Modifier, popular: Boolean = false) {
     val secondary = when (product) {
         is Product.Subscription -> "${product.basePrice.format()} / ${product.interval.label()}"
         is Product.Trial -> "Free for ${product.durationDays} days"

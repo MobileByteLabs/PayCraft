@@ -11,10 +11,7 @@ import kotlinx.serialization.json.Json
  * if `now - fetchedAt > cacheTtlSeconds`, the cached config is returned with
  * `cacheTtlSeconds = 0` so callers can detect staleness via [isStale].
  */
-class ConfigCache(
-    private val settings: Settings,
-    private val key: String = "paycraft.suite_config",
-) {
+class ConfigCache(private val settings: Settings, private val key: String = "paycraft.suite_config") {
     private val json = Json { ignoreUnknownKeys = true }
 
     fun read(): SuiteConfig? = runCatching {

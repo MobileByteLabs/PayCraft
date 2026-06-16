@@ -20,11 +20,7 @@ import com.mobilebytelabs.paycraft.presentation.Branding
  * - [Branding.Custom] → renders [customFooterText] if provided, otherwise [Branding.Custom.footer]
  */
 @Composable
-fun BrandingFooter(
-    branding: Branding,
-    customFooterText: String? = null,
-    modifier: Modifier = Modifier,
-) {
+fun BrandingFooter(branding: Branding, customFooterText: String? = null, modifier: Modifier = Modifier) {
     when (branding) {
         is Branding.None -> Unit
 

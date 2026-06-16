@@ -25,12 +25,7 @@ import com.mobilebytelabs.paycraft.presentation.components.PlanCard
  * elevated surface on a near-black background, high-contrast typography.
  */
 @Composable
-fun DarkTemplate(
-    state: BillingState,
-    products: List<Product>,
-    onPick: (Product) -> Unit,
-    onRetry: () -> Unit,
-) {
+fun DarkTemplate(state: BillingState, products: List<Product>, onPick: (Product) -> Unit, onRetry: () -> Unit) {
     val bg = MobileByteSenseiTheme.colorsDark.background
     val onBg = MobileByteSenseiTheme.colorsDark.onBackground
     Box(

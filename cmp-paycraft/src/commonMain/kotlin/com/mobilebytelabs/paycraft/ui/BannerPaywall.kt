@@ -42,11 +42,7 @@ import com.mobilebytelabs.paycraft.model.BillingState
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BannerPaywall(
-    state: BillingState,
-    onTap: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+fun BannerPaywall(state: BillingState, onTap: () -> Unit, modifier: Modifier = Modifier) {
     val label: String = when (state) {
         is BillingState.Free -> "Upgrade to Premium"
         is BillingState.Premium -> when {

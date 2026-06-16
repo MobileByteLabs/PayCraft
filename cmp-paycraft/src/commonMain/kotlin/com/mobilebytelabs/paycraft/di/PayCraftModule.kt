@@ -6,15 +6,15 @@ import com.mobilebytelabs.paycraft.core.PayCraftBillingManager
 import com.mobilebytelabs.paycraft.network.CouponClient
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.network.PayCraftServiceImpl
-import io.ktor.client.HttpClient
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.serialization.kotlinx.json.json
-import kotlinx.serialization.json.Json
 import com.mobilebytelabs.paycraft.ui.PayCraftPaywallViewModel
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.json.Json
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
@@ -52,7 +52,12 @@ val PayCraftModule = module {
     single<HttpClient> {
         HttpClient {
             install(ContentNegotiation) {
-                json(Json { ignoreUnknownKeys = true; explicitNulls = false })
+                json(
+                    Json {
+                        ignoreUnknownKeys = true
+                        explicitNulls = false
+                    },
+                )
             }
         }
     }

@@ -23,11 +23,7 @@ object PayCraftLogger {
 
     // ── Configuration ────────────────────────────────────────────────────────
 
-    fun onInitialize(
-        backendName: String,
-        apiKeyPrefix: String,
-        debug: Boolean,
-    ) {
+    fun onInitialize(backendName: String, apiKeyPrefix: String, debug: Boolean) {
         if (!enabled) return
         Logger.d(TAG) { "══ PayCraft.initialize() ════════════════════════════" }
         Logger.d(TAG) { "  Backend  = $backendName" }
@@ -152,5 +148,4 @@ object PayCraftLogger {
         if (parts.size != 2) return "***"
         return "${parts[0].take(1)}***@${parts[1]}"
     }
-
 }

@@ -23,10 +23,7 @@ import kotlinx.serialization.json.Json
  * the resolved [CouponDto.stripePromotionCodeId] (or equivalent) is appended to
  * the provider's checkout URL.
  */
-class CouponClient(
-    private val httpClient: HttpClient,
-    private val backend: PayCraftBackend,
-) {
+class CouponClient(private val httpClient: HttpClient, private val backend: PayCraftBackend) {
 
     @Serializable
     private data class ValidateRequest(

@@ -75,28 +75,55 @@ class PaywallTemplateTest {
     // MINIMAL — 6 states
 
     @Test fun minimal_loading() = renderAndAssert(PaywallTemplate.MINIMAL, BillingState.Loading, "Loading")
+
     @Test fun minimal_free() = renderAndAssert(PaywallTemplate.MINIMAL, BillingState.Free, "Upgrade to Premium")
+
     @Test fun minimal_premium() = renderAndAssert(PaywallTemplate.MINIMAL, premiumState, "You're Premium")
+
     @Test fun minimal_error() = renderAndAssert(PaywallTemplate.MINIMAL, BillingState.Error("network"), "Retry")
-    @Test fun minimal_device_conflict() = renderAndAssert(PaywallTemplate.MINIMAL, conflictState, "bound to another device")
+
+    @Test fun minimal_device_conflict() = renderAndAssert(
+        PaywallTemplate.MINIMAL,
+        conflictState,
+        "bound to another device",
+    )
+
     @Test fun minimal_ownership_verified() = renderAndAssert(PaywallTemplate.MINIMAL, verifiedState, "Verified via")
 
     // PREMIUM — 6 states
 
     @Test fun premium_loading() = renderAndAssert(PaywallTemplate.PREMIUM, BillingState.Loading, "Loading")
+
     @Test fun premium_free() = renderAndAssert(PaywallTemplate.PREMIUM, BillingState.Free, "Upgrade to Premium")
+
     @Test fun premium_premium() = renderAndAssert(PaywallTemplate.PREMIUM, premiumState, "You're Premium")
-    @Test fun premium_error() = renderAndAssert(PaywallTemplate.PREMIUM, BillingState.Error("server unavailable"), "Retry")
-    @Test fun premium_device_conflict() = renderAndAssert(PaywallTemplate.PREMIUM, conflictState, "bound to another device")
+
+    @Test fun premium_error() = renderAndAssert(
+        PaywallTemplate.PREMIUM,
+        BillingState.Error("server unavailable"),
+        "Retry",
+    )
+
+    @Test fun premium_device_conflict() = renderAndAssert(
+        PaywallTemplate.PREMIUM,
+        conflictState,
+        "bound to another device",
+    )
+
     @Test fun premium_ownership_verified() = renderAndAssert(PaywallTemplate.PREMIUM, verifiedState, "Verified via")
 
     // DARK — 6 states
 
     @Test fun dark_loading() = renderAndAssert(PaywallTemplate.DARK, BillingState.Loading, "Loading")
+
     @Test fun dark_free() = renderAndAssert(PaywallTemplate.DARK, BillingState.Free, "Upgrade to Premium")
+
     @Test fun dark_premium() = renderAndAssert(PaywallTemplate.DARK, premiumState, "You're Premium")
+
     @Test fun dark_error() = renderAndAssert(PaywallTemplate.DARK, BillingState.Error("offline"), "Retry")
+
     @Test fun dark_device_conflict() = renderAndAssert(PaywallTemplate.DARK, conflictState, "bound to another device")
+
     @Test fun dark_ownership_verified() = renderAndAssert(PaywallTemplate.DARK, verifiedState, "Verified via")
 
     private fun renderAndAssert(template: PaywallTemplate, state: BillingState, markerText: String) {

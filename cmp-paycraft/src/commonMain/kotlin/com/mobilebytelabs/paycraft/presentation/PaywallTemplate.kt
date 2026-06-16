@@ -18,15 +18,11 @@ import com.mobilebytelabs.paycraft.presentation.templates.PremiumTemplate
 enum class PaywallTemplate {
     MINIMAL,
     PREMIUM,
-    DARK;
+    DARK,
+    ;
 
     @Composable
-    fun render(
-        state: BillingState,
-        products: List<Product>,
-        onPickProduct: (Product) -> Unit,
-        onRetry: () -> Unit,
-    ) {
+    fun render(state: BillingState, products: List<Product>, onPickProduct: (Product) -> Unit, onRetry: () -> Unit) {
         when (this) {
             MINIMAL -> MinimalTemplate(state, products, onPickProduct, onRetry)
             PREMIUM -> PremiumTemplate(state, products, onPickProduct, onRetry)

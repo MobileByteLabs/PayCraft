@@ -25,12 +25,7 @@ import com.mobilebytelabs.paycraft.presentation.components.PlanCard
  * marketing-grade hero copy. Uses [MobileByteSenseiTheme.colorsLight].
  */
 @Composable
-fun PremiumTemplate(
-    state: BillingState,
-    products: List<Product>,
-    onPick: (Product) -> Unit,
-    onRetry: () -> Unit,
-) {
+fun PremiumTemplate(state: BillingState, products: List<Product>, onPick: (Product) -> Unit, onRetry: () -> Unit) {
     val bg = MobileByteSenseiTheme.colorsLight.background
     Box(
         Modifier

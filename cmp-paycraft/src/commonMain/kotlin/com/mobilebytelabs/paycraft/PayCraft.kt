@@ -87,8 +87,7 @@ object PayCraft {
         )
     }
 
-    fun requireConfig(): PayCraftConfig =
-        config ?: error("PayCraft.initialize(apiKey) must be called before use")
+    fun requireConfig(): PayCraftConfig = config ?: error("PayCraft.initialize(apiKey) must be called before use")
 
     /**
      * Coupons the customer has successfully applied this session.
@@ -115,7 +114,12 @@ object PayCraft {
         CouponClient(
             httpClient = HttpClient {
                 install(ContentNegotiation) {
-                    json(Json { ignoreUnknownKeys = true; explicitNulls = false })
+                    json(
+                        Json {
+                            ignoreUnknownKeys = true
+                            explicitNulls = false
+                        },
+                    )
                 }
             },
             backend = backend,
@@ -134,7 +138,8 @@ object PayCraft {
      * doesn't apply to this product), or [Error] (network / config issues).
      */
     suspend fun applyCoupon(planId: String, code: String): CouponClient.Result {
-        val suite = suiteConfig ?: return CouponClient.Result.Error("PayCraft.initialize() not finished — no SuiteConfig yet")
+        val suite =
+            suiteConfig ?: return CouponClient.Result.Error("PayCraft.initialize() not finished — no SuiteConfig yet")
         val key = apiKey ?: return CouponClient.Result.Error("PayCraft.initialize(apiKey) was not called")
         val product = suite.products.firstOrNull { it.sku == planId }
             ?: return CouponClient.Result.Invalid("Plan $planId not found in cloud config")
@@ -183,7 +188,7 @@ object PayCraft {
 }
 
 data class InitOptions(
-    val localeOverride: String? = null,   // ISO 3166-1 alpha-2; null = system locale
+    val localeOverride: String? = null, // ISO 3166-1 alpha-2; null = system locale
     val skipCache: Boolean = false,
     val debug: Boolean = false,
 )
@@ -207,10 +212,7 @@ enum class ConfigSource { Cloud, SelfHosted, Mock }
  * legacy single-provider field. Multi-provider apps consume `SuiteConfig.providers`
  * directly via the bottom-sheet picker.
  */
-internal fun SuiteConfig.toPayCraftConfig(
-    backend: PayCraftBackend,
-    apiKey: String?,
-): PayCraftConfig {
+internal fun SuiteConfig.toPayCraftConfig(backend: PayCraftBackend, apiKey: String?): PayCraftConfig {
     val firstProvider = providers.firstOrNull()
     val provider: PaymentProvider = if (firstProvider != null) {
         SuiteProviderAdapter(firstProvider)
@@ -266,7 +268,9 @@ private fun List<ProductDto>.toBillingPlans(): List<BillingPlan> {
             price = formatMoney(effectiveCents, originalCurrency),
             originalPrice = if (discountPercent != null) {
                 formatMoney(originalCents, originalCurrency)
-            } else null,
+            } else {
+                null
+            },
             discountPercent = discountPercent,
             discountEndsAt = if (discountPercent != null) dto.discountEndsAt else null,
             interval = dto.interval ?: "lifetime",
@@ -290,9 +294,7 @@ private fun formatMoney(amountCents: Int, currency: String): String = when (curr
  * existing PaymentProvider interface. Locale-resolved checkout URL is taken from livePaymentLinks
  * first, then testPaymentLinks.
  */
-private class SuiteProviderAdapter(
-    private val dto: ProviderDto?,
-) : PaymentProvider {
+private class SuiteProviderAdapter(private val dto: ProviderDto?) : PaymentProvider {
     override val name: String = dto?.provider ?: "cloud"
 
     override fun getCheckoutUrl(plan: BillingPlan, email: String?): String {

@@ -24,12 +24,7 @@ import com.mobilebytelabs.paycraft.presentation.components.PlanCard
  * Uses [MobileByteSenseiTheme.colorsLight] as its base palette.
  */
 @Composable
-fun MinimalTemplate(
-    state: BillingState,
-    products: List<Product>,
-    onPick: (Product) -> Unit,
-    onRetry: () -> Unit,
-) {
+fun MinimalTemplate(state: BillingState, products: List<Product>, onPick: (Product) -> Unit, onRetry: () -> Unit) {
     val bg = MobileByteSenseiTheme.colorsLight.background
     Box(
         Modifier

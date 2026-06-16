@@ -26,12 +26,12 @@ data class SuiteConfig(
 data class ProductDto(
     val id: String,
     val sku: String,
-    val type: String,                       // "subscription" | "trial" | "lifetime"
+    val type: String, // "subscription" | "trial" | "lifetime"
     @SerialName("display_name") val displayName: String,
     @SerialName("trial_enabled") val trialEnabled: Boolean = true,
     @SerialName("trial_duration_days") val trialDurationDays: Int? = 7,
     @SerialName("attaches_to_product_id") val attachesToProductId: String? = null,
-    val interval: String? = null,           // "month" | "quarter" | "semiannual" | "year"
+    val interval: String? = null, // "month" | "quarter" | "semiannual" | "year"
     @SerialName("base_price_cents") val basePriceCents: Int = 0,
     @SerialName("base_currency") val baseCurrency: String = "USD",
     @SerialName("display_order") val displayOrder: Int = 0,
@@ -71,17 +71,13 @@ data class CouponDto(
     val code: String,
     val name: String? = null,
     @SerialName("percent_off") val percentOff: Int,
-    val duration: String,                                       // "once" | "repeating" | "forever"
+    val duration: String, // "once" | "repeating" | "forever"
     @SerialName("duration_in_months") val durationInMonths: Int? = null,
     @SerialName("redeem_by") val redeemBy: String? = null,
 )
 
 @Serializable
-data class PriceDto(
-    @SerialName("amount_cents") val amountCents: Int,
-    val currency: String,
-    val source: String,
-)
+data class PriceDto(@SerialName("amount_cents") val amountCents: Int, val currency: String, val source: String)
 
 @Serializable
 data class ProviderDto(

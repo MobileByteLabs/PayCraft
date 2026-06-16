@@ -46,9 +46,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.generated.resources.Res
-import com.mobilebytelabs.paycraft.presentation.Branding
-import com.mobilebytelabs.paycraft.presentation.ProviderBottomSheet
-import com.mobilebytelabs.paycraft.presentation.components.BrandingFooter
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_choose_plan
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_contact_support_email
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_description
@@ -62,6 +59,9 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_upgrade_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_what_you_get
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_your_premium_title
 import com.mobilebytelabs.paycraft.model.BillingState
+import com.mobilebytelabs.paycraft.presentation.Branding
+import com.mobilebytelabs.paycraft.presentation.ProviderBottomSheet
+import com.mobilebytelabs.paycraft.presentation.components.BrandingFooter
 import com.mobilebytelabs.paycraft.provider.StripeProvider
 import com.mobilebytelabs.paycraft.ui.components.BenefitItem
 import com.mobilebytelabs.paycraft.ui.components.PayCraftActiveSubscriptionBanner

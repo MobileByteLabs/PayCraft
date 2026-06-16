@@ -36,6 +36,7 @@ sealed interface PayCraftBackend {
 
     companion object {
         const val CLOUD_SUPABASE_URL: String = "https://api.paycraft.cloud"
+
         // Public anon key for paycraft.cloud — embedded by build pipeline at release time.
         // (Anon key is safe to ship — RLS prevents data exposure.)
         const val CLOUD_SUPABASE_ANON_KEY: String =
