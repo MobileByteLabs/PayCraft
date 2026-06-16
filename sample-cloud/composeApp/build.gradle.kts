@@ -32,11 +32,20 @@ kotlin {
 
 android {
     namespace = "com.mobilebytelabs.paycraftsample"
-    compileSdk = libs.versions.android.compileSdk.get().toInt()
+    compileSdk =
+        libs.versions.android.compileSdk
+            .get()
+            .toInt()
     defaultConfig {
         applicationId = "com.mobilebytelabs.paycraftsample"
-        minSdk = libs.versions.android.minSdk.get().toInt()
-        targetSdk = libs.versions.android.compileSdk.get().toInt()
+        minSdk =
+            libs.versions.android.minSdk
+                .get()
+                .toInt()
+        targetSdk =
+            libs.versions.android.compileSdk
+                .get()
+                .toInt()
         versionCode = 1
         versionName = "1.0"
     }
