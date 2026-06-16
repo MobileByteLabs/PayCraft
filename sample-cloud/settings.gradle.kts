@@ -3,13 +3,16 @@ include(":composeApp")
 
 pluginManagement {
     repositories {
-        google(); mavenCentral(); gradlePluginPortal()
+        google()
+        mavenCentral()
+        gradlePluginPortal()
     }
 }
 
 dependencyResolutionManagement {
     repositories {
-        google(); mavenCentral()
+        google()
+        mavenCentral()
     }
     versionCatalogs {
         create("libs") {
