@@ -34,6 +34,22 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
   let logStatus: "success" | "failed" = "success";
   let logError: string | null = null;
 
+  // Fetch the pre-image row (best-effort) so we can populate `before_jsonb` in
+  // the audit emit. Failure is non-fatal — we just emit with before=null.
+  let beforeRow: Record<string, any> | null = null;
+  try {
+    let preQuery = supabase
+      .from("subscriptions")
+      .select("*")
+      .eq("provider_subscription_id", data.subscriptionId)
+      .limit(1);
+    if (data.tenantId) preQuery = preQuery.eq("tenant_id", data.tenantId);
+    const { data: rows } = await preQuery;
+    if (rows && rows.length > 0) beforeRow = rows[0];
+  } catch (_preErr) {
+    // Swallow — pre-image is best-effort.
+  }
+
   try {
     if (data.email) {
       // Full upsert — we have the email (checkout completed)
@@ -61,6 +77,9 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
         throw new Error(`DB upsert failed: ${error.message}`);
       }
       console.log(`Subscription upserted for ${data.email}`);
+
+      // AC-24: emit audit log row on successful upsert.
+      await emitSubscriptionAudit(data, beforeRow, row);
     } else {
       // Partial update — by subscription ID (renewals, cancellations)
       const updateData: Record<string, any> = {
@@ -95,6 +114,9 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
         throw new Error(`DB update failed: ${error.message}`);
       }
       console.log(`Subscription updated: ${data.subscriptionId} → ${data.status}`);
+
+      // AC-24: emit audit log row on successful update.
+      await emitSubscriptionAudit(data, beforeRow, updateData);
     }
   } catch (err: any) {
     logStatus = "failed";
@@ -106,6 +128,62 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
   }
 
   await logWebhookEvent(data, startTime, logStatus, logError);
+}
+
+/**
+ * AC-24 — Emit a tenant_audit_log row via the audit_log_emit() RPC after a
+ * successful subscription upsert/update. Failure NEVER fails the webhook;
+ * audit logging is best-effort observability, not transactional invariance.
+ *
+ * Action verb is derived from data.status:
+ *   - "canceled"   → "subscription.cancel"
+ *   - "trialing"   → "subscription.trial"
+ *   - otherwise    → "subscription.upsert" (full upsert with email) or
+ *                    "subscription.update" (partial update by sub id)
+ */
+export async function emitSubscriptionAudit(
+  data: SubscriptionEvent,
+  beforeRow: Record<string, any> | null,
+  afterRow: Record<string, any>,
+): Promise<void> {
+  // Single-tenant rows (tenantId=null) cannot satisfy the NOT NULL tenant_id
+  // FK on tenant_audit_log. Skip audit emit in self-hosted single-tenant mode.
+  if (!data.tenantId) return;
+
+  let action: string;
+  if (data.status === "canceled") {
+    action = "subscription.cancel";
+  } else if (data.status === "trialing") {
+    action = "subscription.trial";
+  } else if (data.email) {
+    action = "subscription.upsert";
+  } else {
+    action = "subscription.update";
+  }
+
+  const resource = data.email
+    ? `subscriptions:email=${data.email.toLowerCase()}`
+    : `subscriptions:provider_subscription_id=${data.subscriptionId}`;
+
+  try {
+    const { error } = await supabase.rpc("audit_log_emit", {
+      p_tenant_id: data.tenantId,
+      p_actor_user_id: null,
+      p_actor_type: "webhook",
+      p_action: action,
+      p_resource: resource,
+      p_before: beforeRow,
+      p_after: afterRow,
+      p_ip: null,
+      p_user_agent: `${data.provider}-webhook`,
+    });
+    if (error) {
+      console.error("audit_log_emit RPC error (non-fatal):", error.message);
+    }
+  } catch (auditErr) {
+    // Audit failure must NEVER fail the webhook.
+    console.error("audit_log_emit threw (non-fatal):", auditErr);
+  }
 }
 
 async function logWebhookEvent(

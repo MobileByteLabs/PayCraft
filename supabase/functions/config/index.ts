@@ -17,7 +17,7 @@ import {
   requireRateLimit,
 } from "../_shared/rate-limit.ts"
 
-serve(async (req: Request): Promise<Response> => {
+export async function handleConfigRequest(req: Request): Promise<Response> {
   if (req.method !== "GET") {
     return new Response("Method not allowed", { status: 405 })
   }
@@ -182,4 +182,11 @@ serve(async (req: Request): Promise<Response> => {
       "cache-control": "private, max-age=3600",
     },
   })
-})
+}
+
+// Register HTTP listener. Skipped when imported under Deno test (env var
+// CONFIG_SKIP_SERVE=1) so tests can import handleConfigRequest without
+// binding a port.
+if (!Deno.env.get("CONFIG_SKIP_SERVE")) {
+  serve(handleConfigRequest)
+}
