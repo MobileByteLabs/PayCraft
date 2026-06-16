@@ -5,12 +5,15 @@
 
 ## Goal
 
-One command takes a clean working tree to a live PayCraft v2.0 deployment at `https://paycraft.mobilebytesensei.com` with:
-- All 14 production secrets synced (Vercel env + Supabase Edge Function secrets)
+**One command takes a fresh machine to a live PayCraft v2.0 deployment** at `https://paycraft.mobilebytesensei.com`. Fully self-contained — `/paycraft-deploy` detects + auto-fixes everything that CAN be automated (CLI installs, auth, project linking, account checks, vault collection, npm install) and prompts you inline for anything only you can provide (live API keys, OAuth callbacks).
+
+End-state delivered:
+- 14 production secrets vaulted + synced (Vercel env + Supabase Edge Function secrets)
 - All pending migrations applied to framework-supabase
-- Dashboard built and deployed to Vercel
-- DNS + custom domain wired (Wix CNAME → Vercel)
-- Health check + smoke test confirming end-to-end up
+- Dashboard built + deployed to Vercel production
+- Custom domain (`paycraft.mobilebytesensei.com`) attached via Wix DNS + Vercel
+- SSL provisioned (Let's Encrypt)
+- Health check + Playwright smoke confirming end-to-end up
 
 ## Invariants
 
@@ -50,7 +53,27 @@ Behavior:
   --silent                      Suppress all but errors + final summary
 ```
 
-## 8-Phase Spec
+## 9-Phase Spec (Phase 0 + Phases 1-8)
+
+### Phase 0 — BOOTSTRAP (auto-install + auto-configure + collect)
+
+The "no-prereqs-needed" phase. Walks each missing prereq to a passing state. Interactive by default; `--non-interactive` mode fails fast on anything needing human input.
+
+Sub-phases (each idempotent):
+
+| Sub | Action | Auto-fix? | Notes |
+|---|---|---|---|
+| 0.1 | CLI INSTALL | ✅ | `npm i -g vercel`, `brew install supabase/tap/supabase`, `brew install jq`. Falls back to manual instructions if `brew` absent. |
+| 0.2 | AUTHENTICATE | ⚠️ semi | Runs `vercel login` + `supabase login` — opens browser, waits for user. |
+| 0.3 | PROJECT LINK | ✅ | `vercel link --yes` (dashboard) + `supabase link --project-ref mlwfgytjxlqyfxcgpysm`. |
+| 0.4 | ACCOUNTS | ⚠️ semi | Detects missing Resend/Sentry secrets → offers to open signup URLs in browser. |
+| 0.5 | SECRETS COLLECT | ⚠️ semi | For each MISSING vault secret: opens provider URL in browser, prompts for hidden-input value, pipes to `secrets-push.sh --stdin`. Skip with `s`. Encryption key auto-generated via `openssl rand`. |
+| 0.6 | DASHBOARD NPM | ✅ | `cd dashboard && npm ci` if `node_modules/` missing. |
+| 0.7 | SUPABASE REACH | ✅ verify | `curl framework-supabase-url/rest/v1/` smoke. |
+
+Flags: `--check-only` (report what's missing, no fix), `--non-interactive` (fail on human-input needs), `--skip <substep,...>`.
+
+Phase 0 status determines whether Phase 1 can proceed.
 
 ### Phase 1 — PRE-FLIGHT
 

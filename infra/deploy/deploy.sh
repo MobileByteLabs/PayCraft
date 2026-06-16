@@ -24,14 +24,16 @@ mkdir -p "$STATE_DIR"
 APPLY=false
 CONFIRM_PROD=false
 ENV_TARGET="production"
-FROM_PHASE=1
+FROM_PHASE=0
 TO_PHASE=8
 ONLY_PHASE=""
 SKIP_DNS=false
 SKIP_BUILD=false
+SKIP_BOOTSTRAP=false
 KEEP_GOING=false
 VERBOSE=false
 SILENT=false
+NON_INTERACTIVE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -44,9 +46,11 @@ while [[ $# -gt 0 ]]; do
         --only-phase)             ONLY_PHASE="$2"; FROM_PHASE="$2"; TO_PHASE="$2"; shift 2 ;;
         --skip-dns)               SKIP_DNS=true; shift ;;
         --skip-build)             SKIP_BUILD=true; shift ;;
+        --skip-bootstrap)         SKIP_BOOTSTRAP=true; shift ;;
         --keep-going)             KEEP_GOING=true; shift ;;
         --verbose)                VERBOSE=true; shift ;;
         --silent)                 SILENT=true; shift ;;
+        --non-interactive)        NON_INTERACTIVE=true; shift ;;
         -h|--help)
             sed -n '/^# CLI/,/^$/p' "$PAYCRAFT_SRC/infra/deploy/PAYCRAFT_DEPLOY.md" 2>/dev/null \
                 || echo "See infra/deploy/PAYCRAFT_DEPLOY.md for usage."
@@ -138,6 +142,17 @@ run_phase() {
 # ═══════════════════════════════════════════════════════════
 # Phase implementations
 # ═══════════════════════════════════════════════════════════
+phase_0_bootstrap() {
+    local args=()
+    if [[ "$APPLY" != "true" ]]; then
+        args+=("--check-only")
+    fi
+    if [[ "$NON_INTERACTIVE" = "true" ]]; then
+        args+=("--non-interactive")
+    fi
+    bash "$PAYCRAFT_SRC/infra/deploy/bootstrap.sh" "${args[@]}"
+}
+
 phase_1_preflight() {
     if [[ "$VERBOSE" = "true" ]]; then
         bash "$PAYCRAFT_SRC/infra/deploy/preflight.sh" --verbose
@@ -348,6 +363,9 @@ JSON
 # ═══════════════════════════════════════════════════════════
 banner "PayCraft Deploy — env=$ENV_TARGET, mode=$([[ $APPLY = true ]] && echo APPLY || echo DRY-RUN)"
 
+if [[ "$SKIP_BOOTSTRAP" != "true" ]]; then
+    run_phase 0 "BOOTSTRAP"   "phase_0_bootstrap"
+fi
 run_phase 1 "PRE-FLIGHT"      "phase_1_preflight"
 run_phase 2 "SECRETS SYNC"    "phase_2_secrets_sync"
 run_phase 3 "MIGRATIONS"      "phase_3_migrations"
