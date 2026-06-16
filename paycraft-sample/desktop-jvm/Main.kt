@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -17,32 +18,14 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.core.BillingManager
-import com.mobilebytelabs.paycraft.model.BillingPlan
-import com.mobilebytelabs.paycraft.provider.stripe.StripeProvider
 import com.mobilebytelabs.paycraft.ui.PayCraftPaywall
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 fun main() {
-    PayCraft.configure {
-        supabase(
-            url = "https://your-project.supabase.co",
-            anonKey = "your-anon-key",
-        )
-        provider(
-            StripeProvider(
-                paymentLinks = mapOf(
-                    "monthly" to "https://buy.stripe.com/your-monthly-link",
-                    "yearly" to "https://buy.stripe.com/your-yearly-link",
-                ),
-            ),
-        )
-        plans(
-            BillingPlan(id = "monthly", name = "Monthly", price = "$4.99/mo"),
-            BillingPlan(id = "yearly", name = "Yearly", price = "$39.99/yr"),
-        )
-        supportEmail("support@yourapp.com")
-    }
+    // Single-line cloud configuration — products, providers, pricing, and paywall
+    // all live in your PayCraft dashboard at https://paycraft.cloud.
+    PayCraft.initialize(apiKey = "pk_live_REPLACE_WITH_YOUR_KEY")
 
     application {
         Window(

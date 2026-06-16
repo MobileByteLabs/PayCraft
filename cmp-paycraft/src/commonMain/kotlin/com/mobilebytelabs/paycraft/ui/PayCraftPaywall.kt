@@ -53,11 +53,15 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_retry
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_get_premium
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_subscribe_cta
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_cta
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_upgrade_plan
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_upgrade_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_what_you_get
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_your_premium_title
 import com.mobilebytelabs.paycraft.model.BillingState
+import com.mobilebytelabs.paycraft.presentation.Branding
+import com.mobilebytelabs.paycraft.presentation.ProviderBottomSheet
+import com.mobilebytelabs.paycraft.presentation.components.BrandingFooter
 import com.mobilebytelabs.paycraft.provider.StripeProvider
 import com.mobilebytelabs.paycraft.ui.components.BenefitItem
 import com.mobilebytelabs.paycraft.ui.components.PayCraftActiveSubscriptionBanner
@@ -67,12 +71,21 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Full-screen paywall. Observes [PayCraftPaywallViewModel] and delegates rendering.
+ * PayCraft paywall.
+ *
+ * Renders either a [DisplayMode.FullScreen] paywall (default) or a compact
+ * [DisplayMode.Banner] status strip — both observe the same [PayCraftPaywallViewModel]
+ * and react to the same `BillingState`. Hosts pick the shape that fits the surface
+ * they're rendering on.
+ *
+ * Banner-mode callers should treat [onDismiss] as "user tapped the banner" — typically
+ * a signal to show the full-screen paywall in a sheet or dialog.
  */
 @Composable
 fun PayCraftPaywall(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    displayMode: DisplayMode = DisplayMode.FullScreen,
     viewModel: PayCraftPaywallViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -88,12 +101,26 @@ fun PayCraftPaywall(
         }
     }
 
-    PayCraftPaywallContent(
-        state = state,
-        snackbarHostState = snackbarHostState,
-        onAction = viewModel::dispatch,
-        modifier = modifier,
-    )
+    when (displayMode) {
+        DisplayMode.Banner -> BannerPaywall(
+            state = state.billingState,
+            onTap = {
+                // Surface the latest state when the user taps an error banner; hosts
+                // wire onDismiss to open the full paywall sheet.
+                if (state.billingState is BillingState.Error) {
+                    viewModel.dispatch(PayCraftPaywallAction.RefreshStatus)
+                }
+                onDismiss()
+            },
+            modifier = modifier,
+        )
+        DisplayMode.FullScreen -> PayCraftPaywallContent(
+            state = state,
+            snackbarHostState = snackbarHostState,
+            onAction = viewModel::dispatch,
+            modifier = modifier,
+        )
+    }
 }
 
 /**
@@ -266,6 +293,7 @@ fun PayCraftPaywallContent(
                                 currentPlanRank = state.currentPlanRank,
                                 onPlanSelected = { onAction(PayCraftPaywallAction.SelectPlan(it)) },
                                 isPremium = true,
+                                isTrialEligible = state.isTrialEligible,
                             )
                         }
 
@@ -304,6 +332,13 @@ fun PayCraftPaywallContent(
                                 }
                             }
                         }
+
+                        // Branding footer — auto-hides when branding = None (Pro+ tier)
+                        val paywallDto = PayCraft.suiteConfig?.paywall
+                        BrandingFooter(
+                            branding = Branding.parse(paywallDto?.branding ?: "attribution"),
+                            customFooterText = paywallDto?.customFooter,
+                        )
                     }
                 }
 
@@ -349,6 +384,7 @@ fun PayCraftPaywallContent(
                                 currentPlanRank = 0,
                                 onPlanSelected = { onAction(PayCraftPaywallAction.SelectPlan(it)) },
                                 isPremium = false,
+                                isTrialEligible = state.isTrialEligible,
                             )
                         }
 
@@ -382,14 +418,32 @@ fun PayCraftPaywallContent(
                                 )
                             } else {
                                 Text(
-                                    text = state.selectedPlan?.let {
-                                        val cta = Res.string.paycraft_subscribe_cta
-                                        stringResource(cta, it.name, it.price, it.interval)
+                                    text = state.selectedPlan?.let { plan ->
+                                        // Trial CTA wins when the selected plan offers a trial
+                                        // AND the user is server-derived-eligible (TR-006).
+                                        val offerTrial = plan.trialDays != null && state.isTrialEligible
+                                        if (offerTrial) {
+                                            stringResource(Res.string.paycraft_trial_cta, plan.trialDays)
+                                        } else {
+                                            stringResource(
+                                                Res.string.paycraft_subscribe_cta,
+                                                plan.name,
+                                                plan.price,
+                                                plan.interval,
+                                            )
+                                        }
                                     } ?: stringResource(Res.string.paycraft_get_premium),
                                     style = MaterialTheme.typography.labelLarge,
                                 )
                             }
                         }
+
+                        // Branding footer — auto-hides when branding = None (Pro+ tier)
+                        val paywallDto = PayCraft.suiteConfig?.paywall
+                        BrandingFooter(
+                            branding = Branding.parse(paywallDto?.branding ?: "attribution"),
+                            customFooterText = paywallDto?.customFooter,
+                        )
                     }
                 }
 
@@ -419,6 +473,19 @@ fun PayCraftPaywallContent(
                 }
             } // end when(billingState)
         } // end Column wrapper
+    }
+
+    // Provider-picker bottom sheet — floats above the Scaffold via Dialog layer
+    val sheetTarget = state.providerSheetTarget
+    if (sheetTarget != null) {
+        ProviderBottomSheet(
+            providers = state.suiteProviders,
+            maxVisible = 4,
+            onProviderPicked = { provider ->
+                onAction(PayCraftPaywallAction.CheckoutWithProvider(sheetTarget, provider))
+            },
+            onDismiss = { onAction(PayCraftPaywallAction.DismissProviderSheet) },
+        )
     }
 }
 

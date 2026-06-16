@@ -1,0 +1,50 @@
+# BetterStack uptime monitors for paycraft.cloud
+# Apply via: betterstack monitors apply --config infra/monitoring/uptime/paycraft-cloud.yml
+
+monitors:
+  - name: landing
+    url: https://paycraft.cloud/
+    check_frequency: 60
+    expected_status_codes: [200]
+    notification_groups: [oncall]
+    regions: [us-east-1, eu-west-1, ap-southeast-1]
+
+  - name: pricing
+    url: https://paycraft.cloud/pricing
+    check_frequency: 60
+    expected_status_codes: [200]
+    notification_groups: [oncall]
+
+  - name: dashboard-login
+    url: https://paycraft.cloud/auth/signin
+    check_frequency: 60
+    expected_status_codes: [200]
+    notification_groups: [oncall]
+
+  - name: v2-config-canary
+    url: https://api.paycraft.cloud/functions/v1/v2-config?apiKey=pk_test_canary
+    check_frequency: 60
+    expected_status_codes: [200, 404]  # 404 = canary tenant not found (still reachable)
+    notification_groups: [oncall]
+
+  - name: stripe-webhook-canary
+    url: https://api.paycraft.cloud/functions/v1/stripe-webhook/canary-tenant
+    method: POST
+    body: '{"test":true}'
+    headers:
+      Content-Type: application/json
+    check_frequency: 60
+    expected_status_codes: [200, 400]  # 400 = missing signature (still proves endpoint is up)
+    notification_groups: [oncall]
+
+notification_groups:
+  - name: oncall
+    members:
+      - oncall@paycraft.cloud
+    pagerduty_integration_key: "${PAGERDUTY_INTEGRATION_KEY}"
+    escalation_after_minutes: 5
+    severity: critical
+
+sla:
+  uptime_target: 99.9
+  window_days: 30

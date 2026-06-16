@@ -91,8 +91,13 @@ GRANT EXECUTE ON FUNCTION register_device(text, text, text, text, text, text) TO
 -- 2. is_premium — tenant-aware
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- Drop old single-arg version
+-- Drop ALL prior overloads before re-creating.
+-- PostgreSQL 42P13: cannot change input parameter names via CREATE OR REPLACE
+-- — must DROP first. Migration 004 created is_premium(text, text) with param
+-- names (user_email, stripe_mode); that 2-arg overload survived migration 013
+-- (which only dropped the 1-arg version) and collides with this signature.
 DROP FUNCTION IF EXISTS is_premium(text);
+DROP FUNCTION IF EXISTS is_premium(text, text);
 
 CREATE OR REPLACE FUNCTION is_premium(
     p_server_token TEXT,
@@ -136,7 +141,9 @@ GRANT EXECUTE ON FUNCTION is_premium(text, text) TO anon, authenticated;
 -- 3. get_subscription — tenant-aware
 -- ═══════════════════════════════════════════════════════════════════════════
 
+-- Same issue as is_premium above: migration 004 left a 2-arg overload.
 DROP FUNCTION IF EXISTS get_subscription(text);
+DROP FUNCTION IF EXISTS get_subscription(text, text);
 
 CREATE OR REPLACE FUNCTION get_subscription(
     p_server_token TEXT,

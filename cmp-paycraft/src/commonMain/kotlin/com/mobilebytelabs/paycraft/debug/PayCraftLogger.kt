@@ -23,24 +23,28 @@ object PayCraftLogger {
 
     // ── Configuration ────────────────────────────────────────────────────────
 
-    fun onConfigure(
-        provider: String,
-        modeLabel: String,
-        planCount: Int,
-        planIds: String,
-        testLinks: Int,
-        liveLinks: Int,
-        supabaseUrl: String,
+    fun onInitialize(backendName: String, apiKeyPrefix: String, debug: Boolean) {
+        if (!enabled) return
+        Logger.d(TAG) { "══ PayCraft.initialize() ════════════════════════════" }
+        Logger.d(TAG) { "  Backend  = $backendName" }
+        Logger.d(TAG) { "  API key  = $apiKeyPrefix" }
+        Logger.d(TAG) { "  Debug    = $debug" }
+        Logger.d(TAG) { "══════════════════════════════════════════════════════" }
+    }
+
+    fun onSuiteConfigApplied(
+        source: String,
+        productCount: Int,
+        providerCount: Int,
+        primaryProvider: String,
+        locale: String,
     ) {
         if (!enabled) return
-        Logger.d(TAG) { "══ PayCraft.configure() ═════════════════════════════" }
-        Logger.d(TAG) { "  Provider     = $provider | $modeLabel" }
-        Logger.d(TAG) { "  Supabase URL = $supabaseUrl" }
-        Logger.d(TAG) { "  Plans ($planCount): $planIds" }
-        if (testLinks >= 0) {
-            Logger.d(TAG) { "  Test links   = ${linkStatus(testLinks, planCount, "Phase 3 test")}" }
-            Logger.d(TAG) { "  Live links   = ${linkStatus(liveLinks, planCount, "Phase 3 live")}" }
-        }
+        Logger.d(TAG) { "══ PayCraft SuiteConfig applied ═════════════════════" }
+        Logger.d(TAG) { "  Source           = $source" }
+        Logger.d(TAG) { "  Products         = $productCount" }
+        Logger.d(TAG) { "  Providers        = $providerCount (primary=$primaryProvider)" }
+        Logger.d(TAG) { "  Locale           = $locale" }
         Logger.d(TAG) { "  Filter: adb logcat -s \"PayCraft:D\" \"*:S\"" }
         Logger.d(TAG) { "════════════════════════════════════════════════════" }
     }
@@ -143,11 +147,5 @@ object PayCraftLogger {
         val parts = email.split("@")
         if (parts.size != 2) return "***"
         return "${parts[0].take(1)}***@${parts[1]}"
-    }
-
-    private fun linkStatus(count: Int, total: Int, phase: String): String = when {
-        count == total -> "✓ $count/$total configured"
-        count == 0 -> "⚠ 0/$total — run /paycraft-adopt → $phase to create"
-        else -> "⚠ $count/$total — run /paycraft-adopt → $phase to complete"
     }
 }

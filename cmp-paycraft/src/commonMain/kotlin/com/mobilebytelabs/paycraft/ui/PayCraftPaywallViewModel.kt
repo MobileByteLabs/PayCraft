@@ -31,16 +31,33 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
     init {
         loadConfig()
         observeBillingState()
+        fetchTrialEligibility()
+    }
+
+    /**
+     * Server-derived trial eligibility (TR-006). Result flows into
+     * [PayCraftPaywallState.isTrialEligible] which the paywall passes down to
+     * [com.mobilebytelabs.paycraft.ui.components.PlanSelector]. Fetched once on
+     * VM init — re-runs only when the user logs in (handled by observeBillingState
+     * via billingState transitions, since login triggers a Premium/Free re-emit).
+     */
+    private fun fetchTrialEligibility() {
+        viewModelScope.launch {
+            val eligible = billingManager.checkTrialEligibility()
+            _state.update { current -> current.copy(isTrialEligible = eligible) }
+        }
     }
 
     private fun loadConfig() {
         val config = PayCraft.config ?: return
+        val providers = PayCraft.suiteConfig?.providers ?: emptyList()
         _state.update { current ->
             current.copy(
                 plans = config.plans,
                 benefits = config.benefits,
                 supportEmail = config.supportEmail,
                 selectedPlan = config.plans.firstOrNull { it.isPopular } ?: config.plans.firstOrNull(),
+                suiteProviders = providers,
             )
         }
     }
@@ -97,6 +114,9 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
             is PayCraftPaywallAction.SelectPlan -> onSelectPlan(action)
             is PayCraftPaywallAction.UpdateEmail -> onUpdateEmail(action)
             is PayCraftPaywallAction.Subscribe -> onSubscribe()
+            is PayCraftPaywallAction.ShowProviderSheet -> onShowProviderSheet(action)
+            is PayCraftPaywallAction.DismissProviderSheet -> onDismissProviderSheet()
+            is PayCraftPaywallAction.CheckoutWithProvider -> onCheckoutWithProvider(action)
             is PayCraftPaywallAction.ManageSubscription -> onManageSubscription()
             is PayCraftPaywallAction.LogIn -> onLogIn()
             is PayCraftPaywallAction.LogOut -> onLogOut()
@@ -135,9 +155,15 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         }
 
         val email = currentState.email.trim()
-        // Email is optional — validate format only if the user typed something
         if (email.isNotBlank() && !currentState.isEmailValid) {
             _state.update { it.copy(emailError = "Please enter a valid email address") }
+            return
+        }
+
+        // AutoSkipWhenSingle: show sheet only when 2+ providers are configured
+        val providers = currentState.suiteProviders
+        if (providers.size >= 2) {
+            dispatch(PayCraftPaywallAction.ShowProviderSheet(plan))
             return
         }
 
@@ -146,6 +172,24 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         PayCraft.checkout(plan, email.ifBlank { null })
         viewModelScope.launch {
             _events.send(PayCraftPaywallEvent.CheckoutLaunched(url = plan.id))
+        }
+    }
+
+    private fun onShowProviderSheet(action: PayCraftPaywallAction.ShowProviderSheet) {
+        _state.update { it.copy(providerSheetTarget = action.plan) }
+    }
+
+    private fun onDismissProviderSheet() {
+        _state.update { it.copy(providerSheetTarget = null, isSubmitting = false) }
+    }
+
+    private fun onCheckoutWithProvider(action: PayCraftPaywallAction.CheckoutWithProvider) {
+        _state.update { it.copy(providerSheetTarget = null, isSubmitting = true) }
+        val email = _state.value.email.trim()
+        if (email.isNotBlank()) billingManager.logIn(email)
+        PayCraft.checkoutWithProvider(action.plan, action.provider, email.ifBlank { null })
+        viewModelScope.launch {
+            _events.send(PayCraftPaywallEvent.CheckoutLaunched(url = action.plan.id))
         }
     }
 

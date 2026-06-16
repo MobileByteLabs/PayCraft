@@ -106,6 +106,21 @@ kotlin {
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+            implementation(compose.uiTest)
+            // ConfigClientTest — Ktor MockEngine for in-memory HTTP responses
+            implementation("io.ktor:ktor-client-mock:3.1.1")
+            // ConfigClientTest/ConfigCacheTest — coroutine test runner (runTest)
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+            // ConfigCacheTest — in-memory MapSettings (com.russhwolf.settings.MapSettings)
+            implementation("com.russhwolf:multiplatform-settings-test:1.3.0")
+        }
+
+        val jvmTest by getting {
+            dependencies {
+                // Skiko native runtime — required for runComposeUiTest on the JVM target
+                implementation(compose.desktop.currentOs)
+            }
         }
     }
 }
@@ -115,7 +130,7 @@ mavenPublishing {
 
     pom {
         name = "PayCraft"
-        description = "Self-hosted, multi-provider billing library for KMP apps. Stripe, Razorpay, and more."
+        description = "Multi-provider KMP subscription billing — paycraft.cloud SaaS. Stripe, Razorpay, and more."
         inceptionYear = "2026"
         url = "https://github.com/MobileByteLabs/PayCraft/"
 

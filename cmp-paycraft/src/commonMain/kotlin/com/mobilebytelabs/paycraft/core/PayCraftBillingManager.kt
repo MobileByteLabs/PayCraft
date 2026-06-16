@@ -5,12 +5,14 @@ import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import com.mobilebytelabs.paycraft.model.TrialInfo
 import com.mobilebytelabs.paycraft.model.VerificationMethod
 import com.mobilebytelabs.paycraft.network.OtpGateResult
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
 import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
+import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import com.mobilebytelabs.paycraft.provider.StripeProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +40,12 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
 
     private val _userEmail = MutableStateFlow<String?>(null)
     override val userEmail: StateFlow<String?> = _userEmail.asStateFlow()
+
+    private val _isInTrial = MutableStateFlow(false)
+    override val isInTrial: StateFlow<Boolean> = _isInTrial.asStateFlow()
+
+    private val _trialEndsAt = MutableStateFlow<String?>(null)
+    override val trialEndsAt: StateFlow<String?> = _trialEndsAt.asStateFlow()
 
     /**
      * Cached conflict info so that after OAuth or OTP verifies identity we can
@@ -93,6 +101,21 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
     }
 
     override fun logIn(email: String) = registerAndLogin(email)
+
+    override suspend fun checkTrialEligibility(): Boolean {
+        val token = DeviceTokenStore.getToken()
+        if (token.isNullOrBlank()) {
+            // No registered device — treat as eligible (first-time user).
+            return true
+        }
+        return try {
+            service.isTrialEligible(token)
+        } catch (e: Exception) {
+            PayCraftLogger.onError("checkTrialEligibility", e.message)
+            // Optimistic on failure — server will reject at checkout if ineligible.
+            true
+        }
+    }
 
     override fun refreshStatus(force: Boolean) {
         val email = _userEmail.value
@@ -327,6 +350,8 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         PayCraftLogger.onLogOut()
         _userEmail.value = null
         _isPremium.value = false
+        _isInTrial.value = false
+        _trialEndsAt.value = null
         _subscriptionStatus.value = SubscriptionStatus()
         _billingState.value = BillingState.Free
         lastConflict = null
@@ -457,12 +482,18 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
     private fun applyCachedStatus(cached: SubscriptionStatus) {
         _isPremium.value = cached.isPremium
         _subscriptionStatus.value = cached
+        // Trial state not persisted in PayCraftStore cache today — derive from
+        // server on next refresh. Conservative defaults until then.
+        _isInTrial.value = false
+        _trialEndsAt.value = null
         _billingState.value = if (cached.isPremium) {
             BillingState.Premium(cached)
         } else {
             BillingState.Free
         }
     }
+
+    private fun buildTrialInfo(trialEnd: String?): TrialInfo? = computeTrialInfo(trialEnd, currentTimeMillis())
 
     private suspend fun applyPremiumResult(email: String, isPremium: Boolean, mode: String) {
         PayCraftLogger.onFlow("applyPremiumResult", "email=$email, isPremium=$isPremium, mode=$mode")
@@ -482,8 +513,11 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
                 expiresAt = sub?.currentPeriodEnd,
                 willRenew = sub?.cancelAtPeriodEnd != true,
             )
+            val trial = buildTrialInfo(sub?.trialEnd)
+            _isInTrial.value = trial != null
+            _trialEndsAt.value = trial?.endsAt
             _subscriptionStatus.value = status
-            _billingState.value = BillingState.Premium(status)
+            _billingState.value = BillingState.Premium(status, trial)
             store.cacheSubscriptionStatus(status)
             PayCraftLogger.onStatusResult(
                 email = email,
@@ -495,6 +529,8 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
             )
         } else {
             val status = SubscriptionStatus(isPremium = false, email = email)
+            _isInTrial.value = false
+            _trialEndsAt.value = null
             _subscriptionStatus.value = status
             _billingState.value = BillingState.Free
             store.cacheSubscriptionStatus(status)

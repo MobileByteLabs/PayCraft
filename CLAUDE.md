@@ -70,15 +70,36 @@ Client apps add PayCraft with:
 implementation("io.github.mobilebytelabs:paycraft:VERSION")
 ```
 
-Then configure:
+Then boot with one line:
 ```kotlin
-PayCraft.configure {
-    supabase(url = "...", anonKey = "...")
-    provider(StripeProvider(paymentLinks = mapOf(...)))
-    plans(BillingPlan(...), BillingPlan(...))
-    benefits(BillingBenefit(...))
-    supportEmail("...")
-}
+PayCraft.initialize(apiKey = "pk_live_…")
 ```
 
-All keys are provided by the client app — nothing hardcoded in the library.
+Products, providers, payment links, pricing, and paywall styling are fetched from
+the PayCraft dashboard (https://paycraft.cloud). For offline previews + UI tests:
+`PayCraft.initialize(apiKey = "pk_test_…", backend = PayCraftBackend.Mock(staticConfig = …))`.
+
+> v1.x `PayCraft.configure { … }` was removed in v2.0. Migration:
+> [paycraft.cloud/docs/v2-migration](https://paycraft.cloud/docs/v2-migration).
+
+## Database Migrations — single source of truth
+
+**All SQL migrations live in `supabase/migrations/`.** That is the only directory
+`supabase start` / `supabase migration up` read from. Do NOT create a parallel
+`dashboard/supabase/migrations/` (or any other mirror) — it produces silent drift:
+the Dashboard team writes new RPCs there, `supabase start` never sees them, the
+DB stays at the old schema, and `requireTenant()` / Edge Functions fail at runtime
+with "RPC not found" instead of a clear migration error.
+
+Rules:
+- New migration → `supabase/migrations/NNN_descriptive_name.sql`. Bump NNN by 1.
+- Edits to existing migrations are forbidden once applied in any environment;
+  add a follow-up migration instead.
+- Every migration must be **idempotent**: `CREATE TYPE` wrapped in
+  `DO $$ … pg_type WHERE typname … $$`, `CREATE POLICY` preceded by
+  `DROP POLICY IF EXISTS`, `ADD CONSTRAINT` wrapped in
+  `DO $$ … pg_constraint WHERE conname … $$`. This survives `supabase db reset`
+  and partial-apply recovery.
+- Track applied state via `supabase_migrations.schema_migrations` (auto-managed).
+  Inspect with: `docker exec supabase_db_PayCraft psql -U postgres -d postgres
+  -c "SELECT version FROM supabase_migrations.schema_migrations ORDER BY version"`.

@@ -17,6 +17,8 @@ object PayCraftTestTags {
     const val PLAN_CARD_PRICE = "paycraft_plan_card_price"
     const val PLAN_CARD_NAME = "paycraft_plan_card_name"
     const val PLAN_CARD_INTERVAL = "paycraft_plan_card_interval"
+    const val PLAN_CARD_TRIAL_CHIP = "paycraft_plan_card_trial_chip"
+    const val TRIAL_BANNER = "paycraft_trial_banner"
 
     // Benefits list
     const val BENEFITS_LIST = "paycraft_benefits_list"
@@ -49,4 +51,8 @@ object PayCraftTestTags {
     const val PREMIUM_GUARD_LOCKED = "paycraft_premium_guard_locked"
     const val PREMIUM_GUARD_UNLOCKED = "paycraft_premium_guard_unlocked"
     const val PREMIUM_GUARD_UPGRADE_BUTTON = "paycraft_premium_guard_upgrade_button"
+
+    // Banner paywall (DisplayMode.Banner)
+    const val BANNER_PAYWALL = "paycraft_banner_paywall"
+    const val BANNER_LABEL = "paycraft_banner_label"
 }

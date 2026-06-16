@@ -157,12 +157,28 @@ FOR EACH PLAN i = 1..PAYCRAFT_PLAN_COUNT:
                         [2] Quarterly (every 3 months)
                         [3] Yearly (every year)"
 
+  TRIAL CONFIGURATION (PayCraft v1.1, TR-004):
+    READ: PAYCRAFT_PLAN_[i]_TRIAL_DAYS from .env (optional — null/missing = no trial)
+    IF NOT SET:
+      ASK USER (AskUserQuestion):
+        "Offer a free trial for [PAYCRAFT_PLAN_[i]_NAME]?"
+          [1] No trial
+          [2] 7-day trial
+          [3] 14-day trial
+          [4] 30-day trial
+          [5] Custom number of days
+      WRITE: PAYCRAFT_PLAN_[i]_TRIAL_DAYS=[N or empty] to .env
+    NOTE: This value is also passed to the consumer app's BillingPlan(trialDays = N)
+          configuration. Keep them aligned — Stripe is authoritative at billing
+          time, the library uses trialDays for paywall display only (D6).
+
   ACTION  : mcp__stripe__create_price
             product: [PAYCRAFT_STRIPE_TEST_PRODUCT_ID]
             unit_amount: [PAYCRAFT_PLAN_[i]_PRICE]
             currency: [PAYCRAFT_CURRENCY]
             recurring.interval: [month/year]
             recurring.interval_count: [1/3]
+            recurring.trial_period_days: [PAYCRAFT_PLAN_[i]_TRIAL_DAYS or null]   # ← v1.1
             nickname: "[PAYCRAFT_PLAN_[i]_ID] test"
             metadata: {paycraft_plan: "[plan_id]", paycraft_test: "true"}
 

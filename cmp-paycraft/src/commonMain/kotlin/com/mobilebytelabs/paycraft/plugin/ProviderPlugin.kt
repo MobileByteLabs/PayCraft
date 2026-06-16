@@ -5,11 +5,13 @@ import com.mobilebytelabs.paycraft.provider.PaymentProvider
 /**
  * Plugin interface for community-contributed payment providers.
  *
- * To create a PayCraft provider plugin:
+ * To ship a new payment integration as a PayCraft plugin:
  * 1. Create a new KMP library module
  * 2. Implement [ProviderPlugin] — it acts as a factory for your [PaymentProvider]
  * 3. Register via META-INF/services (JVM) or the plugin registry
  * 4. Publish to Maven Central as a separate artifact
+ * 5. List the provider in the PayCraft dashboard so cloud-resolved SuiteConfig wires
+ *    your checkout/manage URLs into consumer apps automatically.
  *
  * Example:
  * ```kotlin
@@ -30,13 +32,11 @@ import com.mobilebytelabs.paycraft.provider.PaymentProvider
  * }
  * ```
  *
- * Users install with:
+ * Consumer apps remain a single line — provider selection happens server-side:
  * ```kotlin
  * implementation("com.example:paycraft-mygateway:1.0.0")
  *
- * PayCraft.configure {
- *     provider(MyGatewayPlugin().createProvider(config))
- * }
+ * PayCraft.initialize(apiKey = "pk_live_…")
  * ```
  */
 interface ProviderPlugin {

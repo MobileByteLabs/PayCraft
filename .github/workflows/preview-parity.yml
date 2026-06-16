@@ -1,0 +1,93 @@
+# Paywall Preview Parity — AC-33b CI gate.
+#
+# Builds the cmp-paycraft/preview-js Kotlin/JS bundle and verifies it produces
+# a non-empty bundle artifact. The bundle is uploaded as a workflow artifact so
+# subsequent jobs (or human reviewers) can snapshot-compare it against the
+# dashboard's inline tsx preview.
+#
+# v1 SCOPE (this workflow): build + bundle-exists + artifact upload. Full pixel
+# parity (headless-browser render of both the iframe bundle AND the dashboard
+# inline preview → perceptual-hash diff per (template × state) combo) is
+# documented in the TODO at the bottom; landing it requires a Playwright/Puppeteer
+# fixture in `cmp-paycraft/preview-js/parity/` (sub-plan 08 T4 — deferred until
+# the v2 Compose-for-Web port replaces the v1 thin DOM port).
+
+name: Paywall Preview Parity
+
+on:
+  pull_request:
+    paths:
+      - 'cmp-paycraft/**'
+      - 'dashboard/components/paywall/**'
+      - '.github/workflows/preview-parity.yml'
+  push:
+    branches: [main, development]
+    paths:
+      - 'cmp-paycraft/**'
+      - 'dashboard/components/paywall/**'
+
+jobs:
+  build-preview-js:
+    name: Build Kotlin/JS preview bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Node (for Kotlin/JS Webpack)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build :cmp-paycraft:preview-js distribution
+        run: ./gradlew :cmp-paycraft:preview-js:jsBrowserDistribution --no-daemon --stacktrace
+
+      - name: Assert bundle produced
+        run: |
+          BUNDLE="cmp-paycraft/preview-js/build/dist/js/productionExecutable/paycraft-preview.js"
+          INDEX="cmp-paycraft/preview-js/build/dist/js/productionExecutable/index.html"
+          test -f "$BUNDLE" || { echo "::error::Kotlin/JS bundle missing: $BUNDLE"; exit 1; }
+          test -f "$INDEX"  || { echo "::error::index.html missing: $INDEX"; exit 1; }
+          SIZE=$(wc -c < "$BUNDLE")
+          echo "Bundle size: $SIZE bytes"
+          test "$SIZE" -gt 10000 || { echo "::error::Bundle suspiciously small ($SIZE bytes)"; exit 1; }
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: paycraft-preview-bundle
+          path: cmp-paycraft/preview-js/build/dist/js/productionExecutable/
+          retention-days: 14
+
+      # TODO(parity-v2): once cmp-paycraft/preview-js/parity/ exists, add:
+      #   - run: cd cmp-paycraft/preview-js/parity && npm ci && npm run render
+      #   - run: ./gradlew :cmp-paycraft:jvmTest --tests "*PaywallPreviewParityCompareTest*"
+      # which compares perceptual-hash of {iframe-bundle-render, dashboard-inline-render}
+      # for each of (minimal × premium × dark) × (Loading × Free × Premium × Error ×
+      # DeviceConflict × OwnershipVerified) = 18 combos. Threshold 0.92 for v1
+      # thin-DOM port, 0.95 once v2 Compose-for-Web lands.
+
+  typecheck-dashboard:
+    name: Dashboard typecheck (PreviewIframe contract)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dashboard deps
+        run: cd dashboard && npm ci
+      - name: TypeScript check
+        run: cd dashboard && npx tsc --noEmit

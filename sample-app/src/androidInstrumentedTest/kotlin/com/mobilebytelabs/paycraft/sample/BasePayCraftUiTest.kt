@@ -8,9 +8,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
 import com.mobilebytelabs.paycraft.PayCraft
-import com.mobilebytelabs.paycraft.model.BillingPlan
+import com.mobilebytelabs.paycraft.PayCraftBackend
+import com.mobilebytelabs.paycraft.config.PaywallDto
+import com.mobilebytelabs.paycraft.config.ProductDto
+import com.mobilebytelabs.paycraft.config.ProviderDto
+import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
-import com.mobilebytelabs.paycraft.provider.StripeProvider
 import com.mobilebytelabs.paycraft.sample.fake.FakePayCraftService
 import com.mobilebytelabs.paycraft.sample.fake.FakePayCraftStore
 import com.mobilebytelabs.paycraft.sample.fake.testPayCraftModule
@@ -42,27 +45,14 @@ abstract class BasePayCraftUiTest {
         // 3. Reset fake service counters
         fakeService.reset()
 
-        // 4. Configure PayCraft BEFORE Koin (Koin module calls PayCraft.requireConfig())
-        PayCraft.configure {
-            supabase(url = "https://test.supabase.co", anonKey = "test-anon-key")
-            provider(
-                StripeProvider(
-                    paymentLinks = mapOf("monthly" to "https://test.link/monthly"),
-                ),
-            )
-            plans(
-                BillingPlan(
-                    id = "monthly",
-                    name = "Monthly",
-                    price = "$9.99",
-                    interval = "/month",
-                    rank = 1,
-                ),
-            )
-            supportEmail("test@example.com")
-        }
+        // 4. Initialize PayCraft with Mock backend so PayCraft.requireConfig() returns a
+        //    fully-formed PayCraftConfig before Koin starts (PayCraftModule reads it).
+        PayCraft.initialize(
+            apiKey = "pk_test_ui_test",
+            backend = PayCraftBackend.Mock(staticConfig = testSuiteConfig()),
+        )
 
-        // 5. Start Koin with test module (AFTER configure)
+        // 5. Start Koin with test module (AFTER initialize)
         stopKoin()
         startKoin {
             androidContext(context)
@@ -99,4 +89,26 @@ abstract class BasePayCraftUiTest {
         composeTestRule.onNodeWithTag("input_email").performTextInput(email)
         composeTestRule.onNodeWithTag("btn_login").performClick()
     }
+
+    private fun testSuiteConfig(): SuiteConfig = SuiteConfig(
+        tenantId = "test-tenant",
+        products = listOf(
+            ProductDto(
+                id = "monthly",
+                sku = "monthly",
+                type = "subscription",
+                displayName = "Monthly",
+                interval = "month",
+                basePriceCents = 999,
+                baseCurrency = "USD",
+            ),
+        ),
+        providers = listOf(
+            ProviderDto(
+                provider = "stripe",
+                testPaymentLinks = mapOf("monthly" to "https://test.link/monthly"),
+            ),
+        ),
+        paywall = PaywallDto(supportEmail = "test@example.com"),
+    )
 }
