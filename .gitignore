@@ -91,6 +91,7 @@ temp/
 node_modules/
 package-lock.json
 !docusaurus/package-lock.json
+!dashboard/package-lock.json
 
 # Documentation build
 docs/_build/
