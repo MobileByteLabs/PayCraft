@@ -57,7 +57,10 @@ export function ProductForm({
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error ?? "save failed")
       }
-      router.push("/products")
+      // After editing an existing product land on its View page so the
+      // operator sees the updated config + sync panel. After creating, go
+      // back to the products list (no view to return to yet).
+      router.push(p.id ? `/products/${p.id}` : "/products")
       router.refresh()
     } catch (e: any) {
       setError(String(e.message ?? e))

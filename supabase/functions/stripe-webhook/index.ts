@@ -1,21 +1,75 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.0.0?target=deno";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3?target=deno";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
-// Test + live keys deployed separately — mode derived from event.livemode, not key prefix.
-// Legacy STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET retained as fallback for existing deploys.
-const testSecretKey = Deno.env.get("STRIPE_TEST_SECRET_KEY") || Deno.env.get("STRIPE_SECRET_KEY") || "";
-const liveSecretKey = Deno.env.get("STRIPE_LIVE_SECRET_KEY") || "";
-const testWebhookSecret = Deno.env.get("STRIPE_TEST_WEBHOOK_SECRET") || Deno.env.get("STRIPE_WEBHOOK_SECRET") || "";
-const liveWebhookSecret = Deno.env.get("STRIPE_LIVE_WEBHOOK_SECRET") || Deno.env.get("STRIPE_WEBHOOK_SECRET") || "";
+/**
+ * Multi-tenant Stripe webhook receiver.
+ *
+ * URL shapes:
+ *   /functions/v1/stripe-webhook/{tenant_id}   — multi-tenant (preferred)
+ *   /functions/v1/stripe-webhook               — single-tenant (legacy)
+ *
+ * Credential resolution order:
+ *   1. If {tenant_id} in path → load test/live webhook secrets + secret keys
+ *      from `tenant_providers` (via tenant_providers_decrypt_for_webhook RPC,
+ *      service-role only). This is the path Manual-API-keys + per-tenant
+ *      Stripe CLI tunnels use, and is why the older env-var-only handler
+ *      returned 500 for every event.
+ *   2. Otherwise fall back to env vars (legacy single-tenant self-hosters).
+ *
+ * Behavior for unhandled event types (product.created, plan.created,
+ * price.created, payment_link.created, …): explicit 200 ack with `ignored:
+ * true` payload — Stripe stops retrying immediately, so the CLI no longer
+ * floods the terminal with 500s for events we don't care about.
+ */
 
-// Lazy Stripe clients — only instantiated if the key is present
-const stripeTest = testSecretKey
-  ? new Stripe(testSecretKey, { apiVersion: "2023-10-16", httpClient: Stripe.createFetchHttpClient() })
-  : null;
-const stripeLive = liveSecretKey
-  ? new Stripe(liveSecretKey, { apiVersion: "2023-10-16", httpClient: Stripe.createFetchHttpClient() })
-  : null;
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "http://kong:8000";
+const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+
+// Legacy env fallbacks (single-tenant self-hosters).
+const envTestSecretKey =
+  Deno.env.get("STRIPE_TEST_SECRET_KEY") || Deno.env.get("STRIPE_SECRET_KEY") || "";
+const envLiveSecretKey = Deno.env.get("STRIPE_LIVE_SECRET_KEY") || "";
+const envTestWebhookSecret =
+  Deno.env.get("STRIPE_TEST_WEBHOOK_SECRET") || Deno.env.get("STRIPE_WEBHOOK_SECRET") || "";
+const envLiveWebhookSecret =
+  Deno.env.get("STRIPE_LIVE_WEBHOOK_SECRET") || Deno.env.get("STRIPE_WEBHOOK_SECRET") || "";
+
+interface TenantCreds {
+  secretKey: string;
+  webhookSecret: string;
+}
+
+/**
+ * Pull per-tenant Stripe credentials from the database. Returns null when
+ * the tenant has no row OR the requested mode isn't populated — caller
+ * decides whether to fall back to env vars or refuse the event.
+ */
+async function loadTenantCreds(
+  tenantId: string,
+  mode: "test" | "live",
+): Promise<TenantCreds | null> {
+  if (!SERVICE_ROLE) return null;
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await admin
+    .rpc("tenant_providers_decrypt_for_webhook", {
+      p_tenant_id: tenantId,
+      p_provider: "stripe",
+      p_mode: mode,
+    })
+    .maybeSingle();
+  if (error) {
+    console.error(
+      `[stripe-webhook] tenant_providers_decrypt_for_webhook failed (tenant=${tenantId}, mode=${mode}): ${error.message}`,
+    );
+    return null;
+  }
+  if (!data?.secret_key || !data?.webhook_secret) return null;
+  return { secretKey: data.secret_key, webhookSecret: data.webhook_secret };
+}
 
 serve(async (req) => {
   const signature = req.headers.get("stripe-signature");
@@ -23,9 +77,6 @@ serve(async (req) => {
     return new Response("Missing stripe-signature", { status: 400 });
   }
 
-  // Extract optional tenant_id from URL path:
-  // /stripe-webhook/{tenant_id} → multi-tenant
-  // /stripe-webhook             → single-tenant (self-hosted)
   const url = new URL(req.url);
   const pathParts = url.pathname.split("/").filter(Boolean);
   // Path: ["functions", "v1", "stripe-webhook", maybe-tenant-id]
@@ -33,65 +84,113 @@ serve(async (req) => {
 
   const body = await req.text();
 
-  // Determine mode from the raw payload BEFORE signature verification.
-  // This prevents a compromised test secret from forging live events.
-  let parsedBody: { livemode?: boolean };
+  // Determine mode from the unverified payload first so we know which
+  // credential pair to fetch. We never act on the parsed body before
+  // signature verification — only use it to pick the right key.
+  let parsedBody: { livemode?: boolean; type?: string };
   try {
     parsedBody = JSON.parse(body);
   } catch {
     return new Response("Invalid JSON body", { status: 400 });
   }
-
   const isLive = parsedBody.livemode === true;
-  const webhookSecret = isLive ? liveWebhookSecret : testWebhookSecret;
-  const stripeClient = isLive ? (stripeLive || stripeTest) : (stripeTest || stripeLive);
+  const stripeMode: "test" | "live" = isLive ? "live" : "test";
+
+  // Resolve credentials — tenant DB first, env fallback.
+  let secretKey = "";
+  let webhookSecret = "";
+  if (tenantId) {
+    const creds = await loadTenantCreds(tenantId, stripeMode);
+    if (creds) {
+      secretKey = creds.secretKey;
+      webhookSecret = creds.webhookSecret;
+    }
+  }
+  if (!secretKey || !webhookSecret) {
+    secretKey = isLive ? envLiveSecretKey || envTestSecretKey : envTestSecretKey || envLiveSecretKey;
+    webhookSecret = isLive ? envLiveWebhookSecret : envTestWebhookSecret;
+  }
 
   if (!webhookSecret) {
-    console.error(`No webhook secret configured for ${isLive ? "live" : "test"} mode`);
-    return new Response("Webhook secret not configured for this mode", { status: 500 });
+    console.error(
+      `[stripe-webhook] No ${stripeMode} webhook secret available (tenant=${tenantId ?? "self-hosted"}). Paste fresh whsec_ via dashboard → /providers/stripe → Update keys.`,
+    );
+    return new Response(
+      `No ${stripeMode} webhook secret configured for tenant ${tenantId ?? "self-hosted"}`,
+      { status: 500 },
+    );
+  }
+  if (!secretKey) {
+    console.error(
+      `[stripe-webhook] No ${stripeMode} secret key available (tenant=${tenantId ?? "self-hosted"}).`,
+    );
+    return new Response(
+      `No ${stripeMode} secret key configured for tenant ${tenantId ?? "self-hosted"}`,
+      { status: 500 },
+    );
   }
 
-  if (!stripeClient) {
-    console.error(`No Stripe client available for ${isLive ? "live" : "test"} mode`);
-    return new Response("Stripe client not configured for this mode", { status: 500 });
-  }
+  const stripeClient = new Stripe(secretKey, {
+    apiVersion: "2023-10-16",
+    httpClient: Stripe.createFetchHttpClient(),
+  });
 
-  // Verify signature with the CORRECT key — no fallback to other mode
   let event: Stripe.Event;
   try {
     event = await stripeClient.webhooks.constructEventAsync(body, signature, webhookSecret);
   } catch (err) {
-    console.error(`Webhook signature verification failed (${isLive ? "live" : "test"}):`, err.message);
-    return new Response(`Webhook Error: ${err.message}`, { status: 400 });
+    console.error(
+      `[stripe-webhook] signature verification failed (mode=${stripeMode}, tenant=${tenantId ?? "self-hosted"}): ${(err as Error).message}`,
+    );
+    return new Response(`Webhook Error: ${(err as Error).message}`, { status: 400 });
   }
 
-  const stripeMode: "test" | "live" = isLive ? "live" : "test";
+  console.log(
+    `[stripe-webhook] event=${event.type} mode=${stripeMode} tenant=${tenantId ?? "self-hosted"}`,
+  );
 
-  console.log(`Received event: ${event.type} | mode=${stripeMode} | tenant=${tenantId || "self-hosted"}`);
+  // Service-role client for any RPCs that need to write outside RLS. We only
+  // build it once verification succeeds so unverified payloads can't drive
+  // arbitrary RPC calls.
+  const supabase = SERVICE_ROLE
+    ? createClient(SUPABASE_URL, SERVICE_ROLE, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+    : null;
 
   try {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        let email = session.customer_email
-          || (session as any).customer_details?.email;
+        let email =
+          session.customer_email || (session as any).customer_details?.email;
         if (!email && session.customer) {
-          const customer = await stripeClient!.customers.retrieve(session.customer as string);
+          const customer = await stripeClient.customers.retrieve(
+            session.customer as string,
+          );
           email = (customer as any).email;
         }
 
         if (session.mode === "subscription" && email) {
-          const sub = await stripeClient!.subscriptions.retrieve(session.subscription as string);
-          // Stripe: `status === "trialing"` when the subscription is in its trial window.
+          const sub = await stripeClient.subscriptions.retrieve(
+            session.subscription as string,
+          );
+          if (supabase) {
+            await maybeIncrementCouponRedemption(supabase, sub);
+          }
+          // Stripe `status === "trialing"` when the subscription is in its trial window.
           // `trial_start` / `trial_end` are unix seconds on the Subscription object.
-          // The library forwards both so the row reflects whatever the provider says.
           const status = sub.status === "trialing" ? "trialing" : "active";
           await handleSubscriptionEvent({
             email,
             provider: "stripe",
             customerId: session.customer as string,
             subscriptionId: session.subscription as string,
-            plan: session.metadata?.plan_id || sub.items.data[0]?.price?.metadata?.plan_id || sub.items.data[0]?.price?.id || "unknown",
+            plan:
+              session.metadata?.plan_id ||
+              sub.items.data[0]?.price?.metadata?.plan_id ||
+              sub.items.data[0]?.price?.id ||
+              "unknown",
             status,
             mode: stripeMode,
             periodStart: new Date(sub.current_period_start * 1000),
@@ -148,10 +247,27 @@ serve(async (req) => {
         }
         break;
       }
+
+      default: {
+        // Stripe forwards every account event (product.created, plan.created,
+        // price.created, payment_link.created, etc) when the CLI tunnel runs
+        // with no event-type filter. Ack them explicitly so Stripe stops
+        // retrying — otherwise the CLI fills the terminal with 500s for
+        // events we never intended to handle.
+        return new Response(
+          JSON.stringify({ received: true, ignored: true, event_type: event.type }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
     }
   } catch (err) {
-    console.error("Error processing webhook:", err);
-    return new Response(`Processing Error: ${err.message}`, { status: 500 });
+    console.error(
+      `[stripe-webhook] processing error (event=${event.type}):`,
+      err,
+    );
+    return new Response(`Processing Error: ${(err as Error).message}`, {
+      status: 500,
+    });
   }
 
   return new Response(JSON.stringify({ received: true }), {
@@ -159,3 +275,29 @@ serve(async (req) => {
     headers: { "Content-Type": "application/json" },
   });
 });
+
+/**
+ * Pull the coupon id off a Stripe Subscription (either the legacy `discount`
+ * single-coupon field or the newer `discounts[]` array) and bump the matching
+ * row in `tenant_coupons`. No-op when the subscription was checked out
+ * without any coupon. Safe to call from any event handler — duplicate
+ * increments are acceptable for this counter.
+ */
+async function maybeIncrementCouponRedemption(
+  supabase: ReturnType<typeof createClient>,
+  sub: Stripe.Subscription,
+): Promise<void> {
+  const legacyCouponId = (sub as any).discount?.coupon?.id as string | undefined;
+  const arrayCouponId = ((sub as any).discounts as any[] | undefined)
+    ?.map((d) => d?.coupon?.id)
+    .find((id) => typeof id === "string") as string | undefined;
+  const couponId = legacyCouponId ?? arrayCouponId;
+  if (!couponId) return;
+  try {
+    await supabase.rpc("tenant_coupons_increment_redeemed", {
+      p_stripe_coupon_id: couponId,
+    });
+  } catch (e: any) {
+    console.warn("[stripe-webhook] increment_redeemed failed:", e?.message);
+  }
+}

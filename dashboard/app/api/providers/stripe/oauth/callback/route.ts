@@ -33,13 +33,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${DASHBOARD_URL}/providers/stripe?error=invalid_state`)
   }
 
-  // 1. Exchange code → tokens via the platform key.
+  // 1. Exchange code → tokens via the platform key. `getPlatformStripeClient`
+  // is now async (reads from `platform_secrets` first, env var fallback).
   let tokenResp: Stripe.OAuthToken
   try {
-    const platform = getPlatformStripeClient()
+    const platform = await getPlatformStripeClient()
     tokenResp = await platform.oauth.token({ grant_type: "authorization_code", code })
   } catch (e: any) {
-    return NextResponse.redirect(`${DASHBOARD_URL}/providers/stripe?error=token_exchange:${encodeURIComponent(e.message ?? "unknown")}`)
+    const msg = String(e?.message ?? "unknown")
+    // Detect the specific "Stripe Connect not enabled" case so the dashboard
+    // can render an actionable hint (link to dashboard.stripe.com/settings/connect).
+    if (msg.toLowerCase().includes("not enabled") || msg.toLowerCase().includes("connect")) {
+      return NextResponse.redirect(
+        `${DASHBOARD_URL}/providers/stripe?error=connect_disabled:${encodeURIComponent(msg)}`,
+      )
+    }
+    return NextResponse.redirect(
+      `${DASHBOARD_URL}/providers/stripe?error=token_exchange:${encodeURIComponent(msg)}`,
+    )
   }
 
   if (!tokenResp.access_token || !tokenResp.refresh_token || !tokenResp.stripe_user_id) {

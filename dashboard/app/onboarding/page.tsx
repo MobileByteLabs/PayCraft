@@ -64,7 +64,10 @@ export default function OnboardingPage() {
         <div className="w-10 h-10 rounded-md bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-sm shadow-brand-500/30 mb-2">
           <Sparkles className="w-5 h-5 text-white" strokeWidth={2.5} />
         </div>
-        <span className="text-ink-900 font-bold tracking-tight text-xl">PayCraft Cloud</span>
+        <div className="flex flex-col items-center">
+          <span className="text-ink-900 font-bold tracking-tight text-xl leading-none">PayCraft</span>
+          <span className="text-ink-500 text-[10px] font-medium tracking-widest uppercase mt-0.5">by MobileByteSensei</span>
+        </div>
       </div>
 
       {/* Onboarding card */}
@@ -223,7 +226,7 @@ export default function OnboardingPage() {
           </Link>
         </div>
         <p className="text-[11px] text-ink-400 font-medium tracking-wide">
-          © 2024 MOBILEBYTESENSEI. POWERED BY PAYCRAFT CLOUD.
+          PayCraft by MobileByteSensei · © 2026 MobileByteSensei Pvt Ltd
         </p>
       </footer>
     </div>
@@ -273,7 +276,7 @@ function Step1({
             autoFocus
             value={appName}
             onChange={(e) => setAppName(e.target.value)}
-            placeholder="My Awesome App"
+            placeholder="e.g. Acme, Photo Pro, FitTrack"
             className="w-full px-4 py-3 rounded-lg border border-ink-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all text-ink-900 placeholder:text-ink-400 text-sm"
           />
           <p className="text-xs text-ink-400">You can change this later in Settings.</p>
@@ -295,7 +298,7 @@ function Step1({
               Setting up Kotlin Multiplatform?
             </h4>
             <p className="text-xs text-brand-700 leading-relaxed mt-0.5">
-              PayCraft Cloud automatically handles platform-specific billing logic
+              PayCraft automatically handles platform-specific billing logic
               for Android, iOS, and Web using your app name as the project anchor.
             </p>
           </div>

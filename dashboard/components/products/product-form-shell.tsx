@@ -33,6 +33,8 @@ interface ProductInput {
   global_currency?: string | null
   display_order: number
   active: boolean
+  discount_percent?: number | null
+  discount_ends_at?: string | null
 }
 
 interface Subscription {
@@ -51,12 +53,15 @@ const TABS: { id: ProductType; label: string }[] = [
   { id: "lifetime", label: "Lifetime" },
 ]
 
-const INTERVALS: { value: Interval; label: string; shortLabel: string }[] = [
-  { value: "month", label: "Monthly", shortLabel: "/mo" },
-  { value: "quarter", label: "Quarterly", shortLabel: "/qtr" },
-  { value: "semiannual", label: "Semi-annual", shortLabel: "/6mo" },
-  { value: "year", label: "Annual", shortLabel: "/yr" },
+const INTERVALS: { value: Interval; label: string; shortLabel: string; months: number }[] = [
+  { value: "month",      label: "Monthly",     shortLabel: "/mo",  months: 1 },
+  { value: "quarter",    label: "Quarterly",   shortLabel: "/qtr", months: 3 },
+  { value: "semiannual", label: "Semi-annual", shortLabel: "/6mo", months: 6 },
+  { value: "year",       label: "Annual",      shortLabel: "/yr",  months: 12 },
 ]
+
+const intervalMonths = (interval: Interval | null | undefined): number =>
+  INTERVALS.find((i) => i.value === interval)?.months ?? 1
 
 export function ProductFormShell({
   initial,
@@ -76,12 +81,27 @@ export function ProductFormShell({
   const [pricingRows, setPricingRows] = useState(() =>
     resolveTemplatePrices(initial.base_price_cents || 999),
   )
-  // Re-compute auto rows when base price changes in Auto mode
+  // Re-compute auto rows whenever base price, interval, or mode changes —
+  // the period price (and therefore every per-country amount) tracks the
+  // selected billing interval.
   useEffect(() => {
     if (p.pricing_mode === "auto") {
       setPricingRows(resolveTemplatePrices(p.base_price_cents || 999))
     }
-  }, [p.base_price_cents, p.pricing_mode])
+  }, [p.base_price_cents, p.pricing_mode, p.interval])
+
+  // When the user switches billing interval, scale the base price by the ratio
+  // of the new period to the old one. Example: $9.99/month → click Quarterly →
+  // base auto-scales to $29.97 (the customer pays $29.97 every 3 months). The
+  // user can immediately edit it down if they want to apply a multi-month
+  // discount. Without this, switching interval silently keeps the per-period
+  // amount unchanged, which is almost never the intent.
+  function setBillingInterval(next: Interval) {
+    const prevMonths = intervalMonths(p.interval ?? "month")
+    const nextMonths = intervalMonths(next)
+    const scaled = Math.round((p.base_price_cents * nextMonths) / prevMonths)
+    setP({ ...p, interval: next, base_price_cents: scaled })
+  }
 
   // Derived preview values
   const previewName = p.display_name || "Pro Monthly Plan"
@@ -258,6 +278,9 @@ export function ProductFormShell({
                       <p className="text-xs text-ink-400">
                         = {p.base_currency === "INR" ? "₹" : p.base_currency === "USD" ? "$" : ""}
                         {(p.base_price_cents / 100).toFixed(2)} {p.base_currency}
+                        {p.type === "subscription" && p.interval && (
+                          <span> per {intervalObj.label.toLowerCase().replace(/-annual/, " months").replace("annual", "year")}</span>
+                        )}
                       </p>
                     </div>
                     <div className="space-y-2">
@@ -301,7 +324,7 @@ export function ProductFormShell({
                           name="interval"
                           value={iv.value}
                           checked={(p.interval ?? "month") === iv.value}
-                          onChange={() => setP({ ...p, interval: iv.value })}
+                          onChange={() => setBillingInterval(iv.value)}
                           className="sr-only"
                         />
                         <span
@@ -359,6 +382,79 @@ export function ProductFormShell({
                         }
                         className="w-32 px-4 py-2.5 bg-ink-50/50 border border-ink-200 rounded-lg text-[14px] focus:outline-none focus:border-brand-500"
                       />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {p.type !== "trial" && (
+                <div className="space-y-4 pt-2 border-t border-ink-100">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-ink-900">Promotional discount</div>
+                      <div className="text-xs text-ink-500">
+                        Uniform percentage off — applies to every locale price. Paywall shows the
+                        original price strike-through plus the discounted final amount.
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={p.discount_percent != null}
+                        onChange={(e) =>
+                          setP({ ...p, discount_percent: e.target.checked ? 20 : null })
+                        }
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-ink-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600" />
+                    </label>
+                  </div>
+                  {p.discount_percent != null && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-ink-500 block">
+                          Percent off
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min={1}
+                            max={99}
+                            value={p.discount_percent}
+                            onChange={(e) =>
+                              setP({
+                                ...p,
+                                discount_percent: parseInt(e.target.value || "20"),
+                              })
+                            }
+                            className="w-full pl-4 pr-10 py-2.5 bg-ink-50/50 border border-ink-200 rounded-lg text-sm focus:outline-none focus:border-brand-500"
+                          />
+                          <span className="absolute right-4 top-2.5 text-ink-400 text-sm">%</span>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-ink-500 block">
+                          Ends at (optional)
+                        </label>
+                        <input
+                          type="datetime-local"
+                          value={
+                            p.discount_ends_at
+                              ? new Date(p.discount_ends_at).toISOString().slice(0, 16)
+                              : ""
+                          }
+                          onChange={(e) =>
+                            setP({
+                              ...p,
+                              discount_ends_at: e.target.value
+                                ? new Date(e.target.value).toISOString()
+                                : null,
+                            })
+                          }
+                          className="w-full px-4 py-2.5 bg-ink-50/50 border border-ink-200 rounded-lg text-sm focus:outline-none focus:border-brand-500"
+                        />
+                        <p className="text-xs text-ink-400">Leave blank for no expiry.</p>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -671,7 +767,7 @@ export function ProductFormShell({
                     Subscribe now
                   </button>
                   <p className="text-center text-[11px] text-ink-400">
-                    Secure payment powered by PayCraft
+                    PayCraft by MobileByteSensei
                   </p>
                 </div>
               </div>

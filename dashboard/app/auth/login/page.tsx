@@ -251,17 +251,11 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Trust logos */}
-          <div className="w-full flex flex-col items-center gap-4">
-            <p className="text-[11px] font-black uppercase tracking-[0.2em] text-white/40">
-              Trusted By
-            </p>
-            <div className="flex items-center justify-center gap-8 opacity-40 grayscale contrast-125">
-              {["STRIPE", "VERCEL", "LINEAR", "HYPER"].map((name) => (
-                <span key={name} className="text-white font-bold tracking-tight text-base">
-                  {name}
-                </span>
-              ))}
+          {/* Brand badge */}
+          <div className="w-full flex flex-col items-center gap-2">
+            <div className="text-white font-bold text-2xl tracking-tight">PayCraft</div>
+            <div className="text-white/50 text-[11px] font-medium tracking-[0.25em] uppercase">
+              by MobileByteSensei
             </div>
           </div>
         </div>

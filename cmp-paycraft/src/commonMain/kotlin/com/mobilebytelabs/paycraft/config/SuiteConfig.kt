@@ -37,6 +37,43 @@ data class ProductDto(
     @SerialName("display_order") val displayOrder: Int = 0,
     val active: Boolean = true,
     @SerialName("resolved_price") val resolvedPrice: PriceDto? = null,
+    /**
+     * Automatic percentage discount, 1..99. When set, the SDK paywall renders the
+     * `base_price_cents` (and each per-locale price in `tenant_pricing`) with a
+     * strike-through original and a discounted final amount. NULL = no discount.
+     *
+     * Applied automatically on checkout (Stripe Coupon attached) — the customer
+     * does NOT type a code. For code-driven discounts use [CouponDto] instead.
+     */
+    @SerialName("discount_percent") val discountPercent: Int? = null,
+    /** ISO 8601 timestamp when the auto-discount expires. NULL = no expiry. */
+    @SerialName("discount_ends_at") val discountEndsAt: String? = null,
+)
+
+/**
+ * A code-driven discount the customer enters at checkout. The dashboard creates
+ * these per-tenant via the Coupons page; the SDK exposes `PayCraft.applyCoupon()`
+ * to validate one before kicking off checkout.
+ *
+ * `duration` mirrors Stripe's Coupon model:
+ *   - `"once"`      — discount applied to first invoice only
+ *   - `"repeating"` — applied for `durationInMonths` invoices, then drops off
+ *   - `"forever"`   — applied to every invoice indefinitely
+ *
+ * The recurring subscription is created normally — Stripe attaches the coupon
+ * to the subscription record, so renewals continue automatically with the
+ * coupon's duration policy applied. The SDK does NOT need to re-validate the
+ * coupon on each renewal; Stripe is the single source of truth.
+ */
+@Serializable
+data class CouponDto(
+    val id: String,
+    val code: String,
+    val name: String? = null,
+    @SerialName("percent_off") val percentOff: Int,
+    val duration: String,                                       // "once" | "repeating" | "forever"
+    @SerialName("duration_in_months") val durationInMonths: Int? = null,
+    @SerialName("redeem_by") val redeemBy: String? = null,
 )
 
 @Serializable

@@ -1,8 +1,12 @@
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
-import { ProductFormShell } from "@/components/products/product-form-shell"
+import { NewProductPicker } from "@/components/products/new-product-picker"
 
-export default async function NewProductPage() {
+export default async function NewProductPage({
+  searchParams,
+}: {
+  searchParams?: { mode?: string }
+}) {
   const { tenant } = await requireTenant()
   const supabase = createClient()
 
@@ -30,5 +34,11 @@ export default async function NewProductPage() {
     active: true,
   }
 
-  return <ProductFormShell initial={blank} subscriptions={subscriptions ?? []} />
+  return (
+    <NewProductPicker
+      initial={blank}
+      subscriptions={subscriptions ?? []}
+      defaultMode={searchParams?.mode === "manual" ? "manual" : "quick"}
+    />
+  )
 }

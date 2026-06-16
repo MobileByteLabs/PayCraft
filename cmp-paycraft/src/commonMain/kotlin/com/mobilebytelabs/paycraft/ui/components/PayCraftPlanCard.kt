@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_active_badge
@@ -181,17 +182,49 @@ fun PayCraftPlanCard(
                         )
                     }
                 }
-                Text(
-                    text = plan.price,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isSelected || isActive) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    modifier = Modifier.testTag(PayCraftTestTags.PLAN_CARD_PRICE),
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    // Strike-through original price + "X% OFF" tag when a
+                    // promotional discount is active for this plan.
+                    if (plan.hasActiveDiscount) {
+                        Text(
+                            text = plan.originalPrice!!,
+                            style = MaterialTheme.typography.labelMedium,
+                            textDecoration = TextDecoration.LineThrough,
+                            color = if (isSelected || isActive) {
+                                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f)
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                    Text(
+                        text = plan.price,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected || isActive) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else if (plan.hasActiveDiscount) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        modifier = Modifier.testTag(PayCraftTestTags.PLAN_CARD_PRICE),
+                    )
+                    if (plan.hasActiveDiscount && plan.discountPercent != null) {
+                        Spacer(Modifier.size(2.dp))
+                        Badge(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                        ) {
+                            Text(
+                                text = "${plan.discountPercent}% OFF",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 4.dp),
+                            )
+                        }
+                    }
+                }
             }
         }
 

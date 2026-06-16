@@ -1,53 +1,68 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3?target=deno";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
 /**
- * Razorpay Webhook Handler.
+ * Multi-tenant Razorpay Webhook Handler.
  *
- * Razorpay signs webhooks with HMAC-SHA256 in the `x-razorpay-signature`
- * header using the secret you configured in Dashboard → Webhooks → Edit.
+ * URL paths:
+ *   /functions/v1/razorpay-webhook/{tenant_id}   — multi-tenant (preferred)
+ *   /functions/v1/razorpay-webhook               — single-tenant fallback
  *
- * Events handled (subscribe to these in the Razorpay dashboard):
- *   - subscription.activated   → active OR trialing (when start_at > now)
- *   - subscription.charged     → period extension (renewal — sets new current_end)
- *   - subscription.cancelled   → canceled
- *   - subscription.halted      → past_due (payment failed)
- *   - subscription.completed   → canceled (end of subscription lifecycle)
+ * Credential resolution (matches the Stripe + Cashfree pattern after the
+ * Phase B-C rewrites):
+ *   1. If {tenant_id} in path → load test+live webhook secrets from
+ *      tenant_providers via tenant_providers_decrypt_for_webhook (RPC
+ *      added in migration 059 — service-role only).
+ *   2. Otherwise fall back to env vars (legacy single-tenant deploys).
  *
- * Trial support (PayCraft v1.1):
- *   Razorpay's "scheduled first invoice" pattern uses `subscription.start_at`
- *   (Unix seconds). If start_at > now() at activation, the user is in a free
- *   trial that ends at start_at. We map:
- *     trial_start = subscription.created_at (when the trial started)
- *     trial_end   = subscription.start_at   (when first charge will fire)
- *   Once trial expires, subsequent events leave the trial columns alone (the
- *   sticky-trigger from migration 027 preserves them).
+ * Without this, multi-tenant deploys can't process Razorpay events at all
+ * — each tenant has their own whsec_ in the Razorpay Dashboard but the
+ * Edge Function would only have one global secret in env.
  *
- * URL path supports optional tenant ID (multi-tenant cloud mode):
- *   /razorpay-webhook              → single-tenant (self-hosted)
- *   /razorpay-webhook/{tenant_id}  → multi-tenant
+ * Events handled:
+ *   subscription.activated   → active OR trialing (when start_at > now)
+ *   subscription.charged     → period extension (renewal)
+ *   subscription.cancelled   → canceled
+ *   subscription.halted      → past_due (recurring charge failed)
+ *   subscription.completed   → canceled (subscription lifecycle ended)
  *
- * Email resolution:
- *   Razorpay subscription objects don't include customer email directly. The
- *   adopt-flow stores email in `subscription.notes.paycraft_email` at creation
- *   time; we read it here. If missing, we fall through with email=null and
- *   the shared handler updates by subscription_id only.
+ * Trial detection: Razorpay's `subscription.start_at` (unix seconds). If
+ * start_at > created_at at activation, the user is in a trial window
+ * [created_at, start_at). We populate trial_start/trial_end accordingly;
+ * the sticky trigger from migration 027 preserves them across renewals.
+ *
+ * Email resolution: Razorpay doesn't expose customer email on subscription
+ * objects directly. The adopt-flow stores it in `subscription.notes` at
+ * creation time as `paycraft_email`. If missing we update by
+ * subscriptionId only.
+ *
+ * For unhandled events: ack with 200 + ignored:true so Razorpay stops
+ * retrying. The behavior matches the post-rewrite Stripe webhook.
  */
 
-const testKeyId = Deno.env.get("RAZORPAY_TEST_KEY_ID") || "";
-const liveKeyId = Deno.env.get("RAZORPAY_LIVE_KEY_ID") || "";
-const testWebhookSecret = Deno.env.get("RAZORPAY_TEST_WEBHOOK_SECRET") || Deno.env.get("RAZORPAY_WEBHOOK_SECRET") || "";
-const liveWebhookSecret = Deno.env.get("RAZORPAY_LIVE_WEBHOOK_SECRET") || Deno.env.get("RAZORPAY_WEBHOOK_SECRET") || "";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "http://kong:8000";
+const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+
+// Legacy env fallbacks (single-tenant self-hosters).
+const envTestWebhookSecret =
+  Deno.env.get("RAZORPAY_TEST_WEBHOOK_SECRET") ??
+  Deno.env.get("RAZORPAY_WEBHOOK_SECRET") ??
+  "";
+const envLiveWebhookSecret =
+  Deno.env.get("RAZORPAY_LIVE_WEBHOOK_SECRET") ??
+  Deno.env.get("RAZORPAY_WEBHOOK_SECRET") ??
+  "";
 
 interface RazorpaySubscription {
   id: string;
   plan_id: string;
   customer_id: string | null;
   status: string;
-  created_at: number;       // unix seconds
+  created_at: number;
   current_start: number | null;
   current_end: number | null;
-  start_at: number | null;  // unix seconds — first charge time; trial_end if > created_at
+  start_at: number | null;
   ended_at: number | null;
   notes: Record<string, string> | null;
 }
@@ -64,23 +79,71 @@ interface RazorpayEventEnvelope {
   created_at: number;
 }
 
+interface TenantCreds {
+  webhookSecret: string;
+}
+
+async function loadTenantWebhookSecret(
+  tenantId: string,
+  mode: "test" | "live",
+): Promise<TenantCreds | null> {
+  if (!SERVICE_ROLE) return null;
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await admin
+    .rpc("tenant_providers_decrypt_for_webhook", {
+      p_tenant_id: tenantId,
+      p_provider: "razorpay",
+      p_mode: mode,
+    })
+    .maybeSingle();
+  if (error) {
+    console.error(
+      `[razorpay-webhook] decrypt failed (tenant=${tenantId}, mode=${mode}): ${error.message}`,
+    );
+    return null;
+  }
+  if (!data?.webhook_secret) return null;
+  return { webhookSecret: data.webhook_secret };
+}
+
+async function verifySignature(
+  body: string,
+  signature: string,
+  secret: string,
+): Promise<boolean> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sigBuf = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(body),
+  );
+  const expected = Array.from(new Uint8Array(sigBuf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  // Razorpay sends lowercase hex; case-insensitive compare is the safe path.
+  return expected.toLowerCase() === signature.toLowerCase();
+}
+
 serve(async (req) => {
   const signature = req.headers.get("x-razorpay-signature");
   if (!signature) {
     return new Response("Missing x-razorpay-signature", { status: 400 });
   }
 
-  // Tenant ID from URL path: /functions/v1/razorpay-webhook/{tenant_id}
   const url = new URL(req.url);
   const pathParts = url.pathname.split("/").filter(Boolean);
   const tenantId: string | null = pathParts.length > 3 ? pathParts[3] : null;
 
   const body = await req.text();
 
-  // Derive mode from raw payload BEFORE signature verification, mirroring
-  // the Stripe webhook's dual-mode pattern. Razorpay events include
-  // `payload.subscription.entity.notes.paycraft_mode` if set during creation,
-  // OR we fall back to checking which webhook secret verifies.
   let parsed: RazorpayEventEnvelope;
   try {
     parsed = JSON.parse(body);
@@ -88,42 +151,79 @@ serve(async (req) => {
     return new Response("Invalid JSON body", { status: 400 });
   }
 
+  // Resolve mode via notes hint (most reliable when set), then by which
+  // secret verifies. The notes hint is set by PayCraft's adopt-flow when
+  // creating the subscription; if absent, we try test then live.
   const noteMode = parsed.payload?.subscription?.entity?.notes?.paycraft_mode;
   const claimedMode: "test" | "live" | null =
     noteMode === "test" ? "test" : noteMode === "live" ? "live" : null;
 
-  // Verify signature against the secret matching the claimed mode; if no claim,
-  // try test first then live (Razorpay doesn't include livemode in payload).
-  let mode: "test" | "live";
-  if (claimedMode) {
-    const secret = claimedMode === "test" ? testWebhookSecret : liveWebhookSecret;
-    if (!secret || !(await verifySignature(body, signature, secret))) {
-      console.error(`Razorpay ${claimedMode}-mode signature verification failed`);
-      return new Response("Invalid signature", { status: 401 });
+  let resolvedMode: "test" | "live" | null = null;
+
+  // Helper: try a (mode, secret) pair against the signature.
+  async function trySecret(
+    mode: "test" | "live",
+    secret: string | null | undefined,
+  ): Promise<boolean> {
+    if (!secret) return false;
+    return await verifySignature(body, signature!, secret);
+  }
+
+  // Tenant-scoped secrets first.
+  if (tenantId) {
+    if (claimedMode) {
+      const creds = await loadTenantWebhookSecret(tenantId, claimedMode);
+      if (await trySecret(claimedMode, creds?.webhookSecret)) {
+        resolvedMode = claimedMode;
+      }
+    } else {
+      const testCreds = await loadTenantWebhookSecret(tenantId, "test");
+      if (await trySecret("test", testCreds?.webhookSecret)) {
+        resolvedMode = "test";
+      } else {
+        const liveCreds = await loadTenantWebhookSecret(tenantId, "live");
+        if (await trySecret("live", liveCreds?.webhookSecret)) {
+          resolvedMode = "live";
+        }
+      }
     }
-    mode = claimedMode;
-  } else if (testWebhookSecret && (await verifySignature(body, signature, testWebhookSecret))) {
-    mode = "test";
-  } else if (liveWebhookSecret && (await verifySignature(body, signature, liveWebhookSecret))) {
-    mode = "live";
-  } else {
-    console.error("Razorpay signature verification failed (no matching secret)");
+  }
+
+  // Env-var fallback for single-tenant deploys.
+  if (!resolvedMode) {
+    if (claimedMode) {
+      const secret = claimedMode === "test" ? envTestWebhookSecret : envLiveWebhookSecret;
+      if (await trySecret(claimedMode, secret)) resolvedMode = claimedMode;
+    } else {
+      if (await trySecret("test", envTestWebhookSecret)) resolvedMode = "test";
+      else if (await trySecret("live", envLiveWebhookSecret)) resolvedMode = "live";
+    }
+  }
+
+  if (!resolvedMode) {
+    console.error(
+      `[razorpay-webhook] signature verification failed (tenant=${tenantId ?? "self-hosted"})`,
+    );
     return new Response("Invalid signature", { status: 401 });
   }
 
+  const mode = resolvedMode;
   const eventType = parsed.event;
   const sub = parsed.payload?.subscription?.entity;
+
+  console.log(
+    `[razorpay-webhook] event=${eventType} mode=${mode} tenant=${tenantId ?? "self-hosted"}`,
+  );
+
   if (!sub) {
-    // payment.* events without a subscription envelope are acknowledged but ignored
-    // (PayCraft cares about subscription state, not standalone payments).
-    console.log(`Razorpay event ${eventType} has no subscription payload — skipping`);
-    return new Response(JSON.stringify({ received: true, skipped: true }), { status: 200 });
+    // payment.* events without a subscription envelope — ack and ignore,
+    // PayCraft only cares about subscription state.
+    return new Response(
+      JSON.stringify({ received: true, ignored: true, reason: "no subscription payload" }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
   }
 
-  console.log(`Razorpay event: ${eventType} | sub=${sub.id} | mode=${mode} | tenant=${tenantId || "self-hosted"}`);
-
-  // Trial detection: if start_at > created_at, the user got a scheduled first
-  // invoice (= trial window from created_at → start_at).
   const trialStart =
     sub.start_at && sub.created_at && sub.start_at > sub.created_at
       ? new Date(sub.created_at * 1000)
@@ -134,15 +234,12 @@ serve(async (req) => {
       : null;
   const inTrialWindow = trialEnd !== null && trialEnd > new Date();
 
-  // Email resolution from notes (set by adopt-flow at subscription creation).
   const email = sub.notes?.paycraft_email || sub.notes?.email || null;
   const plan = sub.notes?.paycraft_plan || sub.plan_id || "unknown";
 
   try {
     switch (eventType) {
       case "subscription.activated": {
-        // activated fires when the subscription becomes billable. With a trial,
-        // the actual status is "trialing" until start_at; afterwards it's "active".
         const status = inTrialWindow ? "trialing" : "active";
         await handleSubscriptionEvent({
           email,
@@ -164,9 +261,8 @@ serve(async (req) => {
       }
 
       case "subscription.charged": {
-        // Renewal — Razorpay charged a new billing period.
         await handleSubscriptionEvent({
-          email: null,  // partial update by subscriptionId
+          email: null,
           provider: "razorpay",
           customerId: null,
           subscriptionId: sub.id,
@@ -176,7 +272,6 @@ serve(async (req) => {
           periodStart: sub.current_start ? new Date(sub.current_start * 1000) : null,
           periodEnd: sub.current_end ? new Date(sub.current_end * 1000) : null,
           cancelAtPeriodEnd: false,
-          // trialStart/trialEnd intentionally omitted — sticky trigger preserves history.
           tenantId,
           eventType,
         });
@@ -203,7 +298,6 @@ serve(async (req) => {
       }
 
       case "subscription.halted": {
-        // Razorpay halts a subscription when a recurring charge fails.
         await handleSubscriptionEvent({
           email: null,
           provider: "razorpay",
@@ -221,14 +315,19 @@ serve(async (req) => {
         break;
       }
 
-      default: {
-        // Acknowledge unrecognized events without writing to the DB.
-        console.log(`Razorpay event ${eventType} not handled — acknowledged`);
-      }
+      default:
+        return new Response(
+          JSON.stringify({
+            received: true,
+            ignored: true,
+            reason: `event ${eventType} not handled`,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("Razorpay webhook error:", message);
+    console.error("[razorpay-webhook] processing error:", message);
     return new Response(`Error: ${message}`, { status: 500 });
   }
 
@@ -237,19 +336,3 @@ serve(async (req) => {
     headers: { "Content-Type": "application/json" },
   });
 });
-
-async function verifySignature(body: string, signature: string, secret: string): Promise<boolean> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sigBuf = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body));
-  const expected = Array.from(new Uint8Array(sigBuf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  // Razorpay sends lowercase hex; case-insensitive compare is the safe path.
-  return expected.toLowerCase() === signature.toLowerCase();
-}

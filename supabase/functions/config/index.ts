@@ -90,12 +90,28 @@ serve(async (req: Request): Promise<Response> => {
         ? p.trial_duration_days
         : 7
 
+      // Pull through the promotional-discount fields with safe defaults.
+      // The SDK paywall reads these to render strike-through + discounted price.
+      const discountPercent = typeof p.discount_percent === "number"
+        ? p.discount_percent
+        : null
+      const discountEndsAt = typeof p.discount_ends_at === "string"
+        ? p.discount_ends_at
+        : null
+
+      // Auto-expire the discount server-side so stale rows never reach the SDK.
+      const discountActive =
+        discountPercent !== null &&
+        (discountEndsAt === null || new Date(discountEndsAt) > new Date())
+
       // Global mode: single price worldwide — skip tenant_pricing lookup.
       if (p.pricing_mode === "global" && p.global_price_cents && p.global_currency) {
         return {
           ...p,
           trial_enabled: trialEnabled,
           trial_duration_days: trialDurationDays,
+          discount_percent: discountActive ? discountPercent : null,
+          discount_ends_at: discountActive ? discountEndsAt : null,
           resolved_price: {
             amount_cents: p.global_price_cents,
             currency: p.global_currency,
@@ -126,6 +142,8 @@ serve(async (req: Request): Promise<Response> => {
         ...p,
         trial_enabled: trialEnabled,
         trial_duration_days: trialDurationDays,
+        discount_percent: discountActive ? discountPercent : null,
+        discount_ends_at: discountActive ? discountEndsAt : null,
         resolved_price,
       }
     }),

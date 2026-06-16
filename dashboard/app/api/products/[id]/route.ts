@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
-import { stripeSyncProduct, razorpaySyncProduct } from "@/lib/stripe-route-helper"
+import {
+  stripeSyncProduct,
+  razorpaySyncProduct,
+  cashfreeSyncProduct,
+} from "@/lib/stripe-route-helper"
 
 export async function PATCH(
   req: NextRequest,
@@ -60,6 +64,11 @@ export async function PATCH(
       productId: params.id,
       body,
       existingRazorpayPlanIds: existing.razorpay_plan_id_by_currency ?? undefined,
+    }),
+    cashfreeSyncProduct(supabase, {
+      tenantId: tenant.id,
+      productId: params.id,
+      body,
     }),
   ])
 

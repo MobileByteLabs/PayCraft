@@ -16,14 +16,10 @@ export async function requireTenant(): Promise<{ tenant: Tenant; userId: string 
   const { data: memberships } = await supabase.rpc("tenant_admins_list_for_user")
 
   if (!memberships?.length) {
-    // No apps yet — auto-provision first one using Google display name.
-    const meta = user!.user_metadata ?? {}
-    const appName = meta.full_name || meta.name || "My App"
-    const { data: provisioned } = await supabase.rpc("provision_app", {
-      p_app_name: appName,
-    })
-    if (!provisioned?.tenant_id) redirect("/auth/login")
-    return loadTenant(supabase, provisioned.tenant_id, user!.id)
+    // First sign-in — no apps yet. Send the user through /onboarding so they
+    // name the app themselves. NEVER auto-provision with their Google display
+    // name (that ends up as "Rajan Maurya" or "John Doe" as the app brand).
+    redirect("/onboarding")
   }
 
   // Honor the active-app cookie if it points to a tenant the user is a member of.

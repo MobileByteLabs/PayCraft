@@ -1,12 +1,18 @@
 package com.mobilebytelabs.paycraft
 
+import com.mobilebytelabs.paycraft.config.CouponDto
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
+import com.mobilebytelabs.paycraft.network.CouponClient
 import com.mobilebytelabs.paycraft.provider.PaymentProvider
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.json.Json
 
 /**
  * PayCraft — the single SDK entry point.
@@ -84,8 +90,64 @@ object PayCraft {
     fun requireConfig(): PayCraftConfig =
         config ?: error("PayCraft.initialize(apiKey) must be called before use")
 
+    /**
+     * Coupons the customer has successfully applied this session.
+     * Keyed by plan id (= product sku) so each plan can hold at most one coupon.
+     * Populated by [setAppliedCoupon] — typically driven by the paywall's coupon
+     * input field after a successful [com.mobilebytelabs.paycraft.network.CouponClient.validate].
+     */
+    internal val appliedCoupons: MutableMap<String, CouponDto> = mutableMapOf()
+
+    /**
+     * Record a coupon the customer just typed at the paywall. The next
+     * [checkout] call for this plan will append the promotion code to the
+     * provider's checkout URL (Stripe `prefilled_promo_code=…`).
+     *
+     * Pass `null` to clear. Recurring subscriptions DO NOT need re-validation —
+     * Stripe attaches the Coupon to the Subscription itself and applies it per
+     * the coupon's `duration` (once / repeating / forever) for every renewal.
+     */
+    fun setAppliedCoupon(planId: String, coupon: CouponDto?) {
+        if (coupon == null) appliedCoupons.remove(planId) else appliedCoupons[planId] = coupon
+    }
+
+    private val couponClient: CouponClient by lazy {
+        CouponClient(
+            httpClient = HttpClient {
+                install(ContentNegotiation) {
+                    json(Json { ignoreUnknownKeys = true; explicitNulls = false })
+                }
+            },
+            backend = backend,
+        )
+    }
+
+    /**
+     * Validate a customer-typed promo code for the given plan.
+     *
+     * On success the resolved [CouponDto] is stashed in [appliedCoupons]
+     * automatically — the very next [checkout] call appends the code to the
+     * provider URL so Stripe (or Razorpay) applies the discount at the checkout
+     * screen and persists it on the resulting Subscription for recurring renewals.
+     *
+     * Returns [CouponClient.Result.Ok], [Invalid] (no such code / expired /
+     * doesn't apply to this product), or [Error] (network / config issues).
+     */
+    suspend fun applyCoupon(planId: String, code: String): CouponClient.Result {
+        val suite = suiteConfig ?: return CouponClient.Result.Error("PayCraft.initialize() not finished — no SuiteConfig yet")
+        val key = apiKey ?: return CouponClient.Result.Error("PayCraft.initialize(apiKey) was not called")
+        val product = suite.products.firstOrNull { it.sku == planId }
+            ?: return CouponClient.Result.Invalid("Plan $planId not found in cloud config")
+        val result = couponClient.validate(apiKey = key, code = code, productId = product.id)
+        if (result is CouponClient.Result.Ok) {
+            setAppliedCoupon(planId, result.coupon)
+        }
+        return result
+    }
+
     fun checkout(plan: BillingPlan, email: String? = null) {
-        val url = requireConfig().provider.getCheckoutUrl(plan, email)
+        val baseUrl = requireConfig().provider.getCheckoutUrl(plan, email)
+        val url = appendCouponParam(baseUrl, appliedCoupons[plan.id]?.code)
         PayCraftPlatform.openUrl(url)
     }
 
@@ -95,8 +157,22 @@ object PayCraft {
      */
     internal fun checkoutWithProvider(plan: BillingPlan, provider: ProviderDto, email: String? = null) {
         val adapter = SuiteProviderAdapter(provider)
-        val url = adapter.getCheckoutUrl(plan, email)
+        val baseUrl = adapter.getCheckoutUrl(plan, email)
+        val url = appendCouponParam(baseUrl, appliedCoupons[plan.id]?.code)
         PayCraftPlatform.openUrl(url)
+    }
+
+    /**
+     * Append a Stripe/Razorpay-compatible promotion code parameter to a checkout
+     * URL. Stripe Payment Links honour `prefilled_promo_code` when the link was
+     * created with `allow_promotion_codes=true` (which PayCraft's product-sync
+     * code does by default). Razorpay subscription links accept `?promotion=`
+     * (best-effort; ignored if the offer isn't whitelisted).
+     */
+    private fun appendCouponParam(url: String, code: String?): String {
+        if (code.isNullOrBlank()) return url
+        val sep = if (url.contains('?')) '&' else '?'
+        return "$url${sep}prefilled_promo_code=$code"
     }
 
     fun manageSubscription(email: String) {
@@ -168,11 +244,31 @@ private fun List<ProductDto>.toBillingPlans(): List<BillingPlan> {
             dto.trialEnabled -> dto.trialDurationDays
             else -> null
         }
+
+        // Resolve the display amounts. resolvedPrice wins (per-locale); fall back to
+        // baseCurrency for tenants without a tenant_pricing row.
+        val originalCents = dto.resolvedPrice?.amountCents ?: dto.basePriceCents
+        val originalCurrency = dto.resolvedPrice?.currency ?: dto.baseCurrency
+
+        // Apply the auto-discount when discount_percent is set AND not expired.
+        // Server-side /config already strips expired discounts (see edge function),
+        // so by the time we land here a non-null discountPercent means it's active.
+        val discountPercent = dto.discountPercent?.takeIf { it in 1..99 }
+        val effectiveCents = if (discountPercent != null) {
+            (originalCents.toLong() * (100 - discountPercent) / 100).toInt()
+        } else {
+            originalCents
+        }
+
         BillingPlan(
             id = dto.sku,
             name = dto.displayName,
-            price = dto.resolvedPrice?.let { p -> formatMoney(p.amountCents, p.currency) }
-                ?: formatMoney(dto.basePriceCents, dto.baseCurrency),
+            price = formatMoney(effectiveCents, originalCurrency),
+            originalPrice = if (discountPercent != null) {
+                formatMoney(originalCents, originalCurrency)
+            } else null,
+            discountPercent = discountPercent,
+            discountEndsAt = if (discountPercent != null) dto.discountEndsAt else null,
             interval = dto.interval ?: "lifetime",
             rank = idx,
             isPopular = false,

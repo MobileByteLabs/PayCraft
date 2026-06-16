@@ -4,6 +4,35 @@ import { requireTenant } from "@/lib/tenant"
 import { createClient } from "@/lib/supabase-server"
 import { getPlatformStripeClient } from "@/lib/stripe-client"
 
+/**
+ * DELETE — disconnect the Manual API keys row (tenant_providers).
+ * Use POST to disconnect the OAuth Connect row instead. The dashboard's
+ * "Disconnect" button on the Connected view picks whichever applies based on
+ * the current connection mode reported by /api/providers/stripe/status.
+ */
+export async function DELETE() {
+  const { tenant, userId } = await requireTenant()
+  const supabase = createClient()
+
+  const { error } = await supabase
+    .from("tenant_providers")
+    .delete()
+    .eq("tenant_id", tenant.id)
+    .eq("provider", "stripe")
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await supabase.rpc("audit_log_emit", {
+    p_tenant_id: tenant.id,
+    p_actor_user_id: userId,
+    p_actor_type: "user",
+    p_action: "provider.disconnected",
+    p_resource: `tenant_providers:provider=stripe`,
+  })
+
+  return NextResponse.json({ ok: true })
+}
+
 export async function POST() {
   const { tenant } = await requireTenant()
   const supabase = createClient()

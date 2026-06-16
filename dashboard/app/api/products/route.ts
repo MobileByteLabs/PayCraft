@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
-import { stripeSyncProduct, razorpaySyncProduct } from "@/lib/stripe-route-helper"
+import {
+  stripeSyncProduct,
+  razorpaySyncProduct,
+  cashfreeSyncProduct,
+} from "@/lib/stripe-route-helper"
 
 export async function POST(req: NextRequest) {
   const { tenant, userId } = await requireTenant()
@@ -36,10 +40,11 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Best-effort multi-provider sync (both run concurrently; failures are logged only).
+  // Best-effort multi-provider sync (all run concurrently; failures are logged only).
   void Promise.all([
     stripeSyncProduct(supabase, { tenantId: tenant.id, productId: id, body }),
     razorpaySyncProduct(supabase, { tenantId: tenant.id, productId: id, body }),
+    cashfreeSyncProduct(supabase, { tenantId: tenant.id, productId: id, body }),
   ])
 
   return NextResponse.json({ id })

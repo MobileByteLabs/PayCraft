@@ -3,8 +3,13 @@ package com.mobilebytelabs.paycraft.di
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.PayCraftBillingManager
+import com.mobilebytelabs.paycraft.network.CouponClient
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.network.PayCraftServiceImpl
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.json.Json
 import com.mobilebytelabs.paycraft.ui.PayCraftPaywallViewModel
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
@@ -41,6 +46,21 @@ val PayCraftModule = module {
         PayCraftBillingManager(
             service = get(),
             store = get(),
+        )
+    }
+
+    single<HttpClient> {
+        HttpClient {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true; explicitNulls = false })
+            }
+        }
+    }
+
+    single<CouponClient> {
+        CouponClient(
+            httpClient = get(),
+            backend = PayCraft.backend,
         )
     }
 

@@ -14,7 +14,9 @@ import {
   Package,
   Plug,
   Settings,
+  ShieldCheck,
   Sparkles,
+  Tag,
   Users,
   Users2,
   Webhook,
@@ -40,6 +42,7 @@ const groups: NavGroup[] = [
     label: "Configure",
     items: [
       { href: "/products", label: "Products", icon: Package },
+      { href: "/coupons", label: "Coupons", icon: Tag },
       { href: "/providers", label: "Providers", icon: Plug },
       { href: "/paywall", label: "Paywall", icon: LayoutGrid },
     ],
@@ -64,15 +67,31 @@ const groups: NavGroup[] = [
   },
 ]
 
+// Admin-only group rendered when the current user owns the platform.
+const adminGroup: NavGroup = {
+  label: "Admin",
+  items: [
+    { href: "/admin/platform-keys", label: "Platform keys", icon: ShieldCheck },
+  ],
+}
+
 interface SidebarProps {
   tenantName: string
   tenantPlan: string
   ownerEmail: string
   appSwitcher?: React.ReactNode
+  isPlatformOwner?: boolean
 }
 
-export function Sidebar({ tenantName, tenantPlan, ownerEmail, appSwitcher }: SidebarProps) {
+export function Sidebar({
+  tenantName,
+  tenantPlan,
+  ownerEmail,
+  appSwitcher,
+  isPlatformOwner,
+}: SidebarProps) {
   const pathname = usePathname()
+  const navGroups = isPlatformOwner ? [...groups, adminGroup] : groups
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-white border-r border-ink-200 flex flex-col py-6 px-4 z-50">
       {/* Brand */}
@@ -130,7 +149,7 @@ export function Sidebar({ tenantName, tenantPlan, ownerEmail, appSwitcher }: Sid
 
       {/* Nav */}
       <nav className="flex-1 space-y-6 overflow-y-auto px-1 -mx-1">
-        {groups.map((group) => (
+        {navGroups.map((group) => (
           <div key={group.label}>
             <h3 className="text-[11px] font-bold text-ink-400 tracking-wider uppercase px-2 mb-2">
               {group.label}
