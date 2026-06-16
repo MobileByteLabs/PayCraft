@@ -43,14 +43,9 @@ security find-generic-password -s paycraft.cloud -a paycraft-stripe-connect-clie
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-stripe-connect-client-id --stdin --account-email mobilebytesensei@gmail.com
 ```
 
-## Step 2 — Razorpay (3 LIVE secrets + 2 TEST secrets for MCP)
+## Step 2 — Razorpay (3 secrets)
 
-Get LIVE values from https://dashboard.razorpay.com/app/keys + https://dashboard.razorpay.com/app/webhooks.
-Get TEST values by toggling "Test Mode" in the same dashboard.
-
-> **MCP safety**: the Razorpay MCP server runs with these keys. Use TEST keys (rzp_test_*) for the MCP
-> — otherwise an AI agent could accidentally trigger real charges. Live keys are reserved for the
-> dashboard runtime + webhook handlers, NOT for the MCP.
+Get values from https://dashboard.razorpay.com/app/keys + https://dashboard.razorpay.com/app/webhooks.
 
 ```bash
 # 2.1 — rzp_live_*  (Razorpay key ID)
@@ -67,17 +62,11 @@ security find-generic-password -s paycraft.cloud -a paycraft-razorpay-key-secret
 bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-razorpay-webhook-secret:RAZORPAY_WEBHOOK_SECRET
 security find-generic-password -s paycraft.cloud -a paycraft-razorpay-webhook-secret:RAZORPAY_WEBHOOK_SECRET -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-razorpay-webhook-secret --stdin --account-email mobilebytesensei@gmail.com
-
-# 2.4 — Razorpay TEST key ID (rzp_test_*) — for Razorpay MCP server safety
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-razorpay-test-key-id:RAZORPAY_TEST_KEY_ID
-security find-generic-password -s paycraft.cloud -a paycraft-razorpay-test-key-id:RAZORPAY_TEST_KEY_ID -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-razorpay-test-key-id --stdin --account-email mobilebytesensei@gmail.com
-
-# 2.5 — Razorpay TEST key secret
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-razorpay-test-key-secret:RAZORPAY_TEST_KEY_SECRET
-security find-generic-password -s paycraft.cloud -a paycraft-razorpay-test-key-secret:RAZORPAY_TEST_KEY_SECRET -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-razorpay-test-key-secret --stdin --account-email mobilebytesensei@gmail.com
 ```
+
+> **NOTE**: Razorpay MCP keys (for personal dev automation via Claude) are NOT a PayCraft deploy
+> dependency. They're tracked separately under registry group `mbs-razorpay-mcp` (user-scope) and
+> consumed by `core/scripts/razorpay-mcp-auth-export.sh`. See framework PR for that helper.
 
 ## Step 3 — Resend (1 secret)
 
