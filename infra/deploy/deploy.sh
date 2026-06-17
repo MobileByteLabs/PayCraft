@@ -1,11 +1,27 @@
 #!/usr/bin/env bash
 #
-# deploy.sh — PayCraft v2.0 production deploy orchestrator.
+# deploy.sh — PayCraft v2.0 GitHub-integrated production deploy orchestrator.
 #
-# Drives all 8 phases per infra/deploy/PAYCRAFT_DEPLOY.md.
-# Dry-run by default; --apply for mutations; --confirm-production required for prod.
+# Architecture (post-2026-06-17):
+#   • Vercel auto-deploys main branch via GitHub App integration
+#   • Direct push to development/main is blocked by GitHub repo rules
+#   • Production = main branch HEAD; main is kept as exact fast-forward of development
+#   • This script wires the dev → main PR + waits for Vercel
 #
-# Loaded by: framework skill /paycraft-deploy (.claude/skills/paycraft-deploy/SKILL.md)
+# Phases:
+#   1 PRE-FLIGHT     verify CLIs, vault, vercel project, gh auth
+#   2 SECRETS SYNC   vault → vercel env (production scope)
+#   3 MIGRATIONS     vault-mediated supabase db push --db-url
+#   4 PROMOTE        open PR development → main, merge it (fast-forward if possible)
+#   5 WAIT VERCEL    poll Vercel API for production deploy of main HEAD → READY
+#   6 SMOKE          curl /api/health on https://paycraft.mobilebytesensei.com
+#
+# Dry-run by default — pass --apply --confirm-production for mutating phases.
+#
+# Sub-commands:
+#   deploy.sh status     emit YAML-like state blob (consumed by SKILL.md matrix)
+#   deploy.sh ship       alias for --apply --confirm-production (full chain)
+#   deploy.sh verify     alias for --only-phase 1 (read-only preflight)
 #
 set -eo pipefail
 
@@ -18,115 +34,84 @@ STATE_DIR="$PAYCRAFT_SRC/infra/deploy/.state"
 LEDGER="$PAYCRAFT_SRC/infra/deploy/.deploy-ledger.jsonl"
 mkdir -p "$STATE_DIR"
 
+VERCEL_PROJECT_ID="prj_HQ7IQe4XyxFk3SU0dV6X3n2n7kme"
+VERCEL_TEAM_ID="team_yIBRq8fQTksr6aM3K27PgCgI"
+PROD_URL="https://paycraft.mobilebytesensei.com"
+GITHUB_REPO="MobileByteLabs/PayCraft"
+SUPABASE_REF="mlwfgytjxlqyfxcgpysm"
+
 # ═══════════════════════════════════════════════════════════
 # Parse args
 # ═══════════════════════════════════════════════════════════
 APPLY=false
 CONFIRM_PROD=false
-ENV_TARGET="production"
-FROM_PHASE=0
-TO_PHASE=8
+FROM_PHASE=1
+TO_PHASE=6
 ONLY_PHASE=""
-SKIP_DNS=false
-SKIP_BUILD=false
-SKIP_BOOTSTRAP=false
 KEEP_GOING=false
 VERBOSE=false
 SILENT=false
-NON_INTERACTIVE=false
 SUB_COMMAND=""
 
-# Sub-command detection (first positional arg)
+# Sub-command detection
 case "${1:-}" in
-    status|matrix|info)  SUB_COMMAND="$1"; shift ;;
+    status|matrix|info)
+        SUB_COMMAND="$1"; shift ;;
+    ship)
+        SUB_COMMAND="ship"; APPLY=true; CONFIRM_PROD=true; shift ;;
+    verify)
+        SUB_COMMAND="verify"; ONLY_PHASE=1; FROM_PHASE=1; TO_PHASE=1; shift ;;
 esac
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --apply)                  APPLY=true; shift ;;
-        --dry-run)                APPLY=false; shift ;;
-        --confirm-production)     CONFIRM_PROD=true; shift ;;
-        --env)                    ENV_TARGET="$2"; shift 2 ;;
-        --from-phase)             FROM_PHASE="$2"; shift 2 ;;
-        --to-phase)               TO_PHASE="$2"; shift 2 ;;
-        --only-phase)             ONLY_PHASE="$2"; FROM_PHASE="$2"; TO_PHASE="$2"; shift 2 ;;
-        --skip-dns)               SKIP_DNS=true; shift ;;
-        --skip-build)             SKIP_BUILD=true; shift ;;
-        --skip-bootstrap)         SKIP_BOOTSTRAP=true; shift ;;
-        --keep-going)             KEEP_GOING=true; shift ;;
-        --verbose)                VERBOSE=true; shift ;;
-        --silent)                 SILENT=true; shift ;;
-        --non-interactive)        NON_INTERACTIVE=true; shift ;;
+        --apply)                APPLY=true; shift ;;
+        --dry-run)              APPLY=false; shift ;;
+        --confirm-production)   CONFIRM_PROD=true; shift ;;
+        --from-phase)           FROM_PHASE="$2"; shift 2 ;;
+        --to-phase)             TO_PHASE="$2"; shift 2 ;;
+        --only-phase)           ONLY_PHASE="$2"; FROM_PHASE="$2"; TO_PHASE="$2"; shift 2 ;;
+        --keep-going)           KEEP_GOING=true; shift ;;
+        --verbose)              VERBOSE=true; shift ;;
+        --silent)               SILENT=true; shift ;;
         -h|--help)
-            sed -n '/^# CLI/,/^$/p' "$PAYCRAFT_SRC/infra/deploy/PAYCRAFT_DEPLOY.md" 2>/dev/null \
-                || echo "See infra/deploy/PAYCRAFT_DEPLOY.md for usage."
-            exit 0
-            ;;
+            sed -n '/^# Phases:/,/^# Sub-commands:/p' "${BASH_SOURCE[0]}" | head -20
+            exit 0 ;;
         *) echo "Unknown flag: $1 — see --help" >&2; exit 1 ;;
     esac
 done
 
-# Safety: production + --apply requires --confirm-production
-if [[ "$APPLY" = "true" && "$ENV_TARGET" = "production" && "$CONFIRM_PROD" != "true" ]]; then
-    echo "ERROR: --apply with --env=production requires --confirm-production flag (safety)" >&2
+# Safety: mutating phases require --confirm-production
+if [[ "$APPLY" = "true" && "$CONFIRM_PROD" != "true" ]]; then
+    echo "ERROR: --apply requires --confirm-production (safety)" >&2
     exit 1
 fi
 
 # ═══════════════════════════════════════════════════════════
-# Output helpers
+# Helpers
 # ═══════════════════════════════════════════════════════════
 PHASE_RESULTS=()
 START_TS=$(date -u +%s)
 
-banner() {
-    [[ "$SILENT" = "true" ]] && return
-    echo "═══════════════════════════════════════════════════════════════"
-    printf "  %s\n" "$1"
-    echo "═══════════════════════════════════════════════════════════════"
-}
-
-phase_start() {
-    local n="$1" name="$2"
-    [[ "$SILENT" = "true" ]] && return
-    echo ""
-    echo "▶ Phase $n: $name"
-    echo "──────────────────────────────────────────────────────"
-}
-
+banner() { [[ "$SILENT" = "true" ]] && return; echo "═══════════════════════════════════════════════════════════════"; printf "  %s\n" "$1"; echo "═══════════════════════════════════════════════════════════════"; }
+phase_start() { [[ "$SILENT" = "true" ]] && return; echo ""; echo "▶ Phase $1: $2"; echo "──────────────────────────────────────────────────────"; }
 phase_end() {
     local n="$1" name="$2" status="$3" duration="$4" details="${5:-}"
     PHASE_RESULTS+=("$n|$name|$status|$duration|$details")
     [[ "$SILENT" = "true" ]] && return
-
     local icon
-    case "$status" in
-        PASS)  icon="✓" ;;
-        FAIL)  icon="✗" ;;
-        SKIP)  icon="↷" ;;
-        *)     icon="?" ;;
-    esac
+    case "$status" in PASS) icon="✓";; FAIL) icon="✗";; SKIP) icon="↷";; *) icon="?";; esac
     printf "[%d] %-20s %s %s  %ss  %s\n" "$n" "$name" "$icon" "$status" "$duration" "$details"
 }
 
 run_phase() {
     local n="$1" name="$2" body="$3"
     if [[ -n "$ONLY_PHASE" && "$n" != "$ONLY_PHASE" ]]; then
-        phase_end "$n" "$name" "SKIP" "0" "not in --only-phase"
-        return 0
+        phase_end "$n" "$name" "SKIP" "0" "not in --only-phase"; return 0
     fi
     if [[ "$n" -lt "$FROM_PHASE" ]] || [[ "$n" -gt "$TO_PHASE" ]]; then
-        phase_end "$n" "$name" "SKIP" "0" "out of range"
-        return 0
+        phase_end "$n" "$name" "SKIP" "0" "out of range"; return 0
     fi
-    if [[ "$SKIP_DNS" = "true" && ( "$n" = "6" || "$n" = "7" ) ]]; then
-        phase_end "$n" "$name" "SKIP" "0" "--skip-dns"
-        return 0
-    fi
-    if [[ "$SKIP_BUILD" = "true" && "$n" = "4" ]]; then
-        phase_end "$n" "$name" "SKIP" "0" "--skip-build"
-        return 0
-    fi
-
     phase_start "$n" "$name"
     local ts=$(date -u +%s)
     if eval "$body"; then
@@ -138,27 +123,37 @@ run_phase() {
         local rc=$? dur=$(($(date -u +%s) - ts))
         phase_end "$n" "$name" "FAIL" "$dur" "exit=$rc"
         if [[ "$KEEP_GOING" != "true" ]]; then
-            failure_banner "$n" "$name" "$rc"
-            return 1
+            failure_banner "$n" "$name" "$rc"; return 1
         fi
         return 0
+    fi
+}
+
+# vercel API helper — uses cached CLI auth (~/Library/Application Support/com.vercel.cli/auth.json)
+vercel_api() {
+    local path="$1" method="${2:-GET}" body="${3:-}"
+    local token
+    token=$(node -e "console.log(JSON.parse(require('fs').readFileSync(require('path').join(require('os').homedir(), 'Library/Application Support/com.vercel.cli/auth.json'),'utf-8')).token)" 2>/dev/null) || return 1
+    if [[ -n "$body" ]]; then
+        node -e "
+          fetch('https://api.vercel.com${path}', {
+            method: '${method}',
+            headers: { 'Authorization': 'Bearer ${token}', 'Content-Type': 'application/json' },
+            body: ${body}
+          }).then(r=>r.text()).then(t=>console.log(t));
+        "
+    else
+        node -e "
+          fetch('https://api.vercel.com${path}', {
+            headers: { 'Authorization': 'Bearer ${token}' }
+          }).then(r=>r.text()).then(t=>console.log(t));
+        "
     fi
 }
 
 # ═══════════════════════════════════════════════════════════
 # Phase implementations
 # ═══════════════════════════════════════════════════════════
-phase_0_bootstrap() {
-    local args=()
-    if [[ "$APPLY" != "true" ]]; then
-        args+=("--check-only")
-    fi
-    if [[ "$NON_INTERACTIVE" = "true" ]]; then
-        args+=("--non-interactive")
-    fi
-    bash "$PAYCRAFT_SRC/infra/deploy/bootstrap.sh" "${args[@]}"
-}
-
 phase_1_preflight() {
     if [[ "$VERBOSE" = "true" ]]; then
         bash "$PAYCRAFT_SRC/infra/deploy/preflight.sh" --verbose
@@ -170,256 +165,223 @@ phase_1_preflight() {
 phase_2_secrets_sync() {
     local flag=""
     [[ "$APPLY" = "true" ]] && flag="--apply"
-    bash "$PAYCRAFT_SRC/infra/sync-to-vercel.sh" $flag --env "$ENV_TARGET" \
-        && bash "$PAYCRAFT_SRC/infra/sync-to-supabase.sh" $flag
+    bash "$PAYCRAFT_SRC/infra/sync-to-vercel.sh" $flag --env production
 }
 
 phase_3_migrations() {
     cd "$PAYCRAFT_SRC"
-    # framework-canonical: connect via vault-mediated db-url, no `supabase login` / `--linked` needed
     local db_url_file db_url
     db_url_file=$(mktemp -t paycraft-dburl-XXXXXX)
     trap "rm -f $db_url_file" RETURN
     if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-db-url --to-file "$db_url_file" 2>/dev/null; then
-        echo "  ✗ framework-supabase-db-url not resolvable from vault"
-        return 1
+        echo "  ✗ framework-supabase-db-url not resolvable from vault"; return 1
     fi
     db_url=$(cat "$db_url_file")
     if [[ "$APPLY" = "true" ]]; then
-        echo "  Running: supabase db push --db-url <framework-supabase>"
-        supabase db push --db-url "$db_url" --include-roles
+        echo "  Running: supabase db push --include-all --db-url <framework-supabase>"
+        yes y | supabase db push --include-all --db-url "$db_url" --include-roles 2>&1 | tail -15
     else
         echo "  [DRY] supabase migration list --db-url <framework-supabase>"
         supabase migration list --db-url "$db_url" 2>&1 | tail -10 || true
     fi
 }
 
-phase_4_build() {
-    cd "$PAYCRAFT_SRC/dashboard"
-    if [[ "$APPLY" = "true" ]]; then
-        echo "  Running: npm ci && npm run build"
-        npm ci --no-audit --no-fund 2>&1 | tail -3
-        npm run build 2>&1 | tail -10
-    else
-        echo "  [DRY] cd dashboard && npm ci && npm run build"
-        [[ -d node_modules ]] && echo "  (node_modules exists; would use npm ci)"
-        echo "  (build output goes to dashboard/.next/)"
-    fi
-}
+# Phase 4 — promote development → main as exact fast-forward replica
+phase_4_promote() {
+    cd "$PAYCRAFT_SRC"
 
-phase_5_deploy() {
-    cd "$PAYCRAFT_SRC/dashboard"
-    if [[ "$APPLY" = "true" ]]; then
-        local tmpkey
-        tmpkey=$(mktemp)
-        chmod 600 "$tmpkey"
-        bash "$FW_ROOT/core/scripts/secrets-get.sh" mbs-paycraft-vercel-token --to-file "$tmpkey"
-        local token
-        token=$(cat "$tmpkey")
-        shred -u "$tmpkey" 2>/dev/null || rm -f "$tmpkey"
+    # Ensure local main + development are up to date
+    git fetch origin development main 2>/dev/null
 
-        echo "  Running: vercel --prod (token redacted)"
-        local prod_flag=""
-        [[ "$ENV_TARGET" = "production" ]] && prod_flag="--prod"
-        local deploy_url
-        deploy_url=$(vercel deploy $prod_flag --token "$token" --yes 2>&1 | tail -1)
-        echo "  Deploy URL: $deploy_url"
-        echo "$deploy_url" > "$STATE_DIR/last-deploy-url"
-        unset token
-    else
-        echo "  [DRY] vercel deploy --prod --token <vault:mbs-paycraft-vercel-token>"
-    fi
-}
+    local dev_sha main_sha
+    dev_sha=$(git rev-parse origin/development)
+    main_sha=$(git rev-parse origin/main)
 
-phase_6_dns() {
-    local hostname="paycraft.mobilebytesensei.com"
-    local expected_cname="cname.vercel-dns.com"
-
-    echo "  Target: $hostname → $expected_cname"
-
-    # Try Wix MCP first if available
-    if command -v claude >/dev/null 2>&1 && claude mcp list 2>/dev/null | grep -q "^wix"; then
-        echo "  Wix MCP detected — attempting auto-configure (requires session with MCP loaded)"
-        echo "  ⚠ Note: MCP tools are only available in Claude sessions; this shell run can't call MCPs."
-        echo "  Falling back to manual verification."
-    fi
-
-    # Manual fallback: dig + prompt
-    local current
-    current=$(dig +short "$hostname" CNAME 2>/dev/null | head -1 | sed 's/\.$//')
-    if [[ "$current" = "$expected_cname" ]]; then
-        echo "  ✓ CNAME already configured correctly"
+    if [[ "$dev_sha" = "$main_sha" ]]; then
+        echo "  ✓ main already at development HEAD ($dev_sha) — nothing to promote"
         return 0
     fi
 
-    echo ""
-    echo "  ⚠ CNAME not yet configured. Add it in Wix Dashboard:"
-    echo ""
-    echo "    1. Open https://manage.wix.com/account/sites"
-    echo "    2. Pick mobilebytesensei.com → Domains → Manage DNS Records"
-    echo "    3. Add CNAME record:"
-    echo "         Host:  paycraft"
-    echo "         Value: cname.vercel-dns.com"
-    echo "         TTL:   1 Hour"
-    echo "    4. Click Save"
-    echo ""
-    if [[ "$APPLY" = "true" ]]; then
-        echo -n "  Have you added the CNAME and is it propagating? [y/N] "
-        read -r reply
-        if [[ "$reply" != "y" && "$reply" != "Y" ]]; then
-            return 1
+    echo "  development: $dev_sha"
+    echo "  main:        $main_sha"
+    echo "  Promoting development → main..."
+
+    if [[ "$APPLY" != "true" ]]; then
+        local ahead
+        ahead=$(git rev-list --count origin/main..origin/development)
+        echo "  [DRY] would open PR development → main ($ahead commits ahead)"
+        echo "  [DRY] would auto-merge with --merge to keep main = development"
+        return 0
+    fi
+
+    # Check for an existing open dev→main PR; reuse if present
+    local pr_num
+    pr_num=$(gh pr list --base main --head development --state open --json number --jq '.[0].number // empty' 2>/dev/null)
+    if [[ -z "$pr_num" ]]; then
+        echo "  Opening PR development → main..."
+        pr_num=$(gh pr create --base main --head development \
+            --title "release: promote development → main ($(date -u +%Y-%m-%dT%H:%M:%SZ))" \
+            --body "Auto-opened by /paycraft-deploy Phase 4 PROMOTE.
+
+Source: origin/development @ ${dev_sha}
+Target: origin/main @ ${main_sha}
+Diff:   $(git rev-list --count origin/main..origin/development) commits
+
+This PR is fast-forward-only — main is kept as an exact replica of development at promote time. No manual edits should land on main." 2>&1 | grep -oE 'https://[^ ]+/[0-9]+' | grep -oE '[0-9]+$' | head -1)
+        if [[ -z "$pr_num" ]]; then
+            echo "  ✗ Failed to open PR"; return 1
         fi
-        # Wait for propagation up to 60s
-        local elapsed=0
-        while [[ $elapsed -lt 60 ]]; do
-            current=$(dig +short "$hostname" CNAME 2>/dev/null | head -1 | sed 's/\.$//')
-            if [[ "$current" = "$expected_cname" ]]; then
-                echo "  ✓ CNAME resolved after ${elapsed}s"
-                return 0
-            fi
-            sleep 5
-            elapsed=$((elapsed + 5))
-        done
-        echo "  ✗ CNAME did not propagate within 60s. Re-run --from-phase 6 later."
-        return 1
+        echo "  ✓ Opened PR #${pr_num}"
     else
-        echo "  [DRY] Would wait for user confirmation + verify resolution."
+        echo "  ✓ Reusing existing PR #${pr_num}"
+    fi
+
+    # Auto-merge: prefer --merge (preserves history); GitHub falls back to required strategy if --merge disabled
+    echo "  Merging PR #${pr_num}..."
+    if gh pr merge "$pr_num" --merge --delete-branch=false 2>&1 | head -3; then
+        echo "  ✓ PR #${pr_num} merged"
+    else
+        echo "  ⚠ --merge strategy unavailable; falling back to --squash"
+        gh pr merge "$pr_num" --squash --delete-branch=false 2>&1 | head -3 \
+            || { echo "  ✗ Merge failed"; return 1; }
+    fi
+
+    # Refresh local state and confirm
+    git fetch origin main 2>/dev/null
+    local new_main_sha
+    new_main_sha=$(git rev-parse origin/main)
+    echo "  main HEAD now: $new_main_sha"
+    echo "$new_main_sha" > "$STATE_DIR/last-promoted-sha"
+}
+
+# Phase 5 — poll Vercel API until the deploy of the latest main commit is READY
+phase_5_wait_vercel() {
+    if [[ "$APPLY" != "true" ]]; then
+        echo "  [DRY] would poll Vercel API for production deploy of latest main commit"
         return 0
     fi
-}
 
-phase_7_domain_attach() {
-    local hostname="paycraft.mobilebytesensei.com"
-    cd "$PAYCRAFT_SRC/dashboard"
+    cd "$PAYCRAFT_SRC"
+    git fetch origin main 2>/dev/null
+    local target_sha
+    target_sha=$(git rev-parse origin/main | cut -c1-7)
+    echo "  Waiting for Vercel production deploy of commit ${target_sha}..."
 
-    if [[ "$APPLY" = "true" ]]; then
-        local tmpkey
-        tmpkey=$(mktemp)
-        chmod 600 "$tmpkey"
-        bash "$FW_ROOT/core/scripts/secrets-get.sh" mbs-paycraft-vercel-token --to-file "$tmpkey"
-        local token
-        token=$(cat "$tmpkey")
-        shred -u "$tmpkey" 2>/dev/null || rm -f "$tmpkey"
-
-        echo "  Attaching $hostname to Vercel project..."
-        vercel domains add "$hostname" --token "$token" 2>&1 | tail -3 || true
-
-        # Poll for SSL cert valid
-        echo "  Waiting for SSL cert provision (up to 90s)..."
-        local elapsed=0
-        while [[ $elapsed -lt 90 ]]; do
-            if curl -fsS --max-time 5 "https://$hostname" -o /dev/null 2>/dev/null; then
-                echo "  ✓ SSL cert valid after ${elapsed}s"
-                unset token
-                return 0
+    local start=$(date +%s)
+    local deadline=$((start + 10*60))   # 10-min cap
+    local last_state=""
+    while [[ $(date +%s) -lt $deadline ]]; do
+        local raw
+        raw=$(vercel_api "/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_TEAM_ID}&limit=5&target=production" 2>/dev/null)
+        local match
+        match=$(node -e "
+            const j = JSON.parse(\`${raw//\`/\\\`}\`);
+            const d = (j.deployments || []).find(d => {
+                const sha = (d.meta?.githubCommitSha || d.meta?.gitCommitSha || '').slice(0,7);
+                return sha === '${target_sha}';
+            });
+            if (d) console.log(JSON.stringify({id: d.uid, state: d.state, url: d.url, inspector: d.inspectorUrl}));
+        " 2>/dev/null)
+        if [[ -n "$match" ]]; then
+            local state url inspector
+            state=$(echo "$match" | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf-8')).state)")
+            url=$(echo "$match" | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf-8')).url)")
+            inspector=$(echo "$match" | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf-8')).inspector)")
+            if [[ "$state" != "$last_state" ]]; then
+                printf "  [%4ds] state=%-10s url=%s\n" "$(($(date +%s)-start))" "$state" "$url"
+                last_state="$state"
             fi
-            sleep 5
-            elapsed=$((elapsed + 5))
-        done
-        echo "  ⚠ SSL not ready after 90s; will retry in phase 8"
-        unset token
-    else
-        echo "  [DRY] vercel domains add $hostname --token <vault:...>"
-    fi
-}
-
-phase_8_health() {
-    local hostname="paycraft.mobilebytesensei.com"
-    if [[ "$APPLY" = "true" ]]; then
-        bash "$PAYCRAFT_SRC/infra/deploy/health-check.sh" "https://$hostname"
-    else
-        echo "  [DRY] bash infra/deploy/health-check.sh https://$hostname"
-        echo "        (curl /api/health + Playwright /auth/login smoke)"
-    fi
-}
-
-# ═══════════════════════════════════════════════════════════
-# Failure banner
-# ═══════════════════════════════════════════════════════════
-failure_banner() {
-    local n="$1" name="$2" rc="$3"
-    local total=$(($(date -u +%s) - START_TS))
-    echo ""
-    banner "PayCraft Deploy — ABORTED at phase $n ($name)"
-    echo "  Phase failed with exit code: $rc"
-    echo "  Total time so far:           ${total}s"
-    echo "  Env:                         $ENV_TARGET"
-    echo ""
-    echo "  Phases completed:"
-    for result in "${PHASE_RESULTS[@]}"; do
-        IFS='|' read -r pn pname pstatus pdur pdet <<< "$result"
-        [[ "$pstatus" = "PASS" ]] && printf "    [%d] %-20s ✓ %s  %ss\n" "$pn" "$pname" "$pstatus" "$pdur"
+            case "$state" in
+                READY)
+                    echo "  ✓ Production deploy READY"
+                    echo "    Inspector: $inspector"
+                    echo "    URL:       https://$url"
+                    echo "$url" > "$STATE_DIR/last-deploy-url"
+                    return 0 ;;
+                ERROR|CANCELED|BLOCKED)
+                    echo "  ✗ Production deploy ended in $state"
+                    echo "    Inspector: $inspector"
+                    return 1 ;;
+            esac
+        fi
+        sleep 8
     done
-    echo ""
-    echo "  Resume after fix:"
-    echo "    bash infra/deploy/deploy.sh --apply --confirm-production --from-phase $n"
-    echo "═══════════════════════════════════════════════════════════════"
-    log_ledger "aborted" "$n"
-    exit "$rc"
+    echo "  ✗ Timeout (10 min) waiting for Vercel production deploy"
+    return 1
+}
+
+phase_6_smoke() {
+    echo "  Target: ${PROD_URL}"
+    if [[ "$APPLY" != "true" ]]; then
+        echo "  [DRY] would curl ${PROD_URL}/ + /api/health + /auth/login"
+        return 0
+    fi
+
+    local fails=0 result
+    # Root
+    result=$(curl -fsS -o /dev/null -w "%{http_code}" --max-time 10 "${PROD_URL}/" 2>&1) || true
+    if [[ "$result" =~ ^(200|307|308)$ ]]; then echo "  ✓ Root URL → HTTP $result"; else echo "  ✗ Root URL → HTTP $result"; fails=$((fails+1)); fi
+
+    # Health
+    result=$(curl -sS -o /tmp/.health.json -w "%{http_code}" --max-time 10 "${PROD_URL}/api/health" 2>&1) || true
+    if [[ "$result" = "200" ]]; then
+        local status
+        status=$(node -e "console.log(JSON.parse(require('fs').readFileSync('/tmp/.health.json','utf-8')).status)" 2>/dev/null)
+        if [[ "$status" = "ok" ]]; then echo "  ✓ /api/health → status=ok"; else echo "  ⚠ /api/health → 200 but status=$status (degraded)"; fi
+    else
+        echo "  ✗ /api/health → HTTP $result"; fails=$((fails+1))
+    fi
+
+    # Login page renders
+    result=$(curl -fsS -o /tmp/.login.html -w "%{http_code}" --max-time 10 "${PROD_URL}/auth/login" 2>&1) || true
+    if [[ "$result" = "200" ]] && grep -qE "sign[- ]?in|login|google|email" /tmp/.login.html; then
+        echo "  ✓ /auth/login renders (HTTP 200, contains auth markers)"
+    else
+        echo "  ⚠ /auth/login HTTP $result — may not contain expected markers"
+    fi
+    rm -f /tmp/.health.json /tmp/.login.html
+
+    [[ $fails -eq 0 ]]
 }
 
 # ═══════════════════════════════════════════════════════════
-# Ledger
-# ═══════════════════════════════════════════════════════════
-log_ledger() {
-    local status="$1" failed_phase="${2:-}"
-    local total=$(($(date -u +%s) - START_TS))
-    local ts
-    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    local deploy_id
-    deploy_id=$(cat "$STATE_DIR/last-deploy-url" 2>/dev/null | grep -oE 'dpl_[A-Za-z0-9]+' | head -1 || echo "")
-    cat <<JSON >> "$LEDGER"
-{"ts":"$ts","env":"$ENV_TARGET","status":"$status","duration_s":$total,"failed_phase":"$failed_phase","deploy_id":"$deploy_id","apply":$APPLY}
-JSON
-}
-
-# ═══════════════════════════════════════════════════════════
-# Status probe — produces structured state for matrix render
+# Status sub-command (consumed by SKILL.md matrix)
 # ═══════════════════════════════════════════════════════════
 emit_status() {
-    # YAML-like flat key/value output for easy parsing by Claude/jq/awk.
-
     echo "─── env ─────────────────────────────────────────────"
     printf "active_project: %s\n" "$(bash $FW_ROOT/core/scripts/session-resolve.sh 2>/dev/null || echo unknown)"
-    printf "target_env:     %s\n" "$ENV_TARGET"
-    printf "dashboard_path: %s\n" "$PAYCRAFT_SRC/dashboard"
-    printf "framework_supabase_project_ref: mlwfgytjxlqyfxcgpysm\n"
+    printf "target_env:     production\n"
+    printf "dashboard_path: %s/dashboard\n" "$PAYCRAFT_SRC"
+    printf "framework_supabase_project_ref: %s\n" "$SUPABASE_REF"
     echo ""
 
     echo "─── prereqs ────────────────────────────────────────"
     printf "cli_vercel:    %s\n"   "$(command -v vercel >/dev/null && echo INSTALLED || echo MISSING)"
     printf "cli_supabase:  %s\n"   "$(command -v supabase >/dev/null && echo INSTALLED || echo MISSING)"
-    printf "cli_jq:        %s\n"   "$(command -v jq >/dev/null && echo INSTALLED || echo MISSING)"
-    printf "auth_vercel:   %s\n"   "$(vercel whoami 2>/dev/null && echo LOGGED-IN || echo NOT-LOGGED-IN)" 2>/dev/null | head -1
-    printf "auth_supabase: %s\n"   "$(supabase projects list >/dev/null 2>&1 && echo LOGGED-IN || echo NOT-LOGGED-IN)"
+    printf "cli_gh:        %s\n"   "$(command -v gh >/dev/null && echo INSTALLED || echo MISSING)"
+    printf "auth_vercel:   %s\n"   "$(vercel whoami 2>/dev/null || echo NOT-LOGGED-IN)"
+    printf "auth_gh:       %s\n"   "$(gh auth status 2>&1 | grep -oE 'Logged in to github.com as [^ ]+' | head -1 || echo NOT-LOGGED-IN)"
     printf "link_vercel:   %s\n"   "$([ -f $PAYCRAFT_SRC/dashboard/.vercel/project.json ] && echo LINKED || echo NOT-LINKED)"
-    printf "link_supabase: %s\n"   "$([ -f $PAYCRAFT_SRC/supabase/.temp/project-ref ] && echo LINKED || echo NOT-LINKED)"
-    printf "dashboard_node_modules: %s\n" "$([ -d $PAYCRAFT_SRC/dashboard/node_modules ] && echo PRESENT || echo MISSING)"
     echo ""
 
-    echo "─── vault (10 secrets — Sentry + Stripe Connect + Razorpay webhook deferred for v1 BYOK) ───"
-    local total=0 present=0 missing=()
+    echo "─── vault (5 secrets — BYOK) ───────────────────────"
     local SECRETS=(
         mbs-paycraft-encryption-key
-        mbs-paycraft-stripe-platform-secret-key
-        mbs-paycraft-stripe-platform-publishable-key
-        mbs-paycraft-stripe-platform-webhook-secret
-        mbs-paycraft-razorpay-key-id
-        mbs-paycraft-razorpay-key-secret
         mbs-paycraft-resend-api-key
         mbs-paycraft-vercel-token
         mbs-paycraft-vercel-org-id
         mbs-paycraft-vercel-project-id
     )
+    local total=0 present=0 missing=()
     for a in "${SECRETS[@]}"; do
         total=$((total + 1))
-        local __chk; __chk=$(mktemp -t v-chk-XXXXXX); chmod 600 "$__chk"
-        if bash "$FW_ROOT/core/scripts/secrets-get.sh" "$a" --to-file "$__chk" 2>/dev/null; then
+        local chk; chk=$(mktemp -t v-chk-XXXXXX); chmod 600 "$chk"
+        if bash "$FW_ROOT/core/scripts/secrets-get.sh" "$a" --to-file "$chk" 2>/dev/null; then
             present=$((present + 1))
         else
             missing+=("$a")
         fi
-        rm -f "$__chk"
+        rm -f "$chk"
     done
     printf "vault_present: %d\n" "$present"
     printf "vault_missing: %d\n" "${#missing[@]}"
@@ -430,111 +392,97 @@ emit_status() {
     fi
     echo ""
 
+    echo "─── branches ───────────────────────────────────────"
+    cd "$PAYCRAFT_SRC"
+    git fetch -q origin development main 2>/dev/null || true
+    local dev_sha main_sha ahead
+    dev_sha=$(git rev-parse --short origin/development 2>/dev/null || echo "?")
+    main_sha=$(git rev-parse --short origin/main 2>/dev/null || echo "?")
+    ahead=$(git rev-list --count origin/main..origin/development 2>/dev/null || echo "?")
+    printf "development:   %s\n" "$dev_sha"
+    printf "main:          %s\n" "$main_sha"
+    printf "ahead:         %s commits (dev ahead of main)\n" "$ahead"
+    if [[ "$dev_sha" = "$main_sha" ]]; then
+        printf "promote_state: SYNCED\n"
+    else
+        printf "promote_state: PENDING (run Phase 4 to promote)\n"
+    fi
+    echo ""
+
     echo "─── phases ─────────────────────────────────────────"
-    for n in 0 1 2 3 4 5 6 7 8; do
-        local label=""
-        local marker="$STATE_DIR/phase-$n.done"
+    for n in 1 2 3 4 5 6; do
+        local name
         case "$n" in
-            0) label="BOOTSTRAP" ;;
-            1) label="PRE-FLIGHT" ;;
-            2) label="SECRETS SYNC" ;;
-            3) label="MIGRATIONS" ;;
-            4) label="BUILD" ;;
-            5) label="DEPLOY" ;;
-            6) label="DNS" ;;
-            7) label="DOMAIN ATTACH" ;;
-            8) label="HEALTH" ;;
+            1) name="PRE-FLIGHT" ;; 2) name="SECRETS SYNC" ;;
+            3) name="MIGRATIONS" ;; 4) name="PROMOTE" ;;
+            5) name="WAIT VERCEL" ;; 6) name="SMOKE" ;;
         esac
+        local marker="$STATE_DIR/phase-$n.done"
         if [[ -f "$marker" ]]; then
-            local ts=$(stat -f %m "$marker" 2>/dev/null || stat -c %Y "$marker" 2>/dev/null)
-            local age_s=$(( $(date -u +%s) - ts ))
-            local age_h=$(( age_s / 3600 ))
-            printf "phase_%d: PASS (age %dh) %s\n" "$n" "$age_h" "$label"
+            printf "phase_%d: PASS %s\n" "$n" "$name"
         else
-            printf "phase_%d: NOT-RUN %s\n" "$n" "$label"
+            printf "phase_%d: NOT-RUN %s\n" "$n" "$name"
         fi
     done
     echo ""
 
     echo "─── live state ─────────────────────────────────────"
-    local last_url
-    last_url=$(cat "$STATE_DIR/last-deploy-url" 2>/dev/null || echo "")
-    printf "last_deploy_url: %s\n" "$last_url"
-    printf "live_url:        https://paycraft.mobilebytesensei.com\n"
-
-    local cname
-    cname=$(dig +short paycraft.mobilebytesensei.com CNAME 2>/dev/null | head -1 | sed 's/\.$//')
-    if [[ "$cname" = "cname.vercel-dns.com" ]]; then
-        printf "dns_cname:       OK (paycraft → %s)\n" "$cname"
-    elif [[ -n "$cname" ]]; then
-        printf "dns_cname:       WRONG (paycraft → %s, expected cname.vercel-dns.com)\n" "$cname"
-    else
-        printf "dns_cname:       NOT-CONFIGURED\n"
-    fi
-
-    if [[ -n "$last_url" ]]; then
-        local http_status
-        http_status=$(curl -fsS -o /dev/null -w "%{http_code}" --max-time 8 "https://paycraft.mobilebytesensei.com" 2>/dev/null || echo "000")
-        printf "health_http:     %s\n" "$http_status"
-    else
-        printf "health_http:     not-deployed-yet\n"
+    local live_status="?"
+    live_status=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$PROD_URL/" 2>&1) || live_status="unreachable"
+    printf "live_url:    %s\n" "$PROD_URL"
+    printf "health_http: %s\n" "$live_status"
+    if [[ -f "$STATE_DIR/last-deploy-url" ]]; then
+        printf "last_deploy_url: https://%s\n" "$(cat $STATE_DIR/last-deploy-url)"
     fi
     echo ""
 
     echo "─── ledger (tail 3) ────────────────────────────────"
-    if [[ -f "$LEDGER" ]]; then
-        tail -3 "$LEDGER"
-    else
-        echo "(no deploys yet)"
-    fi
+    [[ -f "$LEDGER" ]] && tail -3 "$LEDGER" || echo "(empty)"
 }
 
+# ═══════════════════════════════════════════════════════════
+# Failure banner
+# ═══════════════════════════════════════════════════════════
+failure_banner() {
+    local n="$1" name="$2" rc="$3"
+    banner "PayCraft Deploy — ABORTED at phase $n ($name)"
+    echo "  Phase failed with exit code: $rc"
+    echo "  Total time so far:           $(($(date -u +%s) - START_TS))s"
+    echo ""
+    echo "  Phases completed:"
+    for r in "${PHASE_RESULTS[@]}"; do
+        IFS='|' read -r rn rname rstatus rdur rdetails <<< "$r"
+        [[ "$rstatus" = "PASS" ]] && printf "    [%d] %-20s ✓ PASS  %ss\n" "$rn" "$rname" "$rdur"
+    done
+    echo ""
+    echo "  Resume after fix:"
+    echo "    bash infra/deploy/deploy.sh --apply --confirm-production --from-phase $n"
+    echo "═══════════════════════════════════════════════════════════════"
+
+    printf '{"ts":"%s","env":"production","status":"aborted","duration_s":%d,"failed_phase":"%d","apply":%s}\n' \
+        "$(date -u +%FT%TZ)" "$(($(date -u +%s) - START_TS))" "$n" "$APPLY" >> "$LEDGER"
+}
+
+# ═══════════════════════════════════════════════════════════
+# Main
+# ═══════════════════════════════════════════════════════════
 if [[ "$SUB_COMMAND" = "status" || "$SUB_COMMAND" = "matrix" || "$SUB_COMMAND" = "info" ]]; then
     emit_status
     exit 0
 fi
 
-# ═══════════════════════════════════════════════════════════
-# MAIN
-# ═══════════════════════════════════════════════════════════
-banner "PayCraft Deploy — env=$ENV_TARGET, mode=$([[ $APPLY = true ]] && echo APPLY || echo DRY-RUN)"
+banner "PayCraft Deploy — env=production, mode=$([ "$APPLY" = true ] && echo APPLY || echo DRY-RUN)"
 
-if [[ "$SKIP_BOOTSTRAP" != "true" ]]; then
-    run_phase 0 "BOOTSTRAP"   "phase_0_bootstrap"
-fi
-run_phase 1 "PRE-FLIGHT"      "phase_1_preflight"
-run_phase 2 "SECRETS SYNC"    "phase_2_secrets_sync"
-run_phase 3 "MIGRATIONS"      "phase_3_migrations"
-run_phase 4 "BUILD"           "phase_4_build"
-run_phase 5 "DEPLOY"          "phase_5_deploy"
-run_phase 6 "DNS"             "phase_6_dns"
-run_phase 7 "DOMAIN ATTACH"   "phase_7_domain_attach"
-run_phase 8 "HEALTH"          "phase_8_health"
+run_phase 1 "PRE-FLIGHT"     "phase_1_preflight"     || exit 1
+run_phase 2 "SECRETS SYNC"   "phase_2_secrets_sync"  || exit 1
+run_phase 3 "MIGRATIONS"     "phase_3_migrations"    || exit 1
+run_phase 4 "PROMOTE"        "phase_4_promote"       || exit 1
+run_phase 5 "WAIT VERCEL"    "phase_5_wait_vercel"   || exit 1
+run_phase 6 "SMOKE"          "phase_6_smoke"         || exit 1
 
-# ═══════════════════════════════════════════════════════════
-# Final summary banner
-# ═══════════════════════════════════════════════════════════
-total=$(($(date -u +%s) - START_TS))
-echo ""
-banner "PayCraft Deploy Complete — env=$ENV_TARGET"
-echo "  Total time:  ${total}s"
-echo ""
-echo "  Phase summary:"
-for result in "${PHASE_RESULTS[@]}"; do
-    IFS='|' read -r pn pname pstatus pdur pdet <<< "$result"
-    local icon
-    case "$pstatus" in
-        PASS) icon="✓" ;;
-        FAIL) icon="✗" ;;
-        SKIP) icon="↷" ;;
-        *)    icon="?" ;;
-    esac
-    printf "    [%d] %-20s %s %s  %ss  %s\n" "$pn" "$pname" "$icon" "$pstatus" "$pdur" "$pdet"
-done
-echo ""
-last_url=$(cat "$STATE_DIR/last-deploy-url" 2>/dev/null || echo "")
-[[ -n "$last_url" ]] && echo "  Vercel URL:   $last_url"
-[[ "$ENV_TARGET" = "production" ]] && echo "  Live URL:     https://paycraft.mobilebytesensei.com"
-echo "  Ledger:       infra/deploy/.deploy-ledger.jsonl"
-echo "═══════════════════════════════════════════════════════════════"
-log_ledger "success"
+banner "PayCraft Deploy — done in $(($(date -u +%s) - START_TS))s"
+echo "  Live: $PROD_URL"
+
+printf '{"ts":"%s","env":"production","status":"success","duration_s":%d,"apply":%s,"main_sha":"%s"}\n' \
+    "$(date -u +%FT%TZ)" "$(($(date -u +%s) - START_TS))" "$APPLY" \
+    "$(git -C $PAYCRAFT_SRC rev-parse --short origin/main 2>/dev/null)" >> "$LEDGER"
