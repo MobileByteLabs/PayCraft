@@ -10,7 +10,7 @@
 
 ## On-Call Rotation
 
-- **Primary**: oncall@paycraft.cloud (PagerDuty)
+- **Primary**: oncall@paycraft.mobilebytesensei.com (PagerDuty)
 - **Escalation**: Fired after 5 consecutive failed probes (= 5 min outage)
 - **Severity levels**: SEV1 (full outage) → immediate page; SEV2 (degraded) → 15 min response; SEV3 → next-business-day
 
@@ -29,7 +29,7 @@
 
 ### Stripe webhook failures spike
 1. Check `tenant_audit_log WHERE event_type = 'webhook_delivery_failed'` — identify tenant(s)
-2. Verify Stripe webhook endpoint URL in Stripe Dashboard = `https://api.paycraft.cloud/functions/v1/stripe-webhook/{tenant_id}`
+2. Verify Stripe webhook endpoint URL in Stripe Dashboard = `https://api.paycraft.mobilebytesensei.com/functions/v1/stripe-webhook/{tenant_id}`
 3. Replay failed events via Stripe Dashboard > Webhooks > Recent deliveries
 
 ## Incident Response

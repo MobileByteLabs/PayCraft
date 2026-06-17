@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
 /**
@@ -16,7 +17,7 @@ import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
 const secretKey = Deno.env.get("PAYSTACK_SECRET_KEY") || "";
 
-serve(async (req) => {
+serve(withWebhookRateLimit({ bucket: "webhook:paystack" }, async (req) => {
   const url = new URL(req.url);
   const pathParts = url.pathname.split("/").filter(Boolean);
   const tenantId: string | null = pathParts.length > 3 ? pathParts[3] : null;
@@ -149,4 +150,4 @@ serve(async (req) => {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
-});
+}));

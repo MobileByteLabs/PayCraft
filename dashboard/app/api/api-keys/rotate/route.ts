@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
+import { captureKeyRotated } from "@/lib/sentry-events"
 import crypto from "crypto"
 
 export async function POST(req: NextRequest) {
@@ -12,10 +13,11 @@ export async function POST(req: NextRequest) {
   const supabase = createClient()
   const newKey = `pk_${mode}_${crypto.randomBytes(24).toString("hex")}`
   const column = mode === "test" ? "api_key_test" : "api_key_live"
+  const tsColumn = mode === "test" ? "api_key_test_rotated_at" : "api_key_live_rotated_at"
   const oldKey = mode === "test" ? tenant.api_key_test : tenant.api_key_live
   const { error } = await supabase
     .from("tenants")
-    .update({ [column]: newKey })
+    .update({ [column]: newKey, [tsColumn]: new Date().toISOString() })
     .eq("id", tenant.id)
   if (error)
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -29,5 +31,12 @@ export async function POST(req: NextRequest) {
     p_before: { [column]: oldKey.substring(0, 11) + "•••" },
     p_after: { [column]: newKey.substring(0, 11) + "•••" },
   })
+
+  try {
+    captureKeyRotated({ tenantId: tenant.id, userId, mode })
+  } catch {
+    // Sentry failures are non-blocking — rotation already succeeded.
+  }
+
   return NextResponse.json({ ok: true })
 }

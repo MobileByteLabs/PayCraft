@@ -11,7 +11,7 @@ PayCraftPaywall()
 ```
 
 Everything else — products, prices, paywall template, branding, providers — is configured
-in the [PayCraft Dashboard](https://paycraft.cloud). Change it anytime without a new release.
+in the [PayCraft Dashboard](https://paycraft.mobilebytesensei.com). Change it anytime without a new release.
 
 ---
 
@@ -23,7 +23,7 @@ in the [PayCraft Dashboard](https://paycraft.cloud). Change it anytime without a
    cd paycraft-sample-cloud
    ```
 
-2. **Get an API key** at [paycraft.cloud](https://paycraft.cloud) (Free tier — no card required).
+2. **Get an API key** at [paycraft.mobilebytesensei.com](https://paycraft.mobilebytesensei.com) (Free tier — no card required).
 
 3. **Replace the placeholder key** in
    `composeApp/src/androidMain/kotlin/…/MainActivity.kt`:
@@ -57,4 +57,4 @@ in the [PayCraft Dashboard](https://paycraft.cloud). Change it anytime without a
 implementation("io.github.mobilebytelabs:cmp-paycraft:2.0.0")
 ```
 
-Full docs: [paycraft.cloud/docs](https://paycraft.cloud/docs)
+Full docs: [paycraft.mobilebytesensei.com/docs](https://paycraft.mobilebytesensei.com/docs)

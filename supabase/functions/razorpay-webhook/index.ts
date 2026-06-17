@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3?target=deno";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
@@ -132,7 +133,7 @@ async function verifySignature(
   return expected.toLowerCase() === signature.toLowerCase();
 }
 
-serve(async (req) => {
+serve(withWebhookRateLimit({ bucket: "webhook:razorpay" }, async (req) => {
   const signature = req.headers.get("x-razorpay-signature");
   if (!signature) {
     return new Response("Missing x-razorpay-signature", { status: 400 });
@@ -335,4 +336,4 @@ serve(async (req) => {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
-});
+}));

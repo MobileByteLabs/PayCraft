@@ -17,7 +17,7 @@ export default function QuickstartCloudPage() {
       <ol>
         <li>
           Sign up at{' '}
-          <a href="https://paycraft.cloud/auth/login">paycraft.cloud/auth/login</a> (free — no
+          <a href="https://paycraft.mobilebytesensei.com/auth/login">paycraft.mobilebytesensei.com/auth/login</a> (free — no
           card required).
         </li>
         <li>Follow the onboarding wizard: name your app, connect a payment provider, create your first product.</li>

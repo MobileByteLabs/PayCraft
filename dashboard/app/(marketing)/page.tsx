@@ -42,6 +42,21 @@ export default function LandingPage() {
             View documentation
           </ButtonLink>
         </div>
+
+        {/* Social proof — reels-downloader case study, real production usage since 2026-04-26 */}
+        <div className="mt-12 inline-flex items-center gap-3 px-4 py-2 rounded-full bg-ink-50 border border-ink-200">
+          <CheckCircle2 className="w-4 h-4 text-green-600" />
+          <span className="text-sm text-ink-700">
+            Powering <span className="font-semibold">reels-downloader</span> on
+            Android, iOS, Web & Desktop since April 2026 —{" "}
+            <Link
+              href="/docs/case-studies/reels-downloader"
+              className="font-semibold text-brand-700 hover:text-brand-800 underline-offset-4 hover:underline"
+            >
+              read the case study
+            </Link>
+          </span>
+        </div>
       </section>
 
       {/* Dual Card Section */}

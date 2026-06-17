@@ -23,23 +23,23 @@ Get values from https://dashboard.stripe.com/apikeys (live mode) + https://dashb
 
 ```bash
 # 1.1 — sk_live_*  (Stripe secret key)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-stripe-platform-secret-key:STRIPE_SECRET_KEY
-security find-generic-password -s paycraft.cloud -a paycraft-stripe-platform-secret-key:STRIPE_SECRET_KEY -w | \
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-stripe-platform-secret-key:STRIPE_SECRET_KEY
+security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-stripe-platform-secret-key:STRIPE_SECRET_KEY -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-stripe-platform-secret-key --stdin --account-email mobilebytesensei@gmail.com
 
 # 1.2 — pk_live_*  (Stripe publishable key — PUBLIC, but still vaulted for source-of-truth)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-stripe-platform-publishable-key:STRIPE_PUBLISHABLE_KEY
-security find-generic-password -s paycraft.cloud -a paycraft-stripe-platform-publishable-key:STRIPE_PUBLISHABLE_KEY -w | \
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-stripe-platform-publishable-key:STRIPE_PUBLISHABLE_KEY
+security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-stripe-platform-publishable-key:STRIPE_PUBLISHABLE_KEY -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-stripe-platform-publishable-key --stdin --account-email mobilebytesensei@gmail.com
 
 # 1.3 — whsec_*  (Stripe webhook signing secret — Dashboard → Webhooks → endpoint → Signing secret)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-stripe-platform-webhook-secret:STRIPE_WEBHOOK_SECRET
-security find-generic-password -s paycraft.cloud -a paycraft-stripe-platform-webhook-secret:STRIPE_WEBHOOK_SECRET -w | \
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-stripe-platform-webhook-secret:STRIPE_WEBHOOK_SECRET
+security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-stripe-platform-webhook-secret:STRIPE_WEBHOOK_SECRET -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-stripe-platform-webhook-secret --stdin --account-email mobilebytesensei@gmail.com
 
 # 1.4 — ca_*  (Stripe Connect client ID — Dashboard → Connect → Settings → Application name)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-stripe-connect-client-id:STRIPE_CONNECT_CLIENT_ID
-security find-generic-password -s paycraft.cloud -a paycraft-stripe-connect-client-id:STRIPE_CONNECT_CLIENT_ID -w | \
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-stripe-connect-client-id:STRIPE_CONNECT_CLIENT_ID
+security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-stripe-connect-client-id:STRIPE_CONNECT_CLIENT_ID -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-stripe-connect-client-id --stdin --account-email mobilebytesensei@gmail.com
 ```
 
@@ -49,18 +49,18 @@ Get values from https://dashboard.razorpay.com/app/keys + https://dashboard.razo
 
 ```bash
 # 2.1 — rzp_live_*  (Razorpay key ID)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-razorpay-key-id:RAZORPAY_KEY_ID
-security find-generic-password -s paycraft.cloud -a paycraft-razorpay-key-id:RAZORPAY_KEY_ID -w | \
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-razorpay-key-id:RAZORPAY_KEY_ID
+security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-razorpay-key-id:RAZORPAY_KEY_ID -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-razorpay-key-id --stdin --account-email mobilebytesensei@gmail.com
 
 # 2.2 — Razorpay key secret
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-razorpay-key-secret:RAZORPAY_KEY_SECRET
-security find-generic-password -s paycraft.cloud -a paycraft-razorpay-key-secret:RAZORPAY_KEY_SECRET -w | \
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-razorpay-key-secret:RAZORPAY_KEY_SECRET
+security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-razorpay-key-secret:RAZORPAY_KEY_SECRET -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-razorpay-key-secret --stdin --account-email mobilebytesensei@gmail.com
 
 # 2.3 — Razorpay webhook secret
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-razorpay-webhook-secret:RAZORPAY_WEBHOOK_SECRET
-security find-generic-password -s paycraft.cloud -a paycraft-razorpay-webhook-secret:RAZORPAY_WEBHOOK_SECRET -w | \
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-razorpay-webhook-secret:RAZORPAY_WEBHOOK_SECRET
+security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-razorpay-webhook-secret:RAZORPAY_WEBHOOK_SECRET -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-razorpay-webhook-secret --stdin --account-email mobilebytesensei@gmail.com
 ```
 
@@ -73,8 +73,8 @@ security find-generic-password -s paycraft.cloud -a paycraft-razorpay-webhook-se
 Sign up at https://resend.com → API Keys → Create API key (full access).
 
 ```bash
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-resend-api-key:RESEND_API_KEY
-security find-generic-password -s paycraft.cloud -a paycraft-resend-api-key:RESEND_API_KEY -w | \
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-resend-api-key:RESEND_API_KEY
+security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-resend-api-key:RESEND_API_KEY -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-resend-api-key --stdin --account-email mobilebytesensei@gmail.com
 ```
 
@@ -84,13 +84,13 @@ Sign up at https://sentry.io → Create project (Next.js) → Settings → Clien
 
 ```bash
 # 4.1 — Sentry DSN (project → Client Keys)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-sentry-dsn:SENTRY_DSN
-security find-generic-password -s paycraft.cloud -a paycraft-sentry-dsn:SENTRY_DSN -w | \
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-sentry-dsn:SENTRY_DSN
+security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-sentry-dsn:SENTRY_DSN -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-sentry-dsn --stdin --account-email mobilebytesensei@gmail.com
 
 # 4.2 — Sentry auth token (org settings → Auth Tokens, scope: project:releases)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-sentry-auth-token:SENTRY_AUTH_TOKEN
-security find-generic-password -s paycraft.cloud -a paycraft-sentry-auth-token:SENTRY_AUTH_TOKEN -w | \
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-sentry-auth-token:SENTRY_AUTH_TOKEN
+security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-sentry-auth-token:SENTRY_AUTH_TOKEN -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-sentry-auth-token --stdin --account-email mobilebytesensei@gmail.com
 ```
 
@@ -108,18 +108,18 @@ Sign up at https://vercel.com → connect GitHub → import MobileByteLabs/PayCr
 
 ```bash
 # 6.1 — Vercel token (Account Settings → Tokens → Create, scope: PayCraft project, no expiry)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-vercel-token:VERCEL_TOKEN
-security find-generic-password -s paycraft.cloud -a paycraft-vercel-token:VERCEL_TOKEN -w | \
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-vercel-token:VERCEL_TOKEN
+security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-vercel-token:VERCEL_TOKEN -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-vercel-token --stdin --account-email mobilebytesensei@gmail.com
 
 # 6.2 — Vercel org ID (Account Settings → ID — this is NOT secret but is vaulted for completeness)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-vercel-org-id:VERCEL_ORG_ID
-security find-generic-password -s paycraft.cloud -a paycraft-vercel-org-id:VERCEL_ORG_ID -w | \
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-vercel-org-id:VERCEL_ORG_ID
+security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-vercel-org-id:VERCEL_ORG_ID -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-vercel-org-id --stdin --account-email mobilebytesensei@gmail.com
 
 # 6.3 — Vercel project ID (Project Settings → General → ID)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.cloud paycraft-vercel-project-id:VERCEL_PROJECT_ID
-security find-generic-password -s paycraft.cloud -a paycraft-vercel-project-id:VERCEL_PROJECT_ID -w | \
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-vercel-project-id:VERCEL_PROJECT_ID
+security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-vercel-project-id:VERCEL_PROJECT_ID -w | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-vercel-project-id --stdin --account-email mobilebytesensei@gmail.com
 ```
 

@@ -26,7 +26,7 @@ import org.koin.compose.koinInject
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
     // Single-line cloud configuration — products, providers, pricing, and paywall
-    // all live in your PayCraft dashboard at https://paycraft.cloud.
+    // all live in your PayCraft dashboard at https://paycraft.mobilebytesensei.com.
     PayCraft.initialize(apiKey = "pk_live_REPLACE_WITH_YOUR_KEY")
 
     ComposeViewport(document.body!!) {
