@@ -13,7 +13,7 @@ set -eo pipefail
 # Resolve paths
 # ═══════════════════════════════════════════════════════════
 PAYCRAFT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-FW_ROOT="$(cd "$PAYCRAFT_SRC/../../../../../.." && pwd)"
+FW_ROOT="$(cd "$PAYCRAFT_SRC/../../../../.." && pwd)"
 STATE_DIR="$PAYCRAFT_SRC/infra/deploy/.state"
 LEDGER="$PAYCRAFT_SRC/infra/deploy/.deploy-ledger.jsonl"
 mkdir -p "$STATE_DIR"
@@ -176,12 +176,21 @@ phase_2_secrets_sync() {
 
 phase_3_migrations() {
     cd "$PAYCRAFT_SRC"
+    # framework-canonical: connect via vault-mediated db-url, no `supabase login` / `--linked` needed
+    local db_url_file db_url
+    db_url_file=$(mktemp -t paycraft-dburl-XXXXXX)
+    trap "rm -f $db_url_file" RETURN
+    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-db-url --to-file "$db_url_file" 2>/dev/null; then
+        echo "  ✗ framework-supabase-db-url not resolvable from vault"
+        return 1
+    fi
+    db_url=$(cat "$db_url_file")
     if [[ "$APPLY" = "true" ]]; then
-        echo "  Running: supabase db push --linked"
-        supabase db push --linked --include-roles
+        echo "  Running: supabase db push --db-url <framework-supabase>"
+        supabase db push --db-url "$db_url" --include-roles
     else
-        echo "  [DRY] supabase migration list --linked"
-        supabase migration list --linked 2>&1 | tail -10 || true
+        echo "  [DRY] supabase migration list --db-url <framework-supabase>"
+        supabase migration list --db-url "$db_url" 2>&1 | tail -10 || true
     fi
 }
 
@@ -204,7 +213,7 @@ phase_5_deploy() {
         local tmpkey
         tmpkey=$(mktemp)
         chmod 600 "$tmpkey"
-        bash "$FW_ROOT/core/scripts/secrets-get.sh" --alias mbs-paycraft-vercel-token --to-file "$tmpkey"
+        bash "$FW_ROOT/core/scripts/secrets-get.sh" mbs-paycraft-vercel-token --to-file "$tmpkey"
         local token
         token=$(cat "$tmpkey")
         shred -u "$tmpkey" 2>/dev/null || rm -f "$tmpkey"
@@ -287,7 +296,7 @@ phase_7_domain_attach() {
         local tmpkey
         tmpkey=$(mktemp)
         chmod 600 "$tmpkey"
-        bash "$FW_ROOT/core/scripts/secrets-get.sh" --alias mbs-paycraft-vercel-token --to-file "$tmpkey"
+        bash "$FW_ROOT/core/scripts/secrets-get.sh" mbs-paycraft-vercel-token --to-file "$tmpkey"
         local token
         token=$(cat "$tmpkey")
         shred -u "$tmpkey" 2>/dev/null || rm -f "$tmpkey"
@@ -388,31 +397,29 @@ emit_status() {
     printf "dashboard_node_modules: %s\n" "$([ -d $PAYCRAFT_SRC/dashboard/node_modules ] && echo PRESENT || echo MISSING)"
     echo ""
 
-    echo "─── vault (14 secrets) ─────────────────────────────"
+    echo "─── vault (10 secrets — Sentry + Stripe Connect + Razorpay webhook deferred for v1 BYOK) ───"
     local total=0 present=0 missing=()
     local SECRETS=(
         mbs-paycraft-encryption-key
         mbs-paycraft-stripe-platform-secret-key
         mbs-paycraft-stripe-platform-publishable-key
         mbs-paycraft-stripe-platform-webhook-secret
-        mbs-paycraft-stripe-connect-client-id
         mbs-paycraft-razorpay-key-id
         mbs-paycraft-razorpay-key-secret
-        mbs-paycraft-razorpay-webhook-secret
         mbs-paycraft-resend-api-key
-        mbs-paycraft-sentry-dsn
-        mbs-paycraft-sentry-auth-token
         mbs-paycraft-vercel-token
         mbs-paycraft-vercel-org-id
         mbs-paycraft-vercel-project-id
     )
     for a in "${SECRETS[@]}"; do
         total=$((total + 1))
-        if bash "$FW_ROOT/core/scripts/secrets-get.sh" --alias "$a" --exists-only 2>/dev/null; then
+        local __chk; __chk=$(mktemp -t v-chk-XXXXXX); chmod 600 "$__chk"
+        if bash "$FW_ROOT/core/scripts/secrets-get.sh" "$a" --to-file "$__chk" 2>/dev/null; then
             present=$((present + 1))
         else
             missing+=("$a")
         fi
+        rm -f "$__chk"
     done
     printf "vault_present: %d\n" "$present"
     printf "vault_missing: %d\n" "${#missing[@]}"

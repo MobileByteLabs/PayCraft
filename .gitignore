@@ -110,3 +110,4 @@ cli/dist/
 # this catches the convenience symlink supabase/migrations → ../server/migrations
 # that local devs may add so `supabase db reset` finds the migrations).
 supabase/migrations
+.vercel
