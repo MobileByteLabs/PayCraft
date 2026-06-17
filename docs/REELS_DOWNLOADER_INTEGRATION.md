@@ -37,7 +37,7 @@ Open https://paycraft.mobilebytesensei.com
 What the dashboard does behind the scenes:
 
 1. Inserts a row into `tenants` (id=auto-uuid, slug=`reels-downloader`,
-   owner_user_id=<your Supabase auth uid>).
+   owner_user_id=`<your Supabase auth uid>`).
 2. Inserts a row into `tier_definitions` link with `tier='free'`.
 3. Issues an initial `pk_test_*` API key (rotateable later).
 
