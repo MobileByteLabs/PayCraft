@@ -9,7 +9,7 @@
 #   0.1 CLI INSTALL          — vercel, supabase, gh, jq
 #   0.2 AUTH                 — vercel login, supabase login, gh auth login (prompts)
 #   0.3 PROJECT LINK         — vercel link (dashboard), supabase link (project ref)
-#   0.4 ACCOUNTS             — Resend, Sentry (open browser + prompt for API key)
+#   0.4 ACCOUNTS             — Resend (open browser + prompt for API key)
 #   0.5 SECRETS COLLECT      — interactive Pattern 5 walk per MISSING vault secret
 #   0.6 DASHBOARD NPM        — npm install (creates dashboard/node_modules)
 #   0.7 SUPABASE PROJECT     — verify framework-supabase reachable
@@ -23,7 +23,7 @@
 set -eo pipefail
 
 PAYCRAFT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-FW_ROOT="$(cd "$PAYCRAFT_SRC/../../../../../.." && pwd)"
+FW_ROOT="$(cd "$PAYCRAFT_SRC/../../../../.." && pwd)"
 
 CHECK_ONLY=false
 NON_INTERACTIVE=false
@@ -132,17 +132,18 @@ sub_0_2_auth() {
         ok "vercel logged in"
     fi
 
-    # supabase
-    if supabase projects list >/dev/null 2>&1; then
-        ok "supabase logged in"
+    # supabase — framework-canonical: vault-mediated db-url, no `supabase login` needed
+    # ('supabase login' is only required for personal-PAT-driven `db push --linked`;
+    # we use `--db-url $framework-supabase-db-url` in Phase 3 instead.)
+    local sb_check
+    sb_check=$(mktemp -t paycraft-sb-check-XXXXXX)
+    if bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-db-url --to-file "$sb_check" 2>/dev/null; then
+        rm -f "$sb_check"
+        ok "framework-supabase reachable via vault (no supabase login required)"
     else
-        if [[ "$NON_INTERACTIVE" = "true" || "$CHECK_ONLY" = "true" ]]; then
-            fail "supabase not logged in — run: supabase login"
-            return 1
-        fi
-        info "Opening supabase login (browser-based OAuth)..."
-        supabase login 2>&1 | tail -5 || { fail "supabase login failed"; return 1; }
-        ok "supabase logged in"
+        rm -f "$sb_check"
+        fail "framework-supabase-db-url not in vault — push via /secrets push or run /secrets adopt"
+        return 1
     fi
 }
 
@@ -191,18 +192,17 @@ sub_0_3_link() {
 }
 
 # ═══════════════════════════════════════════════════════════
-# Sub-step 0.4 — ACCOUNTS CHECK (Resend, Sentry)
+# Sub-step 0.4 — ACCOUNTS CHECK (Resend only — Sentry deferred for v1)
 # ═══════════════════════════════════════════════════════════
 sub_0_4_accounts() {
-    substep "0.4" "FREE-TIER ACCOUNTS (Resend, Sentry)" || return 0
+    substep "0.4" "FREE-TIER ACCOUNTS (Resend)" || return 0
 
-    # We can't programmatically check whether the user has accounts, but
-    # we can check whether the corresponding secrets are vaulted (sub-step 0.5).
-    # This sub-step just nudges if both Resend + Sentry secrets are missing.
+    # We can't programmatically check whether the user has the Resend account,
+    # but we can check whether the corresponding secret is vaulted (sub-step 0.5).
+    # This sub-step just nudges if Resend is missing.
 
-    local resend_missing=false sentry_missing=false
-    bash "$FW_ROOT/core/scripts/secrets-get.sh" --alias mbs-paycraft-resend-api-key --exists-only 2>/dev/null || resend_missing=true
-    bash "$FW_ROOT/core/scripts/secrets-get.sh" --alias mbs-paycraft-sentry-dsn --exists-only 2>/dev/null || sentry_missing=true
+    local resend_missing=false
+    bash "$FW_ROOT/core/scripts/secrets-get.sh" mbs-paycraft-resend-api-key --to-file /tmp/__r4chk 2>/dev/null && rm -f /tmp/__r4chk || resend_missing=true
 
     if [[ "$resend_missing" = "true" ]]; then
         warn "Resend API key not yet vaulted — you'll need an account at https://resend.com (free 3K/mo)"
@@ -212,16 +212,6 @@ sub_0_4_accounts() {
         fi
     else
         ok "Resend API key already in vault"
-    fi
-
-    if [[ "$sentry_missing" = "true" ]]; then
-        warn "Sentry DSN not yet vaulted — you'll need an account at https://sentry.io (free 5K errors/mo)"
-        if [[ "$NON_INTERACTIVE" != "true" && "$CHECK_ONLY" != "true" ]]; then
-            prompt "Open Sentry signup in browser now? [y/N]: "
-            read -r r; [[ "$r" = "y" || "$r" = "Y" ]] && (command -v open >/dev/null && open "https://sentry.io/signup" || info "Visit https://sentry.io/signup manually")
-        fi
-    else
-        ok "Sentry DSN already in vault"
     fi
 }
 
@@ -233,13 +223,9 @@ SECRETS_TO_COLLECT=(
     "mbs-paycraft-stripe-platform-secret-key:Stripe Secret Key (sk_live_*):https://dashboard.stripe.com/apikeys"
     "mbs-paycraft-stripe-platform-publishable-key:Stripe Publishable Key (pk_live_*):https://dashboard.stripe.com/apikeys"
     "mbs-paycraft-stripe-platform-webhook-secret:Stripe Webhook Signing Secret (whsec_*):https://dashboard.stripe.com/webhooks"
-    "mbs-paycraft-stripe-connect-client-id:Stripe Connect Client ID (ca_*):https://dashboard.stripe.com/connect/settings"
     "mbs-paycraft-razorpay-key-id:Razorpay Key ID (rzp_live_*):https://dashboard.razorpay.com/app/keys"
     "mbs-paycraft-razorpay-key-secret:Razorpay Key Secret:https://dashboard.razorpay.com/app/keys"
-    "mbs-paycraft-razorpay-webhook-secret:Razorpay Webhook Secret:https://dashboard.razorpay.com/app/webhooks"
     "mbs-paycraft-resend-api-key:Resend API Key (re_*):https://resend.com/api-keys"
-    "mbs-paycraft-sentry-dsn:Sentry DSN (https://*.ingest.sentry.io/*):https://sentry.io/settings/projects/"
-    "mbs-paycraft-sentry-auth-token:Sentry Auth Token (sntrys_*):https://sentry.io/settings/account/api/auth-tokens/"
     "mbs-paycraft-vercel-token:Vercel Token (Account Settings → Tokens):https://vercel.com/account/tokens"
     "mbs-paycraft-vercel-org-id:Vercel Org ID (Account Settings):https://vercel.com/account"
     "mbs-paycraft-vercel-project-id:Vercel Project ID (Project Settings → General):https://vercel.com/dashboard"
@@ -264,7 +250,9 @@ sub_0_5_secrets_collect() {
     local missing_count=0 collected_count=0 already_count=0
 
     # Generated secret first: encryption key (no user input needed)
-    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" --alias mbs-paycraft-encryption-key --exists-only 2>/dev/null; then
+    local __enc_chk; __enc_chk=$(mktemp -t enc-chk-XXXXXX); chmod 600 "$__enc_chk"
+    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" mbs-paycraft-encryption-key --to-file "$__enc_chk" 2>/dev/null; then
+        rm -f "$__enc_chk"
         if [[ "$CHECK_ONLY" = "true" ]]; then
             warn "Encryption key not yet vaulted"
             missing_count=$((missing_count + 1))
@@ -280,6 +268,7 @@ sub_0_5_secrets_collect() {
             collected_count=$((collected_count + 1))
         fi
     else
+        rm -f "$__enc_chk"
         ok "encryption key already in vault"
         already_count=$((already_count + 1))
     fi
@@ -291,11 +280,14 @@ sub_0_5_secrets_collect() {
         local secret_id="${alias#mbs-paycraft-}"
         secret_id="paycraft-${secret_id}"
 
-        if bash "$FW_ROOT/core/scripts/secrets-get.sh" --alias "$alias" --exists-only 2>/dev/null; then
+        local __chk; __chk=$(mktemp -t v-chk-XXXXXX); chmod 600 "$__chk"
+        if bash "$FW_ROOT/core/scripts/secrets-get.sh" "$alias" --to-file "$__chk" 2>/dev/null; then
+            rm -f "$__chk"
             ok "$alias already in vault"
             already_count=$((already_count + 1))
             continue
         fi
+        rm -f "$__chk"
 
         if [[ "$CHECK_ONLY" = "true" ]]; then
             warn "MISSING: $alias ($desc)"
@@ -386,16 +378,26 @@ sub_0_6_npm() {
 sub_0_7_supabase_reach() {
     substep "0.7" "FRAMEWORK-SUPABASE REACHABILITY" || return 0
 
-    local url
-    url=$(bash "$FW_ROOT/core/scripts/secrets-get.sh" --alias framework-supabase-url --stdout-allowed 2>/dev/null || echo "")
-    if [[ -z "$url" ]]; then
+    local url_file url
+    url_file=$(mktemp -t paycraft-sb-url-XXXXXX)
+    trap "rm -f $url_file" RETURN
+    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-url --to-file "$url_file" 2>/dev/null; then
         warn "framework-supabase-url not resolvable (vault entry missing?)"
         return 1
     fi
-    if curl -fsS --max-time 10 "$url/rest/v1/" -H "apikey: dummy" -o /dev/null 2>/dev/null; then
-        ok "framework-supabase reachable at $url"
+    url=$(cat "$url_file")
+    if [[ -z "$url" ]]; then
+        warn "framework-supabase-url empty in vault"
+        return 1
+    fi
+    # Any HTTP response (incl. 401/403 from dummy apikey) means the endpoint is up;
+    # we're testing TCP+TLS reachability, not auth.
+    local http
+    http=$(curl -sS --max-time 10 -o /dev/null -w "%{http_code}" "$url/rest/v1/" -H "apikey: dummy" 2>/dev/null || echo "000")
+    if [[ "$http" =~ ^[1-5][0-9][0-9]$ ]]; then
+        ok "framework-supabase reachable at $url (HTTP $http)"
     else
-        fail "framework-supabase unreachable — check network + URL"
+        fail "framework-supabase unreachable — check network + URL (got: $http)"
         return 1
     fi
 }
