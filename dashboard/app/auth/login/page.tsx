@@ -75,18 +75,25 @@ function GitHubIcon() {
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const supabase = createClient()
 
   // Purge stale Supabase auth state on every mount of /auth/login. Any prior
   // failed OAuth round-trip can leave `sb-*` cookies / localStorage keys behind
   // that poison the next signInWithOAuth call (GoTrue then 400s with
   // {"message":"Bad request"} before the browser even reaches Google). This
   // guarantees a clean slate.
+  //
+  // createClient() is intentionally called INSIDE this effect (not at component
+  // body) so it never runs during Next.js's build-time prerender of the client
+  // bundle — that prerender path doesn't have NEXT_PUBLIC_SUPABASE_URL in
+  // every environment scope (e.g. preview deploys), so a module-level call
+  // would throw `@supabase/ssr: Your project's URL and API key are required`
+  // during build. useEffect only runs in the browser → safe.
   useEffect(() => {
     purgeStaleSupabaseAuthState()
+    const supabase = createClient()
     // Tell gotrue-js to forget any in-memory session too — defense in depth.
     void supabase.auth.signOut({ scope: "local" }).catch(() => {})
-  }, [supabase])
+  }, [])
 
   async function signInWithGoogle() {
     setLoading(true)
@@ -97,6 +104,10 @@ export default function LoginPage() {
     // back-button into a stale tab, etc.).
     purgeStaleSupabaseAuthState()
 
+    // Lazy-create the supabase client at click time (not at module load) — same
+    // build-time-prerender reason as the effect above. This handler only runs
+    // on user interaction in the browser, so env vars are guaranteed present.
+    const supabase = createClient()
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
