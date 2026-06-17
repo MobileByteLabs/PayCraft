@@ -76,11 +76,11 @@ PayCraft.initialize(apiKey = "pk_live_…")
 ```
 
 Products, providers, payment links, pricing, and paywall styling are fetched from
-the PayCraft dashboard (https://paycraft.cloud). For offline previews + UI tests:
+the PayCraft dashboard (https://paycraft.mobilebytesensei.com). For offline previews + UI tests:
 `PayCraft.initialize(apiKey = "pk_test_…", backend = PayCraftBackend.Mock(staticConfig = …))`.
 
 > v1.x `PayCraft.configure { … }` was removed in v2.0. Migration:
-> [paycraft.cloud/docs/v2-migration](https://paycraft.cloud/docs/v2-migration).
+> [paycraft.mobilebytesensei.com/docs/v2-migration](https://paycraft.mobilebytesensei.com/docs/v2-migration).
 
 ## Database Migrations — single source of truth
 

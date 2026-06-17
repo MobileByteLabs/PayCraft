@@ -9,7 +9,7 @@ your app's Kotlin source via `PayCraft.configure {}`. No network dependency at s
 
 **Cloud dashboard configuration** — a single API key is provided at startup; all products,
 providers, pricing, paywall template, branding, trial settings, and webhooks are managed from
-the PayCraft Dashboard at https://paycraft.cloud. Settings propagate to all app installs
+the PayCraft Dashboard at https://paycraft.mobilebytesensei.com. Settings propagate to all app installs
 without requiring an app update.
 
 Both paths are fully supported in production.
@@ -45,7 +45,7 @@ PayCraft.initialize(apiKey = "pk_live_abc123")
 ```
 
 Everything else — products, providers, pricing, paywall template, branding, trial, webhooks —
-is configured in the dashboard at https://paycraft.cloud.
+is configured in the dashboard at https://paycraft.mobilebytesensei.com.
 
 ### Self-hosted Enterprise variant
 
@@ -82,7 +82,7 @@ The `paycraftMigrateV2` Gradle task assists teams that want to move an existing 
    - Backs up original files to `.paycraft-backup/`
    - Emits `MIGRATION_DASHBOARD_CHECKLIST.md`
 
-3. **Sign up** at https://paycraft.cloud/auth/signup — create your app, copy the API key.
+3. **Sign up** at https://paycraft.mobilebytesensei.com/auth/signup — create your app, copy the API key.
 
 4. **Follow `MIGRATION_DASHBOARD_CHECKLIST.md`** — re-create products, connect providers, set up webhooks.
 

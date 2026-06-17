@@ -1,0 +1,71 @@
+name: Daily DB backup → Cloudflare R2
+
+# Phase 3 of paycraft-v2-production-readiness — replaces the prior weekly
+# backup.yml. Runs every day at 02:00 UTC, dumps framework-supabase in
+# custom format, uploads to Cloudflare R2 (free 10GB tier), prunes objects
+# older than 30 days. RPO=24h, RTO=4h per docs/DR_RUNBOOK.md.
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # daily 02:00 UTC
+  workflow_dispatch:      # manual trigger for ad-hoc backups
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install postgresql-client + awscli
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client awscli
+
+      - name: Dump + gzip framework-supabase
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          ts=$(date -u +%Y%m%d-%H%M%S)
+          out="backup-${ts}.dump.gz"
+          pg_dump --format=custom --no-owner --no-acl "${SUPABASE_DB_URL}" | gzip > "${out}"
+          du -h "${out}"
+          echo "BACKUP_FILE=${out}" >> "${GITHUB_ENV}"
+
+      - name: Upload to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          dest_prefix=$(date -u +%Y/%m/%d)
+          aws s3 cp "${BACKUP_FILE}" \
+            "s3://paycraft-backups/${dest_prefix}/${BACKUP_FILE}" \
+            --endpoint-url "${AWS_ENDPOINT_URL}"
+
+      - name: Prune R2 dumps older than 30 days
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          cutoff=$(date -u -d '30 days ago' +%Y-%m-%d)
+          aws s3 ls s3://paycraft-backups/ --recursive --endpoint-url "${AWS_ENDPOINT_URL}" \
+            | awk -v c="${cutoff}" '$1 < c { print $4 }' \
+            | while read -r key; do
+                aws s3 rm "s3://paycraft-backups/${key}" --endpoint-url "${AWS_ENDPOINT_URL}"
+              done
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Daily backup failed; see runbook docs/DR_RUNBOOK.md"
+          # Future: post to Slack via SLACK_WEBHOOK_URL secret

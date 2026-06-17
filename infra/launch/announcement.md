@@ -24,7 +24,7 @@ Most indie apps launch under that. Pro is $29/month flat plus $0.10 per extra su
 no surprise invoices.
 
 Try the sample: https://github.com/MobileByteLabs/paycraft-sample-cloud
-Docs: https://paycraft.cloud/docs
+Docs: https://paycraft.mobilebytesensei.com/docs
 
 Happy to answer any questions below!
 
@@ -40,7 +40,7 @@ without committing to a single payment provider.
 
 The library wraps Stripe, Razorpay, Paddle, PayPal, Paystack (+5 more) behind a
 single thin SDK. You configure products, prices, and paywall design in the dashboard
-at paycraft.cloud — your app code is:
+at paycraft.mobilebytesensei.com — your app code is:
 
 ```kotlin
 PayCraft.initialize(apiKey = "pk_live_…")
@@ -69,7 +69,7 @@ re-submit required.
 - Stripe Tax integration
 
 Sample: https://github.com/MobileByteLabs/paycraft-sample-cloud
-Docs: https://paycraft.cloud/docs
+Docs: https://paycraft.mobilebytesensei.com/docs
 
 Would love feedback on SDK shape and pricing tiers.
 
@@ -86,7 +86,7 @@ PayCraftPaywall()
 ```
 That's the entire integration.
 
-3/ Everything else — products, prices, paywall template, branding, providers — lives at paycraft.cloud. Change it anytime, no app store re-submit.
+3/ Everything else — products, prices, paywall template, branding, providers — lives at paycraft.mobilebytesensei.com. Change it anytime, no app store re-submit.
 
 4/ Supports 10 providers today: Stripe, Razorpay, Paddle, PayPal, Paystack, and more. Multi-provider checkout shows a bottom sheet. Single provider? Sheet auto-skips.
 
@@ -98,7 +98,7 @@ That's the entire integration.
 6/ Sample app (3 lines, works on Android / iOS / Desktop / Web):
 https://github.com/MobileByteLabs/paycraft-sample-cloud
 
-7/ Docs + free signup: https://paycraft.cloud
+7/ Docs + free signup: https://paycraft.mobilebytesensei.com
 
 ---
 
@@ -112,7 +112,7 @@ PayCraft.initialize(apiKey = "pk_live_…")
 PayCraftPaywall()  // renders a full paywall UI
 ```
 
-Products, pricing, paywall templates, and provider configuration all live in the dashboard at paycraft.cloud. Update prices without App Store reviews. Switch providers without touching code.
+Products, pricing, paywall templates, and provider configuration all live in the dashboard at paycraft.mobilebytesensei.com. Update prices without App Store reviews. Switch providers without touching code.
 
 Key features:
 • 10 payment providers (Stripe, Razorpay, Paddle, PayPal, Paystack + more)
@@ -124,7 +124,7 @@ Key features:
 If you're building a subscription app on KMP, I'd love your feedback.
 
 Sample: https://github.com/MobileByteLabs/paycraft-sample-cloud
-Docs: https://paycraft.cloud/docs
+Docs: https://paycraft.mobilebytesensei.com/docs
 
 ---
 
@@ -169,6 +169,6 @@ required to change prices or switch providers.
 Supports 10 providers (Stripe, Razorpay, Paddle + more). Free tier for up to 100 subscribers.
 
 Sample repo: https://github.com/MobileByteLabs/paycraft-sample-cloud
-Docs: https://paycraft.cloud/docs
+Docs: https://paycraft.mobilebytesensei.com/docs
 
 Happy to discuss the KMP billing problem space or the implementation!

@@ -8,7 +8,7 @@ import com.mobilebytelabs.paycraft.PayCraft
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Get your API key at https://paycraft.cloud → onboarding → API keys
+        // Get your API key at https://paycraft.mobilebytesensei.com → onboarding → API keys
         PayCraft.initialize(apiKey = "pk_live_REPLACE_ME")
         setContent { App() }
     }

@@ -67,7 +67,7 @@ serve(async (req: Request): Promise<Response> => {
       return new Response(
         JSON.stringify({
           checkout_url: null,
-          contact_url: "mailto:sales@paycraft.cloud?subject=Enterprise%20inquiry",
+          contact_url: "mailto:sales@paycraft.mobilebytesensei.com?subject=Enterprise%20inquiry",
         }),
         { headers: { "content-type": "application/json" } },
       )

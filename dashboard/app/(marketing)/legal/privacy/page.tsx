@@ -53,10 +53,10 @@ export default function PrivacyPage() {
         <p>
           You can export, correct, or delete your data anytime. Email{" "}
           <a
-            href="mailto:privacy@paycraft.cloud"
+            href="mailto:privacy@paycraft.mobilebytesensei.com"
             className="text-brand-600 underline"
           >
-            privacy@paycraft.cloud
+            privacy@paycraft.mobilebytesensei.com
           </a>{" "}
           with your request — we respond within 30 days.
         </p>
@@ -66,10 +66,10 @@ export default function PrivacyPage() {
         <p>
           Data Protection Officer:{" "}
           <a
-            href="mailto:dpo@paycraft.cloud"
+            href="mailto:dpo@paycraft.mobilebytesensei.com"
             className="text-brand-600 underline"
           >
-            dpo@paycraft.cloud
+            dpo@paycraft.mobilebytesensei.com
           </a>
           .
         </p>

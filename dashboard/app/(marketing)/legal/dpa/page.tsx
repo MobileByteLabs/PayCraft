@@ -50,10 +50,99 @@ export default function DpaPage() {
 
       <Section title="5. Subprocessors">
         <p>
-          Approved subprocessors are listed in our Privacy Policy. Processor
-          notifies Controller 30 days before adding a new subprocessor.
-          Controller may object; if unresolved within 30 days, either party
-          may terminate.
+          PayCraft engages the following subprocessors to deliver the service.
+          Processor notifies Controller 30 days before adding a new subprocessor.
+          Controller may object; if unresolved within 30 days, either party may
+          terminate.
+        </p>
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="py-2 pr-4 text-left font-semibold">Subprocessor</th>
+                <th className="py-2 pr-4 text-left font-semibold">Purpose</th>
+                <th className="py-2 pr-4 text-left font-semibold">Region</th>
+                <th className="py-2 pr-4 text-left font-semibold">Security</th>
+              </tr>
+            </thead>
+            <tbody className="text-muted-foreground">
+              {[
+                {
+                  name: "Supabase",
+                  purpose: "Postgres database, Auth, Edge Functions",
+                  region: "US (default), EU on request",
+                  url: "https://supabase.com/security",
+                },
+                {
+                  name: "Vercel",
+                  purpose: "Dashboard hosting + global edge CDN",
+                  region: "Global edge",
+                  url: "https://vercel.com/security",
+                },
+                {
+                  name: "Stripe, Inc.",
+                  purpose: "Card capture + payment processing (PCI DSS Level 1)",
+                  region: "US / EU / IN",
+                  url: "https://stripe.com/docs/security/stripe",
+                },
+                {
+                  name: "Razorpay Software Private Ltd.",
+                  purpose: "Card capture + payment processing — India (PCI DSS Level 1)",
+                  region: "IN",
+                  url: "https://razorpay.com/security/",
+                },
+                {
+                  name: "Resend, Inc.",
+                  purpose: "Transactional email (welcome, support auto-reply, alerts)",
+                  region: "US",
+                  url: "https://resend.com/legal/security",
+                },
+                {
+                  name: "Cloudflare R2",
+                  purpose: "Encrypted database backup storage (Phase 3 DR)",
+                  region: "Global",
+                  url: "https://www.cloudflare.com/trust-hub/compliance-resources/",
+                },
+                {
+                  name: "Sentry, Functional Software, Inc.",
+                  purpose: "Error tracking + observability (PII-masked)",
+                  region: "US / EU",
+                  url: "https://sentry.io/security/",
+                },
+                {
+                  name: "Google LLC",
+                  purpose: "OAuth sign-in for dashboard authentication",
+                  region: "Global",
+                  url: "https://safety.google",
+                },
+                {
+                  name: "GitHub, Inc.",
+                  purpose: "Source code + CI/CD pipelines",
+                  region: "US",
+                  url: "https://github.com/security",
+                },
+              ].map((sp) => (
+                <tr key={sp.name} className="border-b border-border">
+                  <td className="py-2 pr-4 font-medium text-foreground">{sp.name}</td>
+                  <td className="py-2 pr-4">{sp.purpose}</td>
+                  <td className="py-2 pr-4">{sp.region}</td>
+                  <td className="py-2 pr-4">
+                    <a
+                      href={sp.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline-offset-4 hover:underline"
+                    >
+                      {new URL(sp.url).hostname}
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-4 text-sm text-muted-foreground">
+          Last updated: 2026-06-17. For changes, see CHANGELOG.md.
         </p>
       </Section>
 
@@ -100,10 +189,10 @@ export default function DpaPage() {
         <p>
           For DPA execution, email{" "}
           <a
-            href="mailto:legal@paycraft.cloud"
+            href="mailto:legal@paycraft.mobilebytesensei.com"
             className="text-brand-600 underline"
           >
-            legal@paycraft.cloud
+            legal@paycraft.mobilebytesensei.com
           </a>
           .
         </p>

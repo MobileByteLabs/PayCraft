@@ -399,8 +399,8 @@ under the Business Source License v1.1 — free for development, evaluation, and
 non-production use; **production use requires an Enterprise license** from
 MobileByteLabs.
 
-- Pricing + terms: <https://paycraft.cloud/enterprise>
-- Contract & purchase: <mailto:enterprise@paycraft.cloud>
+- Pricing + terms: <https://paycraft.mobilebytesensei.com/enterprise>
+- Contract & purchase: <mailto:enterprise@paycraft.mobilebytesensei.com>
 - Per-deployment license file: drop into `infra/selfhost/LICENSE-ENTERPRISE.key`;
   the dashboard surfaces a validity banner on `/settings/license`.
 
@@ -411,7 +411,7 @@ in your client apps with no commercial encumbrance.
 
 ## See also
 
-- [`QUICK_START.md`](QUICK_START.md) — paycraft.cloud SaaS quick start
+- [`QUICK_START.md`](QUICK_START.md) — paycraft.mobilebytesensei.com SaaS quick start
 - [`PROVIDERS.md`](PROVIDERS.md) — Stripe / Razorpay / Custom provider setup
 - [`SECURITY.md`](SECURITY.md) — secret management and RLS model
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — how the stack fits together

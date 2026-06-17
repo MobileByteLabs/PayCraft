@@ -27,7 +27,7 @@ const MOCK_MEMBERS: Member[] = [
   {
     id: "1",
     name: "Rajan P.",
-    email: "rajan@paycraft.cloud",
+    email: "rajan@paycraft.mobilebytesensei.com",
     role: "owner",
     status: "active",
     joined: "May 2024",
@@ -36,7 +36,7 @@ const MOCK_MEMBERS: Member[] = [
   {
     id: "2",
     name: "Sarah J.",
-    email: "sarah.j@paycraft.cloud",
+    email: "sarah.j@paycraft.mobilebytesensei.com",
     role: "admin",
     status: "active",
     joined: "June 2024",
@@ -46,7 +46,7 @@ const MOCK_MEMBERS: Member[] = [
   {
     id: "3",
     name: "Mike D.",
-    email: "mike.dev@paycraft.cloud",
+    email: "mike.dev@paycraft.mobilebytesensei.com",
     role: "viewer",
     status: "active",
     joined: "July 2024",

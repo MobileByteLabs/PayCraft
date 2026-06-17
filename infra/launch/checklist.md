@@ -2,8 +2,8 @@
 
 ## T-7 days
 
-- [ ] Final security audit — run paycraft.cloud through https://securityheaders.com (target A+)
-- [ ] Verify Cloudflare DNSSEC is enabled on paycraft.cloud
+- [ ] Final security audit — run paycraft.mobilebytesensei.com through https://securityheaders.com (target A+)
+- [ ] Verify Cloudflare DNSSEC is enabled on paycraft.mobilebytesensei.com
 - [ ] Confirm Sentry is receiving events (trigger a test exception in staging)
 - [ ] Confirm BetterStack uptime monitors are green for 7-day window
 - [ ] Run `./gradlew :cmp-paycraft:jvmTest` — all tests pass
@@ -18,27 +18,27 @@
 - [ ] Verify `implementation("io.github.mobilebytelabs:cmp-paycraft:2.0.0")` resolves in a fresh project
 - [ ] Create `MobileByteLabs/paycraft-sample-cloud` GitHub repo (set to public)
 - [ ] Push sample-cloud content to the new repo
-- [ ] Verify `./gradlew composeApp:assembleDebug` passes in the sample repo against production paycraft.cloud
+- [ ] Verify `./gradlew composeApp:assembleDebug` passes in the sample repo against production paycraft.mobilebytesensei.com
 - [ ] Draft announcement copy reviewed and finalized (infra/launch/announcement.md)
 - [ ] Product Hunt: schedule submission slot (09:00 UTC on launch day)
 - [ ] Set up Hacker News Show HN draft
 
 ## T-1 day
 
-- [ ] Final smoke test on production paycraft.cloud — signup → dashboard → API key → sample app run
+- [ ] Final smoke test on production paycraft.mobilebytesensei.com — signup → dashboard → API key → sample app run
 - [ ] Verify all email templates work end-to-end (send a real test email to rajanmaurya154@gmail.com)
 - [ ] Confirm BetterStack monitors show 0 incidents in last 48h
 - [ ] Check Sentry — 0 unresolved issues
 - [ ] Pre-load Product Hunt account (product submissions require 3-day-old account)
-- [ ] Update paycraft.cloud homepage CTA to point to sample repo + demo video (if recorded)
+- [ ] Update paycraft.mobilebytesensei.com homepage CTA to point to sample repo + demo video (if recorded)
 - [ ] Prepare CHANGELOG.md v2.0.0 section (final date fill-in)
 
 ## T-0 (launch day)
 
 | Time (UTC) | Action |
 |---|---|
-| 09:00 | Toggle paycraft.cloud from "coming soon" to live (env var `MAINTENANCE_MODE=false`) |
-| 09:10 | Run final acceptance smoke test (curl paycraft.cloud + paycraft.cloud/pricing + paycraft.cloud/docs/quickstart-cloud) |
+| 09:00 | Toggle paycraft.mobilebytesensei.com from "coming soon" to live (env var `MAINTENANCE_MODE=false`) |
+| 09:10 | Run final acceptance smoke test (curl paycraft.mobilebytesensei.com + paycraft.mobilebytesensei.com/pricing + paycraft.mobilebytesensei.com/docs/quickstart-cloud) |
 | 09:15 | Submit Product Hunt listing (24h window starts) |
 | 09:30 | Post Show HN submission |
 | 10:00 | Twitter / X thread (all 7 tweets scheduled and fired) |
@@ -53,7 +53,7 @@
 - [ ] Respond to Product Hunt comments
 - [ ] Respond to Hacker News thread
 - [ ] Log first-day questions → update FAQ in docs
-- [ ] Email digest to support@paycraft.cloud (first 24h support load triage)
+- [ ] Email digest to support@paycraft.mobilebytesensei.com (first 24h support load triage)
 
 ## T+7
 

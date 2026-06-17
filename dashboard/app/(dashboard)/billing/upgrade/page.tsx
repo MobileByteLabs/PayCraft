@@ -111,7 +111,7 @@ export default function UpgradePage() {
   async function go(target: "pro" | "enterprise") {
     if (target === "enterprise") {
       window.location.href =
-        "mailto:sales@paycraft.cloud?subject=Enterprise%20inquiry"
+        "mailto:sales@paycraft.mobilebytesensei.com?subject=Enterprise%20inquiry"
       return
     }
     setSubmitting(target)

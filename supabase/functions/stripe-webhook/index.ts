@@ -248,6 +248,42 @@ serve(async (req) => {
         break;
       }
 
+      case "charge.refunded": {
+        // Phase 4 of paycraft-v2-production-readiness — full refund flow.
+        // When a charge is fully refunded, locate the related subscription
+        // (via the invoice → subscription chain) and mark it canceled.
+        // Partial refunds keep the subscription active.
+        const charge = event.data.object as Stripe.Charge;
+        const isFullRefund =
+          charge.refunded === true && charge.amount_refunded >= charge.amount;
+        if (!isFullRefund) break;
+
+        let subscriptionId: string | null = null;
+        if (charge.invoice) {
+          const invoice = await stripeClient.invoices.retrieve(
+            charge.invoice as string,
+          );
+          subscriptionId = (invoice.subscription as string) || null;
+        }
+        if (!subscriptionId) break;
+
+        await handleSubscriptionEvent({
+          email: null,
+          provider: "stripe",
+          customerId: charge.customer as string | null,
+          subscriptionId,
+          plan: null,
+          status: "canceled",
+          mode: stripeMode,
+          periodStart: null,
+          periodEnd: null,
+          cancelAtPeriodEnd: false,
+          tenantId,
+          eventType: event.type,
+        });
+        break;
+      }
+
       default: {
         // Stripe forwards every account event (product.created, plan.created,
         // price.created, payment_link.created, etc) when the CLI tunnel runs
