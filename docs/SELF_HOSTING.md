@@ -183,7 +183,7 @@ PayCraft.initialize(
     apiKey = "pk_test_local",   // generated in /settings/api-keys on your dashboard
     backend = PayCraftBackend.SelfHosted(
         supabaseUrl     = "http://localhost:54321",         // or https://billing.acme.com
-        supabaseAnonKey = "<your PAYCRAFT_ANON_KEY value>",
+        supabaseAnonKey = "PASTE_YOUR_PAYCRAFT_ANON_KEY_HERE",
     ),
 )
 ```
@@ -399,8 +399,8 @@ under the Business Source License v1.1 — free for development, evaluation, and
 non-production use; **production use requires an Enterprise license** from
 MobileByteLabs.
 
-- Pricing + terms: <https://paycraft.mobilebytesensei.com/enterprise>
-- Contract & purchase: <mailto:enterprise@paycraft.mobilebytesensei.com>
+- Pricing + terms: [paycraft.mobilebytesensei.com/enterprise](https://paycraft.mobilebytesensei.com/enterprise)
+- Contract & purchase: [enterprise@paycraft.mobilebytesensei.com](mailto:enterprise@paycraft.mobilebytesensei.com)
 - Per-deployment license file: drop into `infra/selfhost/LICENSE-ENTERPRISE.key`;
   the dashboard surfaces a validity banner on `/settings/license`.
 
