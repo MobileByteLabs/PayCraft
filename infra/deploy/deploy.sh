@@ -1,27 +1,32 @@
 #!/usr/bin/env bash
 #
-# deploy.sh — PayCraft v2.0 GitHub-integrated production deploy orchestrator.
+# deploy.sh — PayCraft v2.0 unified run/deploy orchestrator.
 #
-# Architecture (post-2026-06-17):
-#   • Vercel auto-deploys main branch via GitHub App integration
-#   • Direct push to development/main is blocked by GitHub repo rules
-#   • Production = main branch HEAD; main is kept as exact fast-forward of development
-#   • This script wires the dev → main PR + waits for Vercel
+# Two modes, one command:
 #
-# Phases:
-#   1 PRE-FLIGHT     verify CLIs, vault, vercel project, gh auth
-#   2 SECRETS SYNC   vault → vercel env (production scope)
-#   3 MIGRATIONS     vault-mediated supabase db push --db-url
-#   4 PROMOTE        open PR development → main, merge it (fast-forward if possible)
-#   5 WAIT VERCEL    poll Vercel API for production deploy of main HEAD → READY
-#   6 SMOKE          curl /api/health on https://paycraft.mobilebytesensei.com
+#   --local   Run PayCraft on http://localhost:3000
+#             L1 LOCAL PRE-FLIGHT  Docker, supabase CLI, node_modules, supabase/.env
+#             L2 SUPABASE RESTART  supabase stop ; supabase start
+#             L3 DEV SERVER START  cd dashboard && nohup npm run dev &
+#             L4 LOCAL READY WAIT  poll localhost:3000 until 200
+#             L5 LOCAL SMOKE       curl /api/health (expects env=local)
 #
-# Dry-run by default — pass --apply --confirm-production for mutating phases.
+#   --prod    Promote development → main and let Vercel auto-deploy production
+#             1 PRE-FLIGHT     verify CLIs, vault, vercel project, gh auth
+#             2 SECRETS SYNC   vault → vercel env (production scope)
+#             3 MIGRATIONS     vault-mediated supabase db push --db-url
+#             4 PROMOTE        open PR development → main, merge it (fast-forward)
+#             5 WAIT VERCEL    poll Vercel API for production deploy of main → READY
+#             6 SMOKE          curl /api/health on https://paycraft.mobilebytesensei.com
 #
-# Sub-commands:
+# Dry-run by default — pass --apply --confirm-production for mutating prod phases.
+# Local mode never mutates production state, no --apply needed.
+#
+# Sub-commands (shorthand aliases):
 #   deploy.sh status     emit YAML-like state blob (consumed by SKILL.md matrix)
-#   deploy.sh ship       alias for --apply --confirm-production (full chain)
-#   deploy.sh verify     alias for --only-phase 1 (read-only preflight)
+#   deploy.sh ship       alias for --prod --apply --confirm-production (full prod chain)
+#   deploy.sh run        alias for --local
+#   deploy.sh verify     alias for --prod --only-phase 1 (read-only preflight)
 #
 set -eo pipefail
 
@@ -43,6 +48,7 @@ SUPABASE_REF="mlwfgytjxlqyfxcgpysm"
 # ═══════════════════════════════════════════════════════════
 # Parse args
 # ═══════════════════════════════════════════════════════════
+MODE=""                         # "local" | "prod" | "" (default: matrix view via SKILL.md)
 APPLY=false
 CONFIRM_PROD=false
 FROM_PHASE=1
@@ -53,18 +59,22 @@ VERBOSE=false
 SILENT=false
 SUB_COMMAND=""
 
-# Sub-command detection
+# Sub-command detection (shorthand aliases)
 case "${1:-}" in
     status|matrix|info)
         SUB_COMMAND="$1"; shift ;;
     ship)
-        SUB_COMMAND="ship"; APPLY=true; CONFIRM_PROD=true; shift ;;
+        SUB_COMMAND="ship"; MODE="prod"; APPLY=true; CONFIRM_PROD=true; shift ;;
+    run)
+        SUB_COMMAND="run"; MODE="local"; shift ;;
     verify)
-        SUB_COMMAND="verify"; ONLY_PHASE=1; FROM_PHASE=1; TO_PHASE=1; shift ;;
+        SUB_COMMAND="verify"; MODE="prod"; ONLY_PHASE=1; FROM_PHASE=1; TO_PHASE=1; shift ;;
 esac
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --local)                MODE="local"; shift ;;
+        --prod)                 MODE="prod"; shift ;;
         --apply)                APPLY=true; shift ;;
         --dry-run)              APPLY=false; shift ;;
         --confirm-production)   CONFIRM_PROD=true; shift ;;
@@ -75,15 +85,15 @@ while [[ $# -gt 0 ]]; do
         --verbose)              VERBOSE=true; shift ;;
         --silent)               SILENT=true; shift ;;
         -h|--help)
-            sed -n '/^# Phases:/,/^# Sub-commands:/p' "${BASH_SOURCE[0]}" | head -20
+            sed -n '/^# Two modes/,/^# Sub-commands/p' "${BASH_SOURCE[0]}" | head -30
             exit 0 ;;
         *) echo "Unknown flag: $1 — see --help" >&2; exit 1 ;;
     esac
 done
 
-# Safety: mutating phases require --confirm-production
-if [[ "$APPLY" = "true" && "$CONFIRM_PROD" != "true" ]]; then
-    echo "ERROR: --apply requires --confirm-production (safety)" >&2
+# Safety: mutating prod phases require --confirm-production
+if [[ "$MODE" = "prod" && "$APPLY" = "true" && "$CONFIRM_PROD" != "true" ]]; then
+    echo "ERROR: --apply with --prod requires --confirm-production (safety)" >&2
     exit 1
 fi
 
@@ -464,13 +474,131 @@ failure_banner() {
 }
 
 # ═══════════════════════════════════════════════════════════
-# Main
+# LOCAL-mode phases (--local / `run`)
+# ═══════════════════════════════════════════════════════════
+LOCAL_URL="http://localhost:3000"
+LOCAL_SB_API="http://localhost:54321"
+LOCAL_SB_STUDIO="http://localhost:54323"
+DEV_LOG="$STATE_DIR/dev-server.log"
+DEV_PID_FILE="$STATE_DIR/dev-server.pid"
+
+phase_local_1_preflight() {
+    local fails=0
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        echo "  ✓ Docker daemon running"
+    else
+        echo "  ✗ Docker not running (supabase start requires Docker)"; fails=$((fails+1))
+    fi
+    command -v supabase >/dev/null && echo "  ✓ Supabase CLI installed" \
+        || { echo "  ✗ Supabase CLI missing (brew install supabase/tap/supabase)"; fails=$((fails+1)); }
+    command -v node >/dev/null && [ "$(node -v | sed 's/v//' | cut -d. -f1)" -ge 20 ] \
+        && echo "  ✓ Node v20+ available" \
+        || { echo "  ✗ Node v20+ required"; fails=$((fails+1)); }
+    [ -d "$PAYCRAFT_SRC/dashboard/node_modules" ] \
+        && echo "  ✓ dashboard/node_modules present" \
+        || { echo "  ⚠ dashboard/node_modules missing — running npm install"; (cd "$PAYCRAFT_SRC/dashboard" && npm install --no-audit --no-fund 2>&1 | tail -3); }
+    [ -f "$PAYCRAFT_SRC/supabase/.env" ] \
+        && echo "  ✓ supabase/.env present (Google OAuth wired)" \
+        || echo "  ⚠ supabase/.env missing — Google OAuth will use Supabase defaults"
+    [[ $fails -eq 0 ]]
+}
+
+phase_local_2_supabase_restart() {
+    cd "$PAYCRAFT_SRC"
+    echo "  Stopping any running Supabase stack..."
+    supabase stop 2>&1 | tail -3 || true
+    echo "  Starting Supabase (this can take 30-60s on first run)..."
+    supabase start 2>&1 | tail -20
+}
+
+phase_local_3_dev_server() {
+    cd "$PAYCRAFT_SRC/dashboard"
+    # Kill any process on port 3000
+    if lsof -ti:3000 >/dev/null 2>&1; then
+        echo "  Killing existing process on :3000..."
+        lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+        sleep 1
+    fi
+    echo "  Starting Next.js dev server (logs → $DEV_LOG)..."
+    nohup npm run dev > "$DEV_LOG" 2>&1 &
+    local pid=$!
+    echo "$pid" > "$DEV_PID_FILE"
+    disown
+    echo "  Dev server PID: $pid"
+}
+
+phase_local_4_ready_wait() {
+    echo "  Waiting for http://localhost:3000 to respond..."
+    local start=$(date +%s); local deadline=$((start + 90))
+    while [[ $(date +%s) -lt $deadline ]]; do
+        if curl -fsS -o /dev/null --max-time 2 "$LOCAL_URL/" 2>/dev/null; then
+            echo "  ✓ Dev server ready in $(($(date +%s) - start))s"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "  ✗ Dev server did not respond within 90s — check $DEV_LOG"
+    tail -20 "$DEV_LOG" 2>/dev/null | sed 's/^/    /'
+    return 1
+}
+
+phase_local_5_smoke() {
+    local result
+    result=$(curl -sS -o /tmp/.lhealth.json -w "%{http_code}" --max-time 5 "$LOCAL_URL/api/health" 2>&1) || true
+    if [[ "$result" = "200" ]]; then
+        local status env
+        status=$(node -e "console.log(JSON.parse(require('fs').readFileSync('/tmp/.lhealth.json','utf-8')).status)" 2>/dev/null)
+        env=$(node -e "console.log(JSON.parse(require('fs').readFileSync('/tmp/.lhealth.json','utf-8')).env)" 2>/dev/null)
+        echo "  ✓ /api/health → status=$status  env=$env"
+    else
+        echo "  ⚠ /api/health → HTTP $result (dev server up but endpoint may not be reachable yet)"
+    fi
+    rm -f /tmp/.lhealth.json
+}
+
+# ═══════════════════════════════════════════════════════════
+# Main dispatch
 # ═══════════════════════════════════════════════════════════
 if [[ "$SUB_COMMAND" = "status" || "$SUB_COMMAND" = "matrix" || "$SUB_COMMAND" = "info" ]]; then
     emit_status
     exit 0
 fi
 
+if [[ -z "$MODE" ]]; then
+    echo "ERROR: pick a mode — --local or --prod  (or 'run' / 'ship')" >&2
+    echo "  /paycraft-deploy --local        run locally on http://localhost:3000" >&2
+    echo "  /paycraft-deploy --prod         dry-run the prod chain (no mutations)" >&2
+    echo "  /paycraft-deploy --prod --apply --confirm-production  full prod deploy" >&2
+    echo "  /paycraft-deploy ship           shorthand for the full prod deploy" >&2
+    exit 1
+fi
+
+if [[ "$MODE" = "local" ]]; then
+    banner "PayCraft Local — $LOCAL_URL"
+    run_phase 1 "LOCAL PRE-FLIGHT"    "phase_local_1_preflight"      || exit 1
+    run_phase 2 "SUPABASE RESTART"    "phase_local_2_supabase_restart" || exit 1
+    run_phase 3 "DEV SERVER START"    "phase_local_3_dev_server"     || exit 1
+    run_phase 4 "READY WAIT"          "phase_local_4_ready_wait"     || exit 1
+    run_phase 5 "LOCAL SMOKE"         "phase_local_5_smoke"          || true   # smoke is informational
+
+    banner "PayCraft Local — ready in $(($(date -u +%s) - START_TS))s"
+    cat <<EOF
+  ✅ Dashboard:  $LOCAL_URL
+  ✅ Login:      $LOCAL_URL/auth/login
+  ✅ Supabase:   $LOCAL_SB_API
+  ✅ Studio:     $LOCAL_SB_STUDIO
+
+  Dev server PID: $(cat "$DEV_PID_FILE" 2>/dev/null)
+  Logs:           tail -f $DEV_LOG
+  Stop:           kill \$(cat $DEV_PID_FILE)  +  supabase stop
+EOF
+    printf '{"ts":"%s","env":"local","status":"success","duration_s":%d,"dev_pid":%s}\n' \
+        "$(date -u +%FT%TZ)" "$(($(date -u +%s) - START_TS))" \
+        "$(cat $DEV_PID_FILE 2>/dev/null || echo 0)" >> "$LEDGER"
+    exit 0
+fi
+
+# MODE = prod
 banner "PayCraft Deploy — env=production, mode=$([ "$APPLY" = true ] && echo APPLY || echo DRY-RUN)"
 
 run_phase 1 "PRE-FLIGHT"     "phase_1_preflight"     || exit 1
