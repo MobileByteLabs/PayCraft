@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
 import Stripe from "https://esm.sh/stripe@14.0.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -28,7 +29,7 @@ const PLAN_MAP: Record<string, { plan: string; limit: number }> = {
   "price_enterprise_annual": { plan: "enterprise", limit: 999999 },
 };
 
-serve(async (req) => {
+serve(withWebhookRateLimit({ bucket: "webhook:cloud-billing" }, async (req) => {
   if (!stripe) {
     return new Response("Stripe not configured", { status: 500 });
   }
@@ -127,4 +128,4 @@ serve(async (req) => {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
-});
+}));

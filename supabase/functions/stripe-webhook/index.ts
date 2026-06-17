@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
 import Stripe from "https://esm.sh/stripe@14.0.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3?target=deno";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
@@ -71,7 +72,7 @@ async function loadTenantCreds(
   return { secretKey: data.secret_key, webhookSecret: data.webhook_secret };
 }
 
-serve(async (req) => {
+serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
   const signature = req.headers.get("stripe-signature");
   if (!signature) {
     return new Response("Missing stripe-signature", { status: 400 });
@@ -310,7 +311,7 @@ serve(async (req) => {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
-});
+}));
 
 /**
  * Pull the coupon id off a Stripe Subscription (either the legacy `discount`

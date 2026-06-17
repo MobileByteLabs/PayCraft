@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased] — paycraft-v2-production-readiness epic
+
+Closes the 5-phase production-readiness epic spanning vault, domain, DR, observability, and Maven publish gates. See `plan-layer/project-plans/mbs/PayCraft/active/paycraft-v2-production-readiness/PLAN.md` for the full spec.
+
+### Added
+
+- **Phase 3 DR pipeline** — `.github/workflows/daily-backup.yml` (daily 02:00 UTC pg_dump → Cloudflare R2), `infra/restore-from-r2.sh` with prod guardrail, `docs/DR_RUNBOOK.md` with RPO=24h/RTO=4h + monthly drill checklist
+- **Phase 3 PCI scope statement** — `docs/PCI_SCOPE.md` (SAQ-A, founder-signed)
+- **Phase 3 DPA sub-processor table** — inline 9-row table on `/legal/dpa`
+- **Phase 4 edge rate-limit** — `dashboard/lib/edge-rate-limit.ts` (per-IP token bucket) + middleware shed on `/api/*` mutating routes
+- **Phase 4 webhook rate-limit fan-out** — `_shared/webhook-rate-limit.ts` shared `withWebhookRateLimit({bucket})` wrapper applied to all 11 webhook handlers (Stripe, Razorpay, Cashfree, BTCPay, Flutterwave, Lemonsqueezy, Midtrans, Paddle, PayPal, Paystack, cloud-billing) with per-IP fallback before signature verification
+- **Phase 4 Sentry helpers** — `_shared/sentry.ts` (Deno edge) + `dashboard/lib/sentry-events.ts` (failed payment / webhook retry / rate-limit / key-rotated event builders)
+- **Phase 4 support ticketing** — `supabase/migrations/064_support_tickets.sql` (RLS), `dashboard/app/api/support/ticket/route.ts`, `supabase/functions/support-to-linear/index.ts` (Linear fan-out + Resend auto-reply)
+- **Phase 4 SLA + incident docs** — `docs/SLA_DASHBOARD.md` (99.5% / 99.9% / p95 ≤ 30s targets, upptime config), `docs/INCIDENT_SIMULATION.md` (3 rehearsable scenarios + drill log)
+- **Phase 4 `charge.refunded`** — Stripe webhook now downgrades `subscriptions.status` to `canceled` on full refund
+- **Phase 4 API key rotation tracking** — `supabase/migrations/065_api_key_rotated_at.sql` adds `api_key_{test,live}_rotated_at` timestamp columns; `/api/api-keys/rotate` writes them + emits Sentry breadcrumb
+- **Phase 5 Maven Central README** — `cmp-paycraft/README.md` ready for Sonatype publish
+- **Phase 5 real-world case study** — `docs/REELS_DOWNLOADER_INTEGRATION.md` (end-to-end adoption proof)
+- **Phase 5 RLS isolation contract test** — `dashboard/__tests__/api/rls-isolation.test.ts` (11 tests, 5 tables, validates 42501 deny-by-default)
+
+### Changed
+
+- Canonical domain migrated from `paycraft.cloud` to `paycraft.mobilebytesensei.com` across dashboard pages, sample apps, KMP SDK, infrastructure docs, and README/CHANGELOG. v2.0 announcement section below retains the historical name.
+- `cmp-paycraft.PayCraftBackend.Cloud` now targets the Supabase project URL directly (decoupled from any specific dashboard hostname)
+- `dashboard/lib/email.ts` sender uses `${PAYCRAFT_EMAIL_FROM}` env-var with `no-reply@paycraft.mobilebytesensei.com` fallback
+
+### Documentation
+
+- `docs/STRIPE_ACTIVATION.md` — Phase 1 platform Stripe activation runbook (3-7 day window)
+- `docs/PAYCRAFT_AS_TENANT_ONE.md` — Phase 1 dogfooding runbook
+- `ROADMAP.md` — live phase tracker (new file)
+
 ## [2.0.0] - 2026-06-06
 
 ### Cloud SaaS launch — paycraft.cloud
