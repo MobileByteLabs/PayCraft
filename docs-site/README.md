@@ -3,6 +3,11 @@
 Public Docusaurus site for `https://docs.paycraft.mobilebytesensei.com`.
 Phase 2 of `paycraft-v2-production-readiness`.
 
+> **Cloudflare Pages config:** Production branch `main`, build command
+> `cd docs-site && npm install && npm run build`, build output
+> `docs-site/build`, environment `NODE_VERSION=20`. No root-directory
+> override needed — Cloudflare clones the full PayCraft repo.
+
 ## What this is
 
 A thin Docusaurus shell that serves the existing `docs/*.md` tree at the
