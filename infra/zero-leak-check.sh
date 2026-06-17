@@ -44,6 +44,12 @@ ALLOWLIST=(
 
     # CI workflow for this validator — same reason.
     '.github/workflows/zero-leak-check.yml'
+
+    # Operational docs explaining the validator — they quote its output strings
+    # which contain the literal token. Doc-only refs, never executed.
+    'infra/dns-records.md'
+    'docs/SONATYPE_SETUP.md'
+    'docs/UPPTIME_SETUP.md'
 )
 
 # Build allowlist grep pattern (escape glob → regex via |)
