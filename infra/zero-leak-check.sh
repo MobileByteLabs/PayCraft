@@ -38,6 +38,9 @@ ALLOWLIST=(
     # The paycraft-trial-support feature branch had its own /paycraft-adopt
     # variant; same as above.
     '.claude/commands/paycraft-adopt*'
+
+    # This validator script itself — needs to MENTION the string to detect it.
+    'infra/zero-leak-check.sh'
 )
 
 # Build allowlist grep pattern (escape glob → regex via |)

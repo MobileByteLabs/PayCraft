@@ -1,53 +1,48 @@
-# Deploy Docusaurus docs site to GitHub Pages
-#
-# Triggers:
-#   - Push to main (docs/ or docusaurus/ changes)
-#   - Manual dispatch
+name: Deploy docs site → Cloudflare Pages
 
-name: Deploy Docs
+# Phase 2 T8 of paycraft-v2-production-readiness — builds Docusaurus on push
+# to main, uploads to Cloudflare Pages project `paycraft-docs`. PR previews
+# are handled by Cloudflare's GitHub integration; this workflow owns the
+# canonical production deploy. Replaces the prior `docusaurus/`-targeted +
+# GitHub-Pages-targeted variant.
 
 on:
   push:
-    branches: [ "main", "development" ]
+    branches: [main]
     paths:
       - 'docs/**'
-      - 'docusaurus/**'
+      - 'docs-site/**'
+      - '.github/workflows/docs-deploy.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
+  deployments: write
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: docusaurus
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: docusaurus/package-lock.json
-      - run: npm ci
-      - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: docusaurus/build
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: docs-site/package-lock.json
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Install deps
+        working-directory: docs-site
+        run: npm ci
+
+      - name: Build site
+        working-directory: docs-site
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy docs-site/build --project-name=paycraft-docs --branch=main
