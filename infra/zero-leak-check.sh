@@ -41,6 +41,9 @@ ALLOWLIST=(
 
     # This validator script itself — needs to MENTION the string to detect it.
     'infra/zero-leak-check.sh'
+
+    # CI workflow for this validator — same reason.
+    '.github/workflows/zero-leak-check.yml'
 )
 
 # Build allowlist grep pattern (escape glob → regex via |)
