@@ -130,7 +130,8 @@ mavenPublishing {
 
     pom {
         name = "PayCraft"
-        description = "Multi-provider KMP subscription billing — paycraft.mobilebytesensei.com SaaS. Stripe, Razorpay, and more."
+        description =
+            "Multi-provider KMP subscription billing — paycraft.mobilebytesensei.com SaaS. Stripe, Razorpay, and more."
         inceptionYear = "2026"
         url = "https://github.com/MobileByteLabs/PayCraft/"
 
