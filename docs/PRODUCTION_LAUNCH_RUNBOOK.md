@@ -1,6 +1,6 @@
 # PayCraft v2.0 — Production Launch Runbook
 
-> Canonical sequence to take the production-ready codebase live at `https://paycraft.cloud`.
+> Canonical sequence to take the production-ready codebase live at `https://paycraft.mobilebytesensei.com`.
 >
 > **Audience**: human operator with admin access to MobileByteLabs cloud accounts.
 > **Estimated time**: 4-6 hours end-to-end, assuming all accounts already exist.
@@ -36,12 +36,12 @@
 | Supabase | Production database + Edge Functions + Auth | https://supabase.com/dashboard |
 | Stripe | Primary payment provider (Connect platform) | https://dashboard.stripe.com |
 | Razorpay (optional) | India-region payment provider | https://dashboard.razorpay.com |
-| Cloudflare | DNS for `paycraft.cloud` + WAF + rate-limit | https://dash.cloudflare.com |
+| Cloudflare | DNS for `paycraft.mobilebytesensei.com` + WAF + rate-limit | https://dash.cloudflare.com |
 | Vercel | Hosting for Next.js dashboard | https://vercel.com/dashboard |
 | Postmark | Transactional email (welcome, receipt, reset) | https://account.postmarkapp.com |
 | Sentry | Error tracking for dashboard + Edge Functions | https://sentry.io |
 | Sonatype OSSRH | Maven Central publishing for KMP SDK | https://central.sonatype.org/publish/publish-portal-ossrh-staging-api/ |
-| MobileByteLabs domain registrar | Owns `paycraft.cloud` — confirm registrar lock OFF + nameservers point to Cloudflare | Wherever the domain was registered |
+| MobileByteLabs domain registrar | Owns `paycraft.mobilebytesensei.com` — confirm registrar lock OFF + nameservers point to Cloudflare | Wherever the domain was registered |
 
 ### 1.2 Local tooling (run each verifier; the version is a floor, not a ceiling)
 
@@ -200,11 +200,11 @@ Open https://dashboard.stripe.com/connect/applications/overview and click **Get 
 
 Fill out the Stripe Connect platform application:
 - **Application name**: PayCraft
-- **Business website**: https://paycraft.cloud
+- **Business website**: https://paycraft.mobilebytesensei.com
 - **Brand color**: read from `dashboard/app/(marketing)/page.tsx` brand-primary token
-- **Support email**: support@paycraft.cloud
-- **OAuth redirect**: `https://paycraft.cloud/api/connect/oauth/callback`
-- **Webhook endpoint**: `https://paycraft.cloud/api/webhooks/stripe`
+- **Support email**: support@paycraft.mobilebytesensei.com
+- **OAuth redirect**: `https://paycraft.mobilebytesensei.com/api/connect/oauth/callback`
+- **Webhook endpoint**: `https://paycraft.mobilebytesensei.com/api/webhooks/stripe`
 
 Submit and wait for Stripe approval — typically 1-3 business days. Do not proceed past 3.4 until the Dashboard banner reads **Live mode available**.
 
@@ -241,7 +241,7 @@ shred -u /tmp/sk_live.txt
 
 In Stripe Dashboard: https://dashboard.stripe.com/webhooks → **Add endpoint**
 
-- **Endpoint URL**: `https://paycraft.cloud/api/webhooks/stripe`
+- **Endpoint URL**: `https://paycraft.mobilebytesensei.com/api/webhooks/stripe`
 - **Listen to**: Events on Connected accounts (toggle ON)
 - **Events to send**: select these 12 — `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `customer.subscription.paused`, `customer.subscription.resumed`, `invoice.paid`, `invoice.payment_failed`, `invoice.finalized`, `checkout.session.completed`, `checkout.session.expired`, `payment_intent.succeeded`, `payment_intent.payment_failed`
 - Click **Add endpoint**
@@ -309,9 +309,9 @@ security find-generic-password -s paycraft-razorpay -a live-secret -w | \
 ### 4.3 Configure the webhook
 
 https://dashboard.razorpay.com/app/webhooks → **Add New Webhook**
-- **Webhook URL**: `https://paycraft.cloud/api/webhooks/razorpay`
+- **Webhook URL**: `https://paycraft.mobilebytesensei.com/api/webhooks/razorpay`
 - **Secret**: generate locally (`openssl rand -hex 32`) and paste
-- **Alert email**: ops@paycraft.cloud
+- **Alert email**: ops@paycraft.mobilebytesensei.com
 - **Events**: `subscription.activated`, `subscription.charged`, `subscription.completed`, `subscription.cancelled`, `subscription.paused`, `subscription.resumed`, `subscription.halted`, `subscription.pending`, `payment.captured`, `payment.failed`
 
 Push the secret you just generated:
@@ -336,7 +336,7 @@ echo "<the-openssl-secret>" | \
 ### 5.1 Confirm domain ownership
 
 ```bash
-whois paycraft.cloud | grep -iE 'registrar|registrant'
+whois paycraft.mobilebytesensei.com | grep -iE 'registrar|registrant'
 # Expected: lines confirming MobileByteLabs (or your registrar of choice) as registrant
 ```
 
@@ -346,7 +346,7 @@ If ownership is unconfirmed, **STOP**. Transfer the domain in first; do not proc
 
 Visit https://dash.cloudflare.com/profile/api-tokens → **Create Token** → use the **Edit zone DNS** template:
 - **Permissions**: Zone → DNS → Edit; Zone → Zone → Edit (needed for the rate-limit ruleset)
-- **Zone Resources**: Include → Specific zone → `paycraft.cloud`
+- **Zone Resources**: Include → Specific zone → `paycraft.mobilebytesensei.com`
 - Click **Create Token**. Token shown ONCE.
 
 ```bash
@@ -394,19 +394,19 @@ terraform apply
 ### 5.6 Verify DNS propagation
 
 ```bash
-dig paycraft.cloud +short
+dig paycraft.mobilebytesensei.com +short
 # Expected: 76.76.21.21 (Vercel anycast) — may take 1-5 min to propagate
 
-dig www.paycraft.cloud +short
-# Expected: paycraft.cloud. then 76.76.21.21
+dig www.paycraft.mobilebytesensei.com +short
+# Expected: paycraft.mobilebytesensei.com. then 76.76.21.21
 
-dig api.paycraft.cloud +short
+dig api.paycraft.mobilebytesensei.com +short
 # Expected: <REF>.supabase.co. then a 1.2.3.4 IP
 
-dig MX paycraft.cloud +short
+dig MX paycraft.mobilebytesensei.com +short
 # Expected: 10 smtp.postmarkapp.com.
 
-dig TXT paycraft.cloud +short
+dig TXT paycraft.mobilebytesensei.com +short
 # Expected: "v=spf1 a mx include:spf.mtasv.net ~all"
 ```
 
@@ -414,7 +414,7 @@ If any record fails to resolve after 10 minutes, check Cloudflare Dashboard → 
 
 ### 5.7 Add the zone to the registrar (one-time)
 
-If this is the first time the zone exists in Cloudflare, the registrar must point nameservers to the values shown in **Cloudflare Dashboard → paycraft.cloud → Overview → Cloudflare nameservers**. This is a registrar UI action — no command-line equivalent.
+If this is the first time the zone exists in Cloudflare, the registrar must point nameservers to the values shown in **Cloudflare Dashboard → paycraft.mobilebytesensei.com → Overview → Cloudflare nameservers**. This is a registrar UI action — no command-line equivalent.
 
 ---
 
@@ -482,9 +482,9 @@ vercel --prod
 ### 6.5 Attach the custom domain
 
 ```bash
-vercel domains add paycraft.cloud paycraft-dashboard
-vercel domains add www.paycraft.cloud paycraft-dashboard
-# Expected: "Domain paycraft.cloud added to paycraft-dashboard"
+vercel domains add paycraft.mobilebytesensei.com paycraft-dashboard
+vercel domains add www.paycraft.mobilebytesensei.com paycraft-dashboard
+# Expected: "Domain paycraft.mobilebytesensei.com added to paycraft-dashboard"
 ```
 
 Vercel auto-issues a Let's Encrypt certificate within ~60 seconds because the CNAME already resolves.
@@ -492,10 +492,10 @@ Vercel auto-issues a Let's Encrypt certificate within ~60 seconds because the CN
 ### 6.6 Verify
 
 ```bash
-curl -fsS -o /dev/null -w "%{http_code}\n" https://paycraft.cloud
+curl -fsS -o /dev/null -w "%{http_code}\n" https://paycraft.mobilebytesensei.com
 # Expected: 200
 
-curl -fsS https://paycraft.cloud/pricing | grep -c "Pro"
+curl -fsS https://paycraft.mobilebytesensei.com/pricing | grep -c "Pro"
 # Expected: at least 1
 ```
 
@@ -710,10 +710,10 @@ gh run watch --repo MobileByteLabs/PayCraft \
 Or run the equivalent locally:
 
 ```bash
-curl -fsS -o /dev/null -w "Landing: %{http_code}\n" https://paycraft.cloud/
-curl -fsS https://paycraft.cloud/pricing | grep -c "Pro"
-curl -fsS -o /dev/null -w "Auth: %{http_code}\n" https://paycraft.cloud/auth/signin
-curl -fsS "https://api.paycraft.cloud/functions/v1/v2-config?apiKey=pk_test_canary"
+curl -fsS -o /dev/null -w "Landing: %{http_code}\n" https://paycraft.mobilebytesensei.com/
+curl -fsS https://paycraft.mobilebytesensei.com/pricing | grep -c "Pro"
+curl -fsS -o /dev/null -w "Auth: %{http_code}\n" https://paycraft.mobilebytesensei.com/auth/signin
+curl -fsS "https://api.paycraft.mobilebytesensei.com/functions/v1/v2-config?apiKey=pk_test_canary"
 # Expected: 200 / >=1 / 200 / valid JSON (200) or 404 (canary missing — function up, key missing)
 ```
 
@@ -731,7 +731,7 @@ curl -X POST "https://api.postmarkapp.com/email" \
   -H "Content-Type: application/json" \
   -H "X-Postmark-Server-Token: $(bash ../../../core/scripts/secrets-get.sh mbs-paycraft-postmark-server-token --allow-claude-stdout)" \
   -d '{
-    "From": "noreply@paycraft.cloud",
+    "From": "noreply@paycraft.mobilebytesensei.com",
     "To": "you@example.com",
     "Subject": "PayCraft launch test",
     "TextBody": "If you got this, Postmark + SPF + MX records all work."
@@ -834,13 +834,13 @@ Pricing reference plan: `plan-layer/project-plans/mbs/PayCraft/active/pricing-26
 `infra/security/gdpr-checklist.md` exists but is not yet ticked. Required before serving EU consumer traffic. Open items typically: DPA template, sub-processor list, data export endpoint, deletion endpoint, breach notification SLA.
 
 ### Domain ownership
-`paycraft.cloud` MUST be in the MobileByteLabs registrar account before Phase 5. Confirm via `whois paycraft.cloud` (Phase 5.1) — if the registrant is anything other than the MobileByteLabs entity, halt and transfer the domain first.
+`paycraft.mobilebytesensei.com` MUST be in the MobileByteLabs registrar account before Phase 5. Confirm via `whois paycraft.mobilebytesensei.com` (Phase 5.1) — if the registrant is anything other than the MobileByteLabs entity, halt and transfer the domain first.
 
 ### Stripe Connect approval lead time
 Section 3.1 can block on Stripe's manual review for **1-3 business days**. Schedule the launch window so this lands a week early; do not assume same-day approval.
 
 ### Postmark sender verification
-Postmark requires confirming the `noreply@paycraft.cloud` sender via a DKIM record before any email goes out. Add the DKIM TXT record Postmark generates to `infra/dns/paycraft-cloud.tf` and re-apply (Phase 5.5) before Phase 9.3.
+Postmark requires confirming the `noreply@paycraft.mobilebytesensei.com` sender via a DKIM record before any email goes out. Add the DKIM TXT record Postmark generates to `infra/dns/paycraft-cloud.tf` and re-apply (Phase 5.5) before Phase 9.3.
 
 ---
 
@@ -869,7 +869,7 @@ Once all six rows are checked, the operator has the mandate to proceed. Run phas
 [ ] Phase 2  supabase projects create paycraft-prod + PROJECT_CONFIG updated + link OK
 [ ] Phase 3  Stripe live keys + webhook secret in vault + Connect approved
 [ ] Phase 4  Razorpay live keys + webhook secret in vault (or explicitly skipped)
-[ ] Phase 5  terraform apply OK; dig paycraft.cloud / www / api / MX / SPF all resolve
+[ ] Phase 5  terraform apply OK; dig paycraft.mobilebytesensei.com / www / api / MX / SPF all resolve
 [ ] Phase 6  vercel link + env import + custom domain + curl 200
 [ ] Phase 7  /project-complete green + /server promote --confirm + RLS on every tenant_* table
 [ ] Phase 8  git push --tags v2.0.0 + publish.yml green + curl maven-central .pom 200

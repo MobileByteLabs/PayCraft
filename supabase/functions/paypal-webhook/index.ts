@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
 /**
@@ -21,7 +22,7 @@ const clientSecret = Deno.env.get("PAYPAL_CLIENT_SECRET") || "";
 const isSandbox = Deno.env.get("PAYPAL_SANDBOX") === "true";
 const baseUrl = isSandbox ? "https://api-m.sandbox.paypal.com" : "https://api-m.paypal.com";
 
-serve(async (req) => {
+serve(withWebhookRateLimit({ bucket: "webhook:paypal" }, async (req) => {
   const url = new URL(req.url);
   const pathParts = url.pathname.split("/").filter(Boolean);
   const tenantId: string | null = pathParts.length > 3 ? pathParts[3] : null;
@@ -114,4 +115,4 @@ serve(async (req) => {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
-});
+}));

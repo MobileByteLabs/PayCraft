@@ -247,7 +247,7 @@ export default function LoginPage() {
               <div className="w-2.5 h-2.5 rounded-full bg-amber-500/50" />
               <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
               <span className="ml-auto text-[11px] font-mono text-white/30">
-                paycraft.cloud/dashboard
+                paycraft.mobilebytesensei.com
               </span>
             </div>
             <div className="p-5 space-y-3">

@@ -1,11 +1,11 @@
 -- Migration 053 — Platform-level secrets + ownership.
 --
--- For Stripe Connect OAuth to work, PayCraft's instance (paycraft.cloud or any
+-- For Stripe Connect OAuth to work, PayCraft's instance (paycraft.mobilebytesensei.com or any
 -- self-hosted deployment) needs a one-time pair of platform credentials:
 --   - STRIPE_CONNECT_CLIENT_ID  (ca_…)
 --   - STRIPE_SECRET_KEY         (sk_live_… or sk_test_…)
 --
--- Pre-053 these were read from env vars. That's fine for paycraft.cloud where
+-- Pre-053 these were read from env vars. That's fine for paycraft.mobilebytesensei.com where
 -- the deployer sets them at boot, but for self-hosted single-machine setups we
 -- want a hot-configurable path so the deployer can wire them through the
 -- dashboard without restarting Node. This migration provides:

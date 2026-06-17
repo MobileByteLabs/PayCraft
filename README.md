@@ -10,7 +10,7 @@
 
 Self-hosted, provider-agnostic billing library for Kotlin Multiplatform apps.
 Uses **Supabase** as the source of truth — your app never talks to a payment provider directly.
-Open-source SDK + optional [hosted dashboard](https://dashboard-chi-ashen-99.vercel.app) for subscriber management and analytics.
+Open-source SDK + optional [hosted dashboard](https://paycraft.mobilebytesensei.com) for subscriber management and analytics.
 
 ```
 Client App ──→ PayCraft SDK ──→ Supabase (source of truth)
@@ -273,7 +273,7 @@ The PayCraft web dashboard provides tenant admins with:
 - **Provider configuration** — manage keys, test connectivity
 - **Usage & billing** — for multi-tenant cloud deployments
 
-Live: [dashboard-chi-ashen-99.vercel.app](https://dashboard-chi-ashen-99.vercel.app)
+Live: [paycraft.mobilebytesensei.com](https://paycraft.mobilebytesensei.com)
 
 ---
 
@@ -364,7 +364,7 @@ See [`plugin-template/`](plugin-template/) for a starter template.
 | Service | URL |
 |---------|-----|
 | Documentation | [mobilebytelabs.github.io/PayCraft](https://mobilebytelabs.github.io/PayCraft/) |
-| Dashboard | [dashboard-chi-ashen-99.vercel.app](https://dashboard-chi-ashen-99.vercel.app) |
+| Dashboard | [paycraft.mobilebytesensei.com](https://paycraft.mobilebytesensei.com) |
 | CLI | [npmjs.com/package/paycraft](https://www.npmjs.com/package/paycraft) |
 | SDK | [Maven Central](https://central.sonatype.com/artifact/io.github.mobilebytelabs/paycraft) |
 

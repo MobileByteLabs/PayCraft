@@ -153,7 +153,7 @@ export default async function PricingPage() {
           </ul>
 
           <ButtonLink
-            href="mailto:sales@paycraft.cloud"
+            href="mailto:sales@paycraft.mobilebytesensei.com"
             variant="secondary"
             size="lg"
             className="w-full justify-center border-2 border-ink-900 !text-ink-900 hover:!bg-ink-900 hover:!text-white transition-all"
@@ -258,10 +258,10 @@ export default async function PricingPage() {
       <div className="text-center mt-12 text-xs text-ink-500">
         Questions about pricing?{" "}
         <Link
-          href="mailto:sales@paycraft.cloud"
+          href="mailto:sales@paycraft.mobilebytesensei.com"
           className="text-brand-600 hover:text-brand-700 font-medium"
         >
-          sales@paycraft.cloud
+          sales@paycraft.mobilebytesensei.com
         </Link>
       </div>
     </main>

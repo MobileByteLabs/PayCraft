@@ -5,7 +5,7 @@ import com.mobilebytelabs.paycraft.config.SuiteConfig
 /**
  * Where PayCraft fetches its SuiteConfig (products + providers + pricing + paywall).
  *
- * - [Cloud]      — paycraft.cloud SaaS. Default for `PayCraft.initialize(apiKey)`.
+ * - [Cloud]      — paycraft.mobilebytesensei.com SaaS. Default for `PayCraft.initialize(apiKey)`.
  * - [SelfHosted] — Customer-operated Supabase + edge functions (Enterprise license).
  * - [Mock]       — In-process static SuiteConfig. For tests + offline previews.
  */
@@ -35,10 +35,17 @@ sealed interface PayCraftBackend {
     }
 
     companion object {
-        const val CLOUD_SUPABASE_URL: String = "https://api.paycraft.cloud"
+        // Canonical PayCraft Cloud endpoints. Per RESEARCH.md D1, the
+        // production domain is paycraft.mobilebytesensei.com (with api.* and
+        // docs.* sub-domains planned). The SDK targets the Supabase project
+        // directly because PayCraft's dashboard is a stateless Vercel
+        // deployment that proxies the same Supabase project.
+        const val CLOUD_SUPABASE_URL: String =
+            "https://mlwfgytjxlqyfxcgpysm.supabase.co"
 
-        // Public anon key for paycraft.cloud — embedded by build pipeline at release time.
-        // (Anon key is safe to ship — RLS prevents data exposure.)
+        // Public anon key for paycraft.mobilebytesensei.com — embedded by
+        // build pipeline at release time. (Anon key is safe to ship — RLS
+        // prevents data exposure.)
         const val CLOUD_SUPABASE_ANON_KEY: String =
             "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.PUBLIC_PAYCRAFT_ANON_KEY_PLACEHOLDER"
     }

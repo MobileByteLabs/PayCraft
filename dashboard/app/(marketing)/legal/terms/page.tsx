@@ -86,10 +86,10 @@ export default function TermsPage() {
         <p>
           For questions about these terms, email{" "}
           <a
-            href="mailto:legal@paycraft.cloud"
+            href="mailto:legal@paycraft.mobilebytesensei.com"
             className="text-brand-600 underline"
           >
-            legal@paycraft.cloud
+            legal@paycraft.mobilebytesensei.com
           </a>
           .
         </p>

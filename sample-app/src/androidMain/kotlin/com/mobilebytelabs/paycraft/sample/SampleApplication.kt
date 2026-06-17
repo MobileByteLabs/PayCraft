@@ -22,7 +22,7 @@ import org.koin.core.context.startKoin
  *
  * This sample uses [PayCraftBackend.Mock] so the showcase runs offline without a
  * dashboard or network round-trip. Replace with your real `pk_live_…` key from
- * https://paycraft.cloud to wire up production checkout.
+ * https://paycraft.mobilebytesensei.com to wire up production checkout.
  */
 class SampleApplication : Application() {
 

@@ -43,20 +43,41 @@ done
 # Dashboard runtime + Edge Function-bound secrets that Vercel needs.
 # Format: ALIAS:VERCEL_ENV_NAME  (env name matches the alias's env_var unless overridden)
 SECRETS=(
+    # ─── Stripe platform (PayCraft's own Stripe Connect application) ───
     "mbs-paycraft-stripe-platform-secret-key:STRIPE_SECRET_KEY"
     "mbs-paycraft-stripe-platform-publishable-key:NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"
     "mbs-paycraft-stripe-platform-webhook-secret:STRIPE_WEBHOOK_SECRET"
     "mbs-paycraft-stripe-connect-client-id:STRIPE_CONNECT_CLIENT_ID"
+
+    # ─── Razorpay platform ───
     "mbs-paycraft-razorpay-key-id:RAZORPAY_KEY_ID"
     "mbs-paycraft-razorpay-key-secret:RAZORPAY_KEY_SECRET"
+    "mbs-paycraft-razorpay-webhook-secret:RAZORPAY_WEBHOOK_SECRET"
+
+    # ─── Transactional email + observability ───
     "mbs-paycraft-resend-api-key:RESEND_API_KEY"
     "mbs-paycraft-sentry-dsn:NEXT_PUBLIC_SENTRY_DSN"
     "mbs-paycraft-sentry-auth-token:SENTRY_AUTH_TOKEN"
+
+    # ─── OAuth (Supabase Auth → Google) ───
     "mbs-paycraft-google-oauth-client-id:GOOGLE_OAUTH_CLIENT_ID"
     "mbs-paycraft-google-oauth-secret:GOOGLE_OAUTH_SECRET"
+
+    # ─── Framework Supabase project (URL + keys) ───
     "framework-supabase-url:NEXT_PUBLIC_SUPABASE_URL"
     "framework-supabase-anon-key:NEXT_PUBLIC_SUPABASE_ANON_KEY"
     "framework-supabase-service-role-key:SUPABASE_SERVICE_ROLE_KEY"
+
+    # ─── Tenant provider-key encryption (server-side AES) — added 2026-06-17 ───
+    "mbs-paycraft-encryption-key:PAYCRAFT_ENCRYPTION_KEY"
+
+    # ─── Phase 3 DR backup credentials (Cloudflare R2, S3-compatible) ───
+    "mbs-paycraft-r2-access-key-id:R2_ACCESS_KEY_ID"
+    "mbs-paycraft-r2-secret-access-key:R2_SECRET_ACCESS_KEY"
+    "mbs-paycraft-r2-endpoint:R2_ENDPOINT_URL"
+
+    # ─── Phase 4 support ticketing (Linear fan-out + Resend auto-reply) ───
+    "mbs-paycraft-linear-api-key:LINEAR_API_KEY"
 )
 
 # Tmp dir for ephemeral secret files (mode 0700, auto-cleaned)

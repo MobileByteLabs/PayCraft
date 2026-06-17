@@ -1,0 +1,33 @@
+name: Zero-leak check (G-2)
+
+# Phase 2 T8 of paycraft-v2-production-readiness — runs the G-2 zero-leak
+# validator on every PR + push to development. Fails CI if any production
+# code path still references the legacy `paycraft.cloud` domain (allowlist
+# at infra/zero-leak-check.sh — currently CHANGELOG.md v2.0 announcement
+# only).
+
+on:
+  pull_request:
+    branches: [development, main]
+  push:
+    branches: [development, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zero-leak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run G-2 zero-leak check
+        run: bash infra/zero-leak-check.sh
+
+      - name: Annotate failure
+        if: failure()
+        run: |
+          echo "::error::G-2 zero-leak check FAILED — production code references the legacy paycraft.cloud domain."
+          echo "::error::Resolve per the script output, OR add an explicit allowlist entry with reason."

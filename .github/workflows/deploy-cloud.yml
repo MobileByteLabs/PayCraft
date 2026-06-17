@@ -1,4 +1,4 @@
-name: Deploy paycraft.cloud
+name: Deploy paycraft.mobilebytesensei.com
 
 on:
   push:

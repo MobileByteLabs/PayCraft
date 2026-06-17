@@ -22,7 +22,7 @@ import kotlinx.serialization.json.Json
  * ```
  *
  * All products, providers, pricing, and paywall styling are fetched from your PayCraft
- * dashboard (https://paycraft.cloud) and refreshed on a tiered cache policy. The SDK
+ * dashboard (https://paycraft.mobilebytesensei.com) and refreshed on a tiered cache policy. The SDK
  * exposes no other configuration surface — change anything in the dashboard, your apps
  * pick it up on the next refresh.
  */
@@ -225,7 +225,7 @@ internal fun SuiteConfig.toPayCraftConfig(backend: PayCraftBackend, apiKey: Stri
         provider = provider,
         plans = products.toBillingPlans(),
         benefits = emptyList(), // benefits surface on PaywallDto.themeJsonb in cloud mode
-        supportEmail = paywall.supportEmail ?: "support@paycraft.cloud",
+        supportEmail = paywall.supportEmail ?: "support@paycraft.mobilebytesensei.com",
         apiKey = apiKey,
         source = when (backend) {
             is PayCraftBackend.Cloud -> ConfigSource.Cloud

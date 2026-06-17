@@ -179,7 +179,7 @@ will_mutate() {
 # ──────────────────────────────────────────────────────────────────────────────
 
 : "${PAYCRAFT_SUPABASE_REGION:=us-east-1}"
-: "${PAYCRAFT_DOMAIN:=paycraft.cloud}"
+: "${PAYCRAFT_DOMAIN:=paycraft.mobilebytesensei.com}"
 
 validate_env() {
   local missing=()
@@ -194,7 +194,7 @@ validate_env() {
     err "Example invocation:"
     err "  PAYCRAFT_SUPABASE_ORG_ID=org_xxxx \\"
     err "  PAYCRAFT_SUPABASE_REGION=us-east-1 \\"
-    err "  PAYCRAFT_DOMAIN=paycraft.cloud \\"
+    err "  PAYCRAFT_DOMAIN=paycraft.mobilebytesensei.com \\"
     err "  ./bootstrap-production.sh --apply"
     exit 4
   fi
