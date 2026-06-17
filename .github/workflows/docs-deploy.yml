@@ -29,20 +29,31 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: docs-site/package-lock.json
 
       - name: Install deps
         working-directory: docs-site
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Build site
         working-directory: docs-site
         run: npm run build
 
       - name: Deploy to Cloudflare Pages
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy docs-site/build --project-name=paycraft-docs --branch=main
+
+      - name: Skip deploy if Cloudflare not configured
+        if: env.CLOUDFLARE_API_TOKEN == ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          echo "::warning::CLOUDFLARE_API_TOKEN not set — skipped Cloudflare Pages deploy."
+          echo "::warning::Set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID secrets in PayCraft repo settings."
+          echo "::warning::Build artifact still produced at docs-site/build/ for manual upload."
