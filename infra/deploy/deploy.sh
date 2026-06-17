@@ -268,7 +268,7 @@ phase_5_wait_vercel() {
     echo "  Waiting for Vercel production deploy of commit ${target_sha}..."
 
     local start=$(date +%s)
-    local deadline=$((start + 10*60))   # 10-min cap
+    local deadline=$((start + 15*60))   # 15-min cap (Vercel queue can stall on parallel failed previews)
     local last_state=""
     while [[ $(date +%s) -lt $deadline ]]; do
         local raw
