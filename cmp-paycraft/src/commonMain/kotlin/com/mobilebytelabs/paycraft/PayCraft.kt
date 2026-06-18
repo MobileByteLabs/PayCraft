@@ -144,8 +144,13 @@ object PayCraft {
         try {
             val locale = options.localeOverride ?: "US"
             PayCraftLogger.onFlow("loadConfig", "GET ${backend.configUrl}?apiKey=${apiKey.take(8)}…")
+            // Supabase Edge Functions require an Authorization header by default
+            // (verify_jwt=true at the platform level). Pass the backend's known
+            // anon key — same value the SDK uses for the postgrest data plane.
             val response: HttpResponse = http.get(backend.configUrl) {
                 parameter("apiKey", apiKey)
+                header("Authorization", "Bearer ${backend.supabaseAnonKey}")
+                header("apikey", backend.supabaseAnonKey)
                 header("Accept-Language", "en-$locale")
             }
             if (!response.status.isSuccess()) {
