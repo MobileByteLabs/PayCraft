@@ -18,7 +18,11 @@
 set -euo pipefail
 
 # Resolve framework root for vault helper.
-FW_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../../../.." && pwd)
+# Walk up until we find session-resolve.sh — robust to depth changes
+FW_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+while [ "$FW_ROOT" != "/" ] && [ ! -f "$FW_ROOT/core/scripts/session-resolve.sh" ]; do
+    FW_ROOT=$(dirname "$FW_ROOT")
+done
 
 DB_URL="${SUPABASE_DB_URL:-}"
 FROM_VAULT=false
