@@ -55,6 +55,15 @@ jobs:
           AWS_DEFAULT_REGION: auto
         run: |
           set -euo pipefail
+          # Force path-style addressing — R2 + boto3 default to virtual-host
+          # style which hits SSL handshake failures on certain account IDs.
+          mkdir -p ~/.aws
+          cat > ~/.aws/config <<EOF
+          [default]
+          region = auto
+          s3 =
+              addressing_style = path
+          EOF
           dest_prefix=$(date -u +%Y/%m/%d)
           aws s3 cp "${BACKUP_FILE}" \
             "s3://paycraft-backups/${dest_prefix}/${BACKUP_FILE}" \
