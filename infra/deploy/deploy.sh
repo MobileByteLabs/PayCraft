@@ -15,6 +15,7 @@
 #             1 PRE-FLIGHT     verify CLIs, vault, vercel project, gh auth
 #             2 SECRETS SYNC   vault → vercel env (production scope)
 #             3 MIGRATIONS     vault-mediated supabase db push --db-url
+#             3.5 FUNCTIONS DEPLOY  vault-mediated supabase functions deploy (Edge Functions)
 #             4 PROMOTE        open PR development → main, merge it (fast-forward)
 #             5 WAIT VERCEL    poll Vercel API for production deploy of main → READY
 #             6 SMOKE          curl /api/health on https://paycraft.mobilebytesensei.com
@@ -196,6 +197,46 @@ phase_3_migrations() {
     fi
 }
 
+# Phase 3.5 — deploy Edge Functions to framework-supabase
+# Resolves framework-supabase-access-token (account-level PAT) from the vault to
+# authenticate the CLI against the Supabase Management API. Deploys EVERY function
+# under supabase/functions/ except _shared (which is a Deno deps directory, not a
+# function). Idempotent — re-running redeploys the same function code.
+# Uses the canonical framework-supabase group alias (same group as
+# framework-supabase-{url,anon-key,service-role-key,db-url}) — one PAT covers
+# every framework-supabase consumer that needs to deploy Edge Functions.
+phase_3_5_functions() {
+    cd "$PAYCRAFT_SRC"
+    local pat_file pat
+    pat_file=$(mktemp -t fw-supabase-pat-XXXXXX)
+    trap "rm -f $pat_file" RETURN
+    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-access-token --to-file "$pat_file" 2>/dev/null; then
+        echo "  ✗ framework-supabase-access-token not resolvable from vault"
+        echo "    Add via: /secrets handoff paste --id framework-supabase-access-token --kind env_var"
+        echo "    See: https://supabase.com/dashboard/account/tokens"
+        return 1
+    fi
+    pat=$(cat "$pat_file")
+    export SUPABASE_ACCESS_TOKEN="$pat"
+    local project_ref="mlwfgytjxlqyfxcgpysm"
+    local functions=()
+    for d in supabase/functions/*/; do
+        local name=$(basename "$d")
+        [[ "$name" = "_shared" ]] && continue
+        functions+=("$name")
+    done
+    echo "  Functions: ${functions[*]}"
+    if [[ "$APPLY" = "true" ]]; then
+        for fn in "${functions[@]}"; do
+            echo "  Deploying $fn..."
+            supabase functions deploy "$fn" --project-ref "$project_ref" 2>&1 | tail -5 || return 1
+        done
+    else
+        echo "  [DRY] would deploy ${#functions[@]} function(s) to project $project_ref"
+    fi
+    unset SUPABASE_ACCESS_TOKEN
+}
+
 # Phase 4 — promote development → main as exact fast-forward replica
 phase_4_promote() {
     cd "$PAYCRAFT_SRC"
@@ -374,13 +415,14 @@ emit_status() {
     printf "link_vercel:   %s\n"   "$([ -f $PAYCRAFT_SRC/dashboard/.vercel/project.json ] && echo LINKED || echo NOT-LINKED)"
     echo ""
 
-    echo "─── vault (5 secrets — BYOK) ───────────────────────"
+    echo "─── vault (6 secrets — BYOK + framework-supabase) ───"
     local SECRETS=(
         mbs-paycraft-encryption-key
         mbs-paycraft-resend-api-key
         mbs-paycraft-vercel-token
         mbs-paycraft-vercel-org-id
         mbs-paycraft-vercel-project-id
+        framework-supabase-access-token
     )
     local total=0 present=0 missing=()
     for a in "${SECRETS[@]}"; do
@@ -424,8 +466,8 @@ emit_status() {
         local name
         case "$n" in
             1) name="PRE-FLIGHT" ;; 2) name="SECRETS SYNC" ;;
-            3) name="MIGRATIONS" ;; 4) name="PROMOTE" ;;
-            5) name="WAIT VERCEL" ;; 6) name="SMOKE" ;;
+            3) name="MIGRATIONS" ;; 3.5) name="FUNCTIONS DEPLOY" ;;
+            4) name="PROMOTE" ;; 5) name="WAIT VERCEL" ;; 6) name="SMOKE" ;;
         esac
         local marker="$STATE_DIR/phase-$n.done"
         if [[ -f "$marker" ]]; then
@@ -601,12 +643,13 @@ fi
 # MODE = prod
 banner "PayCraft Deploy — env=production, mode=$([ "$APPLY" = true ] && echo APPLY || echo DRY-RUN)"
 
-run_phase 1 "PRE-FLIGHT"     "phase_1_preflight"     || exit 1
-run_phase 2 "SECRETS SYNC"   "phase_2_secrets_sync"  || exit 1
-run_phase 3 "MIGRATIONS"     "phase_3_migrations"    || exit 1
-run_phase 4 "PROMOTE"        "phase_4_promote"       || exit 1
-run_phase 5 "WAIT VERCEL"    "phase_5_wait_vercel"   || exit 1
-run_phase 6 "SMOKE"          "phase_6_smoke"         || exit 1
+run_phase 1   "PRE-FLIGHT"       "phase_1_preflight"     || exit 1
+run_phase 2   "SECRETS SYNC"     "phase_2_secrets_sync"  || exit 1
+run_phase 3   "MIGRATIONS"       "phase_3_migrations"    || exit 1
+run_phase 3.5 "FUNCTIONS DEPLOY" "phase_3_5_functions"   || exit 1
+run_phase 4   "PROMOTE"          "phase_4_promote"       || exit 1
+run_phase 5   "WAIT VERCEL"      "phase_5_wait_vercel"   || exit 1
+run_phase 6   "SMOKE"            "phase_6_smoke"         || exit 1
 
 banner "PayCraft Deploy — done in $(($(date -u +%s) - START_TS))s"
 echo "  Live: $PROD_URL"
