@@ -10,15 +10,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.RadioButtonChecked
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,13 +31,13 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_active_badge
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_most_popular_badge
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_per_interval
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_active_description
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_description
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_disabled_description
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_selected_description
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_trial_description
-import com.mobilebytelabs.paycraft.generated.resources.paycraft_popular_badge
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_chip
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
@@ -50,6 +45,19 @@ import org.jetbrains.compose.resources.stringResource
 
 private val CardShape = RoundedCornerShape(16.dp)
 
+/**
+ * Plan selector card. Matches the dashboard's Paywall designer:
+ *
+ *   ┌─────────────────────────────────┐
+ *   │  Pro Quarterly        $28.47    │   (purple border when selected)
+ *   │  Billed every quarter           │
+ *   └─────────────────────────────────┘
+ *           ─── MOST POPULAR ───            (pill above the card)
+ *
+ * The "MOST POPULAR" pill overlaps the card's top edge (center-top alignment)
+ * instead of sitting in the corner — matches the designer reference and is
+ * less crowded than the legacy top-end badge.
+ */
 @Composable
 fun PayCraftPlanCard(
     plan: BillingPlan,
@@ -61,31 +69,22 @@ fun PayCraftPlanCard(
     /**
      * Whether to show this plan's trial affordance ("N-day free trial" chip).
      * Default true preserves call-site compatibility, but the paywall passes
-     * the server-derived [com.mobilebytelabs.paycraft.network.PayCraftService.isTrialEligible]
-     * result so users who have already trialed don't see the offer again (TR-006).
+     * the server-derived isTrialEligible result so users who have already
+     * trialed don't see the offer again (TR-006).
      */
     eligibleForTrial: Boolean = true,
 ) {
-    // Trial chip visible only when this plan offers a trial, user is eligible,
-    // and they aren't already on this plan (active plans show the Active badge instead).
     val showTrialChip = plan.trialDays != null && eligibleForTrial && !isActive && !isDisabled
+    val isHighlighted = isActive || (isSelected && !isDisabled)
+
     val borderColor by animateColorAsState(
-        targetValue = when {
-            isActive -> MaterialTheme.colorScheme.primary
-            isSelected && !isDisabled -> MaterialTheme.colorScheme.primary
-            else -> MaterialTheme.colorScheme.outlineVariant
+        targetValue = if (isHighlighted) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.outlineVariant
         },
         animationSpec = tween(durationMillis = 200),
         label = "plan_card_border",
-    )
-
-    val containerColor by animateColorAsState(
-        targetValue = when {
-            isActive || (isSelected && !isDisabled) -> MaterialTheme.colorScheme.primaryContainer
-            else -> MaterialTheme.colorScheme.surface
-        },
-        animationSpec = tween(durationMillis = 200),
-        label = "plan_card_background",
     )
 
     val contentAlpha = if (isDisabled) 0.45f else 1f
@@ -109,7 +108,7 @@ fun PayCraftPlanCard(
         else -> stringResource(Res.string.paycraft_plan_description, plan.name, plan.price, plan.interval)
     }
 
-    Box(modifier = modifier.alpha(contentAlpha)) {
+    Box(modifier = modifier.alpha(contentAlpha).padding(top = if (plan.isPopular || isActive) 10.dp else 0.dp)) {
         Card(
             onClick = { if (!isDisabled) onSelect(plan) },
             enabled = !isDisabled,
@@ -121,54 +120,33 @@ fun PayCraftPlanCard(
                     role = Role.RadioButton
                 },
             shape = CardShape,
-            colors = CardDefaults.cardColors(containerColor = containerColor),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+            ),
             border = BorderStroke(
-                width = if (isActive || (isSelected && !isDisabled)) 2.dp else 1.dp,
+                width = if (isHighlighted) 2.dp else 1.dp,
                 color = borderColor,
             ),
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Radio indicator
-                Icon(
-                    imageVector = if (isSelected || isActive) {
-                        Icons.Filled.RadioButtonChecked
-                    } else {
-                        Icons.Filled.RadioButtonUnchecked
-                    },
-                    contentDescription = null,
-                    tint = if (isSelected || isActive) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = plan.name,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (isSelected || isActive) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.testTag(PayCraftTestTags.PLAN_CARD_NAME),
                     )
+                    Spacer(Modifier.size(2.dp))
                     Text(
                         text = stringResource(Res.string.paycraft_per_interval, plan.interval),
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (isSelected || isActive) {
-                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.testTag(PayCraftTestTags.PLAN_CARD_INTERVAL),
                     )
                     if (showTrialChip) {
@@ -183,27 +161,19 @@ fun PayCraftPlanCard(
                     }
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    // Strike-through original price + "X% OFF" tag when a
-                    // promotional discount is active for this plan.
                     if (plan.hasActiveDiscount) {
                         Text(
                             text = plan.originalPrice!!,
                             style = MaterialTheme.typography.labelMedium,
                             textDecoration = TextDecoration.LineThrough,
-                            color = if (isSelected || isActive) {
-                                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f)
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Text(
                         text = plan.price,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (isSelected || isActive) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else if (plan.hasActiveDiscount) {
+                        color = if (plan.hasActiveDiscount) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurface
@@ -228,35 +198,43 @@ fun PayCraftPlanCard(
             }
         }
 
-        // ACTIVE badge — top priority
+        // ACTIVE pill — center-top, overlapping the card's top edge.
         if (isActive) {
-            Badge(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
+                    .align(Alignment.TopCenter)
                     .testTag(PayCraftTestTags.PLAN_CARD_POPULAR_BADGE + "_active"),
             ) {
-                Text(
-                    text = stringResource(Res.string.paycraft_active_badge),
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
+                Badge(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Text(
+                        text = stringResource(Res.string.paycraft_active_badge),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                    )
+                }
             }
         } else if (plan.isPopular && !isDisabled) {
-            // POPULAR badge — only show when not disabled
-            Badge(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
+            // MOST POPULAR pill — center-top, overlapping the card's top edge.
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
+                    .align(Alignment.TopCenter)
                     .testTag(PayCraftTestTags.PLAN_CARD_POPULAR_BADGE),
             ) {
-                Text(
-                    text = stringResource(Res.string.paycraft_popular_badge),
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
+                Badge(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Text(
+                        text = stringResource(Res.string.paycraft_most_popular_badge),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                    )
+                }
             }
         }
     }
