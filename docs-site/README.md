@@ -56,3 +56,8 @@ docs.paycraft.mobilebytesensei.com  CNAME  paycraft-docs.pages.dev
 
 - `docs/PRODUCTION_LAUNCH_RUNBOOK.md` — manual deploy steps if the workflow breaks
 - `infra/zero-leak-check.sh` — gate that fails CI on stale domain refs in markdown
+
+<!-- Triggers Cloudflare Pages auto-build after Git settings were corrected (2026-06-18):
+     - Production branch: development → main
+     - Build command: cd docs-site && npm install && npm run build
+     - Build output: docs-site/build -->
