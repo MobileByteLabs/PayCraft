@@ -52,6 +52,20 @@ const config: Config = {
     ],
   ],
 
+  // Redirect the apex URL ('/') to the first sidebar item ('/QUICK_START/').
+  // Docusaurus does NOT auto-create an index when routeBasePath is '/' AND the
+  // docs/ tree has no intro.md — so we explicitly route the root.
+  plugins: [
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        redirects: [
+          { from: '/', to: '/QUICK_START/' },
+        ],
+      },
+    ],
+  ],
+
   themeConfig: {
     navbar: {
       title: 'PayCraft',
