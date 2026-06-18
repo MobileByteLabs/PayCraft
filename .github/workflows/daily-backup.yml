@@ -35,9 +35,15 @@ jobs:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           set -euo pipefail
+          # Use the postgresql-client-17 binary explicitly. Runner has an older
+          # /usr/bin/pg_dump (16.x) installed as a transitive dep; Supabase Cloud
+          # runs Postgres 17 and rejects version-mismatched clients.
+          PG_DUMP="/usr/lib/postgresql/17/bin/pg_dump"
+          [ -x "$PG_DUMP" ] || PG_DUMP=$(command -v pg_dump)
+          echo "Using: $PG_DUMP ($($PG_DUMP --version))"
           ts=$(date -u +%Y%m%d-%H%M%S)
           out="backup-${ts}.dump.gz"
-          pg_dump --format=custom --no-owner --no-acl "${SUPABASE_DB_URL}" | gzip > "${out}"
+          "$PG_DUMP" --format=custom --no-owner --no-acl "${SUPABASE_DB_URL}" | gzip > "${out}"
           du -h "${out}"
           echo "BACKUP_FILE=${out}" >> "${GITHUB_ENV}"
 
