@@ -433,15 +433,33 @@ fun PayCraftPaywallContent(
                                 PayCraftPlatform.openUrl(url)
                             },
                             onRestoreClick = {
-                                // Restore reuses the email already known to the
-                                // BillingManager (set via prior log-in) — the VM's
-                                // RestoreSubscription action handles the rest.
-                                onAction(
-                                    PayCraftPaywallAction.RestoreSubscription(
-                                        email = state.userEmail.orEmpty(),
-                                    ),
-                                )
+                                // For users without a logged-in email (the typical
+                                // legal-footer RESTORE click), open the SDK's modal
+                                // restore sheet. The sheet prompts for email + OAuth
+                                // and dispatches RestoreSubscription itself. If the
+                                // user IS already logged in, skip straight to the
+                                // restore action with the known email.
+                                if (state.userEmail.isNullOrBlank()) {
+                                    onAction(PayCraftPaywallAction.OpenRestoreSheet)
+                                } else {
+                                    onAction(
+                                        PayCraftPaywallAction.RestoreSubscription(
+                                            email = state.userEmail,
+                                        ),
+                                    )
+                                }
                             },
+                        )
+
+                        // Branding footer — "Powered by PayCraft by MobileByteSensei"
+                        // (auto-hides when the tenant is on a Pro+ plan that selected
+                        // branding = none / custom_footer). Shown across every paywall
+                        // state, not just Free, so the SaaS attribution stays
+                        // consistent regardless of the user's billing status.
+                        val paywallDto = PayCraft.suiteConfig?.paywall
+                        BrandingFooter(
+                            branding = Branding.parse(paywallDto?.branding ?: "attribution"),
+                            customFooterText = paywallDto?.customFooter,
                         )
                     }
                 }
@@ -486,6 +504,17 @@ fun PayCraftPaywallContent(
             onDismiss = { onAction(PayCraftPaywallAction.DismissProviderSheet) },
         )
     }
+
+    // Restore-purchases modal sheet — triggered by the legal-footer RESTORE
+    // link when the user isn't logged in. Hosts the SDK's PayCraftRestore
+    // composable (email input + Google/Apple OAuth + status feedback).
+    // OAuth handlers stay null at the SDK layer — consumer apps wire them
+    // via PayCraftPaywallSheet/PayCraftPaywall overloads when they support
+    // native sign-in flows.
+    PayCraftRestore(
+        visible = state.isRestoreSheetVisible,
+        onDismiss = { onAction(PayCraftPaywallAction.CloseRestoreSheet) },
+    )
 }
 
 // T32: Full-screen error UI
