@@ -57,11 +57,14 @@ enum class PaywallTemplate {
         when (this) {
             BRANDED_STACK -> BrandedStackTemplate(state, products, onPickProduct, onRetry)
             @Suppress("DEPRECATION")
-            MINIMAL -> MinimalTemplate(state, products, onPickProduct, onRetry)
+            MINIMAL,
+            -> MinimalTemplate(state, products, onPickProduct, onRetry)
             @Suppress("DEPRECATION")
-            PREMIUM -> PremiumTemplate(state, products, onPickProduct, onRetry)
+            PREMIUM,
+            -> PremiumTemplate(state, products, onPickProduct, onRetry)
             @Suppress("DEPRECATION")
-            DARK -> DarkTemplate(state, products, onPickProduct, onRetry)
+            DARK,
+            -> DarkTemplate(state, products, onPickProduct, onRetry)
         }
     }
 

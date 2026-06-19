@@ -464,5 +464,4 @@ internal fun ValuePropList(items: List<ValuePropTriple>) {
 // ─── Helper — read PaywallDto off LocalPayCraftConfig with sane fallback ────
 
 @Composable
-internal fun paywallConfig(): PaywallDto =
-    LocalPayCraftConfig.current?.paywall ?: PaywallDto()
+internal fun paywallConfig(): PaywallDto = LocalPayCraftConfig.current?.paywall ?: PaywallDto()

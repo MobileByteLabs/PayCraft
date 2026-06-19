@@ -109,11 +109,7 @@ data class ProviderDto(
  * to a generic check icon in the SDK render.
  */
 @Serializable
-data class ValuePropTriple(
-    val icon: String,
-    val title: String,
-    val description: String? = null,
-)
+data class ValuePropTriple(val icon: String, val title: String, val description: String? = null)
 
 @Serializable
 data class PaywallDto(

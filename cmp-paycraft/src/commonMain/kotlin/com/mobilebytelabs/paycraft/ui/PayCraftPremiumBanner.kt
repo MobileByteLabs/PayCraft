@@ -120,7 +120,7 @@ fun PayCraftPremiumBanner(
                     .height(52.dp),
                 shape = RoundedCornerShape(26.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFFFD93B),  // yellow CTA (matches reels-downloader)
+                    containerColor = Color(0xFFFFD93B), // yellow CTA (matches reels-downloader)
                     contentColor = Color(0xFF1A1240),
                 ),
                 contentPadding = PaddingValues(horizontal = 24.dp),

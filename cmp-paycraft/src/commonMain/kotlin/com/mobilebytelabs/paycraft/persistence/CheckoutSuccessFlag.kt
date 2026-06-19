@@ -20,15 +20,13 @@ import com.russhwolf.settings.Settings
  */
 internal class CheckoutSuccessFlag(private val settings: Settings) {
 
-    fun wasSuccessShown(sku: String, sessionId: String): Boolean =
-        settings.getBoolean(keyFor(sku, sessionId), false)
+    fun wasSuccessShown(sku: String, sessionId: String): Boolean = settings.getBoolean(keyFor(sku, sessionId), false)
 
     fun markSuccessShown(sku: String, sessionId: String) {
         settings.putBoolean(keyFor(sku, sessionId), true)
     }
 
-    private fun keyFor(sku: String, sessionId: String): String =
-        "paycraft_success_shown_${sku}_${sessionId}"
+    private fun keyFor(sku: String, sessionId: String): String = "paycraft_success_shown_${sku}_$sessionId"
 
     companion object {
         /**
