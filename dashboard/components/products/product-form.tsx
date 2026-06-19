@@ -19,6 +19,7 @@ interface ProductInput {
   base_currency: string
   display_order: number
   active: boolean
+  is_test_only?: boolean
 }
 
 interface Subscription {
@@ -208,6 +209,32 @@ export function ProductForm({
             onChange={(e) => setP({ ...p, active: e.target.checked })}
           />
           Show in paywall
+        </label>
+      </Field>
+
+      <Field label="Visibility">
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={p.is_test_only ?? false}
+            onChange={(e) =>
+              setP({ ...p, is_test_only: e.target.checked })
+            }
+          />
+          <span className="flex-1">
+            <span className="font-medium">Test devices only</span>
+            <span className="block text-xs text-gray-500 mt-0.5">
+              Hide from production users. Surfaces only to devices listed on{" "}
+              <a
+                href="/dashboard/test-devices"
+                className="text-brand-600 underline hover:text-brand-700"
+              >
+                Testing Devices
+              </a>
+              . Server-enforced — prod APKs cannot leak the product.
+            </span>
+          </span>
         </label>
       </Field>
 

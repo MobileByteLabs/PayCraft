@@ -9,6 +9,7 @@
     <string name="paycraft_choose_plan">Choose your plan</string>
     <string name="paycraft_per_interval">per %1$s</string>
     <string name="paycraft_popular_badge">Popular</string>
+    <string name="paycraft_most_popular_badge">MOST POPULAR</string>
     <string name="paycraft_plan_selected_description">%1$s plan, %2$s per %3$s, selected</string>
     <string name="paycraft_plan_description">%1$s plan, %2$s per %3$s</string>
 
@@ -51,7 +52,13 @@
 
     <!-- Subscribe CTA -->
     <string name="paycraft_get_premium">Get Premium</string>
+    <string name="paycraft_continue_cta">Continue</string>
     <string name="paycraft_subscribe_cta">Start %1$s — %2$s/%3$s</string>
+
+    <!-- Legal footer row: PRIVACY · TERMS · RESTORE -->
+    <string name="paycraft_legal_privacy">PRIVACY</string>
+    <string name="paycraft_legal_terms">TERMS</string>
+    <string name="paycraft_legal_restore">RESTORE</string>
     <string name="paycraft_subscribing">Processing…</string>
     <string name="paycraft_already_subscribed">Already subscribed? Refresh status</string>
 

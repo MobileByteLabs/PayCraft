@@ -126,6 +126,8 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
             is PayCraftPaywallAction.ClearError -> onClearError()
             is PayCraftPaywallAction.RestoreSubscription -> onRestoreSubscription(action)
             is PayCraftPaywallAction.ClearRestoreResult -> onClearRestoreResult()
+            is PayCraftPaywallAction.OpenRestoreSheet -> _state.update { it.copy(isRestoreSheetVisible = true) }
+            is PayCraftPaywallAction.CloseRestoreSheet -> _state.update { it.copy(isRestoreSheetVisible = false) }
             is PayCraftPaywallAction.LoginWithOAuth -> onLoginWithOAuth(action)
             is PayCraftPaywallAction.VerifyOtpOwnership -> onVerifyOtpOwnership(action)
             is PayCraftPaywallAction.ConfirmDeviceTransfer -> onConfirmDeviceTransfer()

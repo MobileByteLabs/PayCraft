@@ -45,9 +45,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.PayCraftPlatform
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_choose_plan
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_contact_support_email
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_continue_cta
+import com.mobilebytelabs.paycraft.ui.components.PaywallLegalFooter
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_description
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_retry
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_title
@@ -344,6 +347,18 @@ fun PayCraftPaywallContent(
 
                 // T9: Free state with header, benefits, plan grid, CTA
                 is BillingState.Free -> {
+                    // Designer-mockup layout: hero header (icon + title + subtitle),
+                    // plan cards, "Continue" CTA, PRIVACY · TERMS · RESTORE row.
+                    //
+                    // Subtitle source order:
+                    //   1. PaywallDto.themeJsonb["headline_subtitle"] — set by
+                    //      tenants on the dashboard's Paywall designer.
+                    //   2. null (header omits the subtitle row gracefully).
+                    val paywallSubtitle = PayCraft.suiteConfig?.paywall
+                        ?.themeJsonb
+                        ?.get("headline_subtitle")
+                        ?.takeIf { it.isNotBlank() }
+
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -353,31 +368,14 @@ fun PayCraftPaywallContent(
                             .testTag(PayCraftTestTags.PAYWALL_CONTENT),
                         verticalArrangement = Arrangement.spacedBy(20.dp),
                     ) {
-                        // T7: Paywall header component
                         PayCraftPaywallHeader(
                             title = stringResource(Res.string.paycraft_upgrade_title),
+                            subtitle = paywallSubtitle,
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         )
 
-                        // Benefits
-                        if (state.benefits.isNotEmpty()) {
-                            Text(
-                                text = stringResource(Res.string.paycraft_what_you_get),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            state.benefits.forEachIndexed { index, benefit ->
-                                BenefitItem(benefit = benefit, index = index)
-                            }
-                        }
-
-                        // Plans — T30: 10dp spacing via PlanSelector Column
+                        // Plans — designer-style cards with center-top MOST POPULAR pill.
                         if (state.plans.isNotEmpty()) {
-                            Text(
-                                text = stringResource(Res.string.paycraft_choose_plan),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
                             PlanSelector(
                                 plans = state.plans,
                                 selectedPlan = state.selectedPlan,
@@ -388,15 +386,7 @@ fun PayCraftPaywallContent(
                             )
                         }
 
-                        // Support info BEFORE CTA
-                        if (state.supportEmail.isNotBlank()) {
-                            SupportInfo(
-                                supportEmail = state.supportEmail,
-                                onContactSupport = { onAction(PayCraftPaywallAction.ContactSupport) },
-                            )
-                        }
-
-                        // Get Premium CTA — 56dp
+                        // Continue CTA — 56dp, primary color.
                         Button(
                             onClick = { onAction(PayCraftPaywallAction.Subscribe) },
                             modifier = Modifier
@@ -405,8 +395,8 @@ fun PayCraftPaywallContent(
                                 .testTag(PayCraftTestTags.SUBSCRIBE_BUTTON)
                                 .semantics {
                                     contentDescription = state.selectedPlan?.let {
-                                        "Subscribe to ${it.name} for ${it.price} per ${it.interval}"
-                                    } ?: "Get Premium"
+                                        "Continue with ${it.name} for ${it.price} per ${it.interval}"
+                                    } ?: "Continue"
                                 },
                             enabled = !state.isSubmitting && state.selectedPlan != null,
                         ) {
@@ -418,27 +408,54 @@ fun PayCraftPaywallContent(
                                 )
                             } else {
                                 Text(
-                                    text = state.selectedPlan?.let { plan ->
-                                        // Trial CTA wins when the selected plan offers a trial
-                                        // AND the user is server-derived-eligible (TR-006).
-                                        val offerTrial = plan.trialDays != null && state.isTrialEligible
-                                        if (offerTrial) {
-                                            stringResource(Res.string.paycraft_trial_cta, plan.trialDays)
-                                        } else {
-                                            stringResource(
-                                                Res.string.paycraft_subscribe_cta,
-                                                plan.name,
-                                                plan.price,
-                                                plan.interval,
-                                            )
-                                        }
-                                    } ?: stringResource(Res.string.paycraft_get_premium),
+                                    text = stringResource(Res.string.paycraft_continue_cta),
                                     style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
                                 )
                             }
                         }
 
-                        // Branding footer — auto-hides when branding = None (Pro+ tier)
+                        // PRIVACY · TERMS · RESTORE legal footer.
+                        // Privacy + Terms open hosted URLs from the cloud paywall
+                        // config (themeJsonb.privacy_url / .terms_url); fall back to
+                        // PayCraft Cloud's defaults if the tenant hasn't customised.
+                        PaywallLegalFooter(
+                            onPrivacyClick = {
+                                val paywallDto = PayCraft.suiteConfig?.paywall
+                                val url = paywallDto?.themeJsonb?.get("privacy_url")
+                                    ?: "https://paycraft.mobilebytesensei.com/privacy"
+                                PayCraftPlatform.openUrl(url)
+                            },
+                            onTermsClick = {
+                                val paywallDto = PayCraft.suiteConfig?.paywall
+                                val url = paywallDto?.themeJsonb?.get("terms_url")
+                                    ?: "https://paycraft.mobilebytesensei.com/terms"
+                                PayCraftPlatform.openUrl(url)
+                            },
+                            onRestoreClick = {
+                                // For users without a logged-in email (the typical
+                                // legal-footer RESTORE click), open the SDK's modal
+                                // restore sheet. The sheet prompts for email + OAuth
+                                // and dispatches RestoreSubscription itself. If the
+                                // user IS already logged in, skip straight to the
+                                // restore action with the known email.
+                                if (state.userEmail.isNullOrBlank()) {
+                                    onAction(PayCraftPaywallAction.OpenRestoreSheet)
+                                } else {
+                                    onAction(
+                                        PayCraftPaywallAction.RestoreSubscription(
+                                            email = state.userEmail,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+
+                        // Branding footer — "Powered by PayCraft by MobileByteSensei"
+                        // (auto-hides when the tenant is on a Pro+ plan that selected
+                        // branding = none / custom_footer). Shown across every paywall
+                        // state, not just Free, so the SaaS attribution stays
+                        // consistent regardless of the user's billing status.
                         val paywallDto = PayCraft.suiteConfig?.paywall
                         BrandingFooter(
                             branding = Branding.parse(paywallDto?.branding ?: "attribution"),
@@ -487,6 +504,17 @@ fun PayCraftPaywallContent(
             onDismiss = { onAction(PayCraftPaywallAction.DismissProviderSheet) },
         )
     }
+
+    // Restore-purchases modal sheet — triggered by the legal-footer RESTORE
+    // link when the user isn't logged in. Hosts the SDK's PayCraftRestore
+    // composable (email input + Google/Apple OAuth + status feedback).
+    // OAuth handlers stay null at the SDK layer — consumer apps wire them
+    // via PayCraftPaywallSheet/PayCraftPaywall overloads when they support
+    // native sign-in flows.
+    PayCraftRestore(
+        visible = state.isRestoreSheetVisible,
+        onDismiss = { onAction(PayCraftPaywallAction.CloseRestoreSheet) },
+    )
 }
 
 // T32: Full-screen error UI

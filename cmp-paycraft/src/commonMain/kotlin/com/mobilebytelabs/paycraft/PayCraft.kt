@@ -1,6 +1,7 @@
 package com.mobilebytelabs.paycraft
 
 import com.mobilebytelabs.paycraft.config.CouponDto
+import com.mobilebytelabs.paycraft.platform.DeviceFingerprint
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
@@ -9,9 +10,22 @@ import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.network.CouponClient
 import com.mobilebytelabs.paycraft.provider.PaymentProvider
+import com.mobilebytelabs.paycraft.platform.currentTimeMillis
+import io.ktor.client.call.body
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.parameter
+import io.ktor.client.statement.HttpResponse
+import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
 /**
@@ -41,6 +55,23 @@ object PayCraft {
         private set
 
     /**
+     * Stable per-(device, app) fingerprint sent to PayCraft Cloud on every
+     * /config request. The server consults the tenant's `test_devices`
+     * allow-list against this value to decide whether to surface products
+     * marked `is_test_only`. Tenant developers paste this value into the
+     * dashboard's Testing Devices page to register a device.
+     *
+     * Computed lazily on first access. Logged at `initialize()` time so
+     * `adb logcat | grep PayCraft` (or the iOS/web equivalent) surfaces it
+     * without the host app having to build a custom debug overlay.
+     */
+    val deviceId: String by lazy { DeviceFingerprint.get() }
+
+    /** Long-lived scope for the SDK's background work — currently just the cloud SuiteConfig fetch. */
+    private val sdkScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var configFetchJob: Job? = null
+
+    /**
      * Boot the SDK with a publishable PayCraft API key.
      *
      * @param apiKey   Publishable key from your PayCraft dashboard (`pk_test_…` or `pk_live_…`).
@@ -68,9 +99,127 @@ object PayCraft {
             apiKeyPrefix = apiKey.substringBefore('_', "?") + "_…",
             debug = options.debug,
         )
+        // Eagerly log the device fingerprint so tenant developers can find it
+        // via `adb logcat | grep PayCraft` and paste it into the dashboard's
+        // Testing Devices page. Wrap in try/catch — fingerprint computation
+        // reads the Android Context which is normally set by androidx-startup
+        // but may not be ready in unusual test harnesses.
+        runCatching {
+            PayCraftLogger.onFlow("initialize", "device_id = $deviceId  (Dashboard → Testing Devices → Register to surface is_test_only products)")
+        }
         if (backend is PayCraftBackend.Mock) {
             applySuiteConfig(backend.staticConfig)
+        } else {
+            // Populate a placeholder config synchronously so requireConfig()
+            // never throws between initialize() and the async cloud fetch
+            // completing. UI composables (PayCraftBanner, paywalls) and Koin
+            // singletons can read empty plans/benefits as a "loading" state
+            // and react when applySuiteConfig() replaces them with the real
+            // values from cloud.
+            this.config = PayCraftConfig(
+                supabaseUrl = backend.supabaseUrl,
+                supabaseAnonKey = backend.supabaseAnonKey,
+                provider = EmptyPaymentProvider,
+                plans = emptyList(),
+                benefits = emptyList(),
+                supportEmail = "support@paycraft.mobilebytesensei.com",
+                apiKey = apiKey,
+                source = when (backend) {
+                    is PayCraftBackend.Cloud -> ConfigSource.Cloud
+                    is PayCraftBackend.SelfHosted -> ConfigSource.SelfHosted
+                    is PayCraftBackend.Mock -> ConfigSource.Mock
+                },
+            )
+
+            // Kick off the async SuiteConfig fetch from the backend's /config endpoint.
+            // ConfigClient handles the cache fallback for offline-graceful degradation.
+            configFetchJob?.cancel()
+            configFetchJob = sdkScope.launch {
+                fetchAndApplySuiteConfig(apiKey, backend, options)
+            }
         }
+    }
+
+    /**
+     * Hit `backend.configUrl` for the SuiteConfig, decode, and publish via
+     * [applySuiteConfig]. Inline HTTP fetch — bypasses [com.mobilebytelabs.paycraft.config.ConfigClient]
+     * to avoid the [com.russhwolf.settings.Settings] dependency that needs a
+     * platform-injected Context on Android. Persistent cache is a TODO once we
+     * accept a Settings via initialize() options.
+     */
+    private suspend fun fetchAndApplySuiteConfig(
+        apiKey: String,
+        backend: PayCraftBackend,
+        options: InitOptions,
+    ) {
+        val http = HttpClient {
+            install(ContentNegotiation) {
+                json(
+                    Json {
+                        ignoreUnknownKeys = true
+                        explicitNulls = false
+                        isLenient = true
+                    },
+                )
+            }
+        }
+        try {
+            val locale = options.localeOverride ?: "US"
+            val device = runCatching { deviceId }.getOrNull()
+            PayCraftLogger.onFlow(
+                "loadConfig",
+                "GET ${backend.configUrl}?apiKey=${apiKey.take(8)}…  device_id=$device",
+            )
+            // Supabase Edge Functions require an Authorization header by default
+            // (verify_jwt=true at the platform level). Pass the backend's known
+            // anon key — same value the SDK uses for the postgrest data plane.
+            // device_id (optional) lets the server include is_test_only products
+            // when the requesting device is registered in the tenant's test
+            // allow-list — see migration 067.
+            val response: HttpResponse = http.get(backend.configUrl) {
+                parameter("apiKey", apiKey)
+                if (!device.isNullOrBlank()) parameter("device_id", device)
+                header("Authorization", "Bearer ${backend.supabaseAnonKey}")
+                header("apikey", backend.supabaseAnonKey)
+                header("Accept-Language", "en-$locale")
+            }
+            if (!response.status.isSuccess()) {
+                PayCraftLogger.onError(
+                    "loadConfig",
+                    "cloud fetch HTTP ${response.status.value} — paywall stays in loading state",
+                )
+                return
+            }
+            val raw: String = response.body()
+            val json = Json {
+                ignoreUnknownKeys = true
+                isLenient = true
+            }
+            val cfg = json.decodeFromString(SuiteConfig.serializer(), raw)
+                .copy(fetchedAtEpochMillis = currentTimeMillis())
+            applySuiteConfig(cfg)
+            PayCraftLogger.onFlow("loadConfig", "cloud fetch ok — ${cfg.products.size} products")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            PayCraftLogger.onError("loadConfig", e.message)
+        } finally {
+            http.close()
+        }
+    }
+
+    /**
+     * Empty PaymentProvider used as a placeholder when [config] is populated
+     * synchronously by [initialize] before the async cloud fetch completes.
+     * Calls into checkout/manage URLs throw clear errors — the UI should
+     * gate those interactions on a non-empty [plans] list anyway.
+     */
+    private object EmptyPaymentProvider : com.mobilebytelabs.paycraft.provider.PaymentProvider {
+        override val name: String = "loading"
+        override fun getCheckoutUrl(plan: com.mobilebytelabs.paycraft.model.BillingPlan, email: String?): String =
+            error("PayCraft cloud config not loaded yet — wait for plans to be fetched before checkout")
+        override fun getManageUrl(email: String): String? = null
+        override val webhookFunctionName: String = "none"
     }
 
     /** Apply a cloud-fetched [SuiteConfig] into the existing PayCraftConfig shape. */

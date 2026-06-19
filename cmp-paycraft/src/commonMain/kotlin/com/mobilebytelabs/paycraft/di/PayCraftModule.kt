@@ -21,10 +21,16 @@ import org.koin.dsl.module
 
 val PayCraftModule = module {
     single<SupabaseClient>(qualifier = named("paycraft")) {
-        val config = PayCraft.requireConfig()
+        // Supabase coords are known the moment PayCraft.initialize() returns:
+        // Cloud has them as static constants on PayCraftBackend; SelfHosted
+        // captures them in the data class. We must NOT call requireConfig()
+        // here — config is populated only AFTER the async cloud SuiteConfig
+        // fetch resolves, which happens later than Koin's lazy singleton
+        // materialization (e.g. paywall ViewModel resolution).
+        val backend = PayCraft.backend
         createSupabaseClient(
-            supabaseUrl = config.supabaseUrl,
-            supabaseKey = config.supabaseAnonKey,
+            supabaseUrl = backend.supabaseUrl,
+            supabaseKey = backend.supabaseAnonKey,
         ) {
             install(Postgrest)
             install(Auth)
@@ -34,7 +40,11 @@ val PayCraftModule = module {
     single<PayCraftService> {
         PayCraftServiceImpl(
             client = get<SupabaseClient>(qualifier = named("paycraft")),
-            apiKey = PayCraft.requireConfig().apiKey,
+            // apiKey is set synchronously in PayCraft.initialize() — read it
+            // directly instead of going through requireConfig() (which depends
+            // on the async cloud fetch having finished).
+            apiKey = PayCraft.apiKey
+                ?: error("PayCraft.initialize(apiKey) must be called before resolving PayCraftService"),
         )
     }
 
