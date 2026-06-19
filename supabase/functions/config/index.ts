@@ -193,6 +193,11 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     ? declaredBranding
     : "attribution"
 
+  // PaywallDto v2 (migration 071) — when paywallRes.data is present we just spread it
+  // (every v2 column is included automatically). When no tenant_paywall row exists yet,
+  // emit a v2-default body so the SDK has all the fields it expects rather than choking
+  // on missing keys. Defaults match migration 071's column-level DEFAULT clauses so the
+  // fallback shape mirrors a freshly-inserted row.
   const body = {
     tenant_id: tenantId,
     plan: tenantRes.data?.plan,
@@ -200,7 +205,20 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     providers: enabledProviders,
     paywall: paywallRes.data
       ? { ...paywallRes.data, branding: brandingFinal }
-      : { template: "minimal", branding: brandingFinal },
+      : {
+          template: "branded-stack",
+          branding: brandingFinal,
+          theme_jsonb: {},
+          hero_title: "Upgrade to Premium",
+          hero_subtitle: "Enjoy ad-free experience, HD downloads, and exclusive features",
+          value_props: [],
+          cta_continue: "Continue",
+          cta_get_premium: "Get Premium",
+          restore_label: "Restore Your Premium",
+          success_title: "Welcome to Premium!",
+          success_message: "You now have access to all premium features.",
+          success_cta_label: "Continue to app",
+        },
     locale: localeCountry,
     cache_ttl_seconds: 3600,
   }
