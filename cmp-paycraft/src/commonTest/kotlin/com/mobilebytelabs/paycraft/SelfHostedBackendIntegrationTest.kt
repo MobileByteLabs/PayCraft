@@ -282,7 +282,7 @@ class SelfHostedBackendIntegrationTest {
             providers = listOf(
                 ProviderDto(
                     provider = "stripe",
-                    testPaymentLinks = mapOf("monthly" to "https://test.link/monthly"),
+                    testPaymentLinksBySku = mapOf("monthly" to mapOf("USD" to "https://test.link/monthly")),
                 ),
             ),
             paywall = PaywallDto(supportEmail = "support@example.com"),
