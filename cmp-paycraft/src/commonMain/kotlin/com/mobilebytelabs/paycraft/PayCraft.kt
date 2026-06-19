@@ -1,6 +1,7 @@
 package com.mobilebytelabs.paycraft
 
 import com.mobilebytelabs.paycraft.config.CouponDto
+import com.mobilebytelabs.paycraft.platform.DeviceFingerprint
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
@@ -53,6 +54,19 @@ object PayCraft {
     internal var apiKey: String? = null
         private set
 
+    /**
+     * Stable per-(device, app) fingerprint sent to PayCraft Cloud on every
+     * /config request. The server consults the tenant's `test_devices`
+     * allow-list against this value to decide whether to surface products
+     * marked `is_test_only`. Tenant developers paste this value into the
+     * dashboard's Testing Devices page to register a device.
+     *
+     * Computed lazily on first access. Logged at `initialize()` time so
+     * `adb logcat | grep PayCraft` (or the iOS/web equivalent) surfaces it
+     * without the host app having to build a custom debug overlay.
+     */
+    val deviceId: String by lazy { DeviceFingerprint.get() }
+
     /** Long-lived scope for the SDK's background work — currently just the cloud SuiteConfig fetch. */
     private val sdkScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var configFetchJob: Job? = null
@@ -85,6 +99,14 @@ object PayCraft {
             apiKeyPrefix = apiKey.substringBefore('_', "?") + "_…",
             debug = options.debug,
         )
+        // Eagerly log the device fingerprint so tenant developers can find it
+        // via `adb logcat | grep PayCraft` and paste it into the dashboard's
+        // Testing Devices page. Wrap in try/catch — fingerprint computation
+        // reads the Android Context which is normally set by androidx-startup
+        // but may not be ready in unusual test harnesses.
+        runCatching {
+            PayCraftLogger.onFlow("initialize", "device_id = $deviceId  (Dashboard → Testing Devices → Register to surface is_test_only products)")
+        }
         if (backend is PayCraftBackend.Mock) {
             applySuiteConfig(backend.staticConfig)
         } else {
@@ -143,12 +165,20 @@ object PayCraft {
         }
         try {
             val locale = options.localeOverride ?: "US"
-            PayCraftLogger.onFlow("loadConfig", "GET ${backend.configUrl}?apiKey=${apiKey.take(8)}…")
+            val device = runCatching { deviceId }.getOrNull()
+            PayCraftLogger.onFlow(
+                "loadConfig",
+                "GET ${backend.configUrl}?apiKey=${apiKey.take(8)}…  device_id=$device",
+            )
             // Supabase Edge Functions require an Authorization header by default
             // (verify_jwt=true at the platform level). Pass the backend's known
             // anon key — same value the SDK uses for the postgrest data plane.
+            // device_id (optional) lets the server include is_test_only products
+            // when the requesting device is registered in the tenant's test
+            // allow-list — see migration 067.
             val response: HttpResponse = http.get(backend.configUrl) {
                 parameter("apiKey", apiKey)
+                if (!device.isNullOrBlank()) parameter("device_id", device)
                 header("Authorization", "Bearer ${backend.supabaseAnonKey}")
                 header("apikey", backend.supabaseAnonKey)
                 header("Accept-Language", "en-$locale")
