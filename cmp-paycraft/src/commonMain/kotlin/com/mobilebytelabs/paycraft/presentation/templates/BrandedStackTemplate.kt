@@ -395,13 +395,12 @@ internal fun PaywallHeroIcon(paywall: PaywallDto) {
         .clip(RoundedCornerShape(20.dp))
         .background(tokens.colors.accent.copy(alpha = 0.12f))
     Box(modifier = tile, contentAlignment = Alignment.Center) {
-        // hero_icon_svg is honored only on platforms that ship an SVG parser
-        // (deferred to cmp-paycraft 2.2.0). For 2.1.0 we render the default
-        // play-arrow brand-coloured — same shape as the dashboard mockup —
-        // so the hero icon area is visually consistent without depending on
-        // tenant SVG payloads. The svg/url fields remain on PaywallDto so
-        // dashboards can capture them now and the SDK starts consuming them
-        // in 2.2.0 without a schema change.
+        // 2.1.0 renders a brand-tinted Star inside an accent-tinted rounded
+        // tile — same visual weight as the dashboard mockup's hero block, no
+        // dependency on tenant SVG payloads or per-platform SVG parsers. The
+        // hero_icon_svg/url fields are wired on PaywallDto so dashboards can
+        // populate them today; the SDK begins honoring them on platforms that
+        // ship an SVG parser in cmp-paycraft 2.2.0 without a schema change.
         Icon(
             imageVector = Icons.Filled.Star,
             contentDescription = null,
