@@ -22,6 +22,8 @@ data class PayCraftPaywallState(
     val currentPlanRank: Int = 0,
     val isRestoring: Boolean = false,
     val restoreResult: RestoreResult? = null,
+    /** True while the PayCraftRestore modal bottom sheet is visible (legal-footer RESTORE click). */
+    val isRestoreSheetVisible: Boolean = false,
     /** Cloud-fetched provider list for the provider picker sheet. */
     val suiteProviders: List<ProviderDto> = emptyList(),
     /** Non-null while the provider-picker bottom sheet is open; carries the plan the user tapped. */
