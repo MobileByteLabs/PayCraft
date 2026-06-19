@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        androidx-startup wiring for PayCraftInitializer.
+
+        The InitializationProvider node is contributed by the androidx.startup:
+        startup-runtime library when it's on the consumer's classpath. We merge
+        a single <meta-data> entry referencing our Initializer so the AndroidX
+        Startup framework hands the Application Context to PayCraftPlatform
+        before the consumer's Application.onCreate runs — no consumer-side
+        PayCraftPlatform.init(applicationContext) call needed.
+
+        See PayCraftInitializer.kt for the opt-out pattern.
+    -->
+    <application>
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="com.mobilebytelabs.paycraft.PayCraftInitializer"
+                android:value="androidx.startup" />
+        </provider>
+    </application>
+</manifest>

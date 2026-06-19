@@ -90,6 +90,9 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.ktor.client.cio)
             implementation("androidx.security:security-crypto:1.1.0-alpha06")
+            // androidx-startup hands the Application Context to PayCraftInitializer
+            // before Application.onCreate runs — see PayCraftInitializer.kt.
+            implementation("androidx.startup:startup-runtime:1.2.0")
         }
 
         iosMain.dependencies {
