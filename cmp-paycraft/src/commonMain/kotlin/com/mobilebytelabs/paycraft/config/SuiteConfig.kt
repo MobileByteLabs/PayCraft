@@ -99,13 +99,64 @@ data class ProviderDto(
     @SerialName("supported_locales") val supportedLocales: List<String>? = null,
 )
 
+/**
+ * Single bullet in the paywall's value-prop list, rendered by `ValuePropList` as
+ * an icon-leading row under the hero subtitle. Server stores rich triples in
+ * `tenant_paywall.value_props` JSONB; SDK deserializes them here.
+ *
+ * `icon` is a string key from a curated vocabulary (`ad-free`, `hd`, `unlimited`,
+ * `priority`, `early`, `wifi`, `lock`, `star`, `heart`). Unknown keys fall back
+ * to a generic check icon in the SDK render.
+ */
+@Serializable
+data class ValuePropTriple(
+    val icon: String,
+    val title: String,
+    val description: String? = null,
+)
+
 @Serializable
 data class PaywallDto(
-    val template: String = "minimal",
+    // ── v1 (migration 030 baseline) ──────────────────────────────────────
+    val template: String = "branded-stack",
     @SerialName("theme_jsonb") val themeJsonb: Map<String, String> = emptyMap(),
     val branding: String = "attribution",
     @SerialName("custom_footer") val customFooter: String? = null,
     @SerialName("primary_color") val primaryColor: String? = null,
     @SerialName("font_family") val fontFamily: String? = null,
+    // ── v2 (migration 071, cmp-paycraft 2.1.0+) ─────────────────────────
+    /** Hero title rendered above the plan stack (default: "Upgrade to Premium"). */
+    @SerialName("hero_title") val heroTitle: String = "Upgrade to Premium",
+    /** Sub-headline under the hero title (matches reels-downloader strings.xml default). */
+    @SerialName("hero_subtitle")
+    val heroSubtitle: String = "Enjoy ad-free experience, HD downloads, and exclusive features",
+    /** Rich-triple bullet list rendered between hero subtitle and plan stack. Empty → list hidden. */
+    @SerialName("value_props") val valueProps: List<ValuePropTriple> = emptyList(),
+    /** Continue button label on the paywall (default: "Continue"). */
+    @SerialName("cta_continue") val ctaContinue: String = "Continue",
+    /** Get-premium button label on the Settings-tab banner (default: "Get Premium"). */
+    @SerialName("cta_get_premium") val ctaGetPremium: String = "Get Premium",
+    /** Restore-purchase link label (default: "Restore Your Premium"). */
+    @SerialName("restore_label") val restoreLabel: String = "Restore Your Premium",
+    /** Terms-of-service URL; null → no terms link in footer. */
+    @SerialName("terms_url") val termsUrl: String? = null,
+    /** Privacy-policy URL; null → no privacy link in footer. */
+    @SerialName("privacy_url") val privacyUrl: String? = null,
+    /** SKU of the plan card that renders the MOST POPULAR ring; null → no ring. */
+    @SerialName("popular_plan_sku") val popularPlanSku: String? = null,
+    /** Post-purchase celebration sheet title (PayCraftCheckoutSuccessSheet). */
+    @SerialName("success_title") val successTitle: String = "Welcome to Premium!",
+    /** Post-purchase celebration sheet message body. */
+    @SerialName("success_message")
+    val successMessage: String = "You now have access to all premium features.",
+    /** Post-purchase celebration sheet CTA label. */
+    @SerialName("success_cta_label") val successCtaLabel: String = "Continue to app",
+    /** Inline SVG path data for the hero icon. Sanitized server-side. */
+    @SerialName("hero_icon_svg") val heroIconSvg: String? = null,
+    /**
+     * PNG fallback URL for the hero icon. **Reserved for cmp-paycraft 2.2.0+** —
+     * 2.1.0 reads inline SVG only; this field is persisted but not consumed yet.
+     */
+    @SerialName("hero_icon_url") val heroIconUrl: String? = null,
     @SerialName("support_email") val supportEmail: String? = null,
 )

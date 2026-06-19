@@ -12,6 +12,9 @@ data class PayCraftColors(
     /** Primary brand accent — used for selected plan borders, primary buttons, icons. */
     val accent: Color,
 
+    /** Content on top of [accent] — typically white for high contrast on the brand colour. */
+    val onAccent: Color = Color.White,
+
     /** Background of selected plan cards and premium status card. */
     val accentContainer: Color,
 
