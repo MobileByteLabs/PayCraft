@@ -18,8 +18,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.PlayArrow
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -253,7 +253,7 @@ private fun BrandedStackLoading() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             CircularProgressIndicator(color = PayCraftTheme.colors.accent)
             Spacer(Modifier.height(12.dp))
-            Text("Loading subscription status…", color = PayCraftTheme.colors.onSurfaceMuted)
+            Text("Loading subscription status…", color = PayCraftTheme.colors.onSurfaceVariant)
         }
     }
 }
@@ -403,7 +403,7 @@ internal fun PaywallHeroIcon(paywall: PaywallDto) {
         // dashboards can capture them now and the SDK starts consuming them
         // in 2.2.0 without a schema change.
         Icon(
-            imageVector = Icons.AutoMirrored.Filled.PlayArrow,
+            imageVector = Icons.Filled.Star,
             contentDescription = null,
             tint = tokens.colors.accent,
             modifier = Modifier.size(40.dp),
