@@ -96,7 +96,7 @@ class TierGateE2ETest {
           "providers": [
             {
               "provider": "stripe",
-              "test_payment_links": { "monthly": "https://test.link/monthly" }
+              "test_payment_links": { "monthly": { "USD": "https://test.link/monthly" } }
             }
           ],
           "paywall": { "template": "minimal" },
@@ -123,7 +123,7 @@ class TierGateE2ETest {
           "providers": [
             {
               "provider": "stripe",
-              "test_payment_links": { "monthly": "https://test.link/monthly" }
+              "test_payment_links": { "monthly": { "USD": "https://test.link/monthly" } }
             }
           ],
           "paywall": { "template": "minimal" },
@@ -157,7 +157,7 @@ class TierGateE2ETest {
           "providers": [
             {
               "provider": "stripe",
-              "test_payment_links": { "monthly": "https://test.link/monthly" }
+              "test_payment_links": { "monthly": { "USD": "https://test.link/monthly" } }
             }
           ],
           "paywall": { "template": "minimal" },
