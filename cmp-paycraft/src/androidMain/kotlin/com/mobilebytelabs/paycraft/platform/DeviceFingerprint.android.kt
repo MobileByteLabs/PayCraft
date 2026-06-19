@@ -22,13 +22,17 @@ actual object DeviceFingerprint {
         cached?.let { return it }
         val ctx = DeviceTokenStore.applicationContext
             ?: error("PayCraft Android Context not initialized — androidx-startup should have wired it")
+
         @Suppress("HardwareIds")
         val ssaid = Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ANDROID_ID).orEmpty()
         val packageName = ctx.packageName
         val sha = MessageDigest.getInstance("SHA-256")
             .digest("$ssaid|$packageName".encodeToByteArray())
         val hex = buildString(sha.size * 2) {
-            sha.forEach { append(((it.toInt() ushr 4) and 0x0F).toString(16)); append((it.toInt() and 0x0F).toString(16)) }
+            sha.forEach {
+                append(((it.toInt() ushr 4) and 0x0F).toString(16))
+                append((it.toInt() and 0x0F).toString(16))
+            }
         }
         val fingerprint = hex.substring(0, 16)
         cached = fingerprint

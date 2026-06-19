@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,10 +16,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -38,7 +37,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.model.BillingPlan
 
@@ -109,11 +107,7 @@ fun ProviderBottomSheet(
 }
 
 @Composable
-private fun ProviderTile(
-    provider: ProviderDto,
-    isRecommended: Boolean,
-    onClick: () -> Unit,
-) {
+private fun ProviderTile(provider: ProviderDto, isRecommended: Boolean, onClick: () -> Unit) {
     val brand = brandColorFor(provider.provider)
     val borderColor = if (isRecommended) brand else Color.Transparent
     Card(
@@ -307,15 +301,15 @@ internal fun methodsFor(providerKey: String): List<String> = when (providerKey) 
 }
 
 internal fun brandColorFor(providerKey: String): Color = when (providerKey) {
-    "stripe" -> Color(0xFF635BFF)        // Stripe purple
-    "razorpay" -> Color(0xFF3395FF)      // Razorpay blue
-    "paypal" -> Color(0xFF003087)        // PayPal blue
-    "paddle" -> Color(0xFF1A237E)        // Paddle dark blue
+    "stripe" -> Color(0xFF635BFF) // Stripe purple
+    "razorpay" -> Color(0xFF3395FF) // Razorpay blue
+    "paypal" -> Color(0xFF003087) // PayPal blue
+    "paddle" -> Color(0xFF1A237E) // Paddle dark blue
     "lemon_squeezy" -> Color(0xFFFFC233) // LS yellow
-    "flutterwave" -> Color(0xFFF1592A)   // Flutterwave orange
-    "paystack" -> Color(0xFF00C3F7)      // Paystack cyan
-    "midtrans" -> Color(0xFF005DAB)      // Midtrans blue
-    else -> Color(0xFF6750A4)            // M3 fallback
+    "flutterwave" -> Color(0xFFF1592A) // Flutterwave orange
+    "paystack" -> Color(0xFF00C3F7) // Paystack cyan
+    "midtrans" -> Color(0xFF005DAB) // Midtrans blue
+    else -> Color(0xFF6750A4) // M3 fallback
 }
 
 /**
@@ -328,10 +322,15 @@ internal fun recommendedProviderKey(providers: List<ProviderDto>, plan: BillingP
     val keys = providers.map { it.provider }.toSet()
     return when (plan.currency.uppercase()) {
         "INR" -> if ("razorpay" in keys) "razorpay" else null
-        else -> if ("stripe" in keys) "stripe"
-                else if ("paddle" in keys) "paddle"
-                else if ("paypal" in keys) "paypal"
-                else null
+        else -> if ("stripe" in keys) {
+            "stripe"
+        } else if ("paddle" in keys) {
+            "paddle"
+        } else if ("paypal" in keys) {
+            "paypal"
+        } else {
+            null
+        }
     }
 }
 

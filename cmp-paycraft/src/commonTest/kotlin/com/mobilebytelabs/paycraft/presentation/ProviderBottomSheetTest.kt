@@ -11,8 +11,12 @@ class ProviderBottomSheetTest {
 
     private fun provider(key: String) = ProviderDto(provider = key)
     private fun plan(currency: String) = BillingPlan(
-        id = "test-sku", name = "Test", price = "$0", interval = "month",
-        rank = 0, currency = currency,
+        id = "test-sku",
+        name = "Test",
+        price = "$0",
+        interval = "month",
+        rank = 0,
+        currency = currency,
     )
 
     // ─── displayLabelFor ────────────────────────────────────────────────────

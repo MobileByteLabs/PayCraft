@@ -1,7 +1,6 @@
 package com.mobilebytelabs.paycraft
 
 import com.mobilebytelabs.paycraft.config.CouponDto
-import com.mobilebytelabs.paycraft.platform.DeviceFingerprint
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
@@ -9,18 +8,19 @@ import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.network.CouponClient
-import com.mobilebytelabs.paycraft.provider.PaymentProvider
+import com.mobilebytelabs.paycraft.platform.DeviceFingerprint
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
+import com.mobilebytelabs.paycraft.provider.PaymentProvider
+import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.isSuccess
-import kotlinx.coroutines.CancellationException
-import io.ktor.client.HttpClient
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -159,11 +159,7 @@ object PayCraft {
      * platform-injected Context on Android. Persistent cache is a TODO once we
      * accept a Settings via initialize() options.
      */
-    private suspend fun fetchAndApplySuiteConfig(
-        apiKey: String,
-        backend: PayCraftBackend,
-        options: InitOptions,
-    ) {
+    private suspend fun fetchAndApplySuiteConfig(apiKey: String, backend: PayCraftBackend, options: InitOptions) {
         val http = HttpClient {
             install(ContentNegotiation) {
                 json(
@@ -474,14 +470,14 @@ private class SuiteProviderAdapter(private val dto: ProviderDto?) : PaymentProvi
             ?: error(
                 "No ${PayCraft.mode.name.lowercase()}-mode checkout URL for plan ${plan.id} — " +
                     "open the PayCraft dashboard, switch to ${PayCraft.mode.name} mode, " +
-                    "and add a payment link for this product."
+                    "and add a payment link for this product.",
             )
         val url = perCurrency[plan.currency]
             ?: perCurrency["USD"]
             ?: perCurrency.values.firstOrNull()
             ?: error(
                 "Plan ${plan.id} has no checkout URL for currency ${plan.currency} (or USD fallback) — " +
-                    "configure ${PayCraft.mode.name.lowercase()}-mode payment links in the PayCraft dashboard."
+                    "configure ${PayCraft.mode.name.lowercase()}-mode payment links in the PayCraft dashboard.",
             )
         return if (email != null) "$url?prefilled_email=$email" else url
     }
