@@ -497,6 +497,7 @@ fun PayCraftPaywallContent(
     if (sheetTarget != null) {
         ProviderBottomSheet(
             providers = state.suiteProviders,
+            selectedPlan = sheetTarget,
             maxVisible = 4,
             onProviderPicked = { provider ->
                 onAction(PayCraftPaywallAction.CheckoutWithProvider(sheetTarget, provider))

@@ -31,14 +31,6 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     })
   }
 
-  // Optional per-request device fingerprint. The SDK computes this once at
-  // install and sends it on every /config request. If the fingerprint is
-  // registered in the tenant's test_devices allow-list, products marked
-  // is_test_only are included in the response — otherwise they are stripped
-  // before the response is built. Signed prod APKs whose fingerprint isn't
-  // registered physically cannot see test-only products.
-  const deviceId = url.searchParams.get("device_id")
-
   // Locale extraction from Accept-Language header (default US)
   const acceptLanguage = req.headers.get("accept-language") ?? "en-US"
   const localeCountry =
@@ -76,9 +68,10 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     supabase
       .from("tenant_providers")
       .select(
-        "provider,test_payment_links,live_payment_links,supported_locales",
+        "provider,test_payment_links,live_payment_links,supported_locales,is_active",
       )
-      .eq("tenant_id", tenantId),
+      .eq("tenant_id", tenantId)
+      .eq("is_active", true),
     supabase
       .from("tenants")
       .select("plan,entitlements")
@@ -86,36 +79,22 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
       .single(),
   ])
 
-  // 3a. Resolve test-device gate ONCE before product loop.
-  //
-  // is_test_only products are silently dropped from the response unless the
-  // requester's device_id is in the tenant's test_devices allow-list. The
-  // server is the source of truth — a missing or unmatched device_id means
-  // the product never appears in the JSON response at all, so signed prod
-  // APKs cannot leak it no matter what the client does.
-  let isRegisteredTestDevice = false
-  if (deviceId && deviceId.trim().length > 0) {
-    const { data: registered } = await supabase.rpc(
-      "test_devices_is_registered",
-      { p_tenant_id: tenantId, p_device_id: deviceId.trim() },
-    )
-    isRegisteredTestDevice = Boolean(registered)
-  }
+  // Mode-aware: the SDK reads payment_links from the matching map per
+  // `apiKey.startsWith("pk_test_")` → testPaymentLinks; pk_live_* → livePaymentLinks.
+  // We surface only the relevant map here so older SDKs that don't know about mode
+  // duality still pick the correct one.
+  const isTestMode = apiKey.startsWith("pk_test_")
 
   // 4. Resolve per-locale price for each product + project trial fields with safe
   //    defaults so the SDK always receives a fully-formed ProductDto regardless of
   //    how old a tenant's data is on disk.
   //
-  //    Filter out is_test_only products for unregistered devices BEFORE the
-  //    price-resolution work — avoids unnecessary tenant_pricing lookups.
-  const visibleProducts = (productsRes.data ?? []).filter(
-    (p: Record<string, unknown>) => {
-      if (!p.is_test_only) return true
-      return isRegisteredTestDevice
-    },
-  )
+  //    Test/live duality is resolved client-side: the SDK picks `testPaymentLinks`
+  //    vs `livePaymentLinks` from each provider based on the apiKey prefix —
+  //    no server-side product filtering required. (Migration 069 dropped the
+  //    legacy is_test_only product flag + test_devices allow-list.)
   const pricedProducts = await Promise.all(
-    visibleProducts.map(async (p: Record<string, unknown>) => {
+    (productsRes.data ?? []).map(async (p: Record<string, unknown>) => {
       const trialEnabled = p.trial_enabled === undefined || p.trial_enabled === null
         ? true
         : Boolean(p.trial_enabled)
@@ -182,10 +161,27 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     }),
   )
 
-  // 5. Locale-filter providers
+  // 5. Filter providers:
+  //    (a) locale-supported (null/empty supported_locales = all locales),
+  //    (b) at least one (sku, currency) payment link for the current mode —
+  //        the nested map is shaped {sku: {currency: url}}; skip the provider
+  //        if every per-sku entry is empty so the SDK's provider sheet doesn't
+  //        offer dead options.
   const enabledProviders = (providersRes.data ?? []).filter(
-    (pr: { supported_locales?: string[] | null }) =>
-      !pr.supported_locales || pr.supported_locales.includes(localeCountry),
+    (pr: {
+      supported_locales?: string[] | null
+      test_payment_links?: Record<string, Record<string, string>> | null
+      live_payment_links?: Record<string, Record<string, string>> | null
+    }) => {
+      const localeOk = !pr.supported_locales ||
+        pr.supported_locales.length === 0 ||
+        pr.supported_locales.includes(localeCountry)
+      const bySku = isTestMode ? pr.test_payment_links : pr.live_payment_links
+      const linksOk = !!bySku && Object.values(bySku).some(perCurrency =>
+        !!perCurrency && Object.keys(perCurrency).length > 0
+      )
+      return localeOk && linksOk
+    },
   )
 
   // 6. Tier-derived branding override:

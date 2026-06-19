@@ -82,8 +82,20 @@ data class PriceDto(@SerialName("amount_cents") val amountCents: Int, val curren
 @Serializable
 data class ProviderDto(
     val provider: String,
-    @SerialName("test_payment_links") val testPaymentLinks: Map<String, String> = emptyMap(),
-    @SerialName("live_payment_links") val livePaymentLinks: Map<String, String> = emptyMap(),
+    /**
+     * Nested per-(sku, currency) payment-link map — `{sku: {currency: url}}`.
+     * Multi-product apps populate this; the SDK looks up
+     * `testPaymentLinksBySku[plan.id]?[plan.currency]` first.
+     * Server stores this shape in `tenant_providers.test_payment_links` JSONB.
+     */
+    @SerialName("test_payment_links")
+    val testPaymentLinksBySku: Map<String, Map<String, String>> = emptyMap(),
+    /**
+     * Nested per-(sku, currency) payment-link map for live mode.
+     * See [testPaymentLinksBySku].
+     */
+    @SerialName("live_payment_links")
+    val livePaymentLinksBySku: Map<String, Map<String, String>> = emptyMap(),
     @SerialName("supported_locales") val supportedLocales: List<String>? = null,
 )
 

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
+import {
+  stripeSyncProduct,
+  razorpaySyncProduct,
+  cashfreeSyncProduct,
+} from "@/lib/stripe-route-helper"
 
 /**
  * GET /api/pricing?product_id=<uuid>
@@ -67,6 +72,51 @@ export async function POST(req: NextRequest) {
     p_resource: `tenant_pricing:product_id=${productId}`,
     p_after: { product_id: productId, rows_written: written },
   })
+
+  // Auto-trigger provider sync so the new per-currency prices materialize as
+  // Stripe Prices + Payment Links automatically. Mirrors the auto-sync pattern
+  // in products/route.ts (CREATE) and products/[id]/route.ts (UPDATE) — every
+  // mutation that affects pricing should refresh the cached payment_links.
+  const { data: product } = await supabase
+    .from("tenant_products")
+    .select(
+      "id, sku, type, display_name, interval, base_price_cents, base_currency, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency",
+    )
+    .eq("tenant_id", tenant.id)
+    .eq("id", productId)
+    .single()
+
+  if (product) {
+    const syncBody = {
+      ...product,
+      pricing_rows: (rows as Array<{ currency: string; amount_cents: number }>).map(r => ({
+        currency: r.currency,
+        amount_cents: r.amount_cents,
+      })),
+    }
+    // Fire & forget — each helper internally try/catches so a provider outage
+    // doesn't break the pricing write.
+    await Promise.all([
+      stripeSyncProduct(supabase, {
+        tenantId: tenant.id,
+        productId,
+        body: syncBody,
+        existingStripeProductId: product.stripe_product_id ?? undefined,
+        existingPrices: product.stripe_price_id_by_currency ?? undefined,
+      }),
+      razorpaySyncProduct(supabase, {
+        tenantId: tenant.id,
+        productId,
+        body: syncBody,
+        existingRazorpayPlanIds: product.razorpay_plan_id_by_currency ?? undefined,
+      }),
+      cashfreeSyncProduct(supabase, {
+        tenantId: tenant.id,
+        productId,
+        body: syncBody,
+      }),
+    ])
+  }
 
   return NextResponse.json({ ok: true, written })
 }

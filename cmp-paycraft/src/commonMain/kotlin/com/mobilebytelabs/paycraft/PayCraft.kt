@@ -55,17 +55,30 @@ object PayCraft {
         private set
 
     /**
-     * Stable per-(device, app) fingerprint sent to PayCraft Cloud on every
-     * /config request. The server consults the tenant's `test_devices`
-     * allow-list against this value to decide whether to surface products
-     * marked `is_test_only`. Tenant developers paste this value into the
-     * dashboard's Testing Devices page to register a device.
+     * Stable per-(device, app) fingerprint. Available for consumer-app analytics
+     * (DAU/MAU dashboards, A/B-test bucketing, crash-correlation). PayCraft itself
+     * does not send this value anywhere — Stripe-style test/live mode duality is
+     * resolved purely by the [apiKey] prefix.
      *
-     * Computed lazily on first access. Logged at `initialize()` time so
-     * `adb logcat | grep PayCraft` (or the iOS/web equivalent) surfaces it
-     * without the host app having to build a custom debug overlay.
+     * Computed lazily on first access. Logged at `initialize()` for debug visibility.
      */
     val deviceId: String by lazy { DeviceFingerprint.get() }
+
+    /**
+     * Resolved test/live mode for this PayCraft instance, derived from the [apiKey]
+     * prefix at [initialize] time. Mirrors Stripe's own test-mode model — consumer
+     * apps inject `pk_test_*` in debug builds and `pk_live_*` in release builds; the
+     * SDK and dashboard pick mode-appropriate payment links (and the server returns
+     * mode-appropriate webhook routes) automatically.
+     */
+    val mode: Mode get() = when {
+        apiKey?.startsWith("pk_test_") == true -> Mode.Test
+        apiKey?.startsWith("pk_live_") == true -> Mode.Live
+        else -> Mode.Unknown
+    }
+
+    /** Test/live duality of the active PayCraft key. */
+    enum class Mode { Test, Live, Unknown }
 
     /** Long-lived scope for the SDK's background work — currently just the cloud SuiteConfig fetch. */
     private val sdkScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -99,13 +112,12 @@ object PayCraft {
             apiKeyPrefix = apiKey.substringBefore('_', "?") + "_…",
             debug = options.debug,
         )
-        // Eagerly log the device fingerprint so tenant developers can find it
-        // via `adb logcat | grep PayCraft` and paste it into the dashboard's
-        // Testing Devices page. Wrap in try/catch — fingerprint computation
-        // reads the Android Context which is normally set by androidx-startup
-        // but may not be ready in unusual test harnesses.
+        // Eagerly log the resolved mode + device fingerprint for debug visibility.
+        // Wrap in try/catch — fingerprint computation reads the Android Context
+        // which is normally set by androidx-startup but may not be ready in
+        // unusual test harnesses.
         runCatching {
-            PayCraftLogger.onFlow("initialize", "device_id = $deviceId  (Dashboard → Testing Devices → Register to surface is_test_only products)")
+            PayCraftLogger.onFlow("initialize", "mode = $mode  device_id = $deviceId")
         }
         if (backend is PayCraftBackend.Mock) {
             applySuiteConfig(backend.staticConfig)
@@ -165,20 +177,17 @@ object PayCraft {
         }
         try {
             val locale = options.localeOverride ?: "US"
-            val device = runCatching { deviceId }.getOrNull()
             PayCraftLogger.onFlow(
                 "loadConfig",
-                "GET ${backend.configUrl}?apiKey=${apiKey.take(8)}…  device_id=$device",
+                "GET ${backend.configUrl}?apiKey=${apiKey.take(8)}…  mode=$mode",
             )
             // Supabase Edge Functions require an Authorization header by default
             // (verify_jwt=true at the platform level). Pass the backend's known
             // anon key — same value the SDK uses for the postgrest data plane.
-            // device_id (optional) lets the server include is_test_only products
-            // when the requesting device is registered in the tenant's test
-            // allow-list — see migration 067.
+            // Test/live duality is resolved server-side from the apiKey prefix —
+            // server returns mode-appropriate payment_links + webhook routes.
             val response: HttpResponse = http.get(backend.configUrl) {
                 parameter("apiKey", apiKey)
-                if (!device.isNullOrBlank()) parameter("device_id", device)
                 header("Authorization", "Bearer ${backend.supabaseAnonKey}")
                 header("apikey", backend.supabaseAnonKey)
                 header("Accept-Language", "en-$locale")
@@ -426,6 +435,7 @@ private fun List<ProductDto>.toBillingPlans(): List<BillingPlan> {
             rank = idx,
             isPopular = false,
             trialDays = trialDays,
+            currency = originalCurrency.uppercase(),
         )
     }
 }
@@ -440,15 +450,39 @@ private fun formatMoney(amountCents: Int, currency: String): String = when (curr
 
 /**
  * Adapter that turns a cloud-fetched [com.mobilebytelabs.paycraft.config.ProviderDto] into the
- * existing PaymentProvider interface. Locale-resolved checkout URL is taken from livePaymentLinks
- * first, then testPaymentLinks.
+ * existing PaymentProvider interface. The payment-link map is picked strictly by
+ * [PayCraft.mode] — `pk_test_*` keys read `testPaymentLinksBySku`, `pk_live_*` keys read
+ * `livePaymentLinksBySku`. No cross-mode fallback: using a test key with no test link
+ * should fail loudly, not silently route through live.
+ *
+ * The lookup walks `bySku[plan.id]?[plan.currency]` first, then falls back to USD
+ * within the same plan so locales without a dedicated link still route somewhere
+ * Stripe can render. A missing plan entry throws with a clear remediation hint.
  */
 private class SuiteProviderAdapter(private val dto: ProviderDto?) : PaymentProvider {
     override val name: String = dto?.provider ?: "cloud"
 
     override fun getCheckoutUrl(plan: BillingPlan, email: String?): String {
-        val map = dto?.livePaymentLinks?.takeIf { it.isNotEmpty() } ?: dto?.testPaymentLinks ?: emptyMap()
-        val url = map[plan.id] ?: error("No checkout URL for plan ${plan.id}")
+        val bySku = when (PayCraft.mode) {
+            PayCraft.Mode.Test -> dto?.testPaymentLinksBySku ?: emptyMap()
+            // Default to live for both Live and Unknown — Unknown can only happen
+            // with a Mock backend that has no apiKey, in which case checkout is
+            // never reached through the live flow.
+            PayCraft.Mode.Live, PayCraft.Mode.Unknown -> dto?.livePaymentLinksBySku ?: emptyMap()
+        }
+        val perCurrency = bySku[plan.id]
+            ?: error(
+                "No ${PayCraft.mode.name.lowercase()}-mode checkout URL for plan ${plan.id} — " +
+                    "open the PayCraft dashboard, switch to ${PayCraft.mode.name} mode, " +
+                    "and add a payment link for this product."
+            )
+        val url = perCurrency[plan.currency]
+            ?: perCurrency["USD"]
+            ?: perCurrency.values.firstOrNull()
+            ?: error(
+                "Plan ${plan.id} has no checkout URL for currency ${plan.currency} (or USD fallback) — " +
+                    "configure ${PayCraft.mode.name.lowercase()}-mode payment links in the PayCraft dashboard."
+            )
         return if (email != null) "$url?prefilled_email=$email" else url
     }
 

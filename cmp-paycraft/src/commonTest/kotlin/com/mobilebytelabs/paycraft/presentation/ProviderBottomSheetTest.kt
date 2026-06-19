@@ -1,24 +1,30 @@
 package com.mobilebytelabs.paycraft.presentation
 
 import com.mobilebytelabs.paycraft.config.ProviderDto
+import com.mobilebytelabs.paycraft.model.BillingPlan
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ProviderBottomSheetTest {
 
     private fun provider(key: String) = ProviderDto(provider = key)
+    private fun plan(currency: String) = BillingPlan(
+        id = "test-sku", name = "Test", price = "$0", interval = "month",
+        rank = 0, currency = currency,
+    )
 
     // ─── displayLabelFor ────────────────────────────────────────────────────
 
     @Test
     fun displayLabel_stripe() {
-        assertEquals("Card / UPI / Wallet (Stripe)", displayLabelFor("stripe"))
+        assertEquals("Stripe", displayLabelFor("stripe"))
     }
 
     @Test
     fun displayLabel_razorpay() {
-        assertEquals("All Indian methods (Razorpay)", displayLabelFor("razorpay"))
+        assertEquals("Razorpay", displayLabelFor("razorpay"))
     }
 
     @Test
@@ -28,12 +34,75 @@ class ProviderBottomSheetTest {
 
     @Test
     fun displayLabel_paddle() {
-        assertEquals("Card (Paddle)", displayLabelFor("paddle"))
+        assertEquals("Paddle", displayLabelFor("paddle"))
     }
 
     @Test
     fun displayLabel_unknown_titleCasesEachWord() {
         assertEquals("My Custom Provider", displayLabelFor("my_custom_provider"))
+    }
+
+    // ─── taglineFor / methodsFor — provider metadata ────────────────────────
+
+    @Test
+    fun stripe_tagline_and_methods() {
+        assertEquals("Cards, Apple Pay, Google Pay, and Link", taglineFor("stripe"))
+        assertTrue(methodsFor("stripe").contains("Visa"))
+        assertTrue(methodsFor("stripe").contains("Apple Pay"))
+    }
+
+    @Test
+    fun razorpay_tagline_and_methods() {
+        assertEquals("UPI, cards, wallets, net banking, and EMI", taglineFor("razorpay"))
+        assertTrue(methodsFor("razorpay").contains("UPI"))
+    }
+
+    @Test
+    fun unknown_provider_has_empty_methods() {
+        assertEquals(emptyList(), methodsFor("totally_unknown"))
+    }
+
+    // ─── recommendedProviderKey — locale-aware default ──────────────────────
+
+    @Test
+    fun recommended_inr_picks_razorpay_if_present() {
+        val providers = listOf(provider("stripe"), provider("razorpay"))
+        assertEquals("razorpay", recommendedProviderKey(providers, plan("INR")))
+    }
+
+    @Test
+    fun recommended_inr_no_razorpay_returns_null() {
+        val providers = listOf(provider("stripe"))
+        assertNull(recommendedProviderKey(providers, plan("INR")))
+    }
+
+    @Test
+    fun recommended_usd_picks_stripe_if_present() {
+        val providers = listOf(provider("stripe"), provider("razorpay"))
+        assertEquals("stripe", recommendedProviderKey(providers, plan("USD")))
+    }
+
+    @Test
+    fun recommended_usd_falls_back_to_paddle() {
+        val providers = listOf(provider("paddle"), provider("razorpay"))
+        assertEquals("paddle", recommendedProviderKey(providers, plan("USD")))
+    }
+
+    @Test
+    fun recommended_null_plan_returns_null() {
+        assertNull(recommendedProviderKey(listOf(provider("stripe")), null))
+    }
+
+    // ─── planIntervalSuffix — semantic plurals ──────────────────────────────
+
+    @Test
+    fun interval_semiannual_maps_to_6_months() {
+        assertEquals("6 months", planIntervalSuffix("semiannual"))
+    }
+
+    @Test
+    fun interval_lifetime_maps_to_one_time() {
+        assertEquals("one time", planIntervalSuffix("lifetime"))
     }
 
     // ─── AutoSkipWhenSingle strategy logic ───────────────────────────────────
