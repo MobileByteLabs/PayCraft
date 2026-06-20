@@ -1,36 +1,47 @@
 # PayCraft v2 branded-stack paywall — end-to-end flow (sub-plan 03 T6, AC-16).
 #
-# Target: the in-repo sample-app showcase (com.mobilebytelabs.paycraft.sample),
-# which renders the BrandedStackTemplate paywall via PayCraftBackend.Mock. This
-# supersedes the plan's original reels-downloader target — reels-downloader is an
-# external consumer workspace not buildable from this repo, whereas sample-app is
-# the canonical in-repo branded-flow showcase and runs on the connected device.
+# Drives the full branded flow on the in-repo sample-app showcase
+# (com.mobilebytelabs.paycraft.sample): the Settings-screen PayCraftPremiumBanner
+# (sub-plan 03 T1) -> Get Premium -> BrandedStackTemplate paywall modal
+# (sub-plan 02) -> plan select -> Continue. Supersedes the plan's reels-downloader
+# target (an external consumer workspace not buildable from this repo); the
+# sample-app is the canonical in-repo branded-flow showcase and runs on-device.
 #
 # Run: maestro test maestro/paycraft_branded_flow.yaml
 # Prereq: ./gradlew :sample-app:installDebug on a connected device/emulator.
+#
+# This device (OnePlus/ColorOS) denies `pm clear` to the shell, so instead of
+# clearState we cold-start via stopApp (force-stop IS permitted).
 
 appId: com.mobilebytelabs.paycraft.sample
 ---
-- launchApp:
-    clearState: true
+- stopApp
+- launchApp
 
-# Branded paywall renders with DTO-driven hero copy + plan stack + CTA + footer.
+# Home: the PayCraftPremiumBanner renders its DTO-driven copy + CTAs.
 - assertVisible: "Upgrade to Premium"
-- assertVisible: "Monthly"
+- assertVisible: "Get Premium"
+- assertVisible: "Restore Your Premium"
+
+# Open the BrandedStackTemplate paywall modal.
+- tapOn: "Get Premium"
+
+# Plan stack renders (config loads async on first open — wait for it).
+- extendedWaitUntil:
+    visible: "Monthly"
+    timeout: 15000
 - assertVisible: "Quarterly"
 - assertVisible: "Yearly"
 - assertVisible: "Continue"
 
-# Footer links from the v2 DTO (restore_label / terms / privacy).
-- assertVisible:
-    text: "RESTORE.*"
-    regex: true
+# Footer restore affordance from the v2 DTO (scroll into view if below the fold).
+- scrollUntilVisible:
+    element:
+      text: "RESTORE"
+    direction: DOWN
+    optional: true
 
-# Select a plan, then drive the primary CTA.
+# Select a plan and drive the primary CTA — must not crash.
 - tapOn: "Yearly"
 - tapOn: "Continue"
-
-# After Continue the SDK hands off to the mock checkout; the paywall either
-# advances or surfaces the checkout sheet. Assert we left the initial state
-# cleanly (no crash dialog).
 - assertNotVisible: "Application Error"

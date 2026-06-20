@@ -54,8 +54,10 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
   }
 
   // 2. Per-tenant rate limit (60 burst / 1 refill per second).
+  // Falls back to the caller IP when the tenant is anonymous.
+  const ipAddress = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown"
   try {
-    await requireRateLimit(supabase, tenantId, "config_fetch", 60, 1)
+    await requireRateLimit(supabase, tenantId, ipAddress, "config_fetch", 60, 1)
   } catch (e) {
     if (e instanceof RateLimitError) return rateLimitResponse(e)
     throw e
