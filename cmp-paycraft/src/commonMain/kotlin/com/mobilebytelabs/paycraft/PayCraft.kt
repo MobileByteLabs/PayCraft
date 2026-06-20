@@ -25,6 +25,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
@@ -45,8 +48,18 @@ object PayCraft {
     internal var config: PayCraftConfig? = null
         private set
 
-    internal var suiteConfig: SuiteConfig? = null
-        private set
+    private val _suiteConfigFlow = MutableStateFlow<SuiteConfig?>(null)
+
+    /**
+     * Reactive SuiteConfig stream. Compose UIs (paywall, banner) MUST collect this
+     * so they recompose when the async cloud fetch — or an explicit [refreshConfig] —
+     * publishes an updated config from the dashboard. Reading the non-reactive
+     * [suiteConfig] snapshot does NOT trigger recomposition, which is why dashboard
+     * edits previously failed to surface in consumer apps until a cold relaunch.
+     */
+    val suiteConfigFlow: StateFlow<SuiteConfig?> = _suiteConfigFlow.asStateFlow()
+
+    internal val suiteConfig: SuiteConfig? get() = _suiteConfigFlow.value
 
     internal var backend: PayCraftBackend = PayCraftBackend.Cloud
         private set
@@ -83,6 +96,7 @@ object PayCraft {
     /** Long-lived scope for the SDK's background work — currently just the cloud SuiteConfig fetch. */
     private val sdkScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var configFetchJob: Job? = null
+    private var initOptions: InitOptions = InitOptions()
 
     /**
      * Boot the SDK with a publishable PayCraft API key.
@@ -103,6 +117,7 @@ object PayCraft {
         }
         this.apiKey = apiKey
         this.backend = backend
+        this.initOptions = options
         PayCraftLogger.onInitialize(
             backendName = when (backend) {
                 is PayCraftBackend.Cloud -> "cloud"
@@ -149,6 +164,22 @@ object PayCraft {
             configFetchJob = sdkScope.launch {
                 fetchAndApplySuiteConfig(apiKey, backend, options)
             }
+        }
+    }
+
+    /**
+     * Force a fresh SuiteConfig fetch from the backend, bypassing any in-flight
+     * job, and publish it through [suiteConfigFlow]. Call this to pick up a
+     * dashboard change without waiting for the next cold launch — e.g. on app
+     * foreground or a pull-to-refresh. No-op for [PayCraftBackend.Mock] and before
+     * [initialize].
+     */
+    fun refreshConfig() {
+        val key = apiKey ?: return
+        if (backend is PayCraftBackend.Mock) return
+        configFetchJob?.cancel()
+        configFetchJob = sdkScope.launch {
+            fetchAndApplySuiteConfig(key, backend, initOptions)
         }
     }
 
@@ -229,7 +260,7 @@ object PayCraft {
 
     /** Apply a cloud-fetched [SuiteConfig] into the existing PayCraftConfig shape. */
     internal fun applySuiteConfig(suite: SuiteConfig) {
-        this.suiteConfig = suite
+        _suiteConfigFlow.value = suite
         val resolved = suite.toPayCraftConfig(backend, apiKey)
         this.config = resolved
         PayCraftLogger.onSuiteConfigApplied(

@@ -1,0 +1,21 @@
+# E2E: a dashboard hero-title edit propagates to the reels-downloader paywall.
+# Proves the "fully automated from dashboard" loop: dashboard → /config → SDK
+# suiteConfigFlow → PayCraftPaywall recomposes (reactive config, cmp-paycraft 2.1.1).
+#
+# Set the dashboard hero title to contain "E2E-OK2" first (Playwright), then run.
+# The modal hero is config-driven; it recomposes once the async /config fetch lands.
+appId: com.sensei.social.debug
+---
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Settings"
+    timeout: 20000
+- tapOn: "Settings"
+- tapOn: "Get Premium"
+- extendedWaitUntil:
+    visible:
+      text: ".*E2E-OK2.*"
+    timeout: 90000
+- assertVisible:
+    text: ".*E2E-OK2.*"

@@ -32,6 +32,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -332,7 +333,7 @@ fun PayCraftPaywallContent(
                         }
 
                         // Branding footer — auto-hides when branding = None (Pro+ tier)
-                        val paywallDto = PayCraft.suiteConfig?.paywall
+                        val paywallDto = PayCraft.suiteConfigFlow.collectAsState().value?.paywall
                         BrandingFooter(
                             branding = Branding.parse(paywallDto?.branding ?: "attribution"),
                             customFooterText = paywallDto?.customFooter,
@@ -349,10 +350,13 @@ fun PayCraftPaywallContent(
                     //   1. PaywallDto.themeJsonb["headline_subtitle"] — set by
                     //      tenants on the dashboard's Paywall designer.
                     //   2. null (header omits the subtitle row gracefully).
-                    val paywallSubtitle = PayCraft.suiteConfig?.paywall
-                        ?.themeJsonb
-                        ?.get("headline_subtitle")
-                        ?.takeIf { it.isNotBlank() }
+                    // Reactive live config — recomposes when the cloud fetch (or
+                    // refreshConfig()) publishes a dashboard edit. Hero title + subtitle
+                    // are dashboard-driven (v2 PaywallDto); fall back to the i18n string
+                    // / legacy themeJsonb only when the config field is blank/unloaded.
+                    val livePaywall = PayCraft.suiteConfigFlow.collectAsState().value?.paywall
+                    val paywallSubtitle = livePaywall?.heroSubtitle?.takeIf { it.isNotBlank() }
+                        ?: livePaywall?.themeJsonb?.get("headline_subtitle")?.takeIf { it.isNotBlank() }
 
                     Column(
                         modifier = Modifier
@@ -364,7 +368,8 @@ fun PayCraftPaywallContent(
                         verticalArrangement = Arrangement.spacedBy(20.dp),
                     ) {
                         PayCraftPaywallHeader(
-                            title = stringResource(Res.string.paycraft_upgrade_title),
+                            title = livePaywall?.heroTitle?.takeIf { it.isNotBlank() }
+                                ?: stringResource(Res.string.paycraft_upgrade_title),
                             subtitle = paywallSubtitle,
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         )
@@ -451,7 +456,7 @@ fun PayCraftPaywallContent(
                         // branding = none / custom_footer). Shown across every paywall
                         // state, not just Free, so the SaaS attribution stays
                         // consistent regardless of the user's billing status.
-                        val paywallDto = PayCraft.suiteConfig?.paywall
+                        val paywallDto = PayCraft.suiteConfigFlow.collectAsState().value?.paywall
                         BrandingFooter(
                             branding = Branding.parse(paywallDto?.branding ?: "attribution"),
                             customFooterText = paywallDto?.customFooter,

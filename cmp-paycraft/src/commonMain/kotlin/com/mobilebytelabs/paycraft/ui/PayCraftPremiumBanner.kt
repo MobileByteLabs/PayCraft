@@ -23,6 +23,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
+import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 
@@ -76,7 +78,12 @@ fun PayCraftPremiumBanner(
     restoreOverride: String? = null,
 ) {
     val tokens = PayCraftTheme
-    val paywall = LocalPayCraftConfig.current?.paywall ?: PaywallDto()
+    // Prefer an explicitly-provided LocalPayCraftConfig; otherwise collect the
+    // live SDK config reactively so a dashboard edit recomposes the banner once
+    // the cloud fetch (or refreshConfig()) publishes it — no cold relaunch needed.
+    val paywall = LocalPayCraftConfig.current?.paywall
+        ?: PayCraft.suiteConfigFlow.collectAsState().value?.paywall
+        ?: PaywallDto()
     val title = titleOverride ?: paywall.heroTitle
     val subtitle = subtitleOverride ?: paywall.heroSubtitle
     val cta = ctaOverride ?: paywall.ctaGetPremium
