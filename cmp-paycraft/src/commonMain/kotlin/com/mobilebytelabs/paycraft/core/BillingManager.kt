@@ -3,13 +3,42 @@ package com.mobilebytelabs.paycraft.core
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+
+/**
+ * Emitted exactly once on the rising edge when a subscription transitions from
+ * non-premium → premium/active.  Consumers (e.g. [PayCraftCheckoutSuccessSheet])
+ * collect this to trigger success UX without polling [BillingManager.isPremium].
+ *
+ * @param sku   The activated plan identifier (e.g. `"monthly"`, `"annual"`), or
+ *              `null` if the plan could not be resolved from the server response.
+ * @param isTrial `true` when the subscription is currently in its free-trial window.
+ */
+data class SubscriptionActivated(
+    val sku: String?,
+    val isTrial: Boolean,
+)
 
 interface BillingManager {
     val isPremium: StateFlow<Boolean>
     val subscriptionStatus: StateFlow<SubscriptionStatus>
     val billingState: StateFlow<BillingState>
     val userEmail: StateFlow<String?>
+
+    /**
+     * Hot stream that emits [SubscriptionActivated] exactly once each time the
+     * subscription transitions from non-premium → premium.  Replay is 0 — late
+     * collectors will not receive historical events.
+     *
+     * Typical usage:
+     * ```kotlin
+     * billingManager.subscriptionActivated
+     *     .onEach { event -> showSuccessSheet(event) }
+     *     .launchIn(viewModelScope)
+     * ```
+     */
+    val subscriptionActivated: SharedFlow<SubscriptionActivated>
 
     /**
      * True iff the current subscription is in its free-trial window
