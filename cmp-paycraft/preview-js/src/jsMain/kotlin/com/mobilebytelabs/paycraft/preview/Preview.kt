@@ -55,6 +55,27 @@ data class PreviewConfig(
     val branding: String = "attribution",
     @SerialName("custom_footer") val customFooter: String? = null,
     @SerialName("support_email") val supportEmail: String? = null,
+    // v2 content fields (sub-plan 01 migration 071) — drive the true-WYSIWYG render.
+    @SerialName("hero_title") val heroTitle: String? = null,
+    @SerialName("hero_subtitle") val heroSubtitle: String? = null,
+    @SerialName("value_props") val valueProps: List<ValueProp> = emptyList(),
+    @SerialName("cta_continue") val ctaContinue: String? = null,
+    @SerialName("cta_get_premium") val ctaGetPremium: String? = null,
+    @SerialName("restore_label") val restoreLabel: String? = null,
+    @SerialName("terms_url") val termsUrl: String? = null,
+    @SerialName("privacy_url") val privacyUrl: String? = null,
+    @SerialName("popular_plan_sku") val popularPlanSku: String? = null,
+    @SerialName("success_title") val successTitle: String? = null,
+    @SerialName("success_message") val successMessage: String? = null,
+    @SerialName("success_cta_label") val successCtaLabel: String? = null,
+)
+
+/** Rich-triple value prop — mirrors cmp-paycraft `ValuePropTriple`. */
+@Serializable
+data class ValueProp(
+    val icon: String = "star",
+    val title: String,
+    val description: String? = null,
 )
 
 private val JSON = Json {
@@ -118,15 +139,18 @@ private fun render(msg: PreviewMessage) {
 
     val body = when (msg.stateName) {
         "Loading" -> loadingHtml(primary, fg)
-        "Free" -> freeHtml(isPremium, surface, surfaceBorder, primary)
-        "Premium" -> premiumHtml(surface, surfaceBorder, primary)
+        "Free" -> freeHtml(cfg, isPremium, surface, surfaceBorder, primary)
+        "Premium" -> premiumHtml(cfg, surface, surfaceBorder, primary)
         "Error" -> errorHtml(surface, surfaceBorder)
         "DeviceConflict" -> deviceConflictHtml(surface, surfaceBorder, primary)
         "OwnershipVerified" -> ownershipVerifiedHtml(surface, surfaceBorder, primary)
         else -> loadingHtml(primary, fg)
     }
 
-    val footer = when (cfg.branding) {
+    // v2 legal-links micro-footer (restore_label · terms · privacy) — only on the paywall.
+    val legalLinks = if (msg.stateName == "Free") legalLinksHtml(cfg, fg) else ""
+
+    val attribution = when (cfg.branding) {
         "attribution" ->
             """<div style="margin-top:auto;padding-top:24px;display:flex;justify-content:center;gap:6px;opacity:.4;color:$fg;">
             <span style="font-size:10px;font-weight:500;">Powered by</span>
@@ -137,6 +161,7 @@ private fun render(msg: PreviewMessage) {
         } ?: ""
         else -> ""
     }
+    val footer = legalLinks + attribution
 
     root.innerHTML = """
         <div data-template="${cfg.template}" data-state="${msg.stateName}"
@@ -161,15 +186,73 @@ private fun loadingHtml(primary: String, fg: String) = """
     <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 """.trimIndent()
 
-private fun freeHtml(isPremium: Boolean, surface: String, border: String, primary: String): String {
+/** Minimal HTML escaping so dashboard-entered copy can't break the markup. */
+private fun esc(s: String): String = s
+    .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+
+/** One plan card — gains the MOST POPULAR ring + badge when [popular]. */
+private fun planRow(
+    sku: String,
+    name: String,
+    sub: String,
+    price: String,
+    popular: Boolean,
+    surface: String,
+    border: String,
+    primary: String,
+): String = if (popular) {
+    """<div data-product="$sku" data-popular="true" style="position:relative;padding:12px;border-radius:16px;background:${primary}11;border:2px solid $primary;display:flex;justify-content:space-between;align-items:center;">
+        <span style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);color:#fff;font-size:9px;font-weight:900;padding:2px 10px;border-radius:9999px;text-transform:uppercase;background:$primary;">Most popular</span>
+        <div><div style="font-size:12px;font-weight:700;">$name</div><div style="font-size:11px;opacity:.5;">$sub</div></div>
+        <div style="font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;">$price</div>
+    </div>"""
+} else {
+    """<div data-product="$sku" style="padding:12px;border-radius:16px;background:$surface;border:1px solid $border;display:flex;justify-content:space-between;align-items:center;">
+        <div><div style="font-size:12px;font-weight:700;">$name</div><div style="font-size:11px;opacity:.5;">$sub</div></div>
+        <div style="font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;">$price</div>
+    </div>"""
+}
+
+/** Restore · Terms · Privacy micro-footer driven by the v2 DTO fields. */
+private fun legalLinksHtml(cfg: PreviewConfig, fg: String): String {
+    val parts = mutableListOf<String>()
+    cfg.restoreLabel?.takeIf { it.isNotBlank() }
+        ?.let { parts.add("""<span data-action="restore" style="cursor:pointer;text-transform:uppercase;">${esc(it)}</span>""") }
+    cfg.termsUrl?.takeIf { it.isNotBlank() }
+        ?.let { parts.add("""<a data-link="terms" href="${esc(it)}" target="_blank" style="color:inherit;text-decoration:none;text-transform:uppercase;">Terms</a>""") }
+    cfg.privacyUrl?.takeIf { it.isNotBlank() }
+        ?.let { parts.add("""<a data-link="privacy" href="${esc(it)}" target="_blank" style="color:inherit;text-decoration:none;text-transform:uppercase;">Privacy</a>""") }
+    if (parts.isEmpty()) return ""
+    val joined = parts.joinToString("""<span style="opacity:.4;">·</span>""")
+    return """<div data-legal-links style="margin-top:16px;display:flex;justify-content:center;gap:8px;font-size:10px;font-weight:700;letter-spacing:.05em;opacity:.5;color:$fg;">$joined</div>"""
+}
+
+private fun freeHtml(cfg: PreviewConfig, isPremium: Boolean, surface: String, border: String, primary: String): String {
+    val heroTitle = esc(cfg.heroTitle ?: "Upgrade to Premium")
+    val heroSubtitle = esc(cfg.heroSubtitle ?: "Ad-free. Unlimited. 4K Downloads.")
+    val ctaLabel = esc(cfg.ctaContinue ?: "Continue")
+    val popular = cfg.popularPlanSku ?: "yearly"
     val hero = if (isPremium) {
         """<div style="margin:0 -24px 16px;padding:24px;color:#fff;background:linear-gradient(135deg,$primary,#4C1D95);">
             <div style="font-size:10px;text-transform:uppercase;letter-spacing:.15em;opacity:.8;margin-bottom:4px;">Premium</div>
-            <h2 style="font-size:20px;font-weight:800;margin:0;">Upgrade now</h2>
+            <h2 style="font-size:20px;font-weight:800;margin:0;">$heroTitle</h2>
         </div>"""
     } else {
-        """<h2 style="font-size:20px;font-weight:800;letter-spacing:-0.025em;margin:0;">Upgrade to Premium</h2>
-        <p style="font-size:12px;opacity:.7;margin-top:4px;font-weight:500;">Ad-free. Unlimited. 4K Downloads.</p>"""
+        """<h2 style="font-size:20px;font-weight:800;letter-spacing:-0.025em;margin:0;">$heroTitle</h2>
+        <p style="font-size:12px;opacity:.7;margin-top:4px;font-weight:500;">$heroSubtitle</p>"""
+    }
+    val valueProps = if (cfg.valueProps.isNotEmpty()) {
+        val items = cfg.valueProps.joinToString("") { vp ->
+            val desc = vp.description?.takeIf { it.isNotBlank() }
+                ?.let { """<div style="font-size:11px;opacity:.6;">${esc(it)}</div>""" } ?: ""
+            """<div data-valueprop style="display:flex;align-items:flex-start;gap:8px;text-align:left;">
+                <span style="flex:0 0 auto;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;background:$primary;">✓</span>
+                <div><div style="font-size:12px;font-weight:600;">${esc(vp.title)}</div>$desc</div>
+            </div>"""
+        }
+        """<div data-value-props style="margin-top:16px;display:flex;flex-direction:column;gap:8px;">$items</div>"""
+    } else {
+        ""
     }
     return """
         <div style="margin-top:24px;margin-bottom:16px;display:flex;justify-content:center;">
@@ -178,29 +261,23 @@ private fun freeHtml(isPremium: Boolean, surface: String, border: String, primar
             </div>
         </div>
         $hero
+        $valueProps
         <div style="margin-top:20px;display:flex;flex-direction:column;gap:10px;text-align:left;">
-            <div data-product="monthly" style="padding:12px;border-radius:16px;background:$surface;border:1px solid $border;display:flex;justify-content:space-between;align-items:center;">
-                <div><div style="font-size:12px;font-weight:700;">Monthly</div><div style="font-size:11px;opacity:.5;">Billed every month</div></div>
-                <div style="font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;">${'$'}1.99</div>
-            </div>
-            <div data-product="yearly" data-popular="true" style="position:relative;padding:12px;border-radius:16px;background:${primary}11;border:2px solid $primary;display:flex;justify-content:space-between;align-items:center;">
-                <span style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);color:#fff;font-size:9px;font-weight:900;padding:2px 10px;border-radius:9999px;text-transform:uppercase;background:$primary;">Most popular</span>
-                <div><div style="font-size:12px;font-weight:700;">Yearly</div><div style="font-size:11px;opacity:.5;">Billed every year</div></div>
-                <div style="font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;">${'$'}19.99</div>
-            </div>
-            <div data-product="lifetime" style="padding:12px;border-radius:16px;background:$surface;border:1px solid $border;display:flex;justify-content:space-between;align-items:center;">
-                <div><div style="font-size:12px;font-weight:700;">Lifetime</div><div style="font-size:11px;opacity:.5;">Pay once, keep forever</div></div>
-                <div style="font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;">${'$'}49.99</div>
-            </div>
-            <button data-action="continue" style="width:100%;border-radius:16px;padding:12px;color:#fff;font-weight:700;font-size:14px;margin-top:4px;border:0;cursor:pointer;background:$primary;box-shadow:0 8px 24px -4px ${primary}55;">Continue</button>
+            ${planRow("monthly", "Monthly", "Billed every month", "${'$'}1.99", popular == "monthly", surface, border, primary)}
+            ${planRow("yearly", "Yearly", "Billed every year", "${'$'}19.99", popular == "yearly", surface, border, primary)}
+            ${planRow("lifetime", "Lifetime", "Pay once, keep forever", "${'$'}49.99", popular == "lifetime", surface, border, primary)}
+            <button data-action="continue" style="width:100%;border-radius:16px;padding:12px;color:#fff;font-weight:700;font-size:14px;margin-top:4px;border:0;cursor:pointer;background:$primary;box-shadow:0 8px 24px -4px ${primary}55;">$ctaLabel</button>
         </div>
     """.trimIndent()
 }
 
-private fun premiumHtml(surface: String, border: String, primary: String) = """
+private fun premiumHtml(cfg: PreviewConfig, surface: String, border: String, primary: String): String {
+    val title = esc(cfg.successTitle ?: "You're Premium")
+    val message = esc(cfg.successMessage ?: "Renews Jul 5, 2026")
+    return """
     <div style="border-radius:12px;padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;background:${primary}11;border:1px solid ${primary}33;">
         <div style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:$primary;color:#fff;font-weight:900;">✓</div>
-        <div style="flex:1;text-align:left;"><div style="font-size:14px;font-weight:600;">You're Premium</div><div style="font-size:12px;opacity:.7;">Renews Jul 5, 2026</div></div>
+        <div style="flex:1;text-align:left;"><div style="font-size:14px;font-weight:600;">$title</div><div style="font-size:12px;opacity:.7;">$message</div></div>
     </div>
     <div style="border-radius:12px;padding:16px;background:$surface;border:1px solid $border;text-align:left;">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;opacity:.5;margin-bottom:8px;">Current plan</div>
@@ -208,6 +285,7 @@ private fun premiumHtml(surface: String, border: String, primary: String) = """
     </div>
     <button data-action="manage" style="width:100%;margin-top:16px;border-radius:12px;padding:10px;font-size:13px;font-weight:500;background:transparent;cursor:pointer;border:1px solid $border;">Manage subscription</button>
 """.trimIndent()
+}
 
 private fun errorHtml(surface: String, border: String) = """
     <div style="border-radius:12px;padding:16px;margin-bottom:16px;text-align:left;background:#FEF2F2;border:1px solid #FECACA;color:#B91C1C;">
