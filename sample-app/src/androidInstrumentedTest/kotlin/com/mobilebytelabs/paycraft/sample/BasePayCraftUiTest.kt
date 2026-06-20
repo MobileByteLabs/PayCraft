@@ -106,7 +106,7 @@ abstract class BasePayCraftUiTest {
         providers = listOf(
             ProviderDto(
                 provider = "stripe",
-                testPaymentLinks = mapOf("monthly" to "https://test.link/monthly"),
+                testPaymentLinksBySku = mapOf("monthly" to mapOf("INR" to "https://test.link/monthly")),
             ),
         ),
         paywall = PaywallDto(supportEmail = "test@example.com"),

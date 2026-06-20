@@ -25,7 +25,10 @@ actual object DeviceFingerprint {
         }
         val sha = MessageDigest.getInstance("SHA-256").digest(raw.encodeToByteArray())
         val hex = buildString(sha.size * 2) {
-            sha.forEach { append(((it.toInt() ushr 4) and 0x0F).toString(16)); append((it.toInt() and 0x0F).toString(16)) }
+            sha.forEach {
+                append(((it.toInt() ushr 4) and 0x0F).toString(16))
+                append((it.toInt() and 0x0F).toString(16))
+            }
         }
         val fingerprint = hex.substring(0, 16)
         cached = fingerprint

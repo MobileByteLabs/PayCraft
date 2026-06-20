@@ -65,7 +65,9 @@ spotless {
 
     format("misc") {
         target("**/*.md", "**/.gitignore", "**/*.yaml", "**/*.yml")
-        targetExclude("**/build/**", "**/.gradle/**")
+        // Never lint generated / vendored trees — node_modules + JS dist contain
+        // markdown/yaml we don't own (and dangling symlinks that break the scan).
+        targetExclude("**/build/**", "**/.gradle/**", "**/node_modules/**", "**/dist/**")
         trimTrailingWhitespace()
         indentWithSpaces(4)
         endWithNewline()

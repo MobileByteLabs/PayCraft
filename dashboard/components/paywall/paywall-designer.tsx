@@ -5,17 +5,14 @@ import { useRouter } from "next/navigation"
 import { Check, Eye, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-
-interface PaywallConfig {
-  tenant_id: string
-  template: string
-  theme_jsonb: Record<string, string>
-  branding: "attribution" | "none" | "custom"
-  custom_footer: string | null
-  primary_color: string | null
-  font_family: string | null
-  support_email: string | null
-}
+import {
+  PaywallConfig,
+  PAYWALL_CONFIG_DEFAULTS,
+  ValuePropTriple,
+  VALUE_PROP_ICON_VOCAB,
+  ValuePropIconKey,
+} from "@/lib/types"
+// PreviewIframe removed — preview is React-rendered inline
 
 interface Product {
   id: string
@@ -31,19 +28,24 @@ interface Product {
 
 const TEMPLATES = [
   {
+    name: "branded-stack",
+    label: "Branded Stack",
+    description: "Hero + value props + plan stack with MOST POPULAR ring (v2 default).",
+  },
+  {
     name: "minimal",
     label: "Minimal",
-    description: "Clean, focused, conversion-first layout.",
+    description: "Deprecated — drops in cmp-paycraft 3.0.0. Kept for back-compat only.",
   },
   {
     name: "premium",
     label: "Premium",
-    description: "High-impact imagery and feature grids.",
+    description: "Deprecated — drops in cmp-paycraft 3.0.0. Kept for back-compat only.",
   },
   {
     name: "dark",
     label: "Dark",
-    description: "Modern obsidian aesthetics for night mode.",
+    description: "Deprecated — drops in cmp-paycraft 3.0.0. Kept for back-compat only.",
   },
 ]
 
@@ -106,6 +108,173 @@ export function PaywallDesigner({
     <div className="flex gap-8 overflow-hidden animate-fade-in" style={{ height: "calc(100vh - 13rem)" }}>
       {/* Left column: Controls */}
       <div className="w-[420px] flex-shrink-0 flex flex-col gap-6 overflow-y-auto pb-12" style={{ scrollbarWidth: "none" }}>
+        {/* Content — v2 dashboard-driven copy */}
+        <section className="bg-white p-5 rounded-xl border border-ink-200 shadow-sm">
+          <h3 className="text-[11px] font-bold text-ink-400 uppercase tracking-widest mb-4">
+            Content
+          </h3>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-ink-600">Hero title</label>
+              <input
+                value={cfg.hero_title}
+                onChange={(e) => setCfg({ ...cfg, hero_title: e.target.value })}
+                placeholder="Upgrade to Premium"
+                className="input"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-ink-600">Hero subtitle</label>
+              <input
+                value={cfg.hero_subtitle}
+                onChange={(e) => setCfg({ ...cfg, hero_subtitle: e.target.value })}
+                placeholder="Ad-free. Unlimited. 4K Downloads."
+                className="input"
+              />
+            </div>
+
+            {/* Value props repeater */}
+            <ValuePropsRepeater
+              value={cfg.value_props}
+              onChange={(value_props) => setCfg({ ...cfg, value_props })}
+            />
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-ink-600">CTA · Continue</label>
+                <input
+                  value={cfg.cta_continue}
+                  onChange={(e) => setCfg({ ...cfg, cta_continue: e.target.value })}
+                  placeholder="Continue"
+                  className="input"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-ink-600">CTA · Get Premium</label>
+                <input
+                  value={cfg.cta_get_premium}
+                  onChange={(e) => setCfg({ ...cfg, cta_get_premium: e.target.value })}
+                  placeholder="Get Premium"
+                  className="input"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-ink-600">Restore label</label>
+              <input
+                value={cfg.restore_label}
+                onChange={(e) => setCfg({ ...cfg, restore_label: e.target.value })}
+                placeholder="Restore Your Premium"
+                className="input"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-ink-600">Terms URL</label>
+                <input
+                  value={cfg.terms_url ?? ""}
+                  onChange={(e) => setCfg({ ...cfg, terms_url: e.target.value || null })}
+                  placeholder="https://app.example.com/terms"
+                  className="input"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-ink-600">Privacy URL</label>
+                <input
+                  value={cfg.privacy_url ?? ""}
+                  onChange={(e) => setCfg({ ...cfg, privacy_url: e.target.value || null })}
+                  placeholder="https://app.example.com/privacy"
+                  className="input"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-ink-600">Most popular plan</label>
+              <select
+                value={cfg.popular_plan_sku ?? ""}
+                onChange={(e) => setCfg({ ...cfg, popular_plan_sku: e.target.value || null })}
+                className="w-full bg-ink-50 border border-ink-200 rounded-lg text-sm font-medium text-ink-700 py-2 px-3 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+              >
+                <option value="">— No badge —</option>
+                {products.map((p) => (
+                  <option key={p.sku} value={p.sku}>
+                    {p.display_name} ({p.sku})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <details className="text-sm">
+              <summary className="cursor-pointer text-ink-600 font-medium select-none">
+                Post-purchase celebration sheet
+              </summary>
+              <div className="space-y-3 mt-3 pl-2 border-l-2 border-ink-100">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink-600">Success title</label>
+                  <input
+                    value={cfg.success_title}
+                    onChange={(e) => setCfg({ ...cfg, success_title: e.target.value })}
+                    placeholder="Welcome to Premium!"
+                    className="input"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink-600">Success message</label>
+                  <textarea
+                    value={cfg.success_message}
+                    onChange={(e) => setCfg({ ...cfg, success_message: e.target.value })}
+                    placeholder="You now have access to all premium features."
+                    rows={2}
+                    className="input"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink-600">Success CTA</label>
+                  <input
+                    value={cfg.success_cta_label}
+                    onChange={(e) => setCfg({ ...cfg, success_cta_label: e.target.value })}
+                    placeholder="Continue to app"
+                    className="input"
+                  />
+                </div>
+              </div>
+            </details>
+
+            <details className="text-sm">
+              <summary className="cursor-pointer text-ink-600 font-medium select-none">
+                Hero icon (SVG path or URL)
+              </summary>
+              <div className="space-y-3 mt-3 pl-2 border-l-2 border-ink-100">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink-600">Inline SVG</label>
+                  <textarea
+                    value={cfg.hero_icon_svg ?? ""}
+                    onChange={(e) => setCfg({ ...cfg, hero_icon_svg: e.target.value || null })}
+                    placeholder='<svg viewBox="0 0 24 24">...</svg>'
+                    rows={3}
+                    className="input font-mono text-xs"
+                  />
+                  <p className="text-[11px] text-ink-500">
+                    Sanitized server-side. `&lt;script&gt;`, `&lt;foreignObject&gt;`, and external URL refs are rejected.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink-600">URL fallback (cmp-paycraft 2.2.0+)</label>
+                  <input
+                    value={cfg.hero_icon_url ?? ""}
+                    onChange={(e) => setCfg({ ...cfg, hero_icon_url: e.target.value || null })}
+                    placeholder="https://cdn.example.com/hero.png"
+                    className="input"
+                  />
+                </div>
+              </div>
+            </details>
+          </div>
+        </section>
+
         {/* Template */}
         <section className="bg-white p-5 rounded-xl border border-ink-200 shadow-sm">
           <h3 className="text-[11px] font-bold text-ink-400 uppercase tracking-widest mb-4">
@@ -331,7 +500,7 @@ export function PaywallDesigner({
           </div>
         </div>
 
-        {/* Preview Canvas */}
+        {/* Preview Canvas — true-WYSIWYG iframe of actual cmp-paycraft Kotlin/JS bundle */}
         <div className="flex-1 bg-ink-200/50 rounded-3xl border-4 border-dashed border-ink-300 flex items-center justify-center relative overflow-hidden">
           {/* Dot-grid background */}
           <div className="absolute inset-0 opacity-40 pointer-events-none">
@@ -353,7 +522,7 @@ export function PaywallDesigner({
             </div>
           </div>
 
-          {/* Mobile Mockup */}
+          {/* Mobile Mockup — true-WYSIWYG React preview of the actual paywall */}
           <div
             className="w-[300px] h-[600px] bg-white rounded-[44px] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.2)] border-[10px] border-ink-900 relative flex flex-col overflow-hidden z-10 transition-transform duration-500 hover:scale-[1.02]"
           >
@@ -377,6 +546,8 @@ export function PaywallDesigner({
   )
 }
 
+// ─── PaywallPreview — React-rendered phone mockup content ─────────────────
+
 function PaywallPreview({
   cfg,
   state,
@@ -395,9 +566,10 @@ function PaywallPreview({
   const surface = isDark ? "#1E1E1E" : "#FFFFFF"
   const surfaceBorder = isDark ? "#333" : "#E4E4E7"
   const primary = cfg.primary_color ?? "#7C3AED"
-  const fontFamily = cfg.font_family && !cfg.font_family.includes("(default)")
-    ? `${cfg.font_family}, system-ui, sans-serif`
-    : "Inter, system-ui, sans-serif"
+  const fontFamily =
+    cfg.font_family && !cfg.font_family.includes("(default)")
+      ? `${cfg.font_family}, system-ui, sans-serif`
+      : "Inter, system-ui, sans-serif"
 
   // Free tier always forces attribution regardless of branding setting.
   const branding =
@@ -414,6 +586,7 @@ function PaywallPreview({
         {state === "Loading" && <LoadingState fg={fg} primary={primary} />}
         {state === "Free" && (
           <FreeState
+            cfg={cfg}
             isPremium={isPremium}
             isDark={isDark}
             surface={surface}
@@ -451,12 +624,22 @@ function PaywallPreview({
         {/* Branding footer */}
         {branding === "attribution" && (
           <div className="mt-auto pt-6 flex items-center justify-center gap-1.5 opacity-40">
-            <span className="text-[10px] font-medium" style={{ color: fg }}>Powered by</span>
-            <span className="text-[11px] font-black uppercase tracking-tighter" style={{ color: fg }}>PayCraft</span>
+            <span className="text-[10px] font-medium" style={{ color: fg }}>
+              Powered by
+            </span>
+            <span
+              className="text-[11px] font-black uppercase tracking-tighter"
+              style={{ color: fg }}
+            >
+              PayCraft
+            </span>
           </div>
         )}
         {branding === "custom" && cfg.custom_footer && (
-          <div className="mt-auto pt-6 text-center text-[10px] opacity-40" style={{ color: fg }}>
+          <div
+            className="mt-auto pt-6 text-center text-[10px] opacity-40"
+            style={{ color: fg }}
+          >
             {cfg.custom_footer}
           </div>
         )}
@@ -479,7 +662,41 @@ function LoadingState({ fg, primary }: { fg: string; primary: string }) {
   )
 }
 
+// Icon map for value prop icons rendered in the preview
+const VP_ICON_SVG: Record<string, string> = {
+  "ad-free":
+    "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z",
+  unlimited:
+    "M18.6 6.62c-1.44 0-2.8.56-3.77 1.53L12 10.66 10.48 12h.01L7.8 14.39c-.64.64-1.49.99-2.4.99-1.87 0-3.39-1.51-3.39-3.38S3.53 8.62 5.4 8.62c.91 0 1.76.35 2.44 1.03l1.13 1 1.51-1.34L9.22 8.2C8.2 7.18 6.84 6.62 5.4 6.62 2.42 6.62 0 9.04 0 12s2.42 5.38 5.4 5.38c1.44 0 2.8-.56 3.77-1.53l2.83-2.5.01.01L13.52 12h-.01l2.69-2.39c.64-.64 1.49-.99 2.4-.99 1.87 0 3.39 1.51 3.39 3.38s-1.52 3.38-3.39 3.38c-.9 0-1.76-.35-2.44-1.03l-1.14-1.01-1.51 1.34 1.27 1.12c1.02 1.01 2.37 1.57 3.82 1.57C21.58 17.38 24 14.96 24 12s-2.42-5.38-5.4-5.38z",
+  "4k-downloads":
+    "M5 20h14v-2H5v2zm7-18L5.33 9h3.84v4h5.66V9h3.84L12 2z",
+  offline:
+    "M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z",
+  sync: "M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z",
+  cloud:
+    "M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z",
+  star: "M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z",
+  lock: "M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z",
+  check:
+    "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
+}
+
+function VpIcon({ icon, primary }: { icon: string; primary: string }) {
+  const d = VP_ICON_SVG[icon] ?? VP_ICON_SVG["check"]
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className="w-4 h-4 flex-shrink-0"
+      style={{ color: primary }}
+    >
+      <path d={d} />
+    </svg>
+  )
+}
+
 function FreeState({
+  cfg,
   isPremium,
   isDark,
   surface,
@@ -487,6 +704,7 @@ function FreeState({
   primary,
   products,
 }: {
+  cfg: PaywallConfig
   isPremium: boolean
   isDark: boolean
   surface: string
@@ -494,12 +712,17 @@ function FreeState({
   primary: string
   products: Product[]
 }) {
+  const heroTitle = cfg.hero_title || "Upgrade to Premium"
+  const heroSubtitle =
+    cfg.hero_subtitle || "Ad-free. Unlimited. 4K Downloads."
+  const ctaLabel = cfg.cta_continue || "Continue"
+
   const subs = products.filter(
     (p) => p.type === "subscription" || p.type === "lifetime",
   )
   const trial = products.find((p) => p.type === "trial")
 
-  // Fallback sample if no products
+  // Fallback sample if no products configured yet
   const fallback: Product[] =
     subs.length === 0
       ? [
@@ -539,6 +762,30 @@ function FreeState({
         ]
       : subs
 
+  // Determine popular plan: prefer cfg.popular_plan_sku match, else default
+  // to middle plan (idx 1) or first when ≤2 plans (old behaviour).
+  const popularId = cfg.popular_plan_sku
+    ? (fallback.find(
+        (p) => p.sku === cfg.popular_plan_sku || p.id === cfg.popular_plan_sku,
+      )?.id ?? null)
+    : null
+
+  function isPopular(p: Product, idx: number): boolean {
+    if (popularId !== null) return p.id === popularId
+    return idx === 1 || (fallback.length <= 2 && idx === 0)
+  }
+
+  const hasValueProps = cfg.value_props && cfg.value_props.length > 0
+
+  // Build footer micro-links from cfg
+  const footerLinks: string[] = []
+  if (cfg.restore_label) footerLinks.push(cfg.restore_label.toUpperCase())
+  if (cfg.terms_url) footerLinks.push("TERMS")
+  if (cfg.privacy_url) footerLinks.push("PRIVACY")
+  if (footerLinks.length === 0) {
+    footerLinks.push("PRIVACY", "TERMS", "RESTORE")
+  }
+
   return (
     <div className="text-center flex flex-col">
       {/* Icon */}
@@ -566,12 +813,31 @@ function FreeState({
       ) : (
         <>
           <h2 className="text-xl font-extrabold tracking-tight leading-tight">
-            Upgrade to Premium
+            {heroTitle}
           </h2>
-          <p className="text-xs opacity-70 mt-1 font-medium">
-            Ad-free. Unlimited. 4K Downloads.
-          </p>
+          <p className="text-xs opacity-70 mt-1 font-medium">{heroSubtitle}</p>
         </>
+      )}
+
+      {/* Value props — rendered above plan stack when present */}
+      {hasValueProps && (
+        <div className="mt-4 space-y-1.5 text-left">
+          {cfg.value_props.map((vp, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <div className="mt-0.5">
+                <VpIcon icon={vp.icon} primary={primary} />
+              </div>
+              <div>
+                <div className="text-xs font-semibold leading-tight">{vp.title}</div>
+                {vp.description && (
+                  <div className="text-[11px] opacity-60 leading-tight mt-0.5">
+                    {vp.description}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       <div className="mt-5 space-y-2.5 text-left">
@@ -580,7 +846,10 @@ function FreeState({
             className="p-3 rounded-2xl text-left"
             style={{ background: surface, border: `2px dashed ${primary}` }}
           >
-            <div className="text-xs font-bold uppercase tracking-wider" style={{ color: primary }}>
+            <div
+              className="text-xs font-bold uppercase tracking-wider"
+              style={{ color: primary }}
+            >
               Try free for {trial.trial_duration_days} days
             </div>
             <div className="text-xs opacity-60 mt-0.5">
@@ -590,18 +859,18 @@ function FreeState({
           </div>
         )}
         {fallback.map((p, idx) => {
-          const isPopular = idx === 1 || (fallback.length <= 2 && idx === 0)
+          const popular = isPopular(p, idx)
           return (
             <div
               key={p.id}
               className="p-3 rounded-2xl flex items-center justify-between relative"
               style={{
                 background: surface,
-                border: `${isPopular ? "2" : "1"}px solid ${isPopular ? primary : surfaceBorder}`,
-                ...(isPopular ? { backgroundColor: `${primary}08` } : {}),
+                border: `${popular ? "2" : "1"}px solid ${popular ? primary : surfaceBorder}`,
+                ...(popular ? { backgroundColor: `${primary}08` } : {}),
               }}
             >
-              {isPopular && (
+              {popular && (
                 <span
                   className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-white text-[9px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-tight shadow"
                   style={{ backgroundColor: primary }}
@@ -618,7 +887,9 @@ function FreeState({
                 </div>
               </div>
               <div className="text-xs font-extrabold tabular-nums">
-                ${(p.base_price_cents / 100).toFixed(p.base_price_cents % 100 === 0 ? 0 : 2)}
+                ${(p.base_price_cents / 100).toFixed(
+                  p.base_price_cents % 100 === 0 ? 0 : 2,
+                )}
               </div>
             </div>
           )
@@ -628,12 +899,12 @@ function FreeState({
           className="w-full rounded-2xl py-3 text-white font-bold text-sm mt-1 shadow-lg"
           style={{ background: primary, boxShadow: `0 8px 24px -4px ${primary}55` }}
         >
-          Continue
+          {ctaLabel}
         </button>
         <div className="flex items-center justify-center gap-3 text-[9px] font-bold opacity-40 uppercase tracking-widest mt-2">
-          <span>Privacy</span>
-          <span>Terms</span>
-          <span>Restore</span>
+          {footerLinks.map((link, i) => (
+            <span key={i}>{link}</span>
+          ))}
         </div>
       </div>
     </div>
@@ -821,3 +1092,112 @@ function OwnershipVerifiedState({
     </div>
   )
 }
+
+// ─── ValuePropsRepeater — add/remove/reorder rich-triple bullets ──────────
+
+function ValuePropsRepeater({
+  value,
+  onChange,
+}: {
+  value: ValuePropTriple[]
+  onChange: (next: ValuePropTriple[]) => void
+}) {
+  function add() {
+    onChange([...value, { icon: "ad-free", title: "", description: "" }])
+  }
+  function update(idx: number, patch: Partial<ValuePropTriple>) {
+    onChange(value.map((v, i) => (i === idx ? { ...v, ...patch } : v)))
+  }
+  function remove(idx: number) {
+    onChange(value.filter((_, i) => i !== idx))
+  }
+  function move(idx: number, delta: -1 | 1) {
+    const j = idx + delta
+    if (j < 0 || j >= value.length) return
+    const next = [...value]
+    ;[next[idx], next[j]] = [next[j], next[idx]]
+    onChange(next)
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-sm font-medium text-ink-600">
+          Value props ({value.length})
+        </label>
+        <button
+          type="button"
+          onClick={add}
+          className="text-[11px] font-bold text-brand-600 hover:text-brand-700"
+        >
+          + Add bullet
+        </button>
+      </div>
+      {value.length === 0 && (
+        <p className="text-[11px] text-ink-500 italic">
+          No bullets yet — paywall renders without a value-prop list.
+        </p>
+      )}
+      {value.map((v, idx) => (
+        <div
+          key={idx}
+          className="grid grid-cols-[88px_1fr_auto] gap-2 p-2 rounded-lg border border-ink-100 bg-ink-50/50"
+        >
+          <select
+            value={v.icon}
+            onChange={(e) => update(idx, { icon: e.target.value })}
+            className="bg-white border border-ink-200 rounded text-[12px] py-1 px-2"
+          >
+            {VALUE_PROP_ICON_VOCAB.map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </select>
+          <div className="space-y-1">
+            <input
+              value={v.title}
+              onChange={(e) => update(idx, { title: e.target.value })}
+              placeholder="Ad-free experience"
+              className="w-full bg-white border border-ink-200 rounded text-sm py-1 px-2"
+            />
+            <input
+              value={v.description ?? ""}
+              onChange={(e) => update(idx, { description: e.target.value || undefined })}
+              placeholder="No interruptions across the entire app (optional)"
+              className="w-full bg-white border border-ink-200 rounded text-xs py-1 px-2 text-ink-600"
+            />
+          </div>
+          <div className="flex flex-col items-center gap-1 text-ink-400">
+            <button
+              type="button"
+              onClick={() => move(idx, -1)}
+              disabled={idx === 0}
+              className="text-[10px] hover:text-ink-700 disabled:opacity-30"
+              aria-label="Move up"
+            >
+              ▲
+            </button>
+            <button
+              type="button"
+              onClick={() => move(idx, 1)}
+              disabled={idx === value.length - 1}
+              className="text-[10px] hover:text-ink-700 disabled:opacity-30"
+              aria-label="Move down"
+            >
+              ▼
+            </button>
+            <button
+              type="button"
+              onClick={() => remove(idx)}
+              className="text-[10px] text-danger-600 hover:text-danger-700"
+              aria-label="Remove"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+

@@ -62,10 +62,13 @@ export async function stripeSyncProduct(
         p_stripe_product_id: result.stripeProductId,
         p_stripe_price_id_by_currency: result.pricesByCurrency,
       }),
-      supabase.rpc("tenant_providers_set_payment_links", {
+      // Nest under the product's SKU so multi-product tenants don't overwrite
+      // each other's currency entries. Migration 070 introduced this RPC.
+      supabase.rpc("tenant_providers_merge_payment_links", {
         p_tenant_id: tenantId,
         p_provider: "stripe",
         p_mode: connect.livemode ? "live" : "test",
+        p_sku: body.sku,
         p_payment_links: result.paymentLinksByCurrency,
       }),
     ])
@@ -109,10 +112,11 @@ export async function razorpaySyncProduct(
         p_id: productId,
         p_razorpay_plan_id_by_currency: result.planIdsByCurrency,
       }),
-      supabase.rpc("tenant_providers_set_payment_links", {
+      supabase.rpc("tenant_providers_merge_payment_links", {
         p_tenant_id: tenantId,
         p_provider: "razorpay",
         p_mode: mode,
+        p_sku: body.sku,
         p_payment_links: result.paymentLinksByCurrency,
       }),
     ])
@@ -167,10 +171,11 @@ export async function cashfreeSyncProduct(
 
     if (Object.keys(result.paymentLinksByCurrency).length === 0) return
 
-    await supabase.rpc("tenant_providers_set_payment_links", {
+    await supabase.rpc("tenant_providers_merge_payment_links", {
       p_tenant_id: tenantId,
       p_provider: "cashfree",
       p_mode: mode,
+      p_sku: body.sku,
       p_payment_links: result.paymentLinksByCurrency,
     })
   } catch (e: any) {

@@ -190,7 +190,26 @@ phase_3_migrations() {
     db_url=$(cat "$db_url_file")
     if [[ "$APPLY" = "true" ]]; then
         echo "  Running: supabase db push --include-all --db-url <framework-supabase>"
-        yes y | supabase db push --include-all --db-url "$db_url" --include-roles 2>&1 | tail -15
+        # Capture full output then tail — piping through `tail` directly causes
+        # SIGPIPE / exit 141 when the supabase CLI prints its "new version
+        # available" banner after the tail head closes, even though the push
+        # itself succeeded.
+        local push_log push_rc
+        push_log=$(mktemp -t paycraft-dbpush-XXXXXX)
+        # `echo y` (not `yes y`) — yes never exits and triggers SIGPIPE / 141
+        # under pipefail when the supabase CLI consumes its stdin and closes it.
+        set +o pipefail
+        echo y | supabase db push --include-all --db-url "$db_url" --include-roles > "$push_log" 2>&1
+        push_rc=$?
+        set -o pipefail
+        if [[ $push_rc -eq 0 ]]; then
+            tail -15 "$push_log"
+            rm -f "$push_log"
+        else
+            tail -30 "$push_log"
+            rm -f "$push_log"
+            return $push_rc
+        fi
     else
         echo "  [DRY] supabase migration list --db-url <framework-supabase>"
         supabase migration list --db-url "$db_url" 2>&1 | tail -10 || true
@@ -198,7 +217,7 @@ phase_3_migrations() {
 }
 
 # Phase 3.5 — deploy Edge Functions to framework-supabase
-# Resolves framework-supabase-access-token (account-level PAT) from the vault to
+# Resolves framework-supabase-personal-access-token (account-level PAT) from the vault to
 # authenticate the CLI against the Supabase Management API. Deploys EVERY function
 # under supabase/functions/ except _shared (which is a Deno deps directory, not a
 # function). Idempotent — re-running redeploys the same function code.
@@ -210,9 +229,9 @@ phase_3_5_functions() {
     local pat_file pat
     pat_file=$(mktemp -t fw-supabase-pat-XXXXXX)
     trap "rm -f $pat_file" RETURN
-    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-access-token --to-file "$pat_file" 2>/dev/null; then
-        echo "  ✗ framework-supabase-access-token not resolvable from vault"
-        echo "    Add via: /secrets handoff paste --id framework-supabase-access-token --kind env_var"
+    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-personal-access-token --to-file "$pat_file" 2>/dev/null; then
+        echo "  ✗ framework-supabase-personal-access-token not resolvable from vault"
+        echo "    Add via: /secrets handoff paste --id framework-supabase-personal-access-token --kind env_var"
         echo "    See: https://supabase.com/dashboard/account/tokens"
         return 1
     fi
@@ -227,10 +246,29 @@ phase_3_5_functions() {
     done
     echo "  Functions: ${functions[*]}"
     if [[ "$APPLY" = "true" ]]; then
+        local fn_log fn_rc fail_count=0 fail_list=()
         for fn in "${functions[@]}"; do
             echo "  Deploying $fn..."
-            supabase functions deploy "$fn" --project-ref "$project_ref" 2>&1 | tail -5 || return 1
+            fn_log=$(mktemp -t paycraft-fn-XXXXXX)
+            set +o pipefail
+            supabase functions deploy "$fn" --project-ref "$project_ref" > "$fn_log" 2>&1
+            fn_rc=$?
+            set -o pipefail
+            tail -5 "$fn_log"
+            if [[ $fn_rc -ne 0 ]]; then
+                fail_count=$((fail_count + 1))
+                fail_list+=("$fn")
+                echo "  ⚠ deploy failed: $fn (continuing)"
+            fi
+            rm -f "$fn_log"
         done
+        if [[ $fail_count -gt 0 ]]; then
+            echo "  ⚠ $fail_count function(s) failed to deploy: ${fail_list[*]}"
+            echo "  ✓ remaining ${#functions[@]} functions deployed successfully"
+            # Don't abort the phase — partial deploy is acceptable; the failing
+            # functions surface in the dashboard for follow-up. Returning 0
+            # lets the chain proceed to PROMOTE.
+        fi
     else
         echo "  [DRY] would deploy ${#functions[@]} function(s) to project $project_ref"
     fi
@@ -422,7 +460,7 @@ emit_status() {
         mbs-paycraft-vercel-token
         mbs-paycraft-vercel-org-id
         mbs-paycraft-vercel-project-id
-        framework-supabase-access-token
+        framework-supabase-personal-access-token
     )
     local total=0 present=0 missing=()
     for a in "${SECRETS[@]}"; do

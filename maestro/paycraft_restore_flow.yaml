@@ -1,0 +1,36 @@
+# PayCraft v2 restore affordance (sub-plan 03 T6, AC-16 companion).
+#
+# Verifies the restore affordance is genuinely reachable in the real on-device UI:
+# the banner surfaces a "Restore Your Premium" label, and the BrandedStackTemplate
+# paywall footer surfaces a tappable "RESTORE" link. The restore *sheet* itself
+# (PayCraftRestore — the previously-crashing Koin-injected composable) is driven by
+# the 11 unit tests in PayCraftRestoreContentTest.kt; the sample exposes no discrete
+# Maestro-tappable restore trigger (the footer link is a combined Compose node and
+# the banner label is decorative), so the sheet open is not asserted here rather
+# than faked.
+#
+# Run: maestro test maestro/paycraft_restore_flow.yaml
+# clearState omitted — this device denies `pm clear`; stopApp cold-starts instead.
+
+appId: com.mobilebytelabs.paycraft.sample
+---
+- stopApp
+- launchApp
+
+# Banner surfaces the restore label (DTO restore_label).
+- assertVisible: "Upgrade to Premium"
+- assertVisible: "Restore Your Premium"
+
+# Open the paywall modal where the footer restore link lives.
+- tapOn: "Get Premium"
+- extendedWaitUntil:
+    visible: "Monthly"
+    timeout: 15000
+
+# Footer "RESTORE" affordance is reachable (scroll into view) — and nothing crashed.
+- scrollUntilVisible:
+    element:
+      text: "RESTORE"
+    direction: DOWN
+- assertVisible: "RESTORE"
+- assertNotVisible: "Application Error"

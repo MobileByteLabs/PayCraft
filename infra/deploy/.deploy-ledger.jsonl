@@ -1,1 +1,6 @@
 {"ts":"2026-06-17T10:06:17Z","env":"production","status":"aborted","duration_s":917,"failed_phase":"5","apply":true}
+{"ts":"2026-06-19T05:04:11Z","env":"production","status":"aborted","duration_s":18,"failed_phase":"2","apply":true}
+{"ts":"2026-06-19T05:05:41Z","env":"production","status":"aborted","duration_s":8,"failed_phase":"3","apply":true}
+{"ts":"2026-06-19T05:07:05Z","env":"production","status":"aborted","duration_s":9,"failed_phase":"3","apply":true}
+{"ts":"2026-06-19T05:09:44Z","env":"production","status":"aborted","duration_s":74,"failed_phase":"3","apply":true}
+{"ts":"2026-06-19T05:11:24Z","env":"production","status":"aborted","duration_s":58,"failed_phase":"3","apply":true}

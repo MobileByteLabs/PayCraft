@@ -73,6 +73,7 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_success_
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_verifying_identity
 import com.mobilebytelabs.paycraft.model.BillingState
+import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -207,13 +208,16 @@ fun PayCraftRestoreContent(
 
     val hasOAuth = onGoogleSignInClick != null || onAppleSignInClick != null
 
+    val spacing = PayCraftTheme.spacing
+    val paycraftColors = PayCraftTheme.colors
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .imePadding()
-            .padding(horizontal = 24.dp, vertical = 8.dp)
+            .padding(horizontal = spacing.lg, vertical = spacing.sm)
             .padding(bottom = 40.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(spacing.md),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Header icon
@@ -222,14 +226,14 @@ fun PayCraftRestoreContent(
             modifier = Modifier
                 .size(64.dp)
                 .background(
-                    color = MaterialTheme.colorScheme.primaryContainer,
+                    color = paycraftColors.accentContainer,
                     shape = CircleShape,
                 ),
         ) {
             Icon(
                 imageVector = Icons.Filled.Star,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                tint = paycraftColors.onAccentContainer,
                 modifier = Modifier.size(32.dp),
             )
         }
@@ -248,11 +252,11 @@ fun PayCraftRestoreContent(
                 stringResource(Res.string.paycraft_restore_description)
             },
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = paycraftColors.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(spacing.xs))
 
         // ── Gate 1: OAuth buttons (shown when host app supports it) ──────────
         if (hasOAuth) {
@@ -295,15 +299,15 @@ fun PayCraftRestoreContent(
                         .testTag(TAG_RESTORE_APPLE),
                     enabled = !isRestoring && restoreResult == null,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.onSurface,
-                        contentColor = MaterialTheme.colorScheme.surface,
+                        containerColor = paycraftColors.onSurface,
+                        contentColor = paycraftColors.surface,
                     ),
                 ) {
                     if (isRestoring) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.surface,
+                            color = paycraftColors.surface,
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(Res.string.paycraft_restore_verifying_identity))
@@ -317,13 +321,13 @@ fun PayCraftRestoreContent(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
                 HorizontalDivider(modifier = Modifier.weight(1f))
                 Text(
                     text = stringResource(Res.string.paycraft_restore_or_email),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = paycraftColors.onSurfaceVariant,
                 )
                 HorizontalDivider(modifier = Modifier.weight(1f))
             }
@@ -383,7 +387,7 @@ fun PayCraftRestoreContent(
                     {
                         Text(
                             stringResource(Res.string.paycraft_restore_hint),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = paycraftColors.onSurfaceVariant,
                         )
                     }
                 }
@@ -411,7 +415,7 @@ fun PayCraftRestoreContent(
             null -> {}
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(spacing.xs))
 
         Button(
             onClick = {
@@ -435,15 +439,15 @@ fun PayCraftRestoreContent(
         ) {
             if (isRestoring && !hasOAuth) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
                         strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
+                        color = paycraftColors.onAccent,
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(spacing.xs))
                     Text(stringResource(Res.string.paycraft_restore_checking))
                 }
             } else {
@@ -460,7 +464,7 @@ fun PayCraftRestoreContent(
         ) {
             Text(
                 text = stringResource(Res.string.paycraft_restore_cancel),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = paycraftColors.onSurfaceVariant,
             )
         }
     }
