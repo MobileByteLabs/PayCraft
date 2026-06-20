@@ -408,7 +408,7 @@ internal fun SuiteConfig.toPayCraftConfig(backend: PayCraftBackend, apiKey: Stri
         supabaseUrl = backend.supabaseUrl,
         supabaseAnonKey = backend.supabaseAnonKey,
         provider = provider,
-        plans = products.toBillingPlans(),
+        plans = products.toBillingPlans(paywall.popularPlanSku),
         benefits = emptyList(), // benefits surface on PaywallDto.themeJsonb in cloud mode
         supportEmail = paywall.supportEmail ?: "support@paycraft.mobilebytesensei.com",
         apiKey = apiKey,
@@ -420,7 +420,7 @@ internal fun SuiteConfig.toPayCraftConfig(backend: PayCraftBackend, apiKey: Stri
     )
 }
 
-private fun List<ProductDto>.toBillingPlans(): List<BillingPlan> {
+private fun List<ProductDto>.toBillingPlans(popularSku: String?): List<BillingPlan> {
     val subscriptions = filter { it.type == "subscription" || it.type == "lifetime" }
         .sortedBy { it.displayOrder }
     val trials = filter { it.type == "trial" }
@@ -460,7 +460,7 @@ private fun List<ProductDto>.toBillingPlans(): List<BillingPlan> {
             discountEndsAt = if (discountPercent != null) dto.discountEndsAt else null,
             interval = dto.interval ?: "lifetime",
             rank = idx,
-            isPopular = false,
+            isPopular = popularSku != null && dto.sku == popularSku,
             trialDays = trialDays,
             currency = originalCurrency.uppercase(),
         )

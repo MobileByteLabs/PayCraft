@@ -61,6 +61,7 @@ import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.presentation.Branding
 import com.mobilebytelabs.paycraft.presentation.ProviderBottomSheet
 import com.mobilebytelabs.paycraft.presentation.components.BrandingFooter
+import com.mobilebytelabs.paycraft.presentation.templates.ValuePropList
 import com.mobilebytelabs.paycraft.provider.StripeProvider
 import com.mobilebytelabs.paycraft.ui.components.PayCraftActiveSubscriptionBanner
 import com.mobilebytelabs.paycraft.ui.components.PayCraftPaywallHeader
@@ -373,6 +374,14 @@ fun PayCraftPaywallContent(
                             subtitle = paywallSubtitle,
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         )
+
+                        // Dashboard-authored value props (PaywallDto.value_props). Same
+                        // component the BrandedStackTemplate uses, so the consumer paywall
+                        // and the designer render value props identically.
+                        val valueProps = livePaywall?.valueProps.orEmpty()
+                        if (valueProps.isNotEmpty()) {
+                            ValuePropList(items = valueProps)
+                        }
 
                         // Plans — designer-style cards with center-top MOST POPULAR pill.
                         if (state.plans.isNotEmpty()) {
