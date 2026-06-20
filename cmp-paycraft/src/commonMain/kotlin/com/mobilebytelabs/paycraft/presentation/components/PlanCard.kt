@@ -61,7 +61,9 @@ fun PlanCard(product: Product, onClick: () -> Unit, modifier: Modifier = Modifie
                     width = 2.dp,
                     color = PayCraftTheme.colors.popularBadge,
                 )
-            } else null,
+            } else {
+                null
+            },
             shape = RoundedCornerShape(PayCraftTheme.shape.planCard),
             onClick = onClick,
         ) {

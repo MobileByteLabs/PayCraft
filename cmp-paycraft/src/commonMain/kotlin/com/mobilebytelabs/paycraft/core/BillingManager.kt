@@ -15,10 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
  *              `null` if the plan could not be resolved from the server response.
  * @param isTrial `true` when the subscription is currently in its free-trial window.
  */
-data class SubscriptionActivated(
-    val sku: String?,
-    val isTrial: Boolean,
-)
+data class SubscriptionActivated(val sku: String?, val isTrial: Boolean)
 
 interface BillingManager {
     val isPremium: StateFlow<Boolean>

@@ -137,22 +137,26 @@ class PaywallTemplateTest {
      * BrandedStackLoading renders a "Loading subscription status…" text node and a
      * circular progress indicator. The marker "Loading" is unique to this state branch.
      */
-    @Test fun branded_stack_loading() =
-        renderAndAssert(PaywallTemplate.BRANDED_STACK, BillingState.Loading, "Loading")
+    @Test fun branded_stack_loading() = renderAndAssert(PaywallTemplate.BRANDED_STACK, BillingState.Loading, "Loading")
 
     /**
      * BrandedStackFree uses the default [PaywallDto.heroTitle] ("Upgrade to Premium")
      * when no [LocalPayCraftConfig] is provided — the `?: PaywallDto()` fallback in
      * [paywallConfig] guarantees the default fires in the test harness.
      */
-    @Test fun branded_stack_free() =
-        renderAndAssert(PaywallTemplate.BRANDED_STACK, BillingState.Free, "Upgrade to Premium")
+    @Test fun branded_stack_free() = renderAndAssert(
+        PaywallTemplate.BRANDED_STACK,
+        BillingState.Free,
+        "Upgrade to Premium",
+    )
 
-    @Test fun branded_stack_premium() =
-        renderAndAssert(PaywallTemplate.BRANDED_STACK, premiumState, "You're Premium")
+    @Test fun branded_stack_premium() = renderAndAssert(PaywallTemplate.BRANDED_STACK, premiumState, "You're Premium")
 
-    @Test fun branded_stack_error() =
-        renderAndAssert(PaywallTemplate.BRANDED_STACK, BillingState.Error("network"), "Retry")
+    @Test fun branded_stack_error() = renderAndAssert(
+        PaywallTemplate.BRANDED_STACK,
+        BillingState.Error("network"),
+        "Retry",
+    )
 
     /**
      * BrandedStackDeviceConflict renders "Device limit reached" — distinct from the

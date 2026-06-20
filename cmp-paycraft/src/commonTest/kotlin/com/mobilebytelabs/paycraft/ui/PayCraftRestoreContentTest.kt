@@ -40,9 +40,7 @@ class PayCraftRestoreContentTest {
      * Minimal in-memory [BillingManager] for Compose UI tests.
      * Starts in [BillingState.Free] and never performs real network calls.
      */
-    private class FakeBillingManager(
-        initialState: BillingState = BillingState.Free,
-    ) : BillingManager {
+    private class FakeBillingManager(initialState: BillingState = BillingState.Free) : BillingManager {
 
         private val _billingState = MutableStateFlow<BillingState>(initialState)
         override val billingState: StateFlow<BillingState> = _billingState

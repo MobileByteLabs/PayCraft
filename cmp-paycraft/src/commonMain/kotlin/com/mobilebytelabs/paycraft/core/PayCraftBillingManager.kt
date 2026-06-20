@@ -68,7 +68,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
      * call so we can detect the non-premium → premium rising edge and emit exactly once.
      * Initialised from the cached status so a warm-start re-apply does not re-fire.
      */
-    private var _previousIsPremium: Boolean = store.getCachedSubscriptionStatus()?.isPremium ?: false
+    private var lastObservedPremium: Boolean = store.getCachedSubscriptionStatus()?.isPremium ?: false
 
     /**
      * Cached conflict info so that after OAuth or OTP verifies identity we can
@@ -520,7 +520,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
 
     private suspend fun applyPremiumResult(email: String, isPremium: Boolean, mode: String) {
         PayCraftLogger.onFlow("applyPremiumResult", "email=$email, isPremium=$isPremium, mode=$mode")
-        val wasAlreadyPremium = _previousIsPremium
+        val wasAlreadyPremium = lastObservedPremium
         _isPremium.value = isPremium
         if (isPremium) {
             val token = DeviceTokenStore.getToken()
@@ -566,7 +566,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
                 }
             }
 
-            _previousIsPremium = true
+            lastObservedPremium = true
         } else {
             val status = SubscriptionStatus(isPremium = false, email = email)
             _isInTrial.value = false
@@ -582,7 +582,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
                 expiresAt = null,
                 willRenew = false,
             )
-            _previousIsPremium = false
+            lastObservedPremium = false
         }
     }
 }
