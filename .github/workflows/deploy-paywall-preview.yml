@@ -39,13 +39,13 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build cmp-paycraft Kotlin/JS preview bundle
-        run: ./gradlew :cmp-paycraft:jsBrowserDistribution --no-daemon
+        run: ./gradlew :cmp-paycraft:preview-js:jsBrowserDistribution --no-daemon
 
       - name: Verify bundle output exists
         run: |
-          test -d cmp-paycraft/build/dist/js/productionExecutable \
+          test -d cmp-paycraft/preview-js/build/dist/js/productionExecutable \
             || (echo "::error::Kotlin/JS bundle not at expected path"; exit 1)
-          ls -la cmp-paycraft/build/dist/js/productionExecutable | head -20
+          ls -la cmp-paycraft/preview-js/build/dist/js/productionExecutable | head -20
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
@@ -57,6 +57,6 @@ jobs:
           # Branch deploys produce a per-branch preview URL on Cloudflare Pages.
           command: >
             pages deploy
-            cmp-paycraft/build/dist/js/productionExecutable
+            cmp-paycraft/preview-js/build/dist/js/productionExecutable
             --project-name=paycraft-paywall-preview
             ${{ (github.ref == 'refs/heads/main' || github.event.inputs.production == 'true') && '--branch=main' || format('--branch={0}', github.head_ref || github.ref_name) }}
