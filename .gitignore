@@ -111,3 +111,6 @@ cli/dist/
 # that local devs may add so `supabase db reset` finds the migrations).
 supabase/migrations
 .vercel
+
+# Wrangler CLI cache (Cloudflare Workers)
+.wrangler/

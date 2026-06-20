@@ -17,8 +17,11 @@ import com.mobilebytelabs.paycraft.provider.StripeProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
@@ -46,6 +49,26 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
 
     private val _trialEndsAt = MutableStateFlow<String?>(null)
     override val trialEndsAt: StateFlow<String?> = _trialEndsAt.asStateFlow()
+
+    /**
+     * Backing flow for [subscriptionActivated].  replay=0 so late collectors
+     * do not receive historical activations; extraBufferCapacity=1 ensures the
+     * emit inside [applyPremiumResult] never suspends even if there is no active
+     * collector at the exact moment of emission.
+     */
+    private val _subscriptionActivated = MutableSharedFlow<SubscriptionActivated>(
+        replay = 0,
+        extraBufferCapacity = 1,
+    )
+    override val subscriptionActivated: SharedFlow<SubscriptionActivated> =
+        _subscriptionActivated.asSharedFlow()
+
+    /**
+     * Tracks the premium state observed during the most recent [applyPremiumResult]
+     * call so we can detect the non-premium → premium rising edge and emit exactly once.
+     * Initialised from the cached status so a warm-start re-apply does not re-fire.
+     */
+    private var lastObservedPremium: Boolean = store.getCachedSubscriptionStatus()?.isPremium ?: false
 
     /**
      * Cached conflict info so that after OAuth or OTP verifies identity we can
@@ -497,6 +520,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
 
     private suspend fun applyPremiumResult(email: String, isPremium: Boolean, mode: String) {
         PayCraftLogger.onFlow("applyPremiumResult", "email=$email, isPremium=$isPremium, mode=$mode")
+        val wasAlreadyPremium = lastObservedPremium
         _isPremium.value = isPremium
         if (isPremium) {
             val token = DeviceTokenStore.getToken()
@@ -527,6 +551,22 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
                 expiresAt = sub?.currentPeriodEnd,
                 willRenew = sub?.cancelAtPeriodEnd != true,
             )
+
+            // Emit activation exactly once on the non-premium → premium rising edge.
+            // Re-runs while already premium (e.g. background refreshes) are silently skipped.
+            if (!wasAlreadyPremium) {
+                PayCraftLogger.onFlow(
+                    "applyPremiumResult",
+                    "Rising edge detected → emitting subscriptionActivated (sku=${sub?.plan}, isTrial=${trial != null})",
+                )
+                scope.launch {
+                    _subscriptionActivated.emit(
+                        SubscriptionActivated(sku = sub?.plan, isTrial = trial != null),
+                    )
+                }
+            }
+
+            lastObservedPremium = true
         } else {
             val status = SubscriptionStatus(isPremium = false, email = email)
             _isInTrial.value = false
@@ -542,6 +582,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
                 expiresAt = null,
                 willRenew = false,
             )
+            lastObservedPremium = false
         }
     }
 }

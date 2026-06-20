@@ -2,7 +2,9 @@ import { cookies } from "next/headers"
 import { Sidebar } from "@/components/sidebar"
 import { AppSwitcher } from "@/components/app-switcher"
 import { GraceBanner } from "@/components/billing/GraceBanner"
+import { ModeToggle, TestModeBanner } from "@/components/mode-toggle"
 import { requireTenant, getUserApps } from "@/lib/tenant"
+import { getMode } from "@/lib/mode"
 import { createClient } from "@/lib/supabase-server"
 
 export default async function DashboardLayout({
@@ -13,6 +15,7 @@ export default async function DashboardLayout({
   const [{ tenant }, apps] = await Promise.all([requireTenant(), getUserApps()])
   const activeTenantId =
     cookies().get("paycraft_active_app_id")?.value ?? tenant.id
+  const mode = getMode()
 
   // Auto-claim platform ownership for the first user, then resolve whether the
   // current user is the platform owner. Drives the conditional Admin nav group.
@@ -43,6 +46,10 @@ export default async function DashboardLayout({
         }
       />
       <main className="ml-64 min-h-screen">
+        <header className="sticky top-0 z-30 flex h-12 items-center justify-end gap-3 border-b border-ink-200/60 bg-white/80 px-10 backdrop-blur">
+          <ModeToggle initialMode={mode} />
+        </header>
+        <TestModeBanner mode={mode} />
         <div className="px-10 pb-20 max-w-[1280px]">{children}</div>
       </main>
     </div>

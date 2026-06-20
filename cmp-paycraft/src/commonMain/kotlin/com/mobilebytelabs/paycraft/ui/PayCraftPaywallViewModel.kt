@@ -172,6 +172,11 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         _state.update { it.copy(isSubmitting = true, emailError = null) }
         if (email.isNotBlank()) billingManager.logIn(email)
         PayCraft.checkout(plan, email.ifBlank { null })
+        // Browser launches asynchronously — reset isSubmitting immediately so the
+        // Continue button is interactive again when the user returns to the app.
+        // (PayCraftPlatform.openUrl returns immediately after firing the Intent;
+        // there's no completion callback to await.)
+        _state.update { it.copy(isSubmitting = false) }
         viewModelScope.launch {
             _events.send(PayCraftPaywallEvent.CheckoutLaunched(url = plan.id))
         }
@@ -190,6 +195,8 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         val email = _state.value.email.trim()
         if (email.isNotBlank()) billingManager.logIn(email)
         PayCraft.checkoutWithProvider(action.plan, action.provider, email.ifBlank { null })
+        // Reset isSubmitting after the browser intent fires — see [onSubscribe].
+        _state.update { it.copy(isSubmitting = false) }
         viewModelScope.launch {
             _events.send(PayCraftPaywallEvent.CheckoutLaunched(url = action.plan.id))
         }

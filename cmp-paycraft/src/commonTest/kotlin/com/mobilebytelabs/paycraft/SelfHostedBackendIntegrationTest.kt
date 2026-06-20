@@ -63,7 +63,7 @@ class SelfHostedBackendIntegrationTest {
           "providers": [
             {
               "provider": "stripe",
-              "test_payment_links": { "monthly": "https://test.link/monthly" }
+              "test_payment_links": { "monthly": { "USD": "https://test.link/monthly" } }
             }
           ],
           "paywall": { "template": "minimal", "support_email": "support@acme.test" },
@@ -282,7 +282,7 @@ class SelfHostedBackendIntegrationTest {
             providers = listOf(
                 ProviderDto(
                     provider = "stripe",
-                    testPaymentLinks = mapOf("monthly" to "https://test.link/monthly"),
+                    testPaymentLinksBySku = mapOf("monthly" to mapOf("USD" to "https://test.link/monthly")),
                 ),
             ),
             paywall = PaywallDto(supportEmail = "support@example.com"),

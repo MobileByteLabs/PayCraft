@@ -28,6 +28,7 @@ sealed interface PayCraftPaywallAction {
     data object ClearError : PayCraftPaywallAction
     data class RestoreSubscription(val email: String) : PayCraftPaywallAction
     data object ClearRestoreResult : PayCraftPaywallAction
+
     /** Opens the SDK's PayCraftRestore modal sheet for users without a logged-in email. */
     data object OpenRestoreSheet : PayCraftPaywallAction
     data object CloseRestoreSheet : PayCraftPaywallAction

@@ -41,6 +41,7 @@ data class PayCraftTheme(
     val colors: PayCraftColors = PayCraftColors.Defaults,
     val typography: PayCraftTypography = PayCraftTypography.Default,
     val shape: PayCraftShape = PayCraftShape.Default,
+    val spacing: PayCraftSpacing = PayCraftSpacing.Default,
 ) {
     companion object {
         /**
@@ -66,6 +67,12 @@ data class PayCraftTheme(
             @Composable
             @ReadOnlyComposable
             get() = LocalPayCraftTheme.current.shape
+
+        /** Active [PayCraftTheme.spacing] in the current composition. */
+        val spacing: PayCraftSpacing
+            @Composable
+            @ReadOnlyComposable
+            get() = LocalPayCraftTheme.current.spacing
 
         /** Full [PayCraftTheme] snapshot for the current composition. */
         val current: PayCraftTheme
@@ -112,6 +119,37 @@ data class PayCraftTheme(
 }
 
 /**
+ * PayCraft spacing scale — the 4th token axis alongside colors, typography, and shape.
+ *
+ * Values follow the M3 4-dp grid. All paywall composables should read from
+ * [PayCraftTheme.spacing] (via [LocalPayCraftTheme]) instead of hardcoding dp literals,
+ * so host apps can override the density without touching component code.
+ *
+ * @param hairline 1 dp — hairline dividers, focus rings.
+ * @param xs 4 dp — intra-label gaps, icon margins.
+ * @param sm 8 dp — compact row padding, between-badge gaps.
+ * @param md 16 dp — standard content padding, card inner margin.
+ * @param lg 24 dp — sheet horizontal padding, section leading indent.
+ * @param xl 32 dp — generous vertical breathing room, paywall top margin.
+ * @param sectionGap 20 dp — vertical distance between logical sheet sections.
+ * @param cardGap 8 dp — vertical gap between adjacent plan cards.
+ */
+data class PayCraftSpacing(
+    val hairline: androidx.compose.ui.unit.Dp = 1.dp,
+    val xs: androidx.compose.ui.unit.Dp = 4.dp,
+    val sm: androidx.compose.ui.unit.Dp = 8.dp,
+    val md: androidx.compose.ui.unit.Dp = 16.dp,
+    val lg: androidx.compose.ui.unit.Dp = 24.dp,
+    val xl: androidx.compose.ui.unit.Dp = 32.dp,
+    val sectionGap: androidx.compose.ui.unit.Dp = 20.dp,
+    val cardGap: androidx.compose.ui.unit.Dp = 8.dp,
+) {
+    companion object {
+        val Default = PayCraftSpacing()
+    }
+}
+
+/**
  * Shape overrides for PayCraft surfaces.
  *
  * Defaults mirror Material3 corner radii so components feel native in any Material app.
@@ -150,3 +188,30 @@ fun PayCraftThemeProvider(theme: PayCraftTheme = PayCraftTheme.Default, content:
         content = content,
     )
 }
+
+// ------------------------------------------------------------------
+// Paywall design-token aliases (AC-8 contract)
+// ------------------------------------------------------------------
+
+/**
+ * Unified token contract for the branded paywall flow.
+ *
+ * [PaywallDesignToken] is the canonical name used by the PayCraft dashboard Paywall
+ * designer and every branded-flow composable; it is a direct alias of [PayCraftTheme]
+ * and carries the four token axes — colors, typography, shape, and spacing — in a
+ * single coherent contract. Use [LocalPaywallDesignToken] to read the active token
+ * set from the composition.
+ */
+typealias PaywallDesignToken = PayCraftTheme
+
+/**
+ * [CompositionLocal] that holds the active [PaywallDesignToken] (= [PayCraftTheme]).
+ *
+ * This is an alias of [LocalPayCraftTheme]; both names refer to the same
+ * [CompositionLocal] instance. Branded-flow composables can read from either name
+ * interchangeably; writing to one is equivalent to writing to the other.
+ *
+ * @see PaywallDesignToken
+ * @see LocalPayCraftTheme
+ */
+val LocalPaywallDesignToken get() = LocalPayCraftTheme

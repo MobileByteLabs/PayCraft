@@ -21,10 +21,15 @@
 #
 set -euo pipefail
 
-# Resolve framework root
-FW_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../../../.." && pwd)"
+# Resolve framework root by walking up until the marker is found.
+# The previous fixed-depth (../*7) walk overshot when run from the
+# PayCraft.git checkout at workspaces/mbs/PayCraft/source/PayCraft.
+FW_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+while [[ "$FW_ROOT" != "/" && ! -f "$FW_ROOT/core/scripts/secrets-get.sh" ]]; do
+    FW_ROOT="$(dirname "$FW_ROOT")"
+done
 [[ -f "${FW_ROOT}/core/scripts/secrets-get.sh" ]] || {
-    echo "ERROR: framework root not found at ${FW_ROOT}" >&2
+    echo "ERROR: framework root not found from $(dirname "${BASH_SOURCE[0]}") (no core/scripts/secrets-get.sh marker)" >&2
     exit 1
 }
 
@@ -109,14 +114,16 @@ for entry in "${SECRETS[@]}"; do
 
     tmpfile="$TMPDIR/${alias}.value"
 
-    # Pull secret to tmpfile (NEVER stdout — SV32 compliant)
-    bash "${FW_ROOT}/core/scripts/secrets-get.sh" \
-        --alias "$alias" \
-        --to-file "$tmpfile" \
-        2>&1 | grep -v "^[[:space:]]*$" || {
+    # Pull secret to tmpfile (NEVER stdout — SV32 compliant).
+    # secrets-get.sh takes the alias as positional, not as --alias, AND
+    # resolves the vault relative to its own cwd, so we run it FROM the
+    # framework root (we're currently chdir'd into dashboard/ for the
+    # vercel CLI call further down).
+    if ! ( cd "$FW_ROOT" && bash "core/scripts/secrets-get.sh" \
+                "$alias" --to-file "$tmpfile" >/dev/null 2>&1 ); then
         echo "  ✗ FAIL: ${alias} — vault entry missing or decrypt failed"
         continue
-    }
+    fi
 
     if [[ ! -s "$tmpfile" ]]; then
         echo "  ⚠️  SKIP: ${alias} — empty value"

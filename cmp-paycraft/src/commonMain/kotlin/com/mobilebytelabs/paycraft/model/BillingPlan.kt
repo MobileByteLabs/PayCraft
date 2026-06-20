@@ -26,6 +26,13 @@ data class BillingPlan(
     val originalPrice: String? = null,
     val discountPercent: Int? = null,
     val discountEndsAt: String? = null,
+    /**
+     * ISO-4217 currency code that [price] is denominated in (e.g. "USD", "INR").
+     * Used by the provider adapter to pick the right per-locale payment link from
+     * the nested `{sku: {currency: url}}` shape stored on the provider.
+     * Defaults to `"USD"` for legacy callers; cloud config always populates this.
+     */
+    val currency: String = "USD",
 ) {
     init {
         require(trialDays == null || trialDays >= 1) {
