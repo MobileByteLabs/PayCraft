@@ -21,8 +21,9 @@ DECLARE
   v_caught      BOOLEAN;
 BEGIN
   -- Test tenant + admin link so tenant_paywall_upsert's auth.uid() check passes
-  INSERT INTO tenants (id, name, plan, entitlements, status, owner_email)
-    VALUES (v_test_tenant, 'test-071', 'free', '[]'::jsonb, 'active', 'test@example.com')
+  INSERT INTO tenants (id, name, plan, entitlements, status, owner_email, api_key_test, api_key_live)
+    VALUES (v_test_tenant, 'test-071', 'free', '[]'::jsonb, 'active', 'test@example.com',
+            'pk_test_071_fixture', 'pk_live_071_fixture')
     ON CONFLICT (id) DO NOTHING;
   INSERT INTO tenant_admins (tenant_id, user_id, role)
     VALUES (v_test_tenant, v_admin, 'owner')

@@ -13,6 +13,13 @@
 -- that handles every new field, sanitizes hero_icon_svg server-side, and remains backward-
 -- compatible with v1 payloads (missing fields fall through to column defaults).
 
+-- ── 0. Extend paywall_template enum with the v2 default template ─────────
+-- cmp-paycraft 2.1.0 ships BrandedStackTemplate as the new default; the legacy
+-- minimal/premium/dark/gradient values stay for the 90-day @Deprecated grace.
+-- Idempotent (ADD VALUE IF NOT EXISTS) so `supabase db reset` re-applies cleanly.
+-- Ordered first so the tenant_paywall_upsert default below can reference it.
+ALTER TYPE paywall_template ADD VALUE IF NOT EXISTS 'branded-stack';
+
 -- ── 1. The 11 v2 content columns ────────────────────────────────────────
 ALTER TABLE public.tenant_paywall
   ADD COLUMN IF NOT EXISTS hero_title       TEXT NOT NULL DEFAULT 'Upgrade to Premium',
@@ -52,10 +59,10 @@ BEGIN
   IF p_svg IS NULL OR length(trim(p_svg)) = 0 THEN
     RETURN NULL;
   END IF;
-  IF p_svg ~* '<\s*script\b' THEN
+  IF p_svg ~* '<\s*script\y' THEN
     RAISE EXCEPTION 'hero_icon_svg contains <script> — forbidden' USING ERRCODE = 'check_violation';
   END IF;
-  IF p_svg ~* '<\s*foreignObject\b' THEN
+  IF p_svg ~* '<\s*foreignObject\y' THEN
     RAISE EXCEPTION 'hero_icon_svg contains <foreignObject> — forbidden' USING ERRCODE = 'check_violation';
   END IF;
   IF p_svg ~* '(xlink:)?href\s*=\s*"\s*https?://' THEN
@@ -103,9 +110,9 @@ BEGIN
   )
   VALUES (
     v_tenant,
-    COALESCE(p_row->>'template', 'branded-stack'),
+    COALESCE(p_row->>'template', 'branded-stack')::paywall_template,
     COALESCE(p_row->'theme_jsonb', '{}'::jsonb),
-    COALESCE(p_row->>'branding', 'attribution'),
+    COALESCE(p_row->>'branding', 'attribution')::branding_mode,
     p_row->>'custom_footer',
     p_row->>'primary_color',
     p_row->>'font_family',

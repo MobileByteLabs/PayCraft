@@ -78,10 +78,10 @@ class SampleApplication : Application() {
         providers = listOf(
             ProviderDto(
                 provider = "stripe",
-                testPaymentLinks = mapOf(
-                    "monthly" to "https://buy.stripe.com/test_sample_monthly",
-                    "quarterly" to "https://buy.stripe.com/test_sample_quarterly",
-                    "yearly" to "https://buy.stripe.com/test_sample_yearly",
+                testPaymentLinksBySku = mapOf(
+                    "monthly" to mapOf("INR" to "https://buy.stripe.com/test_sample_monthly"),
+                    "quarterly" to mapOf("INR" to "https://buy.stripe.com/test_sample_quarterly"),
+                    "yearly" to mapOf("INR" to "https://buy.stripe.com/test_sample_yearly"),
                 ),
             ),
         ),
