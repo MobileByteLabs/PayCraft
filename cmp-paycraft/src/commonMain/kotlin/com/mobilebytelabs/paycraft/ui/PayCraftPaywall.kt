@@ -57,8 +57,10 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_upgrade_plan
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_upgrade_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_your_premium_title
+import com.mobilebytelabs.paycraft.config.effectiveThemeOverride
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.presentation.Branding
+import com.mobilebytelabs.paycraft.presentation.PayCraftThemeProvider
 import com.mobilebytelabs.paycraft.presentation.ProviderBottomSheet
 import com.mobilebytelabs.paycraft.presentation.components.BrandingFooter
 import com.mobilebytelabs.paycraft.presentation.templates.ValuePropList
@@ -101,25 +103,34 @@ fun PayCraftPaywall(
         }
     }
 
-    when (displayMode) {
-        DisplayMode.Banner -> BannerPaywall(
-            state = state.billingState,
-            onTap = {
-                // Surface the latest state when the user taps an error banner; hosts
-                // wire onDismiss to open the full paywall sheet.
-                if (state.billingState is BillingState.Error) {
-                    viewModel.dispatch(PayCraftPaywallAction.RefreshStatus)
-                }
-                onDismiss()
-            },
-            modifier = modifier,
-        )
-        DisplayMode.FullScreen -> PayCraftPaywallContent(
-            state = state,
-            snackbarHostState = snackbarHostState,
-            onAction = viewModel::dispatch,
-            modifier = modifier,
-        )
+    // Apply the dashboard-configured brand color (primary_color) + theme_jsonb to the
+    // paywall's MaterialTheme so prices, the selection ring, and the MOST POPULAR pill
+    // all render in the configured brand color instead of inheriting the host app's
+    // MaterialTheme primary (e.g. reels-downloader's blue). Collected reactively so a
+    // dashboard edit recolors the live paywall without a cold relaunch.
+    val themeOverride = PayCraft.suiteConfigFlow.collectAsState().value
+        ?.paywall?.effectiveThemeOverride.orEmpty()
+    PayCraftThemeProvider(themeOverride = themeOverride) {
+        when (displayMode) {
+            DisplayMode.Banner -> BannerPaywall(
+                state = state.billingState,
+                onTap = {
+                    // Surface the latest state when the user taps an error banner; hosts
+                    // wire onDismiss to open the full paywall sheet.
+                    if (state.billingState is BillingState.Error) {
+                        viewModel.dispatch(PayCraftPaywallAction.RefreshStatus)
+                    }
+                    onDismiss()
+                },
+                modifier = modifier,
+            )
+            DisplayMode.FullScreen -> PayCraftPaywallContent(
+                state = state,
+                snackbarHostState = snackbarHostState,
+                onAction = viewModel::dispatch,
+                modifier = modifier,
+            )
+        }
     }
 }
 
@@ -145,21 +156,26 @@ fun PayCraftPaywallSheet(
         }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = {
-            // T18: refreshStatus when paywall closes
-            viewModel.dispatch(PayCraftPaywallAction.RefreshStatus)
-            onDismiss()
-        },
-        sheetState = sheetState,
-        dragHandle = null, // T18: no drag handle
-        modifier = modifier,
-    ) {
-        PayCraftPaywallContent(
-            state = state,
-            snackbarHostState = remember { SnackbarHostState() },
-            onAction = viewModel::dispatch,
-        )
+    // Brand-color the sheet (see PayCraftPaywall for rationale); reactive to dashboard edits.
+    val themeOverride = PayCraft.suiteConfigFlow.collectAsState().value
+        ?.paywall?.effectiveThemeOverride.orEmpty()
+    PayCraftThemeProvider(themeOverride = themeOverride) {
+        ModalBottomSheet(
+            onDismissRequest = {
+                // T18: refreshStatus when paywall closes
+                viewModel.dispatch(PayCraftPaywallAction.RefreshStatus)
+                onDismiss()
+            },
+            sheetState = sheetState,
+            dragHandle = null, // T18: no drag handle
+            modifier = modifier,
+        ) {
+            PayCraftPaywallContent(
+                state = state,
+                snackbarHostState = remember { SnackbarHostState() },
+                onAction = viewModel::dispatch,
+            )
+        }
     }
 }
 
@@ -372,6 +388,9 @@ fun PayCraftPaywallContent(
                             title = livePaywall?.heroTitle?.takeIf { it.isNotBlank() }
                                 ?: stringResource(Res.string.paycraft_upgrade_title),
                             subtitle = paywallSubtitle,
+                            // Dashboard branding-icon override (inline SVG path) — falls back
+                            // to the SDK default play icon when the tenant hasn't set one.
+                            heroIconSvg = livePaywall?.heroIconSvg,
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         )
 
@@ -429,15 +448,20 @@ fun PayCraftPaywallContent(
                         // config (themeJsonb.privacy_url / .terms_url); fall back to
                         // PayCraft Cloud's defaults if the tenant hasn't customised.
                         PaywallLegalFooter(
+                            restoreLabel = livePaywall?.restoreLabel,
                             onPrivacyClick = {
                                 val paywallDto = PayCraft.suiteConfig?.paywall
-                                val url = paywallDto?.themeJsonb?.get("privacy_url")
+                                // Prefer the dedicated privacy_url column; fall back to the
+                                // legacy theme_jsonb key, then PayCraft Cloud's default.
+                                val url = paywallDto?.privacyUrl?.takeIf { it.isNotBlank() }
+                                    ?: paywallDto?.themeJsonb?.get("privacy_url")
                                     ?: "https://paycraft.mobilebytesensei.com/privacy"
                                 PayCraftPlatform.openUrl(url)
                             },
                             onTermsClick = {
                                 val paywallDto = PayCraft.suiteConfig?.paywall
-                                val url = paywallDto?.themeJsonb?.get("terms_url")
+                                val url = paywallDto?.termsUrl?.takeIf { it.isNotBlank() }
+                                    ?: paywallDto?.themeJsonb?.get("terms_url")
                                     ?: "https://paycraft.mobilebytesensei.com/terms"
                                 PayCraftPlatform.openUrl(url)
                             },

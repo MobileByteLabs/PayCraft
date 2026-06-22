@@ -1,8 +1,11 @@
 package com.mobilebytelabs.paycraft.platform
 
 import platform.Foundation.NSHost
+import platform.Foundation.NSLocale
 import platform.Foundation.NSUUID
 import platform.Foundation.NSUserDefaults
+import platform.Foundation.countryCode
+import platform.Foundation.currentLocale
 
 actual object PlatformInfo {
     actual val platform: String = "macos"
@@ -10,6 +13,8 @@ actual object PlatformInfo {
         get() = NSHost.currentHost().localizedName ?: "Mac"
     actual val deviceId: String
         get() = loadOrCreateMacDeviceId()
+    actual val country: String?
+        get() = NSLocale.currentLocale.countryCode?.takeIf { it.isNotBlank() }
 }
 
 private fun loadOrCreateMacDeviceId(): String {

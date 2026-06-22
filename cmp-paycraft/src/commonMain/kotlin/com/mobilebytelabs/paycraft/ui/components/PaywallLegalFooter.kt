@@ -40,7 +40,12 @@ fun PaywallLegalFooter(
     onTermsClick: () -> Unit,
     onRestoreClick: () -> Unit,
     modifier: Modifier = Modifier,
+    restoreLabel: String? = null,
 ) {
+    // RESTORE is dashboard-driven (PaywallDto.restoreLabel); PRIVACY/TERMS stay as the
+    // standard localized legal labels (only their URLs are tenant-configurable).
+    val restoreText = restoreLabel?.takeIf { it.isNotBlank() }
+        ?: stringResource(Res.string.paycraft_legal_restore)
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Center,
@@ -57,7 +62,7 @@ fun PaywallLegalFooter(
         )
         LegalSeparator()
         LegalLink(
-            label = stringResource(Res.string.paycraft_legal_restore),
+            label = restoreText,
             onClick = onRestoreClick,
         )
     }

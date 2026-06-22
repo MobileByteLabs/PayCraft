@@ -40,6 +40,7 @@ import com.mobilebytelabs.paycraft.config.ValuePropTriple
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.presentation.components.PlanCard
+import com.mobilebytelabs.paycraft.ui.components.rememberHeroIconOverride
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 
 /**
@@ -395,14 +396,12 @@ internal fun PaywallHeroIcon(paywall: PaywallDto) {
         .clip(RoundedCornerShape(20.dp))
         .background(tokens.colors.accent.copy(alpha = 0.12f))
     Box(modifier = tile, contentAlignment = Alignment.Center) {
-        // 2.1.0 renders a brand-tinted Star inside an accent-tinted rounded
-        // tile — same visual weight as the dashboard mockup's hero block, no
-        // dependency on tenant SVG payloads or per-platform SVG parsers. The
-        // hero_icon_svg/url fields are wired on PaywallDto so dashboards can
-        // populate them today; the SDK begins honoring them on platforms that
-        // ship an SVG parser in cmp-paycraft 2.2.0 without a schema change.
+        // Dashboard branding-icon override: a tenant's inline SVG path (hero_icon_svg) is
+        // parsed via the multiplatform PathParser (rememberHeroIconOverride) — no per-platform
+        // SVG engine needed — and falls back to the SDK default brand-tinted Star when unset.
+        val heroIcon = rememberHeroIconOverride(paywall.heroIconSvg) ?: Icons.Filled.Star
         Icon(
-            imageVector = Icons.Filled.Star,
+            imageVector = heroIcon,
             contentDescription = null,
             tint = tokens.colors.accent,
             modifier = Modifier.size(40.dp),

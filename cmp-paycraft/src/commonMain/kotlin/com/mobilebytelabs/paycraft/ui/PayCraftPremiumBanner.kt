@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.config.PaywallDto
+import com.mobilebytelabs.paycraft.presentation.parseHexColor
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 
 /**
@@ -89,12 +90,20 @@ fun PayCraftPremiumBanner(
     val cta = ctaOverride ?: paywall.ctaGetPremium
     val restore = restoreOverride ?: paywall.restoreLabel
 
+    // Brand color is dashboard-driven: the same `primary_color` that themes the paywall
+    // modal also paints this Settings-tab card, so a single dashboard edit drives both
+    // surfaces. Falls back to the static accent token only when no primary_color is set.
+    val brandColor = paywall.primaryColor
+        ?.let(::parseHexColor)
+        ?.takeIf { it != Color.Unspecified }
+        ?: tokens.colors.accent
+
     Card(
         modifier = modifier
             .fillMaxWidth()
             .padding(16.dp),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = tokens.colors.accent),
+        colors = CardDefaults.cardColors(containerColor = brandColor),
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(
