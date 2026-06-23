@@ -120,6 +120,19 @@ export async function razorpaySyncProduct(
         p_payment_links: result.paymentLinksByCurrency,
       }),
     ])
+
+    // Nothing landed and every currency was rejected by Razorpay → tell the
+    // operator exactly what to do (Razorpay is INR-first; USD-only products need
+    // an INR price, or International payments enabled on the Razorpay account).
+    const created =
+      Object.keys(result.planIdsByCurrency).length +
+      Object.keys(result.paymentLinksByCurrency).length
+    if (created === 0 && result.skippedCurrencies.length > 0) {
+      return {
+        ok: false,
+        error: `Razorpay does not accept ${result.skippedCurrencies.join(", ")} for this account. Add an INR price for this product (or enable International payments on Razorpay).`,
+      }
+    }
     return { ok: true }
   } catch (e: any) {
     // The Razorpay SDK rejects with a PLAIN OBJECT { statusCode, error: { code,
