@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
-import { captureRateLimitHit } from "@/lib/sentry-events"
+import { captureRateLimitHit } from "@/lib/telemetry"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -69,7 +69,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Best-effort fan-out to Linear (non-blocking; fire-and-forget).
+  // Best-effort fan-out for the customer auto-reply (non-blocking; fire-and-forget).
+  // The ticket is already persisted above (Supabase = source of truth); this just
+  // triggers the Resend auto-reply edge function.
   void fetch(
     `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/support-to-linear`,
     {
@@ -80,9 +82,7 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({ ticketId: data.id, email: payload.email, subject: payload.subject, body: payload.body }),
     },
-  ).catch(() => { /* ignore — Linear is best effort */ })
-
-  // Auto-reply is sent by support-to-linear via Resend (kept in one place).
+  ).catch(() => { /* ignore — auto-reply is best effort */ })
 
   return NextResponse.json({ ok: true, ticketId: data.id }, { status: 201 })
 }

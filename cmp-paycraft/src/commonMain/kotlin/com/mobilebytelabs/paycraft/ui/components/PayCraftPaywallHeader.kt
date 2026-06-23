@@ -30,9 +30,11 @@ import androidx.compose.ui.unit.dp
  *   Upgrade to Premium             (titleLarge bold)
  *   Ad-free. Unlimited. 4K Downloads.   (bodyMedium muted)
  *
- * The icon defaults to a play triangle which suits media-consumption apps;
- * callers can pass a different vector via [icon] when their tenant DTO ships
- * a custom icon hint via PaywallDto.themeJsonb["icon"].
+ * The icon defaults to a play triangle (the SDK's media-app default branding). When the
+ * tenant uploads their own app's branding mark on the dashboard, its inline SVG path data
+ * arrives in [heroIconSvg] and overrides the default — parsed via [rememberHeroIconOverride]
+ * so a consumer can fully brand the paywall from the dashboard. A blank/unparseable override
+ * falls back to [icon].
  */
 @Composable
 fun PayCraftPaywallHeader(
@@ -40,7 +42,9 @@ fun PayCraftPaywallHeader(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     icon: ImageVector = Icons.Filled.PlayArrow,
+    heroIconSvg: String? = null,
 ) {
+    val resolvedIcon = rememberHeroIconOverride(heroIconSvg) ?: icon
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier,
@@ -56,7 +60,7 @@ fun PayCraftPaywallHeader(
                 .semantics { contentDescription = "Premium icon" },
         ) {
             Icon(
-                imageVector = icon,
+                imageVector = resolvedIcon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.size(32.dp),

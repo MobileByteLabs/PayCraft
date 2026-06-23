@@ -18,4 +18,13 @@ expect object PlatformInfo {
      *          persisted file UUID (JVM), localStorage UUID (JS/WasmJS).
      */
     val deviceId: String
+
+    /**
+     * ISO 3166-1 alpha-2 country code of the device's current region (e.g. "US", "IN"),
+     * or null when undetectable. The SDK's device-side input to the single currency/country
+     * decision point (PayCraft locale resolution): `InitOptions.localeOverride` wins, then
+     * this, then the cloud config locale, then "US". Drives which per-locale price + which
+     * per-currency provider checkout link is used.
+     */
+    val country: String?
 }

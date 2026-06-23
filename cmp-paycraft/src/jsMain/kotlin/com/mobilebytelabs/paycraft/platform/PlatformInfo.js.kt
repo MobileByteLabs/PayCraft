@@ -6,7 +6,19 @@ actual object PlatformInfo {
         get() = detectBrowserName()
     actual val deviceId: String
         get() = loadOrCreateWebDeviceId()
+    actual val country: String?
+        get() = detectWebCountry().takeIf { it.isNotBlank() }
 }
+
+private fun detectWebCountry(): String = js(
+    """
+    (function() {
+        if (typeof navigator === 'undefined' || !navigator.language) return '';
+        var parts = navigator.language.split('-');
+        return parts.length > 1 ? parts[parts.length - 1].toUpperCase() : '';
+    })()
+""",
+)
 
 private fun detectBrowserName(): String = js(
     """

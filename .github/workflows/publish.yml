@@ -24,11 +24,14 @@ on:
         type: string
 
 permissions:
-  contents: write   # required by publish-kmp-library.yml (release creation, tag push)
+  contents: write        # release creation + tag push (publish-kmp-library.yml)
+  pull-requests: write   # publish-kmp-library.yml@v1.9.1 declares a bump-after-release
+                         # job needing this; the perm is validated at startup even though
+                         # the job is default-off — without it the run startup_failures.
 
 jobs:
   publish:
-    uses: MobileByteLabs/mbl-actionhub/.github/workflows/publish-kmp-library.yml@v1.0.12
+    uses: MobileByteLabs/mbl-actionhub/.github/workflows/publish-kmp-library.yml@v1.9.1
     with:
       module-pattern: 'cmp-'
       module: ${{ inputs.module || '' }}
@@ -38,4 +41,9 @@ jobs:
       java-distribution: 'zulu'
       sonatype-host: 'CENTRAL_PORTAL'
       create-github-release: true
+      # Publish the version DECLARED in gradle.properties (paycraft.version), not an
+      # auto-patch-bump off Maven/GitHub Releases. v1.0.12 lacked this, which shipped
+      # 2.0.3 instead of the declared 2.1.0. v1.9.1 resolves from gradle.properties.
+      version-source: 'gradle-properties'
+      gradle-properties-key: 'paycraft.version'
     secrets: inherit

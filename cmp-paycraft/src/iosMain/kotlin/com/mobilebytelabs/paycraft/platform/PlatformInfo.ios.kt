@@ -1,5 +1,8 @@
 package com.mobilebytelabs.paycraft.platform
 
+import platform.Foundation.NSLocale
+import platform.Foundation.countryCode
+import platform.Foundation.currentLocale
 import platform.UIKit.UIDevice
 
 actual object PlatformInfo {
@@ -11,4 +14,7 @@ actual object PlatformInfo {
 
     actual val deviceId: String
         get() = UIDevice.currentDevice.identifierForVendor?.UUIDString ?: "ios-unknown"
+
+    actual val country: String?
+        get() = NSLocale.currentLocale.countryCode?.takeIf { it.isNotBlank() }
 }

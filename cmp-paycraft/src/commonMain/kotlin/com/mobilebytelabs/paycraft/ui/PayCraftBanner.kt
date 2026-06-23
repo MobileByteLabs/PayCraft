@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Schedule
@@ -32,6 +33,7 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -51,7 +54,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.PayCraftPlatform
+import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.core.BillingManager
+import com.mobilebytelabs.paycraft.presentation.parseHexColor
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_cta_get_premium
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_cta_manage
@@ -87,10 +92,23 @@ private const val TAG_BANNER_UPGRADE_BTN = "paycraft_banner_upgrade_button"
 private const val TAG_BANNER_MANAGE_BTN = "paycraft_banner_manage_button"
 private const val TAG_BANNER_RESTORE_BTN = "paycraft_banner_restore_button"
 
-// Gradient palettes matching the original app design
+// Gradient palettes — fallbacks only. The free (upsell) card derives its gradient from the
+// dashboard `primary_color` via [brandGradient] so the Settings card matches the paywall.
 private val gradientFree = listOf(Color(0xFF4A148C), Color(0xFF7B1FA2), Color(0xFFAB47BC))
 private val gradientPremium = listOf(Color(0xFF1A237E), Color(0xFF283593), Color(0xFF3949AB))
 private val gradientTopTier = listOf(Color(0xFF1B5E20), Color(0xFF2E7D32), Color(0xFF388E3C))
+
+/**
+ * Build a 3-stop card gradient from a single dashboard brand color — a darker shade at the
+ * top-left fading through the brand color to a lighter shade at the bottom-right. Preserves
+ * the card's depth aesthetic while making it fully dashboard-driven (one `primary_color`
+ * edit recolors both the paywall and this banner).
+ */
+private fun brandGradient(primary: Color): List<Color> = listOf(
+    lerp(primary, Color.Black, 0.28f),
+    primary,
+    lerp(primary, Color.White, 0.12f),
+)
 
 private val colorGold = Color(0xFFFFD54F)
 private val colorCtaGold = Brush.linearGradient(listOf(Color(0xFFFFD54F), Color(0xFFFFC107)))
@@ -138,6 +156,9 @@ fun PayCraftBanner(
     val benefits = PayCraft.requireConfig().benefits
     val plans = PayCraft.requireConfig().plans
     val supportEmail = PayCraft.requireConfig().supportEmail
+    // Live dashboard config — drives the free card's brand color + copy reactively, so a
+    // dashboard edit recolors/recopies the Settings banner without a cold relaunch.
+    val paywall = PayCraft.suiteConfigFlow.collectAsState().value?.paywall ?: PaywallDto()
 
     Box(modifier = modifier) {
         Crossfade(
@@ -157,6 +178,7 @@ fun PayCraftBanner(
                 )
                 else -> FreeBannerCard(
                     benefits = benefits,
+                    paywall = paywall,
                     onUpgradeClick = onUpgradeClick,
                     onRestoreClick = onRestoreClick,
                     modifier = Modifier.fillMaxWidth(),
@@ -194,17 +216,27 @@ fun PayCraftBanner(
 @Composable
 private fun FreeBannerCard(
     benefits: List<BillingBenefit>,
+    paywall: PaywallDto,
     onUpgradeClick: () -> Unit,
     onRestoreClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    val upgradeTitle = stringResource(Res.string.paycraft_banner_upgrade_title)
+    // Dashboard-driven brand color + copy. Each field falls back to the bundled string
+    // resource only when the dashboard hasn't set it, so a configured tenant fully controls
+    // this card from the Paywall designer (same source as the paywall modal).
+    val brand = paywall.primaryColor?.let(::parseHexColor)?.takeIf { it != Color.Unspecified }
+    val gradient = brand?.let(::brandGradient) ?: gradientFree
+    val upgradeTitle = paywall.heroTitle.ifBlank { stringResource(Res.string.paycraft_banner_upgrade_title) }
+    val upgradeSubtitle =
+        paywall.heroSubtitle.ifBlank { stringResource(Res.string.paycraft_banner_upgrade_subtitle) }
+    val ctaText = paywall.ctaGetPremium.ifBlank { stringResource(Res.string.paycraft_banner_cta_get_premium) }
+    val restoreText = paywall.restoreLabel.ifBlank { stringResource(Res.string.paycraft_banner_restore) }
     val upgradeCd = stringResource(Res.string.paycraft_banner_upgrade_cd)
 
     val isTestMode = (PayCraft.config?.provider as? StripeProvider)?.isTestMode == true
 
     GradientCard(
-        gradient = gradientFree,
+        gradient = gradient,
         onClick = onUpgradeClick,
         testTag = TAG_BANNER_FREE,
         contentDescription = upgradeCd,
@@ -230,7 +262,7 @@ private fun FreeBannerCard(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = stringResource(Res.string.paycraft_banner_upgrade_subtitle),
+                    text = upgradeSubtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.85f),
                     lineHeight = 18.sp,
@@ -238,8 +270,15 @@ private fun FreeBannerCard(
             }
         }
 
-        // Perk list
-        if (benefits.isNotEmpty()) {
+        // Perk list — dashboard `value_props` first (the SAME source as the paywall modal,
+        // e.g. "Free Video"), falling back to legacy config `benefits` only when unset.
+        val valueProps = paywall.valueProps
+        if (valueProps.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            valueProps.forEach { vp ->
+                ValuePropPerkRow(title = vp.title, description = vp.description)
+            }
+        } else if (benefits.isNotEmpty()) {
             Spacer(Modifier.height(16.dp))
             benefits.forEach { benefit ->
                 PerkRow(icon = benefit.icon, textRes = benefit.text)
@@ -248,12 +287,13 @@ private fun FreeBannerCard(
 
         Spacer(Modifier.height(16.dp))
 
-        // CTA button
+        // CTA button — label uses the deepest stop of the card gradient (a dark shade of the
+        // dashboard brand color) so it stays high-contrast on the gold pill without a literal.
         CtaButton(
             gradient = colorCtaGold,
             icon = Icons.Default.Star,
-            textColor = Color(0xFF4A148C),
-            text = stringResource(Res.string.paycraft_banner_cta_get_premium),
+            textColor = gradient.first(),
+            text = ctaText,
             testTag = TAG_BANNER_UPGRADE_BTN,
         )
 
@@ -267,7 +307,7 @@ private fun FreeBannerCard(
                     .testTag(TAG_BANNER_RESTORE_BTN),
             ) {
                 Text(
-                    text = stringResource(Res.string.paycraft_banner_restore),
+                    text = restoreText,
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.7f),
                 )
@@ -501,6 +541,45 @@ private fun IconBox(imageVector: ImageVector) {
             tint = colorGold,
             modifier = Modifier.size(30.dp),
         )
+    }
+}
+
+/**
+ * Renders a dashboard `value_props` entry (title + optional description) on the gradient
+ * card — the banner counterpart to the paywall modal's `ValuePropList`, so the same
+ * dashboard copy (e.g. "Free Video") appears on both surfaces.
+ */
+@Composable
+private fun ValuePropPerkRow(title: String, description: String?, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Check,
+            contentDescription = null,
+            tint = colorGold,
+            modifier = Modifier.size(18.dp).padding(top = 2.dp),
+        )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.95f),
+                fontWeight = FontWeight.SemiBold,
+            )
+            description?.takeIf { it.isNotBlank() }?.let { desc ->
+                Text(
+                    text = desc,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.75f),
+                    lineHeight = 16.sp,
+                )
+            }
+        }
     }
 }
 

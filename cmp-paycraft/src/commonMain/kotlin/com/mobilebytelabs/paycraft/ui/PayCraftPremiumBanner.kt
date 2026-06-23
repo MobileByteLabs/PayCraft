@@ -23,6 +23,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,7 +32,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
+import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.config.PaywallDto
+import com.mobilebytelabs.paycraft.presentation.parseHexColor
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 
 /**
@@ -76,18 +79,31 @@ fun PayCraftPremiumBanner(
     restoreOverride: String? = null,
 ) {
     val tokens = PayCraftTheme
-    val paywall = LocalPayCraftConfig.current?.paywall ?: PaywallDto()
+    // Prefer an explicitly-provided LocalPayCraftConfig; otherwise collect the
+    // live SDK config reactively so a dashboard edit recomposes the banner once
+    // the cloud fetch (or refreshConfig()) publishes it — no cold relaunch needed.
+    val paywall = LocalPayCraftConfig.current?.paywall
+        ?: PayCraft.suiteConfigFlow.collectAsState().value?.paywall
+        ?: PaywallDto()
     val title = titleOverride ?: paywall.heroTitle
     val subtitle = subtitleOverride ?: paywall.heroSubtitle
     val cta = ctaOverride ?: paywall.ctaGetPremium
     val restore = restoreOverride ?: paywall.restoreLabel
+
+    // Brand color is dashboard-driven: the same `primary_color` that themes the paywall
+    // modal also paints this Settings-tab card, so a single dashboard edit drives both
+    // surfaces. Falls back to the static accent token only when no primary_color is set.
+    val brandColor = paywall.primaryColor
+        ?.let(::parseHexColor)
+        ?.takeIf { it != Color.Unspecified }
+        ?: tokens.colors.accent
 
     Card(
         modifier = modifier
             .fillMaxWidth()
             .padding(16.dp),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = tokens.colors.accent),
+        colors = CardDefaults.cardColors(containerColor = brandColor),
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(

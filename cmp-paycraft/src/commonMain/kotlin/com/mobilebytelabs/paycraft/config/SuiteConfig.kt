@@ -156,3 +156,20 @@ data class PaywallDto(
     @SerialName("hero_icon_url") val heroIconUrl: String? = null,
     @SerialName("support_email") val supportEmail: String? = null,
 )
+
+/**
+ * Effective theme-override map consumed by `PayCraftThemeProvider(themeOverride = …)`.
+ *
+ * Merges the legacy [PaywallDto.themeJsonb] map with the dedicated [PaywallDto.primaryColor]
+ * column. The dashboard Paywall designer writes the brand color into `primary_color`
+ * (its own column), NOT into `theme_jsonb` — so without this merge the dashboard's
+ * primary color silently drops and the paywall inherits the host app's MaterialTheme
+ * primary (e.g. reels-downloader's blue) instead of the configured brand color.
+ *
+ * `primary_color` is authoritative: it overrides any legacy `theme_jsonb["primary"]`.
+ */
+val PaywallDto.effectiveThemeOverride: Map<String, String>
+    get() = buildMap {
+        putAll(themeJsonb)
+        primaryColor?.takeIf { it.isNotBlank() }?.let { put("primary", it) }
+    }
