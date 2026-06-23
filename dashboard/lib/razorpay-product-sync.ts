@@ -10,6 +10,41 @@ export interface RazorpaySyncResult {
   paymentLinksByCurrency: Record<string, string>     // currency → short_url (one-time / trial)
 }
 
+// PayCraft billing intervals as stored on tenant_products.interval.
+export type BillingInterval = "month" | "quarter" | "semiannual" | "year"
+
+/**
+ * Map a PayCraft billing interval to a Razorpay Plan cadence.
+ *
+ * Razorpay's `period` enum is { daily, weekly, monthly, quarterly, yearly } and
+ * the cadence between charges is `period × interval` (the multiplier). There is
+ * no native half-yearly period, so semiannual is expressed as monthly × 6.
+ *
+ * The previous mapping collapsed everything that wasn't "month" to yearly × 1,
+ * which silently created Pro Quarterly / Pro Semiannual plans that billed once a
+ * year — a real revenue mismatch. We map each interval explicitly and throw on
+ * anything unrecognised rather than guess (the caller reports it as a failed
+ * sync instead of minting a wrong-cadence plan that can't be edited afterwards).
+ */
+function razorpayPlanCadence(
+  interval: BillingInterval | string | null,
+): { period: "monthly" | "quarterly" | "yearly"; multiplier: number } {
+  switch (interval) {
+    case "month":
+      return { period: "monthly", multiplier: 1 }
+    case "quarter":
+      return { period: "quarterly", multiplier: 1 }
+    case "semiannual":
+      return { period: "monthly", multiplier: 6 } // Razorpay has no half-yearly period
+    case "year":
+      return { period: "yearly", multiplier: 1 }
+    default:
+      throw new Error(
+        `unsupported subscription interval for Razorpay plan: ${String(interval)}`,
+      )
+  }
+}
+
 /**
  * Create Razorpay Plans (for recurring) or Payment Links (for one-time / trial) per currency.
  * Idempotent per currency — callers should pass existingPlanIds to skip re-creation.
@@ -19,7 +54,7 @@ export async function syncProductToRazorpay(
   productId: string,
   productName: string,
   productType: "subscription" | "trial" | "lifetime",
-  interval: "month" | "year" | null,
+  interval: BillingInterval | string | null,
   prices: RazorpayPriceInput[],
   mode: "test" | "live" = "live",
   existingPlanIds: Record<string, string> = {},
@@ -35,9 +70,10 @@ export async function syncProductToRazorpay(
       // Skip if plan already exists for this currency.
       if (planIdsByCurrency[ccyKey]) continue
 
+      const { period, multiplier } = razorpayPlanCadence(interval)
       const plan = await (client as any).plans.create({
-        period: interval === "month" ? "monthly" : "yearly",
-        interval: 1,
+        period,
+        interval: multiplier,
         item: {
           name: productName,
           amount: amountCents,
