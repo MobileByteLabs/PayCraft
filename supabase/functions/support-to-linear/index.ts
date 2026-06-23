@@ -1,15 +1,16 @@
 // supabase/functions/support-to-linear/index.ts
 //
-// Phase 4 of paycraft-v2-production-readiness — forward a support ticket
-// to Linear as an issue + send an auto-reply email via Resend.
+// Support ticket auto-reply via Resend. Ticket persistence happens upstream in
+// dashboard/app/api/support/ticket/route.ts (Supabase `support_tickets` is the
+// source of truth); this function is best-effort fan-out for the customer
+// auto-reply only.
 //
-// Triggered POST-only from dashboard/app/api/support/ticket/route.ts.
-// Fail-soft: ticket persistence happens upstream; this function is
-// best-effort fan-out. Returns 200 even on partial failure so the upstream
+// NOTE: the Linear issue fan-out + Sentry edge telemetry were removed — tickets
+// are triaged in the dashboard, not Linear. The function name is kept for URL
+// stability (the dashboard caller invokes /functions/v1/support-to-linear).
+//
+// Triggered POST-only. Returns 200 even on partial failure so the upstream
 // fire-and-forget doesn't retry-storm.
-
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { initSentry, captureWebhookEvent } from "../_shared/sentry.ts"
 
 interface Payload {
   ticketId: string
@@ -18,17 +19,8 @@ interface Payload {
   body: string
 }
 
-const LINEAR_API_TOKEN = Deno.env.get("LINEAR_API_TOKEN")
-const LINEAR_TEAM_ID = Deno.env.get("LINEAR_TEAM_ID")
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")
 const SUPPORT_FROM = Deno.env.get("SUPPORT_FROM") ?? "PayCraft Support <support@paycraft.mobilebytesensei.com>"
-
-const supabase = createClient(
-  Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-)
-
-initSentry()
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
@@ -45,47 +37,7 @@ Deno.serve(async (req) => {
     return new Response("missing fields", { status: 400 })
   }
 
-  // 1. Create Linear issue (best-effort)
-  let linearUrl: string | null = null
-  if (LINEAR_API_TOKEN && LINEAR_TEAM_ID) {
-    try {
-      const linearRes = await fetch("https://api.linear.app/graphql", {
-        method: "POST",
-        headers: {
-          authorization: LINEAR_API_TOKEN,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          query: `mutation Create($i: IssueCreateInput!) { issueCreate(input: $i) { success issue { url id } } }`,
-          variables: {
-            i: {
-              teamId: LINEAR_TEAM_ID,
-              title: `[Support] ${payload.subject}`,
-              description: `**From:** ${payload.email}\n\n${payload.body}\n\n---\nTicket ID: ${payload.ticketId}`,
-            },
-          },
-        }),
-      })
-      const json = await linearRes.json()
-      linearUrl = json?.data?.issueCreate?.issue?.url ?? null
-      if (linearUrl) {
-        await supabase
-          .from("support_tickets")
-          .update({ linear_issue_url: linearUrl })
-          .eq("id", payload.ticketId)
-      }
-    } catch (e) {
-      captureWebhookEvent({
-        tenantId: null,
-        provider: "linear",
-        eventType: "issue_create_failed",
-        isError: true,
-        message: `linear_create_failed: ${(e as Error).message}`,
-      })
-    }
-  }
-
-  // 2. Send auto-reply via Resend (best-effort)
+  // Send auto-reply via Resend (best-effort).
   if (RESEND_API_KEY) {
     try {
       await fetch("https://api.resend.com/emails", {
@@ -107,17 +59,13 @@ Deno.serve(async (req) => {
         }),
       })
     } catch (e) {
-      captureWebhookEvent({
-        tenantId: null,
-        provider: "resend",
-        eventType: "support_autoreply_failed",
-        isError: true,
-        message: `resend_failed: ${(e as Error).message}`,
-      })
+      console.error(
+        JSON.stringify({ telemetry: "support_autoreply_failed", level: "error", reason: (e as Error).message }),
+      )
     }
   }
 
-  return new Response(JSON.stringify({ ok: true, linearUrl }), {
+  return new Response(JSON.stringify({ ok: true }), {
     status: 200,
     headers: { "content-type": "application/json" },
   })

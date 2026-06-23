@@ -12,22 +12,31 @@
 #             L5 LOCAL SMOKE       curl /api/health (expects env=local)
 #
 #   --prod    Promote development → main and let Vercel auto-deploy production
-#             1 PRE-FLIGHT     verify CLIs, vault, vercel project, gh auth
+#             1 PRE-FLIGHT     verify CLIs/vault/vercel/gh; warn on un-pushed dev commits;
+#                              TYPECHECK the dashboard (tsc --noEmit) so a broken build never
+#                              reaches main (--skip-build to bypass)
 #             2 SECRETS SYNC   vault → vercel env (production scope)
-#             3 MIGRATIONS     vault-mediated supabase db push --db-url
+#             3 MIGRATIONS     detect pending (db push --dry-run) → DESTRUCTIVE-op scan (gated by
+#                              --allow-destructive) → pre-push schema BACKUP → supabase db push →
+#                              POST-PUSH VERIFY (0 pending). Aborts the chain on any failure.
 #             3.5 FUNCTIONS DEPLOY  vault-mediated supabase functions deploy (Edge Functions)
 #             4 PROMOTE        open PR development → main, merge it (fast-forward)
-#             5 WAIT VERCEL    poll Vercel API for production deploy of main → READY
-#             6 SMOKE          curl /api/health on https://paycraft.mobilebytesensei.com
+#             5 WAIT VERCEL    poll Vercel API for production deploy of main → READY (aborts on ERROR)
+#             6 SMOKE          curl /api/health + /auth/login + root + Edge Function /config reachability
 #
-# Dry-run by default — pass --apply --confirm-production for mutating prod phases.
+# Dry-run by default — pass --apply --confirm-production for mutating prod phases. Dry-run still
+# runs PRE-FLIGHT (incl. typecheck), the pending-migration list, and the destructive scan.
 # Local mode never mutates production state, no --apply needed.
 #
 # Sub-commands (shorthand aliases):
 #   deploy.sh status     emit YAML-like state blob (consumed by SKILL.md matrix)
 #   deploy.sh ship       alias for --prod --apply --confirm-production (full prod chain)
 #   deploy.sh run        alias for --local
-#   deploy.sh verify     alias for --prod --only-phase 1 (read-only preflight)
+#   deploy.sh verify     alias for --prod --only-phase 1 (preflight + typecheck, read-only)
+#
+# Stability flags:
+#   --allow-destructive  permit pending migrations containing DROP/TRUNCATE (audited; default refuse)
+#   --skip-build         skip the PRE-FLIGHT dashboard typecheck (not recommended)
 #
 set -eo pipefail
 
@@ -59,6 +68,8 @@ KEEP_GOING=false
 VERBOSE=false
 SILENT=false
 SUB_COMMAND=""
+ALLOW_DESTRUCTIVE=false          # gate: pending migrations with DROP/TRUNCATE abort unless set
+SKIP_BUILD=false                 # escape hatch: skip the local typecheck in PRE-FLIGHT
 
 # Sub-command detection (shorthand aliases)
 case "${1:-}" in
@@ -83,6 +94,8 @@ while [[ $# -gt 0 ]]; do
         --to-phase)             TO_PHASE="$2"; shift 2 ;;
         --only-phase)           ONLY_PHASE="$2"; FROM_PHASE="$2"; TO_PHASE="$2"; shift 2 ;;
         --keep-going)           KEEP_GOING=true; shift ;;
+        --allow-destructive)    ALLOW_DESTRUCTIVE=true; shift ;;
+        --skip-build)           SKIP_BUILD=true; shift ;;
         --verbose)              VERBOSE=true; shift ;;
         --silent)               SILENT=true; shift ;;
         -h|--help)
@@ -112,7 +125,7 @@ phase_end() {
     [[ "$SILENT" = "true" ]] && return
     local icon
     case "$status" in PASS) icon="✓";; FAIL) icon="✗";; SKIP) icon="↷";; *) icon="?";; esac
-    printf "[%d] %-20s %s %s  %ss  %s\n" "$n" "$name" "$icon" "$status" "$duration" "$details"
+    printf "[%s] %-20s %s %s  %ss  %s\n" "$n" "$name" "$icon" "$status" "$duration" "$details"
 }
 
 run_phase() {
@@ -120,7 +133,10 @@ run_phase() {
     if [[ -n "$ONLY_PHASE" && "$n" != "$ONLY_PHASE" ]]; then
         phase_end "$n" "$name" "SKIP" "0" "not in --only-phase"; return 0
     fi
-    if [[ "$n" -lt "$FROM_PHASE" ]] || [[ "$n" -gt "$TO_PHASE" ]]; then
+    # Float-safe range check — phase numbers can be non-integer (e.g. 3.5); bash's
+    # [[ -lt ]] does integer arithmetic and errors on "3.5". awk handles the compare
+    # AND fixes the latent bug where 3.5 ignored --from-phase/--to-phase entirely.
+    if awk -v n="$n" -v lo="$FROM_PHASE" -v hi="$TO_PHASE" 'BEGIN{exit !(n+0 < lo+0 || n+0 > hi+0)}'; then
         phase_end "$n" "$name" "SKIP" "0" "out of range"; return 0
     fi
     phase_start "$n" "$name"
@@ -167,9 +183,49 @@ vercel_api() {
 # ═══════════════════════════════════════════════════════════
 phase_1_preflight() {
     if [[ "$VERBOSE" = "true" ]]; then
-        bash "$PAYCRAFT_SRC/infra/deploy/preflight.sh" --verbose
+        bash "$PAYCRAFT_SRC/infra/deploy/preflight.sh" --verbose || return 1
     else
-        bash "$PAYCRAFT_SRC/infra/deploy/preflight.sh"
+        bash "$PAYCRAFT_SRC/infra/deploy/preflight.sh" || return 1
+    fi
+
+    cd "$PAYCRAFT_SRC"
+
+    # Warn on un-pushed local development commits — prod promotes origin/development, so any
+    # commit not pushed there will NOT deploy. (Warning only; you may be deploying intentionally.)
+    git fetch origin development 2>/dev/null || true
+    local unpushed
+    unpushed=$(git rev-list --count origin/development..development 2>/dev/null || echo 0)
+    if [[ "$unpushed" =~ ^[0-9]+$ && "$unpushed" -gt 0 ]]; then
+        echo "  ⚠ local 'development' is $unpushed commit(s) ahead of origin/development — those will NOT deploy."
+        echo "    Push them first (/git-session-commit) if you intend to ship them."
+    fi
+
+    # Build verification — typecheck the dashboard BEFORE any mutation so a broken build never
+    # reaches main (Vercel would fail the deploy AFTER promote, polluting main). Fast, deterministic,
+    # no env needed. The authoritative Next.js build still runs on Vercel (Phase 5 aborts on ERROR).
+    if [[ "$SKIP_BUILD" = "true" ]]; then
+        echo "  ↷ build verify skipped (--skip-build)"
+        return 0
+    fi
+    if [[ ! -d "$PAYCRAFT_SRC/dashboard/node_modules" ]]; then
+        echo "  ✗ dashboard/node_modules missing — run 'npm ci' in dashboard/ first (or pass --skip-build)"
+        return 1
+    fi
+    echo "  Typechecking dashboard (tsc --noEmit)…"
+    local tc_log tc_rc
+    tc_log=$(mktemp -t paycraft-tsc-XXXXXX)
+    set +o pipefail
+    ( cd "$PAYCRAFT_SRC/dashboard" && npx --no-install tsc --noEmit ) > "$tc_log" 2>&1
+    tc_rc=$?
+    set -o pipefail
+    if [[ $tc_rc -eq 0 ]]; then
+        echo "  ✓ dashboard typecheck clean"
+        rm -f "$tc_log"
+    else
+        echo "  ✗ dashboard typecheck FAILED — fix before deploying (a broken build would fail the Vercel deploy):"
+        grep -E "error TS" "$tc_log" | head -20 || tail -20 "$tc_log"
+        rm -f "$tc_log"
+        return 1
     fi
 }
 
@@ -188,31 +244,99 @@ phase_3_migrations() {
         echo "  ✗ framework-supabase-db-url not resolvable from vault"; return 1
     fi
     db_url=$(cat "$db_url_file")
-    if [[ "$APPLY" = "true" ]]; then
-        echo "  Running: supabase db push --include-all --db-url <framework-supabase>"
-        # Capture full output then tail — piping through `tail` directly causes
-        # SIGPIPE / exit 141 when the supabase CLI prints its "new version
-        # available" banner after the tail head closes, even though the push
-        # itself succeeded.
-        local push_log push_rc
-        push_log=$(mktemp -t paycraft-dbpush-XXXXXX)
-        # `echo y` (not `yes y`) — yes never exits and triggers SIGPIPE / 141
-        # under pipefail when the supabase CLI consumes its stdin and closes it.
-        set +o pipefail
-        echo y | supabase db push --include-all --db-url "$db_url" --include-roles > "$push_log" 2>&1
-        push_rc=$?
-        set -o pipefail
-        if [[ $push_rc -eq 0 ]]; then
-            tail -15 "$push_log"
-            rm -f "$push_log"
-        else
-            tail -30 "$push_log"
-            rm -f "$push_log"
-            return $push_rc
-        fi
+
+    # ── Detect pending migrations (ask supabase what it WOULD apply) ──
+    local dryrun_log pending dryrun_supported=true
+    dryrun_log=$(mktemp -t paycraft-mig-dry-XXXXXX)
+    set +o pipefail
+    echo y | supabase db push --include-all --dry-run --db-url "$db_url" > "$dryrun_log" 2>&1
+    set -o pipefail
+    if grep -qiE "unknown flag|unknown shorthand|invalid argument" "$dryrun_log"; then
+        dryrun_supported=false  # older CLI without --dry-run; degrade gracefully
+    fi
+    pending=$(grep -oE '[0-9]{3,}_[a-zA-Z0-9_]+\.sql' "$dryrun_log" | sort -u || true)
+    if [[ "$dryrun_supported" = "true" && -z "$pending" ]] && grep -qiE "up to date|no migrations|remote database is up" "$dryrun_log"; then
+        echo "  ✓ No pending migrations — remote is up to date."
+        rm -f "$dryrun_log"; return 0
+    fi
+    rm -f "$dryrun_log"
+    if [[ -n "$pending" ]]; then
+        echo "  Pending migrations:"; echo "$pending" | sed 's/^/    • /'
     else
-        echo "  [DRY] supabase migration list --db-url <framework-supabase>"
-        supabase migration list --db-url "$db_url" 2>&1 | tail -10 || true
+        echo "  (pending list unavailable on this CLI — relying on push + post-verify)"
+    fi
+
+    # ── Destructive-change scan over PENDING files only (data-loss guard) ──
+    local DESTRUCTIVE_RE='drop[[:space:]]+table|drop[[:space:]]+column|truncate[[:space:]]|alter[[:space:]]+table[[:space:]].*drop[[:space:]]+column|drop[[:space:]]+type|drop[[:space:]]+schema'
+    if [[ -n "$pending" ]]; then
+        local destructive=() fname
+        while IFS= read -r fname; do
+            [[ -z "$fname" ]] && continue
+            [[ -f "supabase/migrations/$fname" ]] || continue
+            if grep -iqE "$DESTRUCTIVE_RE" "supabase/migrations/$fname"; then destructive+=("$fname"); fi
+        done <<< "$pending"
+        if [[ ${#destructive[@]} -gt 0 ]]; then
+            echo "  ⚠ DESTRUCTIVE operations detected in pending migrations:"
+            for fname in "${destructive[@]}"; do
+                grep -inE "$DESTRUCTIVE_RE" "supabase/migrations/$fname" | head -4 | sed "s|^|      $fname:|"
+            done
+            if [[ "$APPLY" = "true" && "$ALLOW_DESTRUCTIVE" != "true" ]]; then
+                echo "  ✗ Refusing destructive migrations on production without --allow-destructive."
+                echo "    If intended, re-run: /paycraft-deploy ship --allow-destructive"
+                return 1
+            fi
+            [[ "$APPLY" = "true" ]] && echo "  ⚠ --allow-destructive set — proceeding (audited)."
+        fi
+    fi
+
+    if [[ "$APPLY" != "true" ]]; then
+        echo "  [DRY] $([[ -n "$pending" ]] && echo "would apply the pending migrations above" || echo "nothing parsed to apply")"
+        return 0
+    fi
+
+    # ── Pre-push schema backup (recovery artifact — there is no auto-rollback) ──
+    local backup="$STATE_DIR/pre-deploy-schema-$(date -u +%Y%m%dT%H%M%SZ).sql"
+    echo "  Backing up remote schema → $backup"
+    set +o pipefail
+    supabase db dump --db-url "$db_url" -f "$backup" > /dev/null 2>&1
+    local dump_rc=$?
+    set -o pipefail
+    if [[ $dump_rc -eq 0 && -s "$backup" ]]; then
+        echo "  ✓ schema backup saved ($(wc -l < "$backup" | tr -d ' ') lines) — restore with: psql <db-url> -f $backup"
+    else
+        echo "  ⚠ schema backup failed (rc=$dump_rc) — continuing, but no pre-migration snapshot exists."
+        rm -f "$backup"
+    fi
+
+    # ── Apply (echo y, not yes — yes triggers SIGPIPE/141 under pipefail) ──
+    echo "  Running: supabase db push --include-all --db-url <framework-supabase>"
+    local push_log push_rc
+    push_log=$(mktemp -t paycraft-dbpush-XXXXXX)
+    set +o pipefail
+    echo y | supabase db push --include-all --db-url "$db_url" --include-roles > "$push_log" 2>&1
+    push_rc=$?
+    set -o pipefail
+    if [[ $push_rc -ne 0 ]]; then
+        tail -30 "$push_log"; rm -f "$push_log"
+        echo "  ✗ migration push failed — remote may be partially migrated. Backup: ${backup:-none}"
+        return $push_rc
+    fi
+    tail -15 "$push_log"; rm -f "$push_log"
+
+    # ── Post-push verification: assert NOTHING is still pending ──
+    if [[ "$dryrun_supported" = "true" ]]; then
+        local verify_log still
+        verify_log=$(mktemp -t paycraft-mig-verify-XXXXXX)
+        set +o pipefail
+        echo y | supabase db push --include-all --dry-run --db-url "$db_url" > "$verify_log" 2>&1
+        set -o pipefail
+        still=$(grep -oE '[0-9]{3,}_[a-zA-Z0-9_]+\.sql' "$verify_log" | sort -u || true)
+        rm -f "$verify_log"
+        if [[ -n "$still" ]]; then
+            echo "  ✗ Post-push verification FAILED — still pending after push:"; echo "$still" | sed 's/^/    • /'
+            return 1
+        fi
+        echo "  ✓ Post-push verification: all migrations applied (0 pending)."
     fi
 }
 
@@ -427,6 +551,15 @@ phase_6_smoke() {
         echo "  ✓ /auth/login renders (HTTP 200, contains auth markers)"
     else
         echo "  ⚠ /auth/login HTTP $result — may not contain expected markers"
+    fi
+
+    # Edge Function reachability — /config is the SDK's critical endpoint. No-auth probe:
+    # 401 = function deployed & auth-gated (correct); 404 = NOT deployed.
+    result=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 "https://${SUPABASE_REF}.supabase.co/functions/v1/config" 2>&1) || true
+    if [[ "$result" =~ ^(401|200)$ ]]; then
+        echo "  ✓ Edge Function /config reachable (HTTP $result — deployed)"
+    else
+        echo "  ✗ Edge Function /config → HTTP $result (404 = not deployed)"; fails=$((fails+1))
     fi
     rm -f /tmp/.health.json /tmp/.login.html
 

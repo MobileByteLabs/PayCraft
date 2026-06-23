@@ -1,5 +1,6 @@
 import { cookies } from "next/headers"
 import { Sidebar } from "@/components/sidebar"
+import { AiBubble } from "@/components/ai-bubble"
 import { AppSwitcher } from "@/components/app-switcher"
 import { GraceBanner } from "@/components/billing/GraceBanner"
 import { ModeToggle, TestModeBanner } from "@/components/mode-toggle"
@@ -52,6 +53,8 @@ export default async function DashboardLayout({
         <TestModeBanner mode={mode} />
         <div className="px-10 pb-20 max-w-[1280px]">{children}</div>
       </main>
+      {/* Persistent PayCraft AI entry point on every dashboard page. */}
+      <AiBubble />
     </div>
   )
 }
