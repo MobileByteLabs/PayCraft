@@ -83,18 +83,18 @@ export async function stripeSyncProduct(
 export async function razorpaySyncProduct(
   supabase: ReturnType<typeof createClient>,
   opts: SyncOptions,
-): Promise<void> {
+): Promise<{ ok: boolean; error?: string }> {
   const { tenantId, productId, body, existingRazorpayPlanIds } = opts
   try {
     // Check Razorpay connection status (live keys preferred; fall back to test).
     const { data: rpStatus } = await supabase
       .rpc("tenant_providers_status", { p_tenant_id: tenantId, p_provider: "razorpay" })
       .single<{ test_key_id: string | null; live_key_id: string | null; connected: boolean }>()
-    if (!rpStatus?.connected) return
+    if (!rpStatus?.connected) return { ok: false, error: "Razorpay is not connected for this tenant" }
 
     const mode: "test" | "live" = rpStatus.live_key_id ? "live" : "test"
     const prices = buildPriceInputs(body)
-    if (!prices.length) return
+    if (!prices.length) return { ok: false, error: "no pricing rows for this product" }
 
     const result = await syncProductToRazorpay(
       tenantId,
@@ -120,8 +120,21 @@ export async function razorpaySyncProduct(
         p_payment_links: result.paymentLinksByCurrency,
       }),
     ])
+    return { ok: true }
   } catch (e: any) {
-    console.error("[products] razorpay sync failed:", e.message)
+    // The Razorpay SDK rejects with a PLAIN OBJECT { statusCode, error: { code,
+    // description, ... } } — NOT an Error instance — so e.message is undefined.
+    // Dig out the real reason (e.g. "Currency is not supported") and surface it
+    // instead of swallowing the failure behind a generic "check credentials".
+    const detail =
+      e?.error?.description ??
+      e?.error?.error?.description ??
+      e?.message ??
+      (typeof e === "object" ? JSON.stringify(e) : String(e))
+    const code = e?.statusCode ?? e?.error?.code
+    const msg = `Razorpay${code ? ` [${code}]` : ""}: ${detail}`
+    console.error("[products] razorpay sync failed:", msg)
+    return { ok: false, error: msg }
   }
 }
 

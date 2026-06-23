@@ -78,7 +78,7 @@ export async function POST(
   }
 
   try {
-    await razorpaySyncProduct(supabase, {
+    const res = await razorpaySyncProduct(supabase, {
       tenantId: tenant.id,
       productId: params.id,
       body,
@@ -89,11 +89,14 @@ export async function POST(
       .select("razorpay_plan_id_by_currency")
       .eq("id", params.id)
       .single()
-    razorpayReport.status =
+    const populated = !!(
       after?.razorpay_plan_id_by_currency &&
       Object.keys(after.razorpay_plan_id_by_currency).length > 0
-        ? "ok"
-        : "failed"
+    )
+    razorpayReport.status = res.ok && populated ? "ok" : "failed"
+    if (razorpayReport.status === "failed" && res.error) {
+      razorpayReport.message = res.error
+    }
   } catch (e: any) {
     razorpayReport.status = "failed"
     razorpayReport.message = e?.message ?? String(e)
