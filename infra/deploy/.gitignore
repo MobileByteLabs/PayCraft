@@ -1,0 +1,3 @@
+# Machine-local deploy run state — phase markers, pre-deploy schema backups,
+# dev-server pid/log. Never committed; regenerated on each run.
+.state/

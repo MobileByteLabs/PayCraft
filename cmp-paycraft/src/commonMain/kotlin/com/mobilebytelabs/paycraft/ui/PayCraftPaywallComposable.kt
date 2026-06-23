@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.config.SuiteConfig
+import com.mobilebytelabs.paycraft.config.effectiveThemeOverride
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.Money
 import com.mobilebytelabs.paycraft.model.Product
@@ -38,7 +39,7 @@ fun PayCraftPaywallComposable() {
         .map(ProductMapper::fromDto)
         .sortedBy { it.displayOrder }
 
-    PayCraftThemeProvider(themeOverride = config.paywall.themeJsonb) {
+    PayCraftThemeProvider(themeOverride = config.paywall.effectiveThemeOverride) {
         template.render(
             state = state.billingState,
             products = products,

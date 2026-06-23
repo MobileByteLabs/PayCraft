@@ -9,6 +9,7 @@ import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.network.CouponClient
 import com.mobilebytelabs.paycraft.platform.DeviceFingerprint
+import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import com.mobilebytelabs.paycraft.provider.PaymentProvider
 import io.ktor.client.HttpClient
@@ -25,6 +26,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
@@ -45,8 +49,18 @@ object PayCraft {
     internal var config: PayCraftConfig? = null
         private set
 
-    internal var suiteConfig: SuiteConfig? = null
-        private set
+    private val _suiteConfigFlow = MutableStateFlow<SuiteConfig?>(null)
+
+    /**
+     * Reactive SuiteConfig stream. Compose UIs (paywall, banner) MUST collect this
+     * so they recompose when the async cloud fetch — or an explicit [refreshConfig] —
+     * publishes an updated config from the dashboard. Reading the non-reactive
+     * [suiteConfig] snapshot does NOT trigger recomposition, which is why dashboard
+     * edits previously failed to surface in consumer apps until a cold relaunch.
+     */
+    val suiteConfigFlow: StateFlow<SuiteConfig?> = _suiteConfigFlow.asStateFlow()
+
+    internal val suiteConfig: SuiteConfig? get() = _suiteConfigFlow.value
 
     internal var backend: PayCraftBackend = PayCraftBackend.Cloud
         private set
@@ -83,6 +97,29 @@ object PayCraft {
     /** Long-lived scope for the SDK's background work — currently just the cloud SuiteConfig fetch. */
     private val sdkScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var configFetchJob: Job? = null
+    private var initOptions: InitOptions = InitOptions()
+
+    private var _activeCountry: String = CurrencyResolver.DEFAULT_COUNTRY
+    private var _activeCurrency: String = CurrencyResolver.FALLBACK_CURRENCY
+
+    /**
+     * THE single resolved billing region — the one (country, currency) the whole paywall uses:
+     * the displayed price AND every payment provider's checkout link read this, so a provider
+     * can never silently route a different currency than the one shown.
+     *
+     * Country is decided once at [initialize] (order: [InitOptions.localeOverride] → device
+     * region [com.mobilebytelabs.paycraft.platform.PlatformInfo.country] → cloud
+     * [com.mobilebytelabs.paycraft.config.SuiteConfig.locale] → "US"). Currency is the one the
+     * cloud resolved for that locale (uniform across products). Prefer this over reasoning
+     * about currency per-plan or per-provider.
+     */
+    val activeRegion: ResolvedRegion get() = ResolvedRegion(_activeCountry, _activeCurrency)
+
+    /** ISO 3166-1 alpha-2 country driving price/currency resolution. See [activeRegion]. */
+    val activeCountry: String get() = _activeCountry
+
+    /** ISO 4217 currency the displayed price + every provider checkout share. See [activeRegion]. */
+    val activeCurrency: String get() = _activeCurrency
 
     /**
      * Boot the SDK with a publishable PayCraft API key.
@@ -103,6 +140,16 @@ object PayCraft {
         }
         this.apiKey = apiKey
         this.backend = backend
+        this.initOptions = options
+        // Decide the billing country ONCE — the single deciding point that drives the /config
+        // locale, the displayed price, and every provider's checkout currency. Override wins,
+        // else the device region, else "US". (PlatformInfo reads can throw in odd test
+        // harnesses — same guard as the device fingerprint below.)
+        this._activeCountry = CurrencyResolver.resolveCountry(
+            override = options.localeOverride,
+            deviceCountry = runCatching { PlatformInfo.country }.getOrNull(),
+            configLocale = null,
+        )
         PayCraftLogger.onInitialize(
             backendName = when (backend) {
                 is PayCraftBackend.Cloud -> "cloud"
@@ -153,6 +200,22 @@ object PayCraft {
     }
 
     /**
+     * Force a fresh SuiteConfig fetch from the backend, bypassing any in-flight
+     * job, and publish it through [suiteConfigFlow]. Call this to pick up a
+     * dashboard change without waiting for the next cold launch — e.g. on app
+     * foreground or a pull-to-refresh. No-op for [PayCraftBackend.Mock] and before
+     * [initialize].
+     */
+    fun refreshConfig() {
+        val key = apiKey ?: return
+        if (backend is PayCraftBackend.Mock) return
+        configFetchJob?.cancel()
+        configFetchJob = sdkScope.launch {
+            fetchAndApplySuiteConfig(key, backend, initOptions)
+        }
+    }
+
+    /**
      * Hit `backend.configUrl` for the SuiteConfig, decode, and publish via
      * [applySuiteConfig]. Inline HTTP fetch — bypasses [com.mobilebytelabs.paycraft.config.ConfigClient]
      * to avoid the [com.russhwolf.settings.Settings] dependency that needs a
@@ -172,10 +235,21 @@ object PayCraft {
             }
         }
         try {
-            val locale = options.localeOverride ?: "US"
+            // Re-resolve the country HERE (async fetch time), not the value cached in
+            // initialize(). The Android Context that backs SIM-country detection is wired by
+            // androidx-startup and — when the host starts Koin via koin-androidx-startup —
+            // may not be ready during the synchronous initialize() call (startup ordering
+            // race). Reading PlatformInfo.country at fetch time, after app init settles, picks
+            // up the real billing region (e.g. an Indian SIM under an en-GB phone language).
+            _activeCountry = CurrencyResolver.resolveCountry(
+                override = options.localeOverride,
+                deviceCountry = runCatching { PlatformInfo.country }.getOrNull(),
+                configLocale = null,
+            )
+            val locale = _activeCountry
             PayCraftLogger.onFlow(
                 "loadConfig",
-                "GET ${backend.configUrl}?apiKey=${apiKey.take(8)}…  mode=$mode",
+                "GET ${backend.configUrl}?apiKey=${apiKey.take(8)}…  mode=$mode  country=$locale",
             )
             // Supabase Edge Functions require an Authorization header by default
             // (verify_jwt=true at the platform level). Pass the backend's known
@@ -229,15 +303,29 @@ object PayCraft {
 
     /** Apply a cloud-fetched [SuiteConfig] into the existing PayCraftConfig shape. */
     internal fun applySuiteConfig(suite: SuiteConfig) {
-        this.suiteConfig = suite
+        // Resolve + assign `config` BEFORE emitting on the flow. The paywall ViewModel
+        // collects suiteConfigFlow and re-reads PayCraft.config on each emission; if the
+        // emit came first, the collector could run while `config` still held the previous
+        // value (null on cold start) and drop the plans — and it would never re-fire,
+        // because the StateFlow value wouldn't change again. Config-first ordering
+        // guarantees every collector observes the freshly-resolved config.
         val resolved = suite.toPayCraftConfig(backend, apiKey)
         this.config = resolved
+        // The cloud resolved prices for the active locale; capture the single currency every
+        // provider + the displayed price now share (uniform across products for a locale).
+        _activeCurrency = CurrencyResolver.resolveCurrency(resolved.plans)
+        _suiteConfigFlow.value = suite
         PayCraftLogger.onSuiteConfigApplied(
             source = resolved.source.name,
             productCount = suite.products.size,
             providerCount = suite.providers.size,
             primaryProvider = suite.providers.firstOrNull()?.provider ?: "none",
             locale = suite.locale,
+        )
+        // The single resolved region every provider + the displayed price now share.
+        PayCraftLogger.onFlow(
+            "loadConfig",
+            "active region → country=$_activeCountry currency=$_activeCurrency",
         )
     }
 
@@ -377,7 +465,7 @@ internal fun SuiteConfig.toPayCraftConfig(backend: PayCraftBackend, apiKey: Stri
         supabaseUrl = backend.supabaseUrl,
         supabaseAnonKey = backend.supabaseAnonKey,
         provider = provider,
-        plans = products.toBillingPlans(),
+        plans = products.toBillingPlans(paywall.popularPlanSku),
         benefits = emptyList(), // benefits surface on PaywallDto.themeJsonb in cloud mode
         supportEmail = paywall.supportEmail ?: "support@paycraft.mobilebytesensei.com",
         apiKey = apiKey,
@@ -389,7 +477,7 @@ internal fun SuiteConfig.toPayCraftConfig(backend: PayCraftBackend, apiKey: Stri
     )
 }
 
-private fun List<ProductDto>.toBillingPlans(): List<BillingPlan> {
+private fun List<ProductDto>.toBillingPlans(popularSku: String?): List<BillingPlan> {
     val subscriptions = filter { it.type == "subscription" || it.type == "lifetime" }
         .sortedBy { it.displayOrder }
     val trials = filter { it.type == "trial" }
@@ -429,7 +517,7 @@ private fun List<ProductDto>.toBillingPlans(): List<BillingPlan> {
             discountEndsAt = if (discountPercent != null) dto.discountEndsAt else null,
             interval = dto.interval ?: "lifetime",
             rank = idx,
-            isPopular = false,
+            isPopular = popularSku != null && dto.sku == popularSku,
             trialDays = trialDays,
             currency = originalCurrency.uppercase(),
         )
@@ -472,12 +560,16 @@ private class SuiteProviderAdapter(private val dto: ProviderDto?) : PaymentProvi
                     "open the PayCraft dashboard, switch to ${PayCraft.mode.name} mode, " +
                     "and add a payment link for this product.",
             )
-        val url = perCurrency[plan.currency]
-            ?: perCurrency["USD"]
-            ?: perCurrency.values.firstOrNull()
+        // Single deciding point: EVERY provider keys off PayCraft.activeCurrency (the one
+        // currency the displayed price uses) with the SAME shared fallback resolved in
+        // CurrencyResolver — so two providers can never route different currencies, and the
+        // checkout currency can't silently diverge from the price shown on the paywall.
+        val currency = CurrencyResolver.checkoutCurrency(PayCraft.activeCurrency, perCurrency.keys)
+        val url = perCurrency[currency]
             ?: error(
-                "Plan ${plan.id} has no checkout URL for currency ${plan.currency} (or USD fallback) — " +
-                    "configure ${PayCraft.mode.name.lowercase()}-mode payment links in the PayCraft dashboard.",
+                "Plan ${plan.id} has no ${PayCraft.mode.name.lowercase()}-mode checkout URL for " +
+                    "currency $currency (active=${PayCraft.activeCurrency}) — configure payment " +
+                    "links for this product in the PayCraft dashboard.",
             )
         return if (email != null) "$url?prefilled_email=$email" else url
     }

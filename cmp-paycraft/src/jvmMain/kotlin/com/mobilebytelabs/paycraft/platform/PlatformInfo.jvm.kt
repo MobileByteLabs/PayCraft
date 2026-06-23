@@ -6,6 +6,8 @@ actual object PlatformInfo {
         get() = "${System.getProperty("os.name")} (${System.getProperty("user.name")})"
     actual val deviceId: String
         get() = loadOrCreateJvmDeviceId()
+    actual val country: String?
+        get() = java.util.Locale.getDefault().country.takeIf { it.isNotBlank() }
 }
 
 private fun loadOrCreateJvmDeviceId(): String {

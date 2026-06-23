@@ -32,6 +32,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -56,10 +57,13 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_error_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_upgrade_plan
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_upgrade_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_your_premium_title
+import com.mobilebytelabs.paycraft.config.effectiveThemeOverride
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.presentation.Branding
+import com.mobilebytelabs.paycraft.presentation.PayCraftThemeProvider
 import com.mobilebytelabs.paycraft.presentation.ProviderBottomSheet
 import com.mobilebytelabs.paycraft.presentation.components.BrandingFooter
+import com.mobilebytelabs.paycraft.presentation.templates.ValuePropList
 import com.mobilebytelabs.paycraft.provider.StripeProvider
 import com.mobilebytelabs.paycraft.ui.components.PayCraftActiveSubscriptionBanner
 import com.mobilebytelabs.paycraft.ui.components.PayCraftPaywallHeader
@@ -99,25 +103,34 @@ fun PayCraftPaywall(
         }
     }
 
-    when (displayMode) {
-        DisplayMode.Banner -> BannerPaywall(
-            state = state.billingState,
-            onTap = {
-                // Surface the latest state when the user taps an error banner; hosts
-                // wire onDismiss to open the full paywall sheet.
-                if (state.billingState is BillingState.Error) {
-                    viewModel.dispatch(PayCraftPaywallAction.RefreshStatus)
-                }
-                onDismiss()
-            },
-            modifier = modifier,
-        )
-        DisplayMode.FullScreen -> PayCraftPaywallContent(
-            state = state,
-            snackbarHostState = snackbarHostState,
-            onAction = viewModel::dispatch,
-            modifier = modifier,
-        )
+    // Apply the dashboard-configured brand color (primary_color) + theme_jsonb to the
+    // paywall's MaterialTheme so prices, the selection ring, and the MOST POPULAR pill
+    // all render in the configured brand color instead of inheriting the host app's
+    // MaterialTheme primary (e.g. reels-downloader's blue). Collected reactively so a
+    // dashboard edit recolors the live paywall without a cold relaunch.
+    val themeOverride = PayCraft.suiteConfigFlow.collectAsState().value
+        ?.paywall?.effectiveThemeOverride.orEmpty()
+    PayCraftThemeProvider(themeOverride = themeOverride) {
+        when (displayMode) {
+            DisplayMode.Banner -> BannerPaywall(
+                state = state.billingState,
+                onTap = {
+                    // Surface the latest state when the user taps an error banner; hosts
+                    // wire onDismiss to open the full paywall sheet.
+                    if (state.billingState is BillingState.Error) {
+                        viewModel.dispatch(PayCraftPaywallAction.RefreshStatus)
+                    }
+                    onDismiss()
+                },
+                modifier = modifier,
+            )
+            DisplayMode.FullScreen -> PayCraftPaywallContent(
+                state = state,
+                snackbarHostState = snackbarHostState,
+                onAction = viewModel::dispatch,
+                modifier = modifier,
+            )
+        }
     }
 }
 
@@ -143,21 +156,26 @@ fun PayCraftPaywallSheet(
         }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = {
-            // T18: refreshStatus when paywall closes
-            viewModel.dispatch(PayCraftPaywallAction.RefreshStatus)
-            onDismiss()
-        },
-        sheetState = sheetState,
-        dragHandle = null, // T18: no drag handle
-        modifier = modifier,
-    ) {
-        PayCraftPaywallContent(
-            state = state,
-            snackbarHostState = remember { SnackbarHostState() },
-            onAction = viewModel::dispatch,
-        )
+    // Brand-color the sheet (see PayCraftPaywall for rationale); reactive to dashboard edits.
+    val themeOverride = PayCraft.suiteConfigFlow.collectAsState().value
+        ?.paywall?.effectiveThemeOverride.orEmpty()
+    PayCraftThemeProvider(themeOverride = themeOverride) {
+        ModalBottomSheet(
+            onDismissRequest = {
+                // T18: refreshStatus when paywall closes
+                viewModel.dispatch(PayCraftPaywallAction.RefreshStatus)
+                onDismiss()
+            },
+            sheetState = sheetState,
+            dragHandle = null, // T18: no drag handle
+            modifier = modifier,
+        ) {
+            PayCraftPaywallContent(
+                state = state,
+                snackbarHostState = remember { SnackbarHostState() },
+                onAction = viewModel::dispatch,
+            )
+        }
     }
 }
 
@@ -332,7 +350,7 @@ fun PayCraftPaywallContent(
                         }
 
                         // Branding footer — auto-hides when branding = None (Pro+ tier)
-                        val paywallDto = PayCraft.suiteConfig?.paywall
+                        val paywallDto = PayCraft.suiteConfigFlow.collectAsState().value?.paywall
                         BrandingFooter(
                             branding = Branding.parse(paywallDto?.branding ?: "attribution"),
                             customFooterText = paywallDto?.customFooter,
@@ -349,10 +367,13 @@ fun PayCraftPaywallContent(
                     //   1. PaywallDto.themeJsonb["headline_subtitle"] — set by
                     //      tenants on the dashboard's Paywall designer.
                     //   2. null (header omits the subtitle row gracefully).
-                    val paywallSubtitle = PayCraft.suiteConfig?.paywall
-                        ?.themeJsonb
-                        ?.get("headline_subtitle")
-                        ?.takeIf { it.isNotBlank() }
+                    // Reactive live config — recomposes when the cloud fetch (or
+                    // refreshConfig()) publishes a dashboard edit. Hero title + subtitle
+                    // are dashboard-driven (v2 PaywallDto); fall back to the i18n string
+                    // / legacy themeJsonb only when the config field is blank/unloaded.
+                    val livePaywall = PayCraft.suiteConfigFlow.collectAsState().value?.paywall
+                    val paywallSubtitle = livePaywall?.heroSubtitle?.takeIf { it.isNotBlank() }
+                        ?: livePaywall?.themeJsonb?.get("headline_subtitle")?.takeIf { it.isNotBlank() }
 
                     Column(
                         modifier = Modifier
@@ -364,10 +385,22 @@ fun PayCraftPaywallContent(
                         verticalArrangement = Arrangement.spacedBy(20.dp),
                     ) {
                         PayCraftPaywallHeader(
-                            title = stringResource(Res.string.paycraft_upgrade_title),
+                            title = livePaywall?.heroTitle?.takeIf { it.isNotBlank() }
+                                ?: stringResource(Res.string.paycraft_upgrade_title),
                             subtitle = paywallSubtitle,
+                            // Dashboard branding-icon override (inline SVG path) — falls back
+                            // to the SDK default play icon when the tenant hasn't set one.
+                            heroIconSvg = livePaywall?.heroIconSvg,
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         )
+
+                        // Dashboard-authored value props (PaywallDto.value_props). Same
+                        // component the BrandedStackTemplate uses, so the consumer paywall
+                        // and the designer render value props identically.
+                        val valueProps = livePaywall?.valueProps.orEmpty()
+                        if (valueProps.isNotEmpty()) {
+                            ValuePropList(items = valueProps)
+                        }
 
                         // Plans — designer-style cards with center-top MOST POPULAR pill.
                         if (state.plans.isNotEmpty()) {
@@ -415,15 +448,20 @@ fun PayCraftPaywallContent(
                         // config (themeJsonb.privacy_url / .terms_url); fall back to
                         // PayCraft Cloud's defaults if the tenant hasn't customised.
                         PaywallLegalFooter(
+                            restoreLabel = livePaywall?.restoreLabel,
                             onPrivacyClick = {
                                 val paywallDto = PayCraft.suiteConfig?.paywall
-                                val url = paywallDto?.themeJsonb?.get("privacy_url")
+                                // Prefer the dedicated privacy_url column; fall back to the
+                                // legacy theme_jsonb key, then PayCraft Cloud's default.
+                                val url = paywallDto?.privacyUrl?.takeIf { it.isNotBlank() }
+                                    ?: paywallDto?.themeJsonb?.get("privacy_url")
                                     ?: "https://paycraft.mobilebytesensei.com/privacy"
                                 PayCraftPlatform.openUrl(url)
                             },
                             onTermsClick = {
                                 val paywallDto = PayCraft.suiteConfig?.paywall
-                                val url = paywallDto?.themeJsonb?.get("terms_url")
+                                val url = paywallDto?.termsUrl?.takeIf { it.isNotBlank() }
+                                    ?: paywallDto?.themeJsonb?.get("terms_url")
                                     ?: "https://paycraft.mobilebytesensei.com/terms"
                                 PayCraftPlatform.openUrl(url)
                             },
@@ -451,7 +489,7 @@ fun PayCraftPaywallContent(
                         // branding = none / custom_footer). Shown across every paywall
                         // state, not just Free, so the SaaS attribution stays
                         // consistent regardless of the user's billing status.
-                        val paywallDto = PayCraft.suiteConfig?.paywall
+                        val paywallDto = PayCraft.suiteConfigFlow.collectAsState().value?.paywall
                         BrandingFooter(
                             branding = Branding.parse(paywallDto?.branding ?: "attribution"),
                             customFooterText = paywallDto?.customFooter,

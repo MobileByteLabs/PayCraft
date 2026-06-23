@@ -52,17 +52,19 @@ SECRETS=(
     "mbs-paycraft-stripe-platform-secret-key:STRIPE_SECRET_KEY"
     "mbs-paycraft-stripe-platform-publishable-key:NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"
     "mbs-paycraft-stripe-platform-webhook-secret:STRIPE_WEBHOOK_SECRET"
-    "mbs-paycraft-stripe-connect-client-id:STRIPE_CONNECT_CLIENT_ID"
+    # NOTE: stripe-connect-client-id is NOT a dashboard env secret — it's the public Connect
+    # client ID configured in the Stripe Connect OAuth flow, not synced to Vercel.
 
     # ─── Razorpay platform ───
     "mbs-paycraft-razorpay-key-id:RAZORPAY_KEY_ID"
     "mbs-paycraft-razorpay-key-secret:RAZORPAY_KEY_SECRET"
-    "mbs-paycraft-razorpay-webhook-secret:RAZORPAY_WEBHOOK_SECRET"
+    # NOTE: razorpay-webhook-secret is NOT a dashboard env secret — it lives with the
+    # webhook handler (Edge Function), not the Vercel dashboard env.
 
-    # ─── Transactional email + observability ───
+    # ─── Transactional email ───
     "mbs-paycraft-resend-api-key:RESEND_API_KEY"
-    "mbs-paycraft-sentry-dsn:NEXT_PUBLIC_SENTRY_DSN"
-    "mbs-paycraft-sentry-auth-token:SENTRY_AUTH_TOKEN"
+    # NOTE: Sentry was dropped in favour of Google Analytics. GA's measurement id
+    # (NEXT_PUBLIC_GA_ID) is PUBLIC — set it directly in Vercel env, NOT via the vault.
 
     # ─── OAuth (Supabase Auth → Google) ───
     "mbs-paycraft-google-oauth-client-id:GOOGLE_OAUTH_CLIENT_ID"
@@ -81,8 +83,9 @@ SECRETS=(
     "mbs-paycraft-r2-secret-access-key:R2_SECRET_ACCESS_KEY"
     "mbs-paycraft-r2-endpoint:R2_ENDPOINT_URL"
 
-    # ─── Phase 4 support ticketing (Linear fan-out + Resend auto-reply) ───
-    "mbs-paycraft-linear-api-key:LINEAR_API_KEY"
+    # ─── Phase 4 support ticketing — Resend auto-reply only (uses resend key above) ───
+    # NOTE: Linear fan-out was removed. Tickets are persisted in Supabase
+    # (support_tickets) and triaged in the dashboard — no Linear key needed.
 )
 
 # Tmp dir for ephemeral secret files (mode 0700, auto-cleaned)

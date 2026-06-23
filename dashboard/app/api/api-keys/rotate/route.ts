@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
-import { captureKeyRotated } from "@/lib/sentry-events"
+import { captureKeyRotated } from "@/lib/telemetry"
 import crypto from "crypto"
 
 export async function POST(req: NextRequest) {
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   try {
     captureKeyRotated({ tenantId: tenant.id, userId, mode })
   } catch {
-    // Sentry failures are non-blocking — rotation already succeeded.
+    // Telemetry failures are non-blocking — rotation already succeeded.
   }
 
   return NextResponse.json({ ok: true })

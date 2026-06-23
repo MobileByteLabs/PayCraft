@@ -48,15 +48,44 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         }
     }
 
+    /**
+     * Set once the user taps a plan card — prevents a reactive config refresh from
+     * clobbering their explicit pick back to the default "popular" plan.
+     */
+    private var userPickedPlan = false
+
     private fun loadConfig() {
+        // Seed from whatever config is already present (cache/synchronous), then keep
+        // plans + the default selection in sync with cloud refreshes. The previous
+        // one-shot read left `selectedPlan` stuck on the first-paint snapshot: when the
+        // cached config lacked popular_plan_sku the selection ring landed on the first
+        // plan (Pro Monthly) while a later cloud refresh moved the MOST POPULAR badge to
+        // the popular plan (Pro Quarterly) — so badge and selection diverged. Collecting
+        // the suite flow re-resolves both against the freshest config on every emission.
+        applyConfig()
+        viewModelScope.launch {
+            PayCraft.suiteConfigFlow.collect { applyConfig() }
+        }
+    }
+
+    private fun applyConfig() {
         val config = PayCraft.config ?: return
         val providers = PayCraft.suiteConfig?.providers ?: emptyList()
         _state.update { current ->
+            val plans = config.plans
+            val selection = if (userPickedPlan) {
+                // Preserve the user's pick (re-fetched from the refreshed list so the
+                // BillingPlan instance stays current); fall back if it vanished.
+                plans.firstOrNull { it.id == current.selectedPlan?.id }
+                    ?: resolveInitialSelectedPlan(plans, current.currentPlanRank)
+            } else {
+                resolveInitialSelectedPlan(plans, current.currentPlanRank)
+            }
             current.copy(
-                plans = config.plans,
+                plans = plans,
                 benefits = config.benefits,
                 supportEmail = config.supportEmail,
-                selectedPlan = config.plans.firstOrNull { it.isPopular } ?: config.plans.firstOrNull(),
+                selectedPlan = selection,
                 suiteProviders = providers,
             )
         }
@@ -137,6 +166,7 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
     }
 
     private fun onSelectPlan(action: PayCraftPaywallAction.SelectPlan) {
+        userPickedPlan = true
         _state.update { it.copy(selectedPlan = action.plan) }
     }
 

@@ -36,7 +36,10 @@ interface NavGroup {
 const groups: NavGroup[] = [
   {
     label: "Overview",
-    items: [{ href: "/dashboard", label: "Home", icon: Home }],
+    items: [
+      { href: "/dashboard", label: "Home", icon: Home },
+      { href: "/ai", label: "PayCraft AI", icon: Sparkles },
+    ],
   },
   {
     label: "Configure",

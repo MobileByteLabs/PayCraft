@@ -25,10 +25,21 @@ external fun detectWasmBrowserName(): String
 )
 external fun loadOrCreateWasmDeviceId(): String
 
+@JsFun(
+    """() => {
+    if (!navigator.language) return '';
+    var parts = navigator.language.split('-');
+    return parts.length > 1 ? parts[parts.length - 1].toUpperCase() : '';
+}""",
+)
+external fun detectWasmCountry(): String
+
 actual object PlatformInfo {
     actual val platform: String = "web"
     actual val deviceName: String
         get() = detectWasmBrowserName()
     actual val deviceId: String
         get() = loadOrCreateWasmDeviceId()
+    actual val country: String?
+        get() = detectWasmCountry().takeIf { it.isNotBlank() }
 }
