@@ -230,7 +230,7 @@ export async function POST() {
       continue
     }
     try {
-      await razorpaySyncProduct(supabase, {
+      const res = await razorpaySyncProduct(supabase, {
         tenantId: tenant.id,
         productId: row.id,
         body,
@@ -241,9 +241,11 @@ export async function POST() {
         .select("razorpay_plan_id_by_currency")
         .eq("id", row.id)
         .single()
-      const ok =
+      const populated = !!(
         after?.razorpay_plan_id_by_currency &&
         Object.keys(after.razorpay_plan_id_by_currency).length > 0
+      )
+      const ok = res.ok && populated
       razorpayReports.push({
         product_id: row.id,
         sku: row.sku,
@@ -251,7 +253,8 @@ export async function POST() {
         status: ok ? "ok" : "failed",
         message: ok
           ? undefined
-          : "sync helper returned without populating razorpay_plan_id_by_currency (check Razorpay credentials)",
+          : res.error ??
+            "sync helper returned without populating razorpay_plan_id_by_currency (check Razorpay credentials)",
       })
     } catch (e: any) {
       razorpayReports.push({
