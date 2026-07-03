@@ -1,3 +1,6 @@
 # Machine-local deploy run state — phase markers, pre-deploy schema backups,
 # dev-server pid/log. Never committed; regenerated on each run.
 .state/
+
+# Machine-local deploy ledger — per-run append log, diverges per machine.
+.deploy-ledger.jsonl
