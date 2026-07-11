@@ -100,8 +100,7 @@ class PayCraftBillingManagerTest {
 
         override suspend fun sendOtp(email: String) = sendOtpBehavior(email)
 
-        override suspend fun verifyOtp(email: String, token: String): Boolean =
-            verifyOtpBehavior(email, token)
+        override suspend fun verifyOtp(email: String, token: String): Boolean = verifyOtpBehavior(email, token)
 
         override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String? =
             verifyOAuthBehavior(provider, idToken)
@@ -115,14 +114,23 @@ class PayCraftBillingManagerTest {
     ) : PayCraftStore {
         var clearCacheCalled = false
 
-        override suspend fun saveEmail(email: String) { this.email = email }
+        override suspend fun saveEmail(email: String) {
+            this.email = email
+        }
         override suspend fun getEmail(): String? = email
-        override suspend fun clearEmail() { email = null }
+        override suspend fun clearEmail() {
+            email = null
+        }
 
-        override fun cacheSubscriptionStatus(status: SubscriptionStatus) { cached = status }
+        override fun cacheSubscriptionStatus(status: SubscriptionStatus) {
+            cached = status
+        }
         override fun getCachedSubscriptionStatus(): SubscriptionStatus? = cached
         override fun getLastSyncedAt(): Long = lastSynced
-        override fun clearCache() { clearCacheCalled = true; cached = null }
+        override fun clearCache() {
+            clearCacheCalled = true
+            cached = null
+        }
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
