@@ -349,6 +349,7 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         val ok = try {
             service.transferToDevice(token, token)
         } catch (e: Exception) {
+            PayCraftLogger.onError("transferToDevice", e.message)
             false
         }
         if (ok) {
@@ -362,7 +363,9 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         val token = DeviceTokenStore.getToken() ?: return
         try {
             service.revokeDevice(token, token)
-        } catch (e: Exception) { /* log */ }
+        } catch (e: Exception) {
+            PayCraftLogger.onError("revokeCurrentDevice", e.message)
+        }
         DeviceTokenStore.clearToken()
         store.clearCache()
         _billingState.value = BillingState.Free
@@ -527,6 +530,10 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
             val sub = try {
                 if (token != null) service.getSubscription(token) else null
             } catch (e: Exception) {
+                // Keep the premium fallback (status renders with null plan/expiry) but make
+                // the swallowed failure observable — otherwise a premium user silently
+                // renders with no plan/expiry and there is no signal in logs.
+                PayCraftLogger.onError("applyPremiumResult", e.message)
                 null
             }
             val status = SubscriptionStatus(
