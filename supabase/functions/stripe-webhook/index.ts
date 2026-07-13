@@ -225,8 +225,16 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
           // Guard against async payment methods (e.g. some bank debits) whose
           // session completes before funds settle. For those Stripe fires
           // `checkout.session.async_payment_succeeded` once paid; we only grant
-          // on a settled payment. Synchronous card checkouts arrive "paid".
-          if (session.payment_status && session.payment_status !== "paid") {
+          // on a settled payment. Synchronous card checkouts arrive "paid", and a
+          // fully-discounted (100%-off coupon) checkout settles immediately as
+          // "no_payment_required" — both are settled and must grant now, since
+          // `async_payment_succeeded` never fires for them. Only a genuinely
+          // "unpaid" async session should wait for settlement.
+          if (
+            session.payment_status &&
+            session.payment_status !== "paid" &&
+            session.payment_status !== "no_payment_required"
+          ) {
             console.log(
               `[stripe-webhook] payment-mode session ${session.id} not yet paid (payment_status=${session.payment_status}); awaiting settlement`,
             );
