@@ -202,7 +202,115 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
             tenantId,
             eventType: event.type,
           });
+        } else if (session.mode === "payment" && email) {
+          // One-time / lifetime purchase (Product.Lifetime, tenant_products
+          // type="lifetime"). Stripe emits NO Subscription object for a
+          // payment-mode checkout, so `session.subscription` is null and the
+          // subscription-only branch above skipped it entirely — a lifetime
+          // buyer got no entitlement row and therefore no access.
+          //
+          // We synthesize an entitlement row that grants lifetime access,
+          // mirroring the server-side precedent in
+          // upi_payment_intent_mark_paid (migration 062): a "lifetime" product
+          // gets `current_period_end = NOW() + INTERVAL '100 years'` with
+          // status "active". `is_premium` (migration 016) gates purely on
+          // `status IN ('active','trialing') AND current_period_end > now()`,
+          // so a far-future period end reads as never-expiring — there is no
+          // NULL-means-forever path in the RPC, hence the explicit far date.
+          //
+          // Idempotency: the same shared upsert path is reused. The row is
+          // keyed by email (or tenant+email), so a webhook re-delivery just
+          // re-upserts the identical row.
+
+          // Guard against async payment methods (e.g. some bank debits) whose
+          // session completes before funds settle. For those Stripe fires
+          // `checkout.session.async_payment_succeeded` once paid; we only grant
+          // on a settled payment. Synchronous card checkouts arrive "paid", and a
+          // fully-discounted (100%-off coupon) checkout settles immediately as
+          // "no_payment_required" — both are settled and must grant now, since
+          // `async_payment_succeeded` never fires for them. Only a genuinely
+          // "unpaid" async session should wait for settlement.
+          if (
+            session.payment_status &&
+            session.payment_status !== "paid" &&
+            session.payment_status !== "no_payment_required"
+          ) {
+            console.log(
+              `[stripe-webhook] payment-mode session ${session.id} not yet paid (payment_status=${session.payment_status}); awaiting settlement`,
+            );
+            break;
+          }
+
+          // ~100 years out — mirrors the SQL `NOW() + INTERVAL '100 years'`.
+          const lifetimePeriodEnd = new Date(
+            Date.now() + 100 * 365 * 24 * 60 * 60 * 1000,
+          );
+          // No Subscription object → key the entitlement on the PaymentIntent
+          // (unique per checkout), falling back to the Checkout Session id.
+          const oneTimeId =
+            (session.payment_intent as string) || `cs-${session.id}`;
+
+          await handleSubscriptionEvent({
+            email,
+            provider: "stripe",
+            customerId: (session.customer as string) || null,
+            subscriptionId: oneTimeId,
+            plan: session.metadata?.plan_id || "lifetime",
+            status: "active",
+            mode: stripeMode,
+            periodStart: new Date(),
+            periodEnd: lifetimePeriodEnd,
+            cancelAtPeriodEnd: false,
+            trialStart: null,
+            trialEnd: null,
+            tenantId,
+            eventType: event.type,
+          });
         }
+        break;
+      }
+
+      case "checkout.session.async_payment_succeeded": {
+        // Async payment methods (e.g. certain bank debits) settle after the
+        // initial `checkout.session.completed`. This event confirms funds
+        // received. Only payment-mode (one-time/lifetime) sessions need
+        // handling here — subscription-mode async settlement drives entitlement
+        // via `invoice.paid` / `customer.subscription.updated` already.
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (session.mode !== "payment") break;
+
+        let email =
+          session.customer_email || (session as any).customer_details?.email;
+        if (!email && session.customer) {
+          const customer = await stripeClient.customers.retrieve(
+            session.customer as string,
+          );
+          email = (customer as any).email;
+        }
+        if (!email) break;
+
+        const lifetimePeriodEnd = new Date(
+          Date.now() + 100 * 365 * 24 * 60 * 60 * 1000,
+        );
+        const oneTimeId =
+          (session.payment_intent as string) || `cs-${session.id}`;
+
+        await handleSubscriptionEvent({
+          email,
+          provider: "stripe",
+          customerId: (session.customer as string) || null,
+          subscriptionId: oneTimeId,
+          plan: session.metadata?.plan_id || "lifetime",
+          status: "active",
+          mode: stripeMode,
+          periodStart: new Date(),
+          periodEnd: lifetimePeriodEnd,
+          cancelAtPeriodEnd: false,
+          trialStart: null,
+          trialEnd: null,
+          tenantId,
+          eventType: event.type,
+        });
         break;
       }
 

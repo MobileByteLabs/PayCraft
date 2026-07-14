@@ -56,7 +56,6 @@ import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.PayCraftPlatform
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.core.BillingManager
-import com.mobilebytelabs.paycraft.presentation.parseHexColor
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_cta_get_premium
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_cta_manage
@@ -78,6 +77,7 @@ import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import com.mobilebytelabs.paycraft.presentation.parseHexColor
 import com.mobilebytelabs.paycraft.provider.StripeProvider
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
