@@ -211,7 +211,7 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
             _state.update {
                 it.copy(
                     isSubmitting = false,
-                    errorMessage = "Couldn't start checkout right now. Please try again, or contact support if it persists.",
+                    errorMessage = "Couldn't start checkout. Please try again or contact support.",
                 )
             }
             return
@@ -241,11 +241,11 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         try {
             PayCraft.checkoutWithProvider(action.plan, action.provider, email.ifBlank { null })
         } catch (t: Throwable) {
-            Logger.e(TAG) { "checkoutWithProvider failed for plan ${action.plan.id} via ${action.provider.provider}: ${t.message}" }
+            Logger.e(TAG) { "checkoutWithProvider failed for ${action.plan.id}: ${t.message}" }
             _state.update {
                 it.copy(
                     isSubmitting = false,
-                    errorMessage = "Couldn't start checkout with that provider. Please try another option or contact support.",
+                    errorMessage = "Couldn't start checkout with that provider. Try again or contact support.",
                 )
             }
             return
