@@ -50,7 +50,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.config.effectiveThemeOverride
 import com.mobilebytelabs.paycraft.core.BillingManager
+import com.mobilebytelabs.paycraft.presentation.PayCraftThemeProvider
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_email_error_empty
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_email_error_invalid
@@ -132,19 +135,28 @@ fun PayCraftRestore(
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        dragHandle = null,
-        modifier = modifier.testTag(TAG_RESTORE_SHEET),
-    ) {
-        PayCraftRestoreContent(
-            billingManager = billingManager,
-            onCancel = onDismiss,
-            onSuccess = onDismiss,
-            onGoogleSignInClick = onGoogleSignInClick,
-            onAppleSignInClick = onAppleSignInClick,
-        )
+    // Re-apply the dashboard brand theme at the sheet boundary. Material3
+    // ModalBottomSheet hosts its content in a separate window layer that does NOT
+    // inherit the PayCraftThemeProvider wrapping the paywall, so without this the
+    // restore sheet renders in the host app's MaterialTheme (e.g. reels-downloader's
+    // blue) instead of PayCraft's configured brand. Mirrors PayCraftPaywallSheet.
+    val themeOverride = PayCraft.suiteConfigFlow.collectAsState().value
+        ?.paywall?.effectiveThemeOverride.orEmpty()
+    PayCraftThemeProvider(themeOverride = themeOverride) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            dragHandle = null,
+            modifier = modifier.testTag(TAG_RESTORE_SHEET),
+        ) {
+            PayCraftRestoreContent(
+                billingManager = billingManager,
+                onCancel = onDismiss,
+                onSuccess = onDismiss,
+                onGoogleSignInClick = onGoogleSignInClick,
+                onAppleSignInClick = onAppleSignInClick,
+            )
+        }
     }
 }
 
