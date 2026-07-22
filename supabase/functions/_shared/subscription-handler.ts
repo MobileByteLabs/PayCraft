@@ -1,9 +1,31 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { reconcileEntitlement, type CanonicalState } from "./entitlement-reconcile.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
+
+// E2: the 11 web providers all normalize into this SubscriptionEvent.status vocab; fold it onto
+// the Phase-1 canonical machine (cmp-paycraft SubscriptionState). grace/on-hold correctness lives
+// on the native (Apple/Play) path; web PSPs surface past_due (billing retry → inactive) and unpaid
+// (dunning exhausted → expired). `active` + cancelAtPeriodEnd ⇒ active_non_renewing (still entitled).
+export function mapWebStatusToCanonical(status: string, cancelAtPeriodEnd: boolean): CanonicalState {
+  switch (status) {
+    case "trialing":
+      return "trial";
+    case "active":
+      return cancelAtPeriodEnd ? "active_non_renewing" : "active";
+    case "past_due":
+      return "on_billing_retry"; // billing issue → inactive
+    case "unpaid":
+      return "expired";
+    case "canceled":
+      return "cancelled";
+    default:
+      return "pending";
+  }
+}
 
 interface SubscriptionEvent {
   email: string | null;
@@ -29,6 +51,26 @@ interface SubscriptionEvent {
 
 export async function handleSubscriptionEvent(data: SubscriptionEvent) {
   const startTime = Date.now();
+
+  // Tenant fail-safe. A multi-tenant deployment MUST attribute the subscription to a
+  // tenant, or check_premium_with_device()'s `tenant_id IS NOT DISTINCT FROM` filter
+  // rejects it (NULL sub never matches a tenant-scoped device) and is_premium is silently
+  // always-false. If the webhook URL omitted /{tenant_id} (data.tenantId===null) but this
+  // provider is configured for exactly ONE tenant, attribute to it. If >1, reject rather
+  // than write a NULL-tenant row. Zero provider-tenants ⇒ genuine single-tenant self-hosted
+  // deployment ⇒ NULL is correct and preserved.
+  if (!data.tenantId) {
+    const { data: provRows } = await supabase
+      .from("tenant_providers").select("tenant_id").eq("provider", data.provider);
+    const tenantIds = [...new Set((provRows ?? []).map((r: any) => r.tenant_id).filter(Boolean))];
+    if (tenantIds.length === 1) {
+      data.tenantId = tenantIds[0];
+      console.warn(`[subscription-handler] tenantId absent from webhook URL — attributed to sole ${data.provider} tenant ${data.tenantId}. Fix the webhook endpoint to /${data.provider}-webhook/{tenant_id}.`);
+    } else if (tenantIds.length > 1) {
+      throw new Error(`Ambiguous tenant: ${tenantIds.length} tenants have provider '${data.provider}'. Webhook URL must include /{tenant_id}.`);
+    }
+  }
+
   console.log(`Processing subscription event: provider=${data.provider}, sub=${data.subscriptionId}, status=${data.status}, tenant=${data.tenantId || "self-hosted"}`);
 
   let logStatus: "success" | "failed" = "success";
@@ -80,6 +122,9 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
 
       // AC-24: emit audit log row on successful upsert.
       await emitSubscriptionAudit(data, beforeRow, row);
+
+      // E2: fold the web event onto the canonical entitlement record (D5 single SoT).
+      await reconcileWebEntitlement(data, data.email.toLowerCase());
     } else {
       // Partial update — by subscription ID (renewals, cancellations)
       const updateData: Record<string, any> = {
@@ -117,6 +162,12 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
 
       // AC-24: emit audit log row on successful update.
       await emitSubscriptionAudit(data, beforeRow, updateData);
+
+      // E2: fold onto the canonical record. Preserve identity from the pre-image row so a
+      // partial (no-email) update does not clobber app_user_id with a fallback.
+      const appUserId = (beforeRow?.email as string | undefined)?.toLowerCase() ??
+        data.customerId ?? data.subscriptionId;
+      await reconcileWebEntitlement(data, appUserId);
     }
   } catch (err: any) {
     logStatus = "failed";
@@ -183,6 +234,35 @@ export async function emitSubscriptionAudit(
   } catch (auditErr) {
     // Audit failure must NEVER fail the webhook.
     console.error("audit_log_emit threw (non-fatal):", auditErr);
+  }
+}
+
+/**
+ * E2 — fold a successful web-provider subscription event onto the canonical entitlement_records
+ * SoT (D5). Keyed idempotently by (provider, stable_txn_id=subscriptionId), out-of-order-safe via
+ * the reconcile engine's latest_event_ts guard. Best-effort like audit emit: a reconcile failure
+ * (e.g. entitlement_records not yet migrated in this env) is logged, never fails the webhook — the
+ * legacy `subscriptions` gating path is unaffected.
+ */
+async function reconcileWebEntitlement(data: SubscriptionEvent, appUserId: string): Promise<void> {
+  try {
+    await reconcileEntitlement({
+      appUserId,
+      tenantId: data.tenantId,
+      provider: data.provider,
+      productId: data.plan ?? "unknown",
+      stableTxnId: data.subscriptionId,
+      canonicalState: mapWebStatusToCanonical(data.status, data.cancelAtPeriodEnd),
+      expiresAt: data.periodEnd?.toISOString() ?? null,
+      willRenew: !data.cancelAtPeriodEnd,
+      inGraceUntil: null,
+      isSandbox: data.mode === "test",
+      latestEventTs: new Date().toISOString(),
+      rawStoreState: { status: data.status, plan: data.plan, mode: data.mode },
+    });
+  } catch (reconcileErr) {
+    // Reconcile must NEVER fail the webhook — the subscriptions table remains the live gating path.
+    console.error("reconcileWebEntitlement threw (non-fatal):", (reconcileErr as Error).message);
   }
 }
 

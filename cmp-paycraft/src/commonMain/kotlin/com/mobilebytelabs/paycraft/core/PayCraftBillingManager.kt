@@ -7,6 +7,9 @@ import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.model.TrialInfo
 import com.mobilebytelabs.paycraft.model.VerificationMethod
+import com.mobilebytelabs.paycraft.model.toSubscriptionStatus
+import kotlinx.coroutines.flow.first
+import org.mobilenativefoundation.store.store5.StoreReadResponse
 import com.mobilebytelabs.paycraft.network.OtpGateResult
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
@@ -25,7 +28,17 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class PayCraftBillingManager(private val service: PayCraftService, private val store: PayCraftStore) : BillingManager {
+/**
+ * @param repo Optional Store5-backed [EntitlementRepository] (Phase 4). When wired (Android/iOS
+ *   with the Phase-3 native client injected), [observeEntitlement]/[onForeground]/[onRestore]
+ *   drive offline-correct, cache-first gating over the reconciled entitlement (D8, AC5/AC9). Left
+ *   null on platforms/tests that gate purely through the legacy device-token path.
+ */
+class PayCraftBillingManager(
+    private val service: PayCraftService,
+    private val store: PayCraftStore,
+    private val repo: EntitlementRepository? = null,
+) : BillingManager {
 
     private val stripeMode: String
         get() = if ((PayCraft.config?.provider as? StripeProvider)?.isTestMode == true) "test" else "live"
@@ -383,6 +396,55 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         lastConflict = null
         store.clearCache()
         scope.launch { store.clearEmail() }
+    }
+
+    // ─── Store5 entitlement gating (Phase 4 — cache-first + revalidate) ───────
+
+    /**
+     * Cache-first, offline-correct gating over the reconciled entitlement (AC9).
+     *
+     * Binds to the Store5 CACHED stream ([EntitlementRepository.stream]); every emission
+     * re-derives premium from the offline last-known-good via
+     * [EntitlementRepository.isServableOffline] (grace = active / retry = inactive, D6), so gating
+     * survives a network outage without over-serving an expired/on-hold subscription. No-op when
+     * [repo] is not wired (legacy device-token-only platforms/tests).
+     */
+    fun observeEntitlement(appUserId: String) {
+        val repo = repo ?: return
+        scope.launch {
+            repo.stream(appUserId).collect { response ->
+                val entitlement = (response as? StoreReadResponse.Data)?.value ?: return@collect
+                val servable = repo.isServableOffline(entitlement, currentTimeMillis())
+                _isPremium.value = servable
+                val status = entitlement.toSubscriptionStatus(email = _userEmail.value)
+                _subscriptionStatus.value = status
+                _billingState.value = if (servable) BillingState.Premium(status) else BillingState.Free
+                PayCraftLogger.onFlow(
+                    "observeEntitlement",
+                    "state=${entitlement.canonicalState::class.simpleName}, servableOffline=$servable",
+                )
+            }
+        }
+    }
+
+    /**
+     * Revalidate on app foreground — forces a fresh server reconcile through the Store5
+     * FRESH sibling ([EntitlementRepository.streamFresh], S5-DUAL). No-op when [repo] is unwired.
+     */
+    fun onForeground(appUserId: String) {
+        val repo = repo ?: return
+        scope.launch {
+            repo.streamFresh(appUserId)
+                .first { it is StoreReadResponse.Data || it is StoreReadResponse.Error }
+        }
+    }
+
+    /**
+     * Revalidate on restore — identity-linked cross-platform restore keyed by the stable
+     * app-user-id ([EntitlementRepository.restore], AC5). No-op when [repo] is unwired.
+     */
+    suspend fun onRestore(appUserId: String) {
+        repo?.restore(appUserId)
     }
 
     // ─── Private helpers ─────────────────────────────────────────────────────

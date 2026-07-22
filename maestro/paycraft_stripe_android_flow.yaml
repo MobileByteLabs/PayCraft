@@ -1,0 +1,78 @@
+# Stripe (web/PSP) entitlement device-truth on Android (D14, AC8) — state + restore + cancel/manage.
+#
+# Web-checkout lane: the reconciled Premium record is identity-linked (D7) and seeded into the REAL
+# PayCraftStore cache from the launchApp arguments, then rendered through the genuine cache-first
+# path (applyCachedStatus -> BillingState.Premium, D6/D8). Cancel is a Stripe-API dispatch (D7),
+# surfaced here as the reachable, non-crashing manage CTA.
+#
+# stopApp is the sanctioned fresh-capture force-stop (RULE-IMPL-BEHAVIOR-EXECUTED-001).
+# Run: maestro test maestro/paycraft_stripe_android_flow.yaml
+appId: com.mobilebytelabs.paycraft.sample
+---
+- stopApp
+- launchApp:
+    arguments:
+      paycraft_provider: stripe
+      paycraft_user_id: e2e-stripe-android-01
+
+- extendedWaitUntil:
+    visible:
+      id: "billing_state_label"
+      text: "Premium"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: "billing_provider"
+    direction: DOWN
+    timeout: 10000
+- assertVisible:
+    id: "billing_provider"
+    text: "stripe"
+- assertVisible:
+    id: "billing_will_renew"
+    text: "true"
+
+- scrollUntilVisible:
+    element:
+      id: "paycraft_banner_premium"
+    direction: UP
+    timeout: 10000
+- assertVisible:
+    id: "paycraft_banner_manage_button"
+- tapOn:
+    id: "paycraft_banner_manage_button"
+- assertNotVisible: "Application Error"
+# manage CTA opens PayCraftSheet (onManageClick -> showPaywall=true); dismiss before re-opening explicitly.
+- tapOn: "Close paywall"
+
+# --- Paywall render (E6 paywall-coverage): the always-visible "Open Paywall" control mounts
+#     PayCraftSheet -> PayCraftPaywallSheet -> koinViewModel<PayCraftPaywallViewModel>(). A Koin/IR
+#     linkage crash on ViewModel resolution (the koin 4.0.2 IrLinkageError class, fixed by koin 4.1.0)
+#     kills the app here and fails every assert below. Premium is seeded, so the paywall resolves the
+#     Premium state: "Your Premium" title + "Premium Active" banner (device-verified render). ---
+- scrollUntilVisible:
+    element: "Open Paywall"
+    direction: DOWN
+    timeout: 10000
+- tapOn: "Open Paywall"
+- assertVisible: "Your Premium"
+- assertVisible: "Premium Active"
+- assertNotVisible: "Application Error"
+- tapOn: "Close paywall"
+
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "billing_state_label"
+      text: "Premium"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: "billing_provider"
+    direction: DOWN
+    timeout: 10000
+- assertVisible:
+    id: "billing_provider"
+    text: "stripe"
+- assertNotVisible: "Application Error"

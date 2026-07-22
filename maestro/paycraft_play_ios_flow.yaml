@@ -1,0 +1,83 @@
+# Google/Play entitlement device-truth on iOS (D14, AC8) — state + restore + cancel/manage.
+#
+# iOS sibling of paycraft_play_android_flow.yaml. Drives the SAME in-repo sample-app
+# (com.mobilebytelabs.paycraft.sample) + BillingStateDebugPanel testTags on iOS. The reconciled
+# Premium record is identity-linked (D5/D7) and read through the cache-first path
+# (applyCachedStatus -> BillingState.Premium, D6/D8) — a server-authoritative entitlement is
+# READABLE cross-platform via the stable app-user-id, so google_play is a legitimate iOS lane.
+#
+# DEVICE-VERIFY STATUS: pending-device-verify. This environment has NO booted iOS simulator and NO
+# iOS app build (xcrun present; no sim booted). The flow is authored to the identical contract as
+# its Android sibling and becomes device-verifiable once (a) an iOS sample-app build is installed on
+# a booted simulator/device and (b) the iOS entry mirrors MainActivity's launch-arg seeding harness
+# (maestro passes iOS launch arguments as process args, read in the iOS bootstrap).
+# stopApp is the sanctioned fresh-capture force-stop (RULE-IMPL-BEHAVIOR-EXECUTED-001).
+appId: com.mobilebytelabs.paycraft.sample
+---
+- stopApp
+- launchApp:
+    arguments:
+      paycraft_provider: google_play
+      paycraft_user_id: e2e-play-ios-01
+
+- extendedWaitUntil:
+    visible:
+      id: "billing_state_label"
+      text: "Premium"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: "billing_provider"
+    direction: DOWN
+    timeout: 10000
+- assertVisible:
+    id: "billing_provider"
+    text: "google_play"
+- assertVisible:
+    id: "billing_will_renew"
+    text: "true"
+
+- scrollUntilVisible:
+    element:
+      id: "paycraft_banner_premium"
+    direction: UP
+    timeout: 10000
+- assertVisible:
+    id: "paycraft_banner_manage_button"
+- tapOn:
+    id: "paycraft_banner_manage_button"
+- assertNotVisible: "Application Error"
+# manage CTA opens PayCraftSheet (onManageClick -> showPaywall=true); dismiss before re-opening explicitly.
+- tapOn: "Close paywall"
+
+# --- Paywall render (E6 paywall-coverage): the always-visible "Open Paywall" control mounts
+#     PayCraftSheet -> PayCraftPaywallSheet -> koinViewModel<PayCraftPaywallViewModel>(). A Koin/IR
+#     linkage crash on ViewModel resolution (the koin 4.0.2 IrLinkageError class, fixed by koin 4.1.0)
+#     kills the app here and fails every assert below. Premium is seeded, so the paywall resolves the
+#     Premium state: "Your Premium" title + "Premium Active" banner (device-verified render). ---
+- scrollUntilVisible:
+    element: "Open Paywall"
+    direction: DOWN
+    timeout: 10000
+- tapOn: "Open Paywall"
+- assertVisible: "Your Premium"
+- assertVisible: "Premium Active"
+- assertNotVisible: "Application Error"
+- tapOn: "Close paywall"
+
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "billing_state_label"
+      text: "Premium"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: "billing_provider"
+    direction: DOWN
+    timeout: 10000
+- assertVisible:
+    id: "billing_provider"
+    text: "google_play"
+- assertNotVisible: "Application Error"

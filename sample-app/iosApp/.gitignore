@@ -1,0 +1,6 @@
+# The Xcode project is generated from project.yml by `xcodegen generate` — do not commit it.
+PayCraftSample.xcodeproj/
+# Xcode build output.
+DerivedData/
+build/
+*.xcuserstate

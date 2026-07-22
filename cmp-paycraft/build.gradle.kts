@@ -74,6 +74,13 @@ kotlin {
 
             // Lifecycle (ViewModel + collectAsStateWithLifecycle)
             implementation(libs.lifecycle.viewmodel)
+            // SavedStateHandle is referenced at LINK time by koin's ViewModel factory on Kotlin/Native.
+            // Koin MUST match the lifecycle version Compose Multiplatform pulls (lifecycle 2.9.x, which
+            // relocated SavedStateHandle to androidx.savedstate) — see the `koin = "4.1.0"` pin in
+            // libs.versions.toml. A koin built against lifecycle 2.8.x hits
+            // `IrLinkageError: No class found for symbol androidx.lifecycle/SavedStateHandle` the moment
+            // a viewModelOf(...) resolves (e.g. PayCraftPaywallViewModel on paywall open).
+            implementation(libs.lifecycle.viewmodel.savedstate)
             implementation(libs.lifecycle.runtime.compose)
 
             // Logging
@@ -83,8 +90,24 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.coroutines.core)
 
-            // Settings (email persistence)
+            // Settings (email persistence + offline entitlement SourceOfTruth — persistence/EntitlementDao.kt)
             implementation(libs.multiplatform.settings)
+
+            // Store5 read-through cache for offline-correct entitlement gating (D8, AC9 —
+            // persistence/EntitlementCache.kt + core/EntitlementRepository.kt).
+            implementation(libs.store5)
+
+            // SQLDelight SourceOfTruth: the offline SoT schema-of-record lives at
+            //   src/commonMain/sqldelight/com/mobilebytelabs/paycraft/db/Entitlement.sq
+            // The Store5 SoT is backed today by the multiplatform-settings SettingsEntitlementDao
+            // (all six targets, process-death-durable). The SQLDelight code-gen plugin + per-platform
+            // drivers (android-driver / native-driver / sqlite-driver) are wired alongside the native
+            // StoreKit2/Play clients in Phase 3 (E3) — at which point SqlDelightEntitlementDao becomes
+            // a drop-in EntitlementDao. Enable then with:
+            //   plugins { alias(libs.plugins.sqldelight) }
+            //   sqldelight { databases { create("PayCraftDb") {
+            //     packageName.set("com.mobilebytelabs.paycraft.db") } } }
+            //   implementation(libs.sqldelight.coroutines.extensions)
         }
 
         androidMain.dependencies {
@@ -93,6 +116,9 @@ kotlin {
             // androidx-startup hands the Application Context to PayCraftInitializer
             // before Application.onCreate runs — see PayCraftInitializer.kt.
             implementation("androidx.startup:startup-runtime:1.2.0")
+            // Google Play Billing v8 — native Android IAP client (Phase 3, D8/D13).
+            // PlayBillingNativeClient wraps BillingClient v8 (billing/NativeBillingClient.android.kt).
+            implementation(libs.google.billing.ktx)
         }
 
         iosMain.dependencies {

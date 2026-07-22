@@ -1,7 +1,11 @@
 package com.mobilebytelabs.paycraft.network
 
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
+import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.model.OAuthProvider
+import com.mobilebytelabs.paycraft.model.SubscriptionState
+import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
@@ -36,6 +40,41 @@ data class SubscriptionDto(
     val trialStart: String? = null,
     @SerialName("trial_end")
     val trialEnd: String? = null,
+)
+
+/**
+ * Server-authoritative reconciled entitlement record (Phase 2 reconciliation engine output),
+ * keyed by the STABLE app-user-id (D5) — NOT the store account. This is what the Store5
+ * cache's [com.mobilebytelabs.paycraft.persistence.EntitlementCache] fetches through and what
+ * cross-platform restore reconciles to (one canonical record shared across iOS/Android/web).
+ *
+ * Timestamps are epoch-millis here (as the `get_entitlements` RPC / `Entitlement.sq` INTEGER
+ * columns carry them); they are converted to the canonical model's ISO-8601 strings by
+ * [toEntitlement].
+ */
+@Serializable
+data class EntitlementDto(
+    @SerialName("app_user_id")
+    val appUserId: String,
+    val provider: String,
+    @SerialName("product_id")
+    val productId: String,
+    // trial | active | active_non_renewing | in_grace_period | on_billing_retry | paused |
+    // expired | cancelled | refunded | pending
+    @SerialName("canonical_state")
+    val canonicalState: String,
+    @SerialName("expires_at")
+    val expiresAt: Long? = null,
+    @SerialName("in_grace_until")
+    val inGraceUntil: Long? = null,
+    @SerialName("will_renew")
+    val willRenew: Boolean = true,
+    @SerialName("is_sandbox")
+    val isSandbox: Boolean = false,
+    @SerialName("subscription_id")
+    val subscriptionId: String? = null,
+    @SerialName("latest_event_ts")
+    val latestEventTs: Long = 0L,
 )
 
 // ─── Device-binding result types ─────────────────────────────────────────────
@@ -96,6 +135,30 @@ interface PayCraftService {
      * Returns the verified email address, or null if verification fails.
      */
     suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String?
+
+    /**
+     * Server-authoritative reconciled entitlement, keyed by the STABLE app-user-id (D5).
+     *
+     * This is the Store5 cache Fetcher's backing call — it hits the reconciliation engine's
+     * `get_entitlements` RPC, which has already ingested every provider's notifications,
+     * re-fetched the store server APIs, and reconciled to ONE canonical record. Returns null
+     * when the user has no entitlement (or on network failure — the Store5 SourceOfTruth then
+     * serves the offline last-known-good, AC9).
+     *
+     * Default is null so alternate [PayCraftService] fakes/mocks stay source-compatible.
+     */
+    suspend fun getEntitlements(appUserId: String): EntitlementDto? = null
+
+    /**
+     * PSP-API subscription cancel for Stripe / Razorpay (D7). Native-store subscriptions are
+     * NEVER cancelled through this path — stores forbid programmatic cancel, so they deep-link
+     * to the store subscription centre instead (see
+     * [com.mobilebytelabs.paycraft.billing.NativeBillingClient.manageSubscription]).
+     *
+     * @return true when the engine accepted the cancel request.
+     * Default is false so alternate [PayCraftService] fakes/mocks stay source-compatible.
+     */
+    suspend fun cancelSubscription(provider: String, subscriptionId: String): Boolean = false
 }
 
 // ─── Implementation ───────────────────────────────────────────────────────────
@@ -291,4 +354,80 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         PayCraftLogger.onRpcError("verifyOAuthToken", e.message)
         null
     }
+
+    override suspend fun getEntitlements(appUserId: String): EntitlementDto? = try {
+        PayCraftLogger.onRpcCall("get_entitlements", "appUserId=${appUserId.take(12)}...")
+        val dto = postgrest.rpc(
+            function = "get_entitlements",
+            parameters = buildJsonObject {
+                put("p_app_user_id", appUserId)
+                apiKey?.let { put("p_api_key", it) }
+            },
+        ).decodeList<EntitlementDto>().firstOrNull()
+        PayCraftLogger.onRpcResult(
+            "get_entitlements",
+            if (dto != null) "state=${dto.canonicalState}, provider=${dto.provider}" else "null",
+        )
+        dto
+    } catch (e: Exception) {
+        // Deliberately RETHROW: the Store5 Fetcher must observe the network failure so its
+        // SourceOfTruth serves the offline last-known-good (AC9). Swallowing to null here would
+        // masquerade "offline" as "no entitlement" and wrongly revoke premium.
+        PayCraftLogger.onRpcError("get_entitlements", e.message)
+        throw e
+    }
+
+    override suspend fun cancelSubscription(provider: String, subscriptionId: String): Boolean = try {
+        PayCraftLogger.onRpcCall("cancel_subscription", "provider=$provider, sub=${subscriptionId.take(12)}...")
+        val result = postgrest.rpc(
+            function = "cancel_subscription",
+            parameters = buildJsonObject {
+                put("p_provider", provider)
+                put("p_subscription_id", subscriptionId)
+                apiKey?.let { put("p_api_key", it) }
+            },
+        ).data
+        val accepted = result.trim().toBooleanStrictOrNull() ?: false
+        PayCraftLogger.onRpcResult("cancel_subscription", accepted.toString())
+        accepted
+    } catch (e: Exception) {
+        PayCraftLogger.onRpcError("cancel_subscription", e.message)
+        false
+    }
+}
+
+// ─── DTO → canonical domain mapper ────────────────────────────────────────────
+
+/**
+ * Map the epoch-millis wire [EntitlementDto] onto the canonical ISO-8601
+ * [com.mobilebytelabs.paycraft.model.Entitlement] the SDK gates on. The DTO's
+ * `canonical_state` string is normalized through [canonicalStateOf] so the grace = active /
+ * retry = inactive rule (D6) has exactly one owner.
+ */
+@OptIn(ExperimentalTime::class)
+fun EntitlementDto.toEntitlement(): Entitlement = Entitlement(
+    userId = appUserId,
+    provider = provider,
+    product = productId,
+    canonicalState = canonicalStateOf(canonicalState),
+    expiresAt = expiresAt?.let { Instant.fromEpochMilliseconds(it).toString() },
+    willRenew = willRenew,
+    inGraceUntil = inGraceUntil?.let { Instant.fromEpochMilliseconds(it).toString() },
+    isSandbox = isSandbox,
+    subscriptionId = subscriptionId,
+    latestEventTs = latestEventTs,
+)
+
+/** Single normalization point provider-string → canonical [SubscriptionState] (D6). */
+fun canonicalStateOf(raw: String): SubscriptionState = when (raw.lowercase()) {
+    "trial", "trialing" -> SubscriptionState.Trial
+    "active" -> SubscriptionState.Active
+    "active_non_renewing", "non_renewing" -> SubscriptionState.ActiveNonRenewing
+    "in_grace_period", "grace" -> SubscriptionState.InGracePeriod
+    "on_billing_retry", "on_hold", "billing_retry" -> SubscriptionState.OnBillingRetry
+    "paused" -> SubscriptionState.Paused
+    "expired" -> SubscriptionState.Expired
+    "cancelled", "canceled" -> SubscriptionState.Cancelled
+    "refunded" -> SubscriptionState.Refunded
+    else -> SubscriptionState.Pending
 }
