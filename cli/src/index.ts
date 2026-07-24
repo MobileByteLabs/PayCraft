@@ -17,6 +17,11 @@ program
   .description("Initialize PayCraft in your project (interactive setup)")
   .option("--cloud", "Configure for PayCraft Cloud (hosted backend)")
   .option("--self-hosted", "Configure for self-hosted Supabase")
+  .option("--api-key <key>", "PayCraft Cloud API key (pk_test_… / pk_live_…) — enables non-interactive init")
+  .option("--provider <name>", "Payment provider (non-interactive)", "stripe")
+  .option("--platform <name>", "Primary platform (non-interactive)", "Multiplatform (all)")
+  .option("--out <dir>", "Output directory for the generated config", ".")
+  .option("--yes", "Assume yes / write files without prompting (non-interactive)")
   .action(init);
 
 program

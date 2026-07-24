@@ -20,10 +20,31 @@ actual object DeviceTokenStore {
 
     fun init(context: Context) {
         applicationContext = context.applicationContext
+        prefs = try {
+            createEncryptedPrefs(context)
+        } catch (e: Exception) {
+            // EncryptedSharedPreferences throws AEADBadTagException / KeyStoreException when the
+            // Tink keyset can't be decrypted by the Android Keystore master key. This happens after
+            // an auto-backup restore to a NEW device (the encrypted prefs file is restored, but the
+            // device-bound Keystore master key is not), a keystore reset, or repeated reinstalls.
+            // Because init() runs in PayCraftInitializer (an androidx.startup ContentProvider), an
+            // uncaught throw here crashes the whole app at launch. Recover by wiping the corrupt
+            // keyset + master key and recreating fresh (the device simply re-registers next call).
+            runCatching { context.deleteSharedPreferences(PREFS_FILE) }
+            runCatching {
+                java.security.KeyStore.getInstance("AndroidKeyStore")
+                    .apply { load(null) }
+                    .deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+            }
+            runCatching { createEncryptedPrefs(context) }.getOrNull()
+        }
+    }
+
+    private fun createEncryptedPrefs(context: Context): SharedPreferences {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
-        prefs = EncryptedSharedPreferences.create(
+        return EncryptedSharedPreferences.create(
             context,
             PREFS_FILE,
             masterKey,

@@ -33,6 +33,26 @@ data class BillingPlan(
      * Defaults to `"USD"` for legacy callers; cloud config always populates this.
      */
     val currency: String = "USD",
+    /**
+     * Google Play in-app-product / base-plan id for this plan (Google Play Billing v8). REQUIRED
+     * for Android digital checkout — the [com.mobilebytelabs.paycraft.billing.NativeBillingClient]
+     * purchases against this id. `null`/blank on Android+digital BLOCKS checkout (never a web
+     * fallback — Payments-policy anti-steering). Sourced from
+     * [com.mobilebytelabs.paycraft.config.ProductDto.playProductId].
+     */
+    val playProductId: String? = null,
+    /**
+     * Apple App Store product id for this plan (StoreKit2). Reserved for the iOS native lane;
+     * sourced from [com.mobilebytelabs.paycraft.config.ProductDto.appStoreProductId].
+     */
+    val appStoreProductId: String? = null,
+    /**
+     * `true` for a digital good (subscription / lifetime unlock consumed in-app) — the case Google
+     * Play Billing is MANDATORY for on Android. `false` only for a genuinely physical product that
+     * is permitted to use an external payment page. All current PayCraft products are digital, so
+     * this defaults to `true`.
+     */
+    val isDigital: Boolean = true,
 ) {
     init {
         require(trialDays == null || trialDays >= 1) {

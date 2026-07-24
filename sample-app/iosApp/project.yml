@@ -1,0 +1,55 @@
+name: PayCraftSample
+options:
+  bundleIdPrefix: com.mobilebytelabs.paycraft
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+targets:
+  PayCraftSample:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mobilebytelabs.paycraft.sample
+        PRODUCT_NAME: PayCraftSample
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        # The Kotlin/Native static framework (isStatic = true) — link, do not embed.
+        FRAMEWORK_SEARCH_PATHS:
+          - $(inherited)
+          - $(PROJECT_DIR)/../build/bin/iosSimulatorArm64/debugFramework
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -framework
+          - SampleApp
+    dependencies:
+      - framework: ../build/bin/iosSimulatorArm64/debugFramework/SampleApp.framework
+        embed: false
+        link: true
+    postBuildScripts:
+      # Compose Multiplatform resources (strings.xml -> *.cvr) live in each module's
+      # assembledResources/iosSimulatorArm64Main tree. A hand-rolled Xcode app (no SPM/CocoaPods
+      # KMP integration) must copy them into the app bundle at `compose-resources/composeResources/`
+      # — the exact path DefaultIOsResourceReader reads. Assemble tasks are run by the gradle build
+      # before xcodebuild (paycraft-ios-verify.sh), so the dirs exist here.
+      - name: Copy Compose Multiplatform Resources
+        basedOnDependencyAnalysis: false
+        script: |
+          set -eu
+          ROOT="$PROJECT_DIR/../.."
+          DEST="$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/compose-resources/composeResources"
+          mkdir -p "$DEST"
+          for MOD in cmp-paycraft sample-app; do
+            SRC="$ROOT/$MOD/build/generated/compose/resourceGenerator/assembledResources/iosSimulatorArm64Main/composeResources"
+            if [ -d "$SRC" ]; then
+              cp -R "$SRC/." "$DEST/"
+            fi
+          done
+          echo "Copied compose resources into $DEST"

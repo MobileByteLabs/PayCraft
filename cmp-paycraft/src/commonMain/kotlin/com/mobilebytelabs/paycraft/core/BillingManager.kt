@@ -54,6 +54,20 @@ interface BillingManager {
      */
     val trialEndsAt: StateFlow<String?>
 
+    /**
+     * Google Play Billing purchase lane (Payments-policy compliance).
+     *
+     * Called for an **Android digital** checkout instead of opening a web payment page. Drives
+     * [billingState]: Loading → then Premium (on success + server entitlement grant) / Free (user
+     * cancelled) / Error (failure OR a missing `play_product_id` — which is BLOCKED, never a browser
+     * fallback). No-op-with-error on platforms/builds where no native billing client is wired.
+     *
+     * @param plan the plan to purchase; its [com.mobilebytelabs.paycraft.model.BillingPlan.playProductId]
+     *   is the Play product id. Blank/null → [BillingState.Error], never a web fallback (anti-steering).
+     * @param email the buyer email (already logged-in by the paywall), used as the stable app-user-id.
+     */
+    fun purchaseViaPlayBilling(plan: com.mobilebytelabs.paycraft.model.BillingPlan, email: String?)
+
     /** Registers this device with the server and checks premium status. Replaces logIn(). */
     fun registerAndLogin(email: String)
 

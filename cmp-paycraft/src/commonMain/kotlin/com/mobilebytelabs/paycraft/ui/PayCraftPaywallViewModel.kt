@@ -192,16 +192,34 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
             return
         }
 
-        // AutoSkipWhenSingle: show sheet only when 2+ providers are configured
+        // AutoSkipWhenSingle: show the web-provider picker only when 2+ providers are configured.
+        // ANTI-STEERING (Payments policy): on Android for a digital product the pick is irrelevant —
+        // checkout MUST go through Google Play Billing, never a web provider — so never surface the
+        // web-provider sheet there. PayCraft.checkout() routes Android+digital to the Play lane.
+        val isAndroidDigital = PlatformInfo.platform.equals("android", ignoreCase = true) && plan.isDigital
         val providers = currentState.suiteProviders
-        if (providers.size >= 2) {
+        if (!isAndroidDigital && providers.size >= 2) {
             dispatch(PayCraftPaywallAction.ShowProviderSheet(plan))
             return
         }
 
         _state.update { it.copy(isSubmitting = true, emailError = null) }
         if (email.isNotBlank()) billingManager.logIn(email)
-        PayCraft.checkout(plan, email.ifBlank { null })
+        // A missing/misconfigured checkout URL (no payment link for this plan+mode
+        // in the dashboard) makes the provider adapter throw. Catch it here so a
+        // config gap surfaces as an error state instead of crashing the host app.
+        try {
+            PayCraft.checkout(plan, email.ifBlank { null })
+        } catch (t: Throwable) {
+            Logger.e(TAG) { "checkout failed for plan ${plan.id}: ${t.message}" }
+            _state.update {
+                it.copy(
+                    isSubmitting = false,
+                    errorMessage = "Couldn't start checkout. Please try again or contact support.",
+                )
+            }
+            return
+        }
         // Browser launches asynchronously — reset isSubmitting immediately so the
         // Continue button is interactive again when the user returns to the app.
         // (PayCraftPlatform.openUrl returns immediately after firing the Intent;
@@ -224,7 +242,18 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         _state.update { it.copy(providerSheetTarget = null, isSubmitting = true) }
         val email = _state.value.email.trim()
         if (email.isNotBlank()) billingManager.logIn(email)
-        PayCraft.checkoutWithProvider(action.plan, action.provider, email.ifBlank { null })
+        try {
+            PayCraft.checkoutWithProvider(action.plan, action.provider, email.ifBlank { null })
+        } catch (t: Throwable) {
+            Logger.e(TAG) { "checkoutWithProvider failed for ${action.plan.id}: ${t.message}" }
+            _state.update {
+                it.copy(
+                    isSubmitting = false,
+                    errorMessage = "Couldn't start checkout with that provider. Try again or contact support.",
+                )
+            }
+            return
+        }
         // Reset isSubmitting after the browser intent fires — see [onSubscribe].
         _state.update { it.copy(isSubmitting = false) }
         viewModelScope.launch {

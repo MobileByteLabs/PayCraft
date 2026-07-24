@@ -239,6 +239,60 @@ it bills any tenant — by dogfooding Stripe Connect (see RESEARCH.md D4).
 
 ---
 
+## Android Google Play Billing (MANDATORY for digital goods — Payments policy)
+
+Google Play's Payments policy **requires** digital subscriptions/unlocks sold inside an
+Android app to transact through **Google Play Billing**. Routing users to an external
+Stripe/Razorpay web payment page is the *"leads users to a payment method other than
+Google Play's billing system"* violation (this got `com.sensei.social` flagged and
+restricted in IN/RU from 2026-08-05). PayCraft now routes Android **digital** checkout to
+Google Play Billing automatically — but each consumer app must complete **two** wiring steps:
+
+**1. Load `paycraftPlayBillingModule` on Android** (after `PayCraftModule`), supplying the
+foreground Activity for `launchBillingFlow`:
+
+```kotlin
+startKoin {
+    androidContext(this@App)
+    modules(
+        PayCraftModule,
+        paycraftPlayBillingModule(
+            context = applicationContext,
+            activityProvider = { currentResumedActivity() }, // your foreground-Activity holder
+        ),
+    )
+}
+```
+
+Without this module the SDK's `NativeBillingClient` stays the no-op `WebCheckoutNativeBillingClient`
+and an Android digital checkout **fails closed with `BillingState.Error`** — it does **not** fall
+back to the browser (that would be the violation). See `sample-app/.../SampleApplication.kt` for a
+complete `ActivityLifecycleCallbacks`-based `activityProvider`.
+
+**2. Configure `play_product_id` per product** in the PayCraft dashboard (or your SuiteConfig).
+Each `ProductDto` needs a `play_product_id` matching the Play Console subscription base-plan id:
+
+```kotlin
+ProductDto(id = "yearly", sku = "yearly", type = "subscription", /* … */,
+    playProductId = "paycraft_yearly")
+```
+
+Runtime behavior (decided by `resolveCheckoutLane`, unit-tested in `CheckoutRoutingTest`):
+
+| Platform | Product | `play_product_id` | Lane |
+|---|---|---|---|
+| Android | digital | set | **Google Play Billing** (`purchaseViaPlayBilling`) |
+| Android | digital | missing/blank | **BLOCKED** — `BillingState.Error`, never the browser |
+| Android | physical | — | web payment page (allowed) |
+| web / desktop / iOS / macOS | any | — | existing web/StoreKit path (unchanged) |
+
+On a successful Play purchase the SDK calls the `register-play-purchase` edge function, which
+re-fetches truth from the Play Developer API (`purchases.subscriptionsv2.get`), rejects token
+reuse, and reconciles the canonical entitlement via the E2 engine — then `refreshStatus(force=true)`
+lands it. Server credentials: `GOOGLE_PLAY_SA_JSON` (service account, per `/secrets`).
+
+---
+
 ## Related docs
 
 - `cmp-paycraft/README.md` — SDK install + API
