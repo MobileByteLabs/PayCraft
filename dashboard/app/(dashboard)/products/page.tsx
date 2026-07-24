@@ -29,6 +29,8 @@ type Product = {
   stripe_product_id: string | null
   stripe_price_id_by_currency: Record<string, string> | null
   razorpay_plan_id_by_currency: Record<string, string> | null
+  play_product_id: string | null
+  app_store_product_id: string | null
 }
 
 function formatMoney(cents: number, currency: string): string {
@@ -49,7 +51,14 @@ function formatMoney(cents: number, currency: string): string {
 export default async function ProductsPage() {
   const { tenant } = await requireTenant()
   const supabase = createClient()
-  const [productsRes, mrrRes, stripeStatusRes, razorpayStatusRes] = await Promise.all([
+  const [
+    productsRes,
+    mrrRes,
+    stripeStatusRes,
+    razorpayStatusRes,
+    playStatusRes,
+    appStoreStatusRes,
+  ] = await Promise.all([
     supabase.rpc("tenant_products_list", { p_tenant_id: tenant.id }),
     supabase
       .from("tenant_revenue_by_plan_view")
@@ -67,12 +76,29 @@ export default async function ProductsPage() {
         p_provider: "razorpay",
       })
       .single<{ connected: boolean }>(),
+    // Native store connection probes — the store-credential twin of
+    // tenant_providers_status (migration 074). Drives the PLAY / APP STORE
+    // chip gray-vs-amber-vs-green states, same as the web PSPs above.
+    supabase
+      .rpc("tenant_providers_store_status", {
+        p_tenant_id: tenant.id,
+        p_provider: "google_play",
+      })
+      .single<{ connected: boolean }>(),
+    supabase
+      .rpc("tenant_providers_store_status", {
+        p_tenant_id: tenant.id,
+        p_provider: "app_store",
+      })
+      .single<{ connected: boolean }>(),
   ])
   const rows = (productsRes.data as Product[] | null) ?? []
   const stripeConnected = !!stripeStatusRes.data?.source
   const stripeLivemode = !!stripeStatusRes.data?.livemode
   const stripeAccountHint = stripeStatusRes.data?.account_id ?? null
   const razorpayConnected = !!razorpayStatusRes.data?.connected
+  const playConnected = !!playStatusRes.data?.connected
+  const appStoreConnected = !!appStoreStatusRes.data?.connected
 
   // Verify each row's stripe_product_id actually lives on the current
   // connected account — DB-only "is it null?" check is unreliable after key
@@ -261,6 +287,18 @@ export default async function ProductsPage() {
                           Object.keys(r.razorpay_plan_id_by_currency).length > 0
                         }
                       />
+                      <StoreChip
+                        name="Play"
+                        connected={playConnected}
+                        synced={!!r.play_product_id}
+                        settingsUrl="/providers/google-play"
+                      />
+                      <StoreChip
+                        name="App Store"
+                        connected={appStoreConnected}
+                        synced={!!r.app_store_product_id}
+                        settingsUrl="/providers/app-store"
+                      />
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center">
@@ -289,6 +327,10 @@ export default async function ProductsPage() {
                       stripeLivemode={stripeLivemode}
                       stripeConnected={stripeConnected}
                       razorpayConnected={razorpayConnected}
+                      hasPlay={!!r.play_product_id}
+                      hasAppStore={!!r.app_store_product_id}
+                      playConnected={playConnected}
+                      appStoreConnected={appStoreConnected}
                     />
                   </td>
                 </tr>
@@ -460,6 +502,54 @@ function RazorpayChip({
   return (
     <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-tighter bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded">
       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Razorpay ✓
+    </span>
+  )
+}
+
+/**
+ * Native store chip (Google Play / App Store) — same 3-state treatment as
+ * RazorpayChip (the stores don't expose a browser deep-link for a product the
+ * way Stripe does, so there's no verified-with-external-link variant):
+ *
+ *   not-connected — gray pill linking to the store's credential form
+ *   pending       — amber pill (connected but play/app_store_product_id null)
+ *   synced        — green "✓" pill (the store product id is populated)
+ */
+function StoreChip({
+  name,
+  connected,
+  synced,
+  settingsUrl,
+}: {
+  name: string
+  connected: boolean
+  synced: boolean
+  settingsUrl: string
+}) {
+  if (!connected) {
+    return (
+      <Link
+        href={settingsUrl}
+        title={`${name} not connected — click to set up`}
+        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-tighter bg-ink-100 text-ink-500 border border-ink-200 px-1.5 py-0.5 rounded hover:bg-ink-200"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-ink-300" /> {name}
+      </Link>
+    )
+  }
+  if (!synced) {
+    return (
+      <span
+        title={`Connected, but this product hasn't been pushed to ${name} yet`}
+        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-tighter bg-warning-50 text-warning-700 border border-warning-200 px-1.5 py-0.5 rounded"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-warning-500" /> {name} · pending
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-tighter bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded">
+      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> {name} ✓
     </span>
   )
 }

@@ -10,10 +10,17 @@ import {
 } from "lucide-react"
 
 interface Preview {
-  providers_connected: { stripe: boolean; razorpay: boolean }
+  providers_connected: {
+    stripe: boolean
+    razorpay: boolean
+    google_play: boolean
+    app_store: boolean
+  }
   unique_unsynced_count: number
   stripe: { unsynced_count: number; items: any[] }
   razorpay: { unsynced_count: number; items: any[] }
+  google_play: { unsynced_count: number; items: any[] }
+  app_store: { unsynced_count: number; items: any[] }
 }
 
 interface SyncReport {
@@ -27,6 +34,8 @@ interface SyncReport {
 interface SyncResult {
   stripe: SyncReport[]
   razorpay: SyncReport[]
+  google_play?: SyncReport[]
+  app_store?: SyncReport[]
 }
 
 /**
@@ -90,6 +99,8 @@ export function UnsyncedProductsBanner() {
 
   const stripeCount = preview.stripe.unsynced_count
   const razorpayCount = preview.razorpay.unsynced_count
+  const playCount = preview.google_play.unsynced_count
+  const appStoreCount = preview.app_store.unsynced_count
   // Distinct-product count — the same row may need pushing to both providers
   // but the banner counts unique products, not sync operations. The server
   // also only counts connected providers (no "needs sync to Razorpay" nag
@@ -102,17 +113,21 @@ export function UnsyncedProductsBanner() {
   const connectedProviderNames = [
     preview.providers_connected.stripe ? "Stripe" : null,
     preview.providers_connected.razorpay ? "Razorpay" : null,
+    preview.providers_connected.google_play ? "Google Play" : null,
+    preview.providers_connected.app_store ? "App Store" : null,
   ].filter(Boolean) as string[]
 
   // Post-sync summary takes over (the unsynced count drops to 0 after a
   // successful run, so we wouldn't otherwise show anything).
   if (result) {
-    const allOk =
-      result.stripe.every((r) => r.status === "ok") &&
-      result.razorpay.every((r) => r.status === "ok")
-    const failures = [...result.stripe, ...result.razorpay].filter(
-      (r) => r.status !== "ok",
-    )
+    const allReports = [
+      ...result.stripe,
+      ...result.razorpay,
+      ...(result.google_play ?? []),
+      ...(result.app_store ?? []),
+    ]
+    const allOk = allReports.every((r) => r.status === "ok")
+    const failures = allReports.filter((r) => r.status !== "ok")
     return (
       <div
         className={`mb-6 rounded-xl border p-5 ${
@@ -130,12 +145,8 @@ export function UnsyncedProductsBanner() {
           <div className="flex-1">
             <h3 className="text-sm font-bold text-ink-900">
               {allOk
-                ? `Sync complete — ${
-                    result.stripe.length + result.razorpay.length
-                  } products pushed to providers`
-                : `Sync partially complete — ${failures.length} of ${
-                    result.stripe.length + result.razorpay.length
-                  } failed`}
+                ? `Sync complete — ${allReports.length} products pushed to providers`
+                : `Sync partially complete — ${failures.length} of ${allReports.length} failed`}
             </h3>
             {!allOk && (
               <ul className="mt-2 space-y-1 text-xs text-ink-700">
@@ -189,7 +200,14 @@ export function UnsyncedProductsBanner() {
           </p>
           {connectedProviderNames.length > 1 && (
             <p className="text-[11px] text-ink-500 mt-1">
-              Stripe: {stripeCount} · Razorpay: {razorpayCount}
+              {[
+                preview.providers_connected.stripe ? `Stripe: ${stripeCount}` : null,
+                preview.providers_connected.razorpay ? `Razorpay: ${razorpayCount}` : null,
+                preview.providers_connected.google_play ? `Google Play: ${playCount}` : null,
+                preview.providers_connected.app_store ? `App Store: ${appStoreCount}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           )}
           <div className="mt-3 flex items-center gap-3">
