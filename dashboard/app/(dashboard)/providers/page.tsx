@@ -197,6 +197,29 @@ export default async function ProvidersPage({
         </div>
       )}
 
+      {/* Native in-app billing — Google Play / App Store (required for mobile digital goods) */}
+      <Section
+        eyebrow="In-app billing (native app stores)"
+        subtitle="Required for digital subscriptions inside Android/iOS apps. On Android the SDK routes digital checkout through Google Play Billing (Google Play Payments policy) instead of a web page; iOS uses StoreKit. Connect the store, then set each product's store product ID."
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <StoreCard
+            name="Google Play Billing"
+            subtitle="Android in-app subscriptions"
+            reason="Mandatory for digital goods on Android under Google Play's Payments policy. Connect your Play service account to auto-create/sync subscription products and let the SDK bill via Google Play instead of an external web page."
+            href="/providers/google-play"
+            connected={tenantProviders.has("google_play")}
+          />
+          <StoreCard
+            name="App Store Connect"
+            subtitle="iOS in-app subscriptions (StoreKit)"
+            reason="Required for digital goods on iOS. Connect your App Store Connect API key (.p8) to auto-create/sync StoreKit subscription products."
+            href="/providers/app-store"
+            connected={tenantProviders.has("app_store")}
+          />
+        </div>
+      </Section>
+
       {/* Tier 1+2: Recommended for {country} */}
       {(byTier.primary.length > 0 || byTier.secondary.length > 0) && (
         <Section
@@ -405,6 +428,58 @@ function ProviderCard({
             Setup page coming soon
           </span>
         )}
+      </CardBody>
+    </Card>
+  )
+}
+
+function StoreCard({
+  name,
+  subtitle,
+  reason,
+  href,
+  connected,
+}: {
+  name: string
+  subtitle: string
+  reason: string
+  href: string
+  connected: boolean
+}) {
+  return (
+    <Card
+      className={`transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+        connected ? "border-emerald-200 bg-emerald-50/30" : "border-ink-200"
+      }`}
+    >
+      <CardBody className="p-5">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h3 className="text-base font-bold text-ink-900">{name}</h3>
+            <p className="text-[11px] text-ink-500 mt-0.5">{subtitle}</p>
+          </div>
+          {connected ? (
+            <Badge tone="success" dot>
+              Connected
+            </Badge>
+          ) : (
+            <Badge tone="neutral">Setup</Badge>
+          )}
+        </div>
+
+        <p className="text-xs text-ink-700 leading-relaxed mb-4">{reason}</p>
+
+        <Link
+          href={href}
+          className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${
+            connected
+              ? "bg-white text-ink-700 border border-ink-200 hover:bg-ink-50"
+              : "bg-ink-900 text-white hover:bg-ink-800"
+          }`}
+        >
+          {connected ? "Manage" : "Connect"}
+          <ArrowRight className="w-3 h-3" />
+        </Link>
       </CardBody>
     </Card>
   )
