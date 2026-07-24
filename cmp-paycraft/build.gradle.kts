@@ -36,8 +36,12 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
 
-    macosX64()
-    macosArm64()
+    // macOS targets dropped 2026-07-24: Store5 (5.1.0-alpha08, the offline entitlement
+    // cache from E4) publishes no macos_x64/macos_arm64 variant, so `commonMain`'s store5
+    // dependency cannot resolve for macOS → "Compile All Targets" fails. macOS is not a
+    // shipped PayCraft platform (native billing is Android/iOS per D13; the sample-app does
+    // not target macOS; no consumer ships macOS). Re-add macosX64()/macosArm64() + src/macosMain
+    // once Store5 ships macOS artifacts, or move store5 into a non-macOS intermediate source set.
 
     js {
         browser()
