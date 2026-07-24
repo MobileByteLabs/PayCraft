@@ -21,11 +21,18 @@ interface Props {
   productId: string
   initialStripeProductId: string | null
   initialRazorpayPlanIds: Record<string, string> | null
+  initialPlayProductId: string | null
+  initialAppStoreProductId: string | null
   stripeVerification: StripeVerification
 }
 
 interface ProviderConnections {
-  providers_connected: { stripe: boolean; razorpay: boolean }
+  providers_connected: {
+    stripe: boolean
+    razorpay: boolean
+    google_play: boolean
+    app_store: boolean
+  }
 }
 
 /**
@@ -39,14 +46,21 @@ export function ProductSyncPanel({
   productId,
   initialStripeProductId,
   initialRazorpayPlanIds,
+  initialPlayProductId,
+  initialAppStoreProductId,
   stripeVerification,
 }: Props) {
   const router = useRouter()
   const [connections, setConnections] = useState<ProviderConnections | null>(null)
   const [syncing, setSyncing] = useState(false)
+  // Report keys mirror the /api/products/{id}/sync response exactly:
+  // stripe / razorpay / cashfree / google_play / app_store (snake_case).
   const [result, setResult] = useState<{
     stripe: SyncReport
     razorpay: SyncReport
+    cashfree?: SyncReport
+    google_play?: SyncReport
+    app_store?: SyncReport
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -94,6 +108,8 @@ export function ProductSyncPanel({
     : null
   const razorpaySynced =
     !!initialRazorpayPlanIds && Object.keys(initialRazorpayPlanIds).length > 0
+  const playSynced = !!initialPlayProductId
+  const appStoreSynced = !!initialAppStoreProductId
 
   return (
     <div className="bg-white border border-ink-200 rounded-xl p-5 space-y-4">
@@ -144,12 +160,33 @@ export function ProductSyncPanel({
           externalUrl={null}
           settingsUrl="/providers/razorpay"
         />
+        <ProviderCard
+          name="Google Play"
+          connected={connections?.providers_connected.google_play ?? null}
+          synced={playSynced}
+          externalUrl={null}
+          settingsUrl="/providers/google-play"
+        />
+        <ProviderCard
+          name="App Store"
+          connected={connections?.providers_connected.app_store ?? null}
+          synced={appStoreSynced}
+          externalUrl={null}
+          settingsUrl="/providers/app-store"
+        />
       </div>
 
       {result && (
         <div className="rounded-lg border border-ink-200 bg-ink-50/50 p-3 space-y-1.5">
           <ResultLine name="Stripe" report={result.stripe} />
           <ResultLine name="Razorpay" report={result.razorpay} />
+          {result.cashfree && <ResultLine name="Cashfree" report={result.cashfree} />}
+          {result.google_play && (
+            <ResultLine name="Google Play" report={result.google_play} />
+          )}
+          {result.app_store && (
+            <ResultLine name="App Store" report={result.app_store} />
+          )}
         </div>
       )}
 
