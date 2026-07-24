@@ -7,10 +7,22 @@ import * as path from "path";
 interface InitOptions {
   cloud?: boolean;
   selfHosted?: boolean;
+  apiKey?: string;
+  provider?: string;
+  platform?: string;
+  out?: string;
+  yes?: boolean;
 }
 
 export async function init(options: InitOptions) {
   console.log(chalk.bold("\n  PayCraft Setup\n"));
+
+  // Non-interactive fast path (AC10 — `npx paycraft init --cloud --api-key … --yes --out …`).
+  // Powers scripts/paycraft-onboarding-smoke.sh: init → PayCraft.initialize(apiKey) → first read.
+  if (options.apiKey) {
+    setupCloudNonInteractive(options);
+    return;
+  }
 
   // Step 1: Hosting mode
   let mode = options.cloud ? "cloud" : options.selfHosted ? "self-hosted" : "";
@@ -169,6 +181,37 @@ async function setupSelfHosted() {
   console.log(`  3. Add your ${answers.provider} webhook secret to Supabase secrets`);
   console.log("  4. Test with a sandbox transaction");
   console.log("");
+}
+
+function setupCloudNonInteractive(options: InitOptions) {
+  const apiKey = options.apiKey!;
+  if (!apiKey.startsWith("pk_")) {
+    console.error(chalk.red("  API key should start with pk_test_ or pk_live_"));
+    process.exit(1);
+  }
+  const provider = options.provider || "stripe";
+  const platform = options.platform || "Multiplatform (all)";
+  const isTest = apiKey.startsWith("pk_test_");
+  const outDir = path.resolve(options.out || ".");
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const config = {
+    mode: "cloud",
+    apiKey,
+    provider,
+    platform,
+    testMode: isTest,
+    generatedAt: new Date().toISOString(),
+    initSnippet: `PayCraft.initialize(apiKey = "${apiKey}")`,
+  };
+  const configPath = path.join(outDir, "paycraft.config.json");
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+
+  const snippet = generateKotlinConfig({ mode: "cloud", apiKey, provider, isTest });
+  fs.writeFileSync(path.join(outDir, "PayCraftInit.kt.txt"), snippet + "\n");
+
+  console.log(chalk.green(`  Wrote ${configPath}`));
+  console.log(chalk.green(`  One-line boot: PayCraft.initialize(apiKey = "${apiKey}")`));
 }
 
 function generateKotlinConfig(opts: {

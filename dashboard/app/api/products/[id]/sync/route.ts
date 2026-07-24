@@ -5,6 +5,8 @@ import {
   stripeSyncProduct,
   razorpaySyncProduct,
   cashfreeSyncProduct,
+  googlePlaySyncProduct,
+  appStoreSyncProduct,
 } from "@/lib/stripe-route-helper"
 
 /**
@@ -28,7 +30,7 @@ export async function POST(
   const { data: product, error } = await supabase
     .from("tenant_products")
     .select(
-      "id, sku, type, display_name, interval, base_price_cents, base_currency, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency",
+      "id, sku, type, display_name, interval, base_price_cents, base_currency, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency, play_product_id, app_store_product_id",
     )
     .eq("tenant_id", tenant.id)
     .eq("id", params.id)
@@ -130,6 +132,65 @@ export async function POST(
     cashfreeReport.message = e?.message ?? String(e)
   }
 
+  // Native stores — only meaningful for subscription products; the helpers
+  // self-skip when the tenant hasn't connected the store or the product isn't
+  // a subscription. "ok" = the product id landed on the row.
+  const googlePlayReport: Report = { status: "skipped" }
+  try {
+    await googlePlaySyncProduct(supabase, {
+      tenantId: tenant.id,
+      productId: params.id,
+      body,
+      existingPlayProductId: product.play_product_id ?? undefined,
+    })
+    const { data: after } = await supabase
+      .from("tenant_products")
+      .select("play_product_id")
+      .eq("id", params.id)
+      .single()
+    if (product.type !== "subscription") {
+      googlePlayReport.status = "skipped"
+      googlePlayReport.message = "native store sync only applies to subscription products"
+    } else if (after?.play_product_id) {
+      googlePlayReport.status = "ok"
+    } else {
+      googlePlayReport.status = "failed"
+      googlePlayReport.message =
+        "sync helper returned without populating play_product_id — check that google_play credentials + package_name are configured (server logs carry the Play API error)"
+    }
+  } catch (e: any) {
+    googlePlayReport.status = "failed"
+    googlePlayReport.message = e?.message ?? String(e)
+  }
+
+  const appStoreReport: Report = { status: "skipped" }
+  try {
+    await appStoreSyncProduct(supabase, {
+      tenantId: tenant.id,
+      productId: params.id,
+      body,
+      existingAppStoreProductId: product.app_store_product_id ?? undefined,
+    })
+    const { data: after } = await supabase
+      .from("tenant_products")
+      .select("app_store_product_id")
+      .eq("id", params.id)
+      .single()
+    if (product.type !== "subscription") {
+      appStoreReport.status = "skipped"
+      appStoreReport.message = "native store sync only applies to subscription products"
+    } else if (after?.app_store_product_id) {
+      appStoreReport.status = "ok"
+    } else {
+      appStoreReport.status = "failed"
+      appStoreReport.message =
+        "sync helper returned without populating app_store_product_id — check that app_store credentials (key_id/issuer_id/bundle_id + .p8) are configured (server logs carry the ASC API error)"
+    }
+  } catch (e: any) {
+    appStoreReport.status = "failed"
+    appStoreReport.message = e?.message ?? String(e)
+  }
+
   await supabase.rpc("audit_log_emit", {
     p_tenant_id: tenant.id,
     p_actor_user_id: userId,
@@ -141,6 +202,8 @@ export async function POST(
       stripe: stripeReport,
       razorpay: razorpayReport,
       cashfree: cashfreeReport,
+      google_play: googlePlayReport,
+      app_store: appStoreReport,
     },
   })
 
@@ -148,5 +211,7 @@ export async function POST(
     stripe: stripeReport,
     razorpay: razorpayReport,
     cashfree: cashfreeReport,
+    google_play: googlePlayReport,
+    app_store: appStoreReport,
   })
 }

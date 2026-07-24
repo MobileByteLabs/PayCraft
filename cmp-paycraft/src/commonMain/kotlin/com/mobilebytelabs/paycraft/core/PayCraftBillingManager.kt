@@ -1,12 +1,16 @@
 package com.mobilebytelabs.paycraft.core
 
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.billing.NativeBillingClient
+import com.mobilebytelabs.paycraft.billing.NativePurchaseResult
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
+import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.model.TrialInfo
 import com.mobilebytelabs.paycraft.model.VerificationMethod
+import com.mobilebytelabs.paycraft.model.toSubscriptionStatus
 import com.mobilebytelabs.paycraft.network.OtpGateResult
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
@@ -23,9 +27,22 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.mobilenativefoundation.store.store5.StoreReadResponse
 
-class PayCraftBillingManager(private val service: PayCraftService, private val store: PayCraftStore) : BillingManager {
+/**
+ * @param repo Optional Store5-backed [EntitlementRepository] (Phase 4). When wired (Android/iOS
+ *   with the Phase-3 native client injected), [observeEntitlement]/[onForeground]/[onRestore]
+ *   drive offline-correct, cache-first gating over the reconciled entitlement (D8, AC5/AC9). Left
+ *   null on platforms/tests that gate purely through the legacy device-token path.
+ */
+class PayCraftBillingManager(
+    private val service: PayCraftService,
+    private val store: PayCraftStore,
+    private val repo: EntitlementRepository? = null,
+    private val nativeBillingClient: NativeBillingClient? = null,
+) : BillingManager {
 
     private val stripeMode: String
         get() = if ((PayCraft.config?.provider as? StripeProvider)?.isTestMode == true) "test" else "live"
@@ -124,6 +141,111 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
     }
 
     override fun logIn(email: String) = registerAndLogin(email)
+
+    // ─── Google Play Billing lane (Payments-policy compliance) ─────────────────
+
+    /** Canonical states that mean the entitlement is currently premium (grace = active, D6). */
+    private val premiumCanonicalStates = setOf("trial", "active", "active_non_renewing", "in_grace_period")
+
+    override fun purchaseViaPlayBilling(plan: BillingPlan, email: String?) {
+        val native = nativeBillingClient
+        if (native == null) {
+            // No native client wired (e.g. paycraftPlayBillingModule not loaded). Fail CLOSED with an
+            // error — we do NOT fall back to the web page (that is the violation we prevent).
+            PayCraftLogger.onError(
+                "purchaseViaPlayBilling",
+                "no NativeBillingClient wired for ${plan.id} — load paycraftPlayBillingModule on Android",
+            )
+            _billingState.value = BillingState.Error("Google Play billing is not available on this device")
+            return
+        }
+
+        val productId = plan.playProductId
+        if (productId.isNullOrBlank()) {
+            // ANTI-STEERING KEYSTONE: a misconfigured product must NOT open the browser on Android.
+            PayCraftLogger.onError(
+                "purchaseViaPlayBilling",
+                "playProductId missing for ${plan.id} — refusing web fallback (Payments-policy anti-steering)",
+            )
+            _billingState.value = BillingState.Error("Google Play product not configured")
+            return
+        }
+
+        val appUserId = email?.trim()?.lowercase()?.ifBlank { null }
+            ?: _userEmail.value
+            ?: PayCraft.deviceId
+        if (!email.isNullOrBlank()) _userEmail.value = email.trim().lowercase()
+
+        _billingState.value = BillingState.Loading
+        scope.launch {
+            when (val result = native.purchase(productId)) {
+                is NativePurchaseResult.Success -> {
+                    val purchase = result.purchase
+                    PayCraftLogger.onFlow(
+                        "purchaseViaPlayBilling",
+                        "Play purchase OK (product=$productId) → registering with server",
+                    )
+                    val entitlement = try {
+                        service.registerPlayPurchase(
+                            purchaseToken = purchase.purchaseToken,
+                            productId = productId,
+                            appUserId = appUserId,
+                            packageName = purchase.packageName.orEmpty(),
+                        )
+                    } catch (e: Exception) {
+                        PayCraftLogger.onError("purchaseViaPlayBilling", "registerPlayPurchase failed: ${e.message}")
+                        null
+                    }
+
+                    // Reflect premium immediately from the server-reconciled entitlement (authoritative
+                    // response). grace = active per D6.
+                    val nowPremium = entitlement != null &&
+                        entitlement.canonicalState.lowercase() in premiumCanonicalStates
+                    if (nowPremium) {
+                        val status = SubscriptionStatus(
+                            isPremium = true,
+                            plan = entitlement!!.productId,
+                            email = _userEmail.value,
+                            provider = entitlement.provider,
+                            expiresAt = entitlement.expiresAt?.let { millisToIso(it) },
+                            willRenew = entitlement.willRenew,
+                        )
+                        _isPremium.value = true
+                        _subscriptionStatus.value = status
+                        _billingState.value = BillingState.Premium(status)
+                        store.cacheSubscriptionStatus(status)
+                        if (!lastObservedPremium) {
+                            _subscriptionActivated.emit(SubscriptionActivated(sku = status.plan, isTrial = false))
+                        }
+                        lastObservedPremium = true
+                    } else if (entitlement == null) {
+                        _billingState.value = BillingState.Error(
+                            "Purchase completed but could not be verified. Contact support if premium doesn't unlock.",
+                        )
+                    }
+
+                    // Then reconcile through the normal server path so the entitlement fully lands
+                    // (task 3). refreshStatus(force=true) re-checks server truth for the device.
+                    refreshStatus(force = true)
+                }
+
+                NativePurchaseResult.Cancelled -> {
+                    PayCraftLogger.onFlow("purchaseViaPlayBilling", "Play purchase cancelled by user")
+                    // Return to the pre-purchase resting state rather than an error.
+                    _billingState.value = if (_isPremium.value) {
+                        BillingState.Premium(_subscriptionStatus.value)
+                    } else {
+                        BillingState.Free
+                    }
+                }
+
+                is NativePurchaseResult.Failed -> {
+                    PayCraftLogger.onError("purchaseViaPlayBilling", "Play purchase failed: ${result.message}")
+                    _billingState.value = BillingState.Error(result.message)
+                }
+            }
+        }
+    }
 
     override suspend fun checkTrialEligibility(): Boolean {
         val token = DeviceTokenStore.getToken()
@@ -385,6 +507,55 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
         scope.launch { store.clearEmail() }
     }
 
+    // ─── Store5 entitlement gating (Phase 4 — cache-first + revalidate) ───────
+
+    /**
+     * Cache-first, offline-correct gating over the reconciled entitlement (AC9).
+     *
+     * Binds to the Store5 CACHED stream ([EntitlementRepository.stream]); every emission
+     * re-derives premium from the offline last-known-good via
+     * [EntitlementRepository.isServableOffline] (grace = active / retry = inactive, D6), so gating
+     * survives a network outage without over-serving an expired/on-hold subscription. No-op when
+     * [repo] is not wired (legacy device-token-only platforms/tests).
+     */
+    fun observeEntitlement(appUserId: String) {
+        val repo = repo ?: return
+        scope.launch {
+            repo.stream(appUserId).collect { response ->
+                val entitlement = (response as? StoreReadResponse.Data)?.value ?: return@collect
+                val servable = repo.isServableOffline(entitlement, currentTimeMillis())
+                _isPremium.value = servable
+                val status = entitlement.toSubscriptionStatus(email = _userEmail.value)
+                _subscriptionStatus.value = status
+                _billingState.value = if (servable) BillingState.Premium(status) else BillingState.Free
+                PayCraftLogger.onFlow(
+                    "observeEntitlement",
+                    "state=${entitlement.canonicalState::class.simpleName}, servableOffline=$servable",
+                )
+            }
+        }
+    }
+
+    /**
+     * Revalidate on app foreground — forces a fresh server reconcile through the Store5
+     * FRESH sibling ([EntitlementRepository.streamFresh], S5-DUAL). No-op when [repo] is unwired.
+     */
+    fun onForeground(appUserId: String) {
+        val repo = repo ?: return
+        scope.launch {
+            repo.streamFresh(appUserId)
+                .first { it is StoreReadResponse.Data || it is StoreReadResponse.Error }
+        }
+    }
+
+    /**
+     * Revalidate on restore — identity-linked cross-platform restore keyed by the stable
+     * app-user-id ([EntitlementRepository.restore], AC5). No-op when [repo] is unwired.
+     */
+    suspend fun onRestore(appUserId: String) {
+        repo?.restore(appUserId)
+    }
+
     // ─── Private helpers ─────────────────────────────────────────────────────
 
     private suspend fun performRegisterAndLogin(email: String) {
@@ -521,6 +692,10 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
 
     private fun buildTrialInfo(trialEnd: String?): TrialInfo? = computeTrialInfo(trialEnd, currentTimeMillis())
 
+    /** Epoch-millis (EntitlementDto wire format) → ISO-8601 string (SubscriptionStatus format). */
+    @OptIn(kotlin.time.ExperimentalTime::class)
+    private fun millisToIso(ms: Long): String = kotlin.time.Instant.fromEpochMilliseconds(ms).toString()
+
     private suspend fun applyPremiumResult(email: String, isPremium: Boolean, mode: String) {
         PayCraftLogger.onFlow("applyPremiumResult", "email=$email, isPremium=$isPremium, mode=$mode")
         val wasAlreadyPremium = lastObservedPremium
@@ -564,7 +739,8 @@ class PayCraftBillingManager(private val service: PayCraftService, private val s
             if (!wasAlreadyPremium) {
                 PayCraftLogger.onFlow(
                     "applyPremiumResult",
-                    "Rising edge detected → emitting subscriptionActivated (sku=${sub?.plan}, isTrial=${trial != null})",
+                    "Rising edge detected → emitting subscriptionActivated " +
+                        "(sku=${sub?.plan}, isTrial=${trial != null})",
                 )
                 scope.launch {
                     _subscriptionActivated.emit(

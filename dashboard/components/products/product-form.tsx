@@ -19,6 +19,8 @@ interface ProductInput {
   base_currency: string
   display_order: number
   active: boolean
+  play_product_id?: string | null
+  app_store_product_id?: string | null
 }
 
 interface Subscription {
@@ -188,6 +190,36 @@ export function ProductForm({
       )}
 
       {p.type === "lifetime" && <PriceFields p={p} setP={setP} />}
+
+      <fieldset className="space-y-3 rounded border border-gray-200 p-4">
+        <legend className="px-1 text-sm font-semibold text-gray-700">
+          Store product IDs (native billing)
+        </legend>
+        <p className="text-xs text-gray-500">
+          Required for Google Play Billing on Android / StoreKit on iOS. Leave
+          blank if this product is sold only through payment links.
+        </p>
+        <Field label="Google Play product ID">
+          <input
+            value={p.play_product_id ?? ""}
+            onChange={(e) =>
+              setP({ ...p, play_product_id: e.target.value || null })
+            }
+            placeholder="e.g. premium_monthly"
+            className="input"
+          />
+        </Field>
+        <Field label="App Store product ID">
+          <input
+            value={p.app_store_product_id ?? ""}
+            onChange={(e) =>
+              setP({ ...p, app_store_product_id: e.target.value || null })
+            }
+            placeholder="e.g. com.acme.premium.monthly"
+            className="input"
+          />
+        </Field>
+      </fieldset>
 
       <Field label="Display order">
         <input

@@ -16,6 +16,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'QUICK_START',
+        'ONBOARDING_5MIN',
         'CUSTOMIZATION',
       ],
     },

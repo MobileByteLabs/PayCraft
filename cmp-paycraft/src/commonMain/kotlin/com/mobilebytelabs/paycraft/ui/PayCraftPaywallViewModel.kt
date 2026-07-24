@@ -192,9 +192,13 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
             return
         }
 
-        // AutoSkipWhenSingle: show sheet only when 2+ providers are configured
+        // AutoSkipWhenSingle: show the web-provider picker only when 2+ providers are configured.
+        // ANTI-STEERING (Payments policy): on Android for a digital product the pick is irrelevant —
+        // checkout MUST go through Google Play Billing, never a web provider — so never surface the
+        // web-provider sheet there. PayCraft.checkout() routes Android+digital to the Play lane.
+        val isAndroidDigital = PlatformInfo.platform.equals("android", ignoreCase = true) && plan.isDigital
         val providers = currentState.suiteProviders
-        if (providers.size >= 2) {
+        if (!isAndroidDigital && providers.size >= 2) {
             dispatch(PayCraftPaywallAction.ShowProviderSheet(plan))
             return
         }

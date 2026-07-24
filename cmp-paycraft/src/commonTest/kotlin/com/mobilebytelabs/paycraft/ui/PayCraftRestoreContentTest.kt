@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.SubscriptionActivated
+import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
@@ -72,6 +73,8 @@ class PayCraftRestoreContentTest {
         }
 
         override fun logIn(email: String) = registerAndLogin(email)
+
+        override fun purchaseViaPlayBilling(plan: BillingPlan, email: String?) { /* no-op in tests */ }
 
         override suspend fun checkTrialEligibility(): Boolean = true
 

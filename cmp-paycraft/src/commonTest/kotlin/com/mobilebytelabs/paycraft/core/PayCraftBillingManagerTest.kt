@@ -1,5 +1,9 @@
 package com.mobilebytelabs.paycraft.core
 
+import com.mobilebytelabs.paycraft.billing.NativeBillingClient
+import com.mobilebytelabs.paycraft.billing.NativePurchase
+import com.mobilebytelabs.paycraft.billing.NativePurchaseResult
+import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
@@ -161,6 +165,82 @@ class PayCraftBillingManagerTest {
                 email = "user@example.com",
             ),
         )
+
+    /**
+     * Records whether the native store purchase flow was launched, so the anti-steering tests can
+     * prove the browser/native flow is NEVER reached when the product is misconfigured.
+     */
+    private class FakeNativeBillingClient : NativeBillingClient {
+        var purchaseCalled = false
+        override suspend fun purchase(productId: String): NativePurchaseResult {
+            purchaseCalled = true
+            return NativePurchaseResult.Failed("not exercised in this test")
+        }
+        override suspend fun queryPurchases(): List<NativePurchase> = emptyList()
+        override suspend fun sync() = Unit
+        override suspend fun restore(): List<NativePurchase> = emptyList()
+        override suspend fun manageSubscription(productId: String?) = Unit
+    }
+
+    private fun digitalPlan(playProductId: String?) = BillingPlan(
+        id = "monthly",
+        name = "Monthly",
+        price = "$9.99",
+        interval = "month",
+        rank = 0,
+        playProductId = playProductId,
+        isDigital = true,
+    )
+
+    // ─── Google Play Billing anti-steering guard (Payments-policy keystone) ────
+
+    @Test
+    fun purchaseViaPlayBilling_missingPlayProductId_setsErrorAndNeverLaunchesPurchase() {
+        val native = FakeNativeBillingClient()
+        val manager = PayCraftBillingManager(
+            service = FakePayCraftService(),
+            store = FakePayCraftStore(cached = null, lastSynced = 0L, email = null),
+            nativeBillingClient = native,
+        )
+
+        // A digital product with NO play_product_id must be BLOCKED — not routed to the store, and
+        // (by the caller contract) not to the browser either.
+        manager.purchaseViaPlayBilling(digitalPlan(playProductId = null), email = "user@example.com")
+
+        val state = assertIs<BillingState.Error>(manager.billingState.value)
+        assertEquals("Google Play product not configured", state.message)
+        assertFalse(native.purchaseCalled, "must not launch the store flow for a misconfigured product")
+    }
+
+    @Test
+    fun purchaseViaPlayBilling_blankPlayProductId_isBlocked() {
+        val native = FakeNativeBillingClient()
+        val manager = PayCraftBillingManager(
+            service = FakePayCraftService(),
+            store = FakePayCraftStore(cached = null, lastSynced = 0L, email = null),
+            nativeBillingClient = native,
+        )
+
+        manager.purchaseViaPlayBilling(digitalPlan(playProductId = "   "), email = null)
+
+        assertIs<BillingState.Error>(manager.billingState.value)
+        assertFalse(native.purchaseCalled)
+    }
+
+    @Test
+    fun purchaseViaPlayBilling_noNativeClientWired_failsClosedWithError() {
+        // No NativeBillingClient (paycraftPlayBillingModule not loaded) → fail closed with an error,
+        // NEVER a silent web fallback.
+        val manager = PayCraftBillingManager(
+            service = FakePayCraftService(),
+            store = FakePayCraftStore(cached = null, lastSynced = 0L, email = null),
+            nativeBillingClient = null,
+        )
+
+        manager.purchaseViaPlayBilling(digitalPlan(playProductId = "paycraft_monthly"), email = null)
+
+        assertIs<BillingState.Error>(manager.billingState.value)
+    }
 
     // ─── Cache-driven premium application (applyCachedStatus) ──────────────────
 

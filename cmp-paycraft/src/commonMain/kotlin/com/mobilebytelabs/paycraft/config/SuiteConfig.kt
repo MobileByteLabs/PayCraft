@@ -48,6 +48,15 @@ data class ProductDto(
     @SerialName("discount_percent") val discountPercent: Int? = null,
     /** ISO 8601 timestamp when the auto-discount expires. NULL = no expiry. */
     @SerialName("discount_ends_at") val discountEndsAt: String? = null,
+    /**
+     * Google Play in-app-product / base-plan id (Google Play Billing v8). REQUIRED for this
+     * product to be purchasable on Android — the SDK routes Android digital checkout through
+     * Google Play Billing against this id (Payments-policy compliance). Configure it per product
+     * in the PayCraft dashboard alongside the web payment links. NULL blocks Android checkout.
+     */
+    @SerialName("play_product_id") val playProductId: String? = null,
+    /** Apple App Store product id (StoreKit2) — the iOS native lane counterpart of [playProductId]. */
+    @SerialName("app_store_product_id") val appStoreProductId: String? = null,
 )
 
 /**

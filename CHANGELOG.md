@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.2.0] — Google Play Payments-policy compliance + native billing
+
+Makes PayCraft compliant with Google Play's Payments policy: on Android, digital-subscription checkout now transacts through **Google Play Billing** instead of opening an external web payment page (the anti-steering violation that flagged consumer apps such as Reels Downloader `com.sensei.social`). Web/link-out remains the path on web/desktop and for physical goods.
+
+### Added
+
+- **Hybrid native + web checkout routing** — `billing/CheckoutLane.kt` (`resolveCheckoutLane(platform, plan, isDigital)`): Android + digital + a configured `playProductId` → native Google Play Billing (`NativeBillingClient.purchase()`); web/desktop/iOS or physical → existing web payment link. `openUrl()` is now reachable only in the `Web` lane.
+- **Native Google Play Billing (v8) + StoreKit2 clients** wired into checkout (`PlayBillingNativeClient`, `StoreKit2NativeBillingClient` + Swift shim).
+- **Anti-steering guard** — on Android + digital with no `playProductId`, the paywall fails closed (`BillingState.Error`) and never opens a browser.
+- **Server entitlement grant** — `supabase/functions/register-play-purchase/` validates the Play purchase token (Play Developer API) and reconciles the entitlement.
+- **Store product IDs in config** — `play_product_id` / `app_store_product_id` on `ProductDto` + `BillingPlan`, flowed DB → config → SDK (migration `073`).
+- **Dashboard store-product sync** — per-product Google Play / App Store ID fields; per-tenant encrypted Play service-account + App Store Connect `.p8` credentials (migration `074`); auto-create/sync subscriptions on Google Play (`monetization.subscriptions`) + App Store Connect (`subscriptions`) with write-back.
+
+### Changed
+
+- Dropped `macosX64`/`macosArm64` targets (Store5 5.1.0-alpha08 ships no macOS artifact; macOS is not a shipped platform — re-add when Store5 supports it).
+
 ## [Unreleased] — paycraft-v2-production-readiness epic
 
 Closes the 5-phase production-readiness epic spanning vault, domain, DR, observability, and Maven publish gates. See `plan-layer/project-plans/mbs/PayCraft/active/paycraft-v2-production-readiness/PLAN.md` for the full spec.

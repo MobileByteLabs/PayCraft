@@ -47,6 +47,8 @@ sealed interface PayCraftBackend {
         // build pipeline at release time. (Anon key is safe to ship — RLS
         // prevents data exposure.)
         const val CLOUD_SUPABASE_ANON_KEY: String =
-            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sd2ZneXRqeGxxeWZ4Y2dweXNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5MTk0ODUsImV4cCI6MjA5MjQ5NTQ4NX0.q1L5IyffiRObM85yxBK5BFRFsTjObzUeQSCJB96WM1s"
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6I" +
+                "m1sd2ZneXRqeGxxeWZ4Y2dweXNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5MTk0ODU" +
+                "sImV4cCI6MjA5MjQ5NTQ4NX0.q1L5IyffiRObM85yxBK5BFRFsTjObzUeQSCJB96WM1s"
     }
 }
