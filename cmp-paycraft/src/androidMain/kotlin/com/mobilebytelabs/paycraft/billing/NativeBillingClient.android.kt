@@ -207,6 +207,7 @@ class PlayBillingNativeClient(
         originalTransactionId = orderId,
         purchaseTimeMillis = purchaseTime,
         isAutoRenewing = isAutoRenewing,
+        packageName = packageName,
     )
 
     private data class PurchasesUpdate(

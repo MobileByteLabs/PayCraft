@@ -1,5 +1,6 @@
 package com.mobilebytelabs.paycraft.network
 
+import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.model.OAuthProvider
@@ -7,6 +8,18 @@ import com.mobilebytelabs.paycraft.model.SubscriptionState
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
 import io.github.jan.supabase.SupabaseClient
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import io.ktor.http.isSuccess
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.json.Json
 import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.Apple
@@ -159,7 +172,33 @@ interface PayCraftService {
      * Default is false so alternate [PayCraftService] fakes/mocks stay source-compatible.
      */
     suspend fun cancelSubscription(provider: String, subscriptionId: String): Boolean = false
+
+    /**
+     * Register a completed **Google Play** purchase server-side (Payments-policy native lane).
+     *
+     * POSTs to the `register-play-purchase` edge function, which (1) re-fetches truth from the Play
+     * Developer API (`purchases.subscriptionsv2.get`), (2) rejects a purchaseToken already bound to a
+     * different user (replay), and (3) reconciles ONE canonical entitlement via the E2 engine. The
+     * reconciled [EntitlementDto] is returned so the client can reflect premium immediately.
+     *
+     * @param purchaseToken the Play `Purchase.purchaseToken` (stable across renewals).
+     * @param productId the Play subscription product id that was purchased.
+     * @param appUserId the STABLE app-user-id the entitlement is keyed on (email or device id).
+     * @param packageName the buying app's package (`Purchase.packageName`) — keys the Play re-fetch.
+     * @return the reconciled entitlement, or null on failure. Default null keeps fakes/mocks
+     *   source-compatible.
+     */
+    suspend fun registerPlayPurchase(
+        purchaseToken: String,
+        productId: String,
+        appUserId: String,
+        packageName: String,
+    ): EntitlementDto? = null
 }
+
+/** Wire shape of the `register-play-purchase` edge-function response. */
+@Serializable
+data class RegisterPlayPurchaseResponse(val entitlement: EntitlementDto? = null)
 
 // ─── Implementation ───────────────────────────────────────────────────────────
 
@@ -393,6 +432,53 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
     } catch (e: Exception) {
         PayCraftLogger.onRpcError("cancel_subscription", e.message)
         false
+    }
+
+    /** Ktor client for edge-function POSTs (config/RPC use postgrest; edge functions are plain HTTP). */
+    private val http: HttpClient by lazy {
+        HttpClient {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true; explicitNulls = false; isLenient = true })
+            }
+        }
+    }
+
+    override suspend fun registerPlayPurchase(
+        purchaseToken: String,
+        productId: String,
+        appUserId: String,
+        packageName: String,
+    ): EntitlementDto? = try {
+        val backend = PayCraft.backend
+        val url = "${backend.supabaseUrl}/functions/v1/register-play-purchase"
+        PayCraftLogger.onRpcCall("register_play_purchase", "product=$productId, token=${purchaseToken.take(12)}...")
+        val response: HttpResponse = http.post(url) {
+            header("Authorization", "Bearer ${backend.supabaseAnonKey}")
+            header("apikey", backend.supabaseAnonKey)
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("purchase_token", purchaseToken)
+                    put("product_id", productId)
+                    put("app_user_id", appUserId)
+                    put("package_name", packageName)
+                    apiKey?.let { put("api_key", it) }
+                },
+            )
+        }
+        if (!response.status.isSuccess()) {
+            PayCraftLogger.onRpcError("register_play_purchase", "HTTP ${response.status.value}: ${response.body<String>()}")
+            return null
+        }
+        val decoded: RegisterPlayPurchaseResponse = response.body()
+        PayCraftLogger.onRpcResult(
+            "register_play_purchase",
+            "state=${decoded.entitlement?.canonicalState ?: "null"}",
+        )
+        decoded.entitlement
+    } catch (e: Exception) {
+        PayCraftLogger.onRpcError("register_play_purchase", e.message)
+        null
     }
 }
 

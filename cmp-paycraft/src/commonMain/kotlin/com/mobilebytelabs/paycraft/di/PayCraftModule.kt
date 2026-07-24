@@ -84,6 +84,10 @@ val PayCraftModule = module {
             service = get(),
             store = get(),
             repo = get(),
+            // The NativeBillingClient defaults to WebCheckoutNativeBillingClient (no-op) and is
+            // OVERRIDDEN on Android by paycraftPlayBillingModule → PlayBillingNativeClient, so the
+            // Payments-policy Play Billing lane is live once that module is loaded.
+            nativeBillingClient = get(),
         )
     }
 

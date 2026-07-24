@@ -4,6 +4,9 @@ import com.mobilebytelabs.paycraft.config.CouponDto
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
+import com.mobilebytelabs.paycraft.billing.CheckoutLane
+import com.mobilebytelabs.paycraft.billing.resolveCheckoutLane
+import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
@@ -31,6 +34,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import org.koin.core.context.GlobalContext
 
 /**
  * PayCraft — the single SDK entry point.
@@ -392,21 +396,73 @@ object PayCraft {
         return result
     }
 
+    /**
+     * Start checkout for [plan].
+     *
+     * Google-Play-compliance routing (Payments policy): on **Android** for a **digital** product the
+     * checkout transacts through **Google Play Billing** ([BillingManager.purchaseViaPlayBilling]) —
+     * it NEVER opens an external Stripe/Razorpay web payment page (the "leads users to a payment
+     * method other than Google Play's billing system" violation). On every other platform
+     * (web/desktop/ios/macos) — or a genuinely physical product — it keeps the existing web-link
+     * path. The lane is decided by [resolveCheckoutLane], the single unit-tested decision point.
+     */
     fun checkout(plan: BillingPlan, email: String? = null) {
-        val baseUrl = requireConfig().provider.getCheckoutUrl(plan, email)
-        val url = appendCouponParam(baseUrl, appliedCoupons[plan.id]?.code)
-        PayCraftPlatform.openUrl(url)
+        when (val lane = resolveCheckoutLane(PlatformInfo.platform, plan)) {
+            is CheckoutLane.Web -> {
+                val baseUrl = requireConfig().provider.getCheckoutUrl(plan, email)
+                val url = appendCouponParam(baseUrl, appliedCoupons[plan.id]?.code)
+                PayCraftPlatform.openUrl(url)
+            }
+            // Both NativePlay and Misconfigured delegate to the billing manager: it purchases via
+            // Play Billing, or (misconfigured play_product_id) sets BillingState.Error WITHOUT ever
+            // opening the browser — the anti-steering guarantee.
+            is CheckoutLane.NativePlay, is CheckoutLane.Misconfigured ->
+                routeAndroidDigitalToPlay(plan, email, lane)
+        }
     }
 
     /**
      * Checkout via a specific provider picked by the user in `ProviderBottomSheet`.
      * Used by the multi-provider flow; single-provider apps use [checkout] instead.
+     *
+     * Applies the SAME Google-Play-compliance routing as [checkout]: on Android+digital the provider
+     * pick is irrelevant — the purchase still goes through Google Play Billing, never the web link.
      */
     internal fun checkoutWithProvider(plan: BillingPlan, provider: ProviderDto, email: String? = null) {
-        val adapter = SuiteProviderAdapter(provider)
-        val baseUrl = adapter.getCheckoutUrl(plan, email)
-        val url = appendCouponParam(baseUrl, appliedCoupons[plan.id]?.code)
-        PayCraftPlatform.openUrl(url)
+        when (val lane = resolveCheckoutLane(PlatformInfo.platform, plan)) {
+            is CheckoutLane.Web -> {
+                val adapter = SuiteProviderAdapter(provider)
+                val baseUrl = adapter.getCheckoutUrl(plan, email)
+                val url = appendCouponParam(baseUrl, appliedCoupons[plan.id]?.code)
+                PayCraftPlatform.openUrl(url)
+            }
+            is CheckoutLane.NativePlay, is CheckoutLane.Misconfigured ->
+                routeAndroidDigitalToPlay(plan, email, lane)
+        }
+    }
+
+    /**
+     * Hand an Android digital checkout to Google Play Billing via the Koin-resolved [BillingManager].
+     * The manager owns the billing-state flow the paywall observes (Loading → Success/Cancelled/Error)
+     * and enforces the anti-steering guard (blank play product id → error, never a browser fallback).
+     */
+    private fun routeAndroidDigitalToPlay(plan: BillingPlan, email: String?, lane: CheckoutLane) {
+        val billingManager = GlobalContext.getOrNull()?.getOrNull<BillingManager>()
+        if (billingManager == null) {
+            // No Koin graph (should never happen in a real app — the paywall itself is Koin-resolved).
+            // Fail CLOSED: log and stop. We deliberately do NOT open the browser here — that would be
+            // the exact anti-steering violation we are preventing.
+            PayCraftLogger.onError(
+                "checkout",
+                "Android digital checkout for ${plan.id} but no BillingManager in the Koin graph — " +
+                    "load PayCraftModule + paycraftPlayBillingModule. Refusing web fallback (anti-steering).",
+            )
+            return
+        }
+        if (lane is CheckoutLane.Misconfigured) {
+            PayCraftLogger.onError("checkout", "${lane.reason} for plan ${plan.id} (Android digital)")
+        }
+        billingManager.purchaseViaPlayBilling(plan, email)
     }
 
     /**
@@ -520,6 +576,11 @@ private fun List<ProductDto>.toBillingPlans(popularSku: String?): List<BillingPl
             isPopular = popularSku != null && dto.sku == popularSku,
             trialDays = trialDays,
             currency = originalCurrency.uppercase(),
+            // Carry the native store product ids so the Android/iOS billing lanes can transact
+            // against them (Google Play Billing / StoreKit2). All current PayCraft products are
+            // digital subscriptions/lifetime unlocks → isDigital stays true (default).
+            playProductId = dto.playProductId,
+            appStoreProductId = dto.appStoreProductId,
         )
     }
 }

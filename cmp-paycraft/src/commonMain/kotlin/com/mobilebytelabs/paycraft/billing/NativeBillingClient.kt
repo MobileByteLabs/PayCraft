@@ -14,6 +14,13 @@ data class NativePurchase(
     val originalTransactionId: String?,
     val purchaseTimeMillis: Long,
     val isAutoRenewing: Boolean,
+    /**
+     * Owning app package (Play `Purchase.getPackageName()`). Needed by the server-side
+     * `register-play-purchase` edge function to re-fetch truth from the Play Developer API
+     * (`purchases.subscriptionsv2.get` is keyed by package + token). Non-null on Android; null
+     * on stores where package is not part of the receipt (StoreKit2).
+     */
+    val packageName: String? = null,
 )
 
 /** Outcome of a native purchase attempt. */

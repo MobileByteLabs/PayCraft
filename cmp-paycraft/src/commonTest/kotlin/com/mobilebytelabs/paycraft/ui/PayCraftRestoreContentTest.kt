@@ -73,6 +73,11 @@ class PayCraftRestoreContentTest {
 
         override fun logIn(email: String) = registerAndLogin(email)
 
+        override fun purchaseViaPlayBilling(
+            plan: com.mobilebytelabs.paycraft.model.BillingPlan,
+            email: String?,
+        ) { /* no-op in tests */ }
+
         override suspend fun checkTrialEligibility(): Boolean = true
 
         override fun refreshStatus(force: Boolean) { /* no-op in tests */ }
