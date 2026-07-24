@@ -74,6 +74,5 @@ class EntitlementRepository(
     suspend fun cancel(entitlement: Entitlement): Boolean = manageSubscription(entitlement)
 
     /** Offline gating decision for [entitlement] at [now] — delegates to the Store5 cache (AC9). */
-    fun isServableOffline(entitlement: Entitlement, now: Long): Boolean =
-        cache.isServableOffline(entitlement, now)
+    fun isServableOffline(entitlement: Entitlement, now: Long): Boolean = cache.isServableOffline(entitlement, now)
 }

@@ -1,11 +1,11 @@
 package com.mobilebytelabs.paycraft
 
+import com.mobilebytelabs.paycraft.billing.CheckoutLane
+import com.mobilebytelabs.paycraft.billing.resolveCheckoutLane
 import com.mobilebytelabs.paycraft.config.CouponDto
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
-import com.mobilebytelabs.paycraft.billing.CheckoutLane
-import com.mobilebytelabs.paycraft.billing.resolveCheckoutLane
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.BillingBenefit
@@ -34,7 +34,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import org.koin.core.context.GlobalContext
+import org.koin.mp.KoinPlatform
 
 /**
  * PayCraft — the single SDK entry point.
@@ -447,7 +447,7 @@ object PayCraft {
      * and enforces the anti-steering guard (blank play product id → error, never a browser fallback).
      */
     private fun routeAndroidDigitalToPlay(plan: BillingPlan, email: String?, lane: CheckoutLane) {
-        val billingManager = GlobalContext.getOrNull()?.getOrNull<BillingManager>()
+        val billingManager = KoinPlatform.getKoinOrNull()?.getOrNull<BillingManager>()
         if (billingManager == null) {
             // No Koin graph (should never happen in a real app — the paywall itself is Koin-resolved).
             // Fail CLOSED: log and stop. We deliberately do NOT open the browser here — that would be

@@ -25,9 +25,7 @@ import platform.UIKit.UIApplication
  * DI: bind on iOS via [com.mobilebytelabs.paycraft.di.paycraftStoreKit2BillingModule], which
  * overrides the default `WebCheckoutNativeBillingClient` binding from `PayCraftModule`.
  */
-class StoreKit2NativeBillingClient(
-    private val bridge: StoreKit2Bridge,
-) : NativeBillingClient {
+class StoreKit2NativeBillingClient(private val bridge: StoreKit2Bridge) : NativeBillingClient {
 
     override suspend fun purchase(productId: String): NativePurchaseResult =
         when (val outcome = bridge.purchase(productId)) {

@@ -9,8 +9,7 @@ package com.mobilebytelabs.paycraft.fee
 class StoreTaxTable(private val rates: Map<Pair<Jurisdiction, BillingLane>, Double>) {
 
     /** Legal store commission for this lane here, or null if the lane is not permitted. */
-    fun storeTax(jurisdiction: Jurisdiction, lane: BillingLane): Double? =
-        rates[jurisdiction to lane]
+    fun storeTax(jurisdiction: Jurisdiction, lane: BillingLane): Double? = rates[jurisdiction to lane]
 
     /** Lanes legally permitted in this jurisdiction, per injected config. */
     fun legalLanes(jurisdiction: Jurisdiction): List<BillingLane> =

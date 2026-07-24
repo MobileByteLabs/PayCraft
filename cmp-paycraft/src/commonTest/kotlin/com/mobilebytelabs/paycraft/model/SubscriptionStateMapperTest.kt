@@ -1,11 +1,11 @@
 package com.mobilebytelabs.paycraft.model
 
-import com.mobilebytelabs.paycraft.canary.green.GraceMapperCanary as GreenGraceCanary
-import com.mobilebytelabs.paycraft.canary.red.GraceMapperCanary as RedGraceCanary
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import com.mobilebytelabs.paycraft.canary.green.GraceMapperCanary as GreenGraceCanary
+import com.mobilebytelabs.paycraft.canary.red.GraceMapperCanary as RedGraceCanary
 
 /**
  * Pins the D6 canonical correctness rules: grace = active (with a billing issue),
@@ -57,7 +57,10 @@ class SubscriptionStateMapperTest {
         // `isActive == true` FAILS against it — which is exactly how the test catches the
         // grace = inactive defect class. We prove that failure would occur here.
         val mapped = RedGraceCanary.mapGrace()
-        assertFalse(mapped.isActive, "red canary's grace→Expired mapping is (wrongly) inactive — the defect the D6 rule forbids")
+        assertFalse(
+            mapped.isActive,
+            "red canary's grace→Expired mapping is (wrongly) inactive — the defect the D6 rule forbids",
+        )
     }
 
     @Test

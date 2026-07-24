@@ -11,8 +11,6 @@ import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.model.TrialInfo
 import com.mobilebytelabs.paycraft.model.VerificationMethod
 import com.mobilebytelabs.paycraft.model.toSubscriptionStatus
-import kotlinx.coroutines.flow.first
-import org.mobilenativefoundation.store.store5.StoreReadResponse
 import com.mobilebytelabs.paycraft.network.OtpGateResult
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
@@ -29,7 +27,9 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.mobilenativefoundation.store.store5.StoreReadResponse
 
 /**
  * @param repo Optional Store5-backed [EntitlementRepository] (Phase 4). When wired (Android/iOS
@@ -739,7 +739,8 @@ class PayCraftBillingManager(
             if (!wasAlreadyPremium) {
                 PayCraftLogger.onFlow(
                     "applyPremiumResult",
-                    "Rising edge detected → emitting subscriptionActivated (sku=${sub?.plan}, isTrial=${trial != null})",
+                    "Rising edge detected → emitting subscriptionActivated " +
+                        "(sku=${sub?.plan}, isTrial=${trial != null})",
                 )
                 scope.launch {
                     _subscriptionActivated.emit(

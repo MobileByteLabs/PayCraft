@@ -4,13 +4,13 @@ import com.mobilebytelabs.paycraft.billing.NativeBillingClient
 import com.mobilebytelabs.paycraft.billing.NativePurchase
 import com.mobilebytelabs.paycraft.billing.NativePurchaseResult
 import com.mobilebytelabs.paycraft.model.Entitlement
+import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.network.EntitlementDto
 import com.mobilebytelabs.paycraft.network.OtpGateResult
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.network.PremiumCheckResult
 import com.mobilebytelabs.paycraft.network.RegisterDeviceResult
 import com.mobilebytelabs.paycraft.network.SubscriptionDto
-import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.persistence.EntitlementDao
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -88,7 +88,9 @@ class SpyNativeBillingClient : NativeBillingClient {
 
     override suspend fun purchase(productId: String): NativePurchaseResult = NativePurchaseResult.Cancelled
     override suspend fun queryPurchases(): List<NativePurchase> = emptyList()
-    override suspend fun sync() { syncCalls++ }
+    override suspend fun sync() {
+        syncCalls++
+    }
     override suspend fun restore(): List<NativePurchase> {
         restoreCalls++
         return emptyList()

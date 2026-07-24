@@ -40,10 +40,10 @@ class CancelDispatchTest {
             service = service,
         )
 
-        assertTrue(repo.manageSubscription(entitlement("play")))       // Android store → deep link
-        assertTrue(repo.manageSubscription(entitlement("app_store")))  // iOS store → showManageSubscriptions
-        assertTrue(repo.manageSubscription(entitlement("stripe")))     // PSP → API cancel
-        assertTrue(repo.cancel(entitlement("razorpay")))               // PSP → API cancel (cancel alias)
+        assertTrue(repo.manageSubscription(entitlement("play"))) // Android store → deep link
+        assertTrue(repo.manageSubscription(entitlement("app_store"))) // iOS store → showManageSubscriptions
+        assertTrue(repo.manageSubscription(entitlement("stripe"))) // PSP → API cancel
+        assertTrue(repo.cancel(entitlement("razorpay"))) // PSP → API cancel (cancel alias)
 
         assertEquals(2, native.manageCalls, "both store providers dispatch to the native deep-link")
         assertEquals(

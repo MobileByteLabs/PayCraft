@@ -58,9 +58,13 @@ class OnboardingSmokeTest {
     /** Store pre-seeded with a reconciled Premium entitlement (offline last-known-good). */
     private class SmokePremiumStore : PayCraftStore {
         private var email: String? = "e2e-onboarding-smoke"
-        override suspend fun saveEmail(email: String) { this.email = email }
+        override suspend fun saveEmail(email: String) {
+            this.email = email
+        }
         override suspend fun getEmail(): String? = email
-        override suspend fun clearEmail() { email = null }
+        override suspend fun clearEmail() {
+            email = null
+        }
         override fun getCachedSubscriptionStatus(): SubscriptionStatus = SubscriptionStatus(
             isPremium = true,
             plan = "yearly",
@@ -69,6 +73,7 @@ class OnboardingSmokeTest {
             expiresAt = "2099-12-31T00:00:00Z",
             willRenew = true,
         )
+
         // Fresh — keeps the async init branch from firing a (network) resync.
         override fun getLastSyncedAt(): Long = currentTimeMillis()
     }
@@ -79,7 +84,11 @@ class OnboardingSmokeTest {
         override suspend fun getSubscription(serverToken: String): SubscriptionDto? = null
         override suspend fun isTrialEligible(serverToken: String) = false
         override suspend fun registerDevice(
-            email: String, platform: String, deviceName: String, deviceId: String, mode: String,
+            email: String,
+            platform: String,
+            deviceName: String,
+            deviceId: String,
+            mode: String,
         ) = RegisterDeviceResult("smoke-token", false, null, null)
         override suspend fun checkPremiumWithDevice(serverToken: String) = PremiumCheckResult(true, true)
         override suspend fun transferToDevice(serverToken: String, newDeviceToken: String) = true

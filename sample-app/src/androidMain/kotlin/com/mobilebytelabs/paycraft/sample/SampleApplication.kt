@@ -61,7 +61,9 @@ class SampleApplication : Application() {
     private object ForegroundActivityTracker : Application.ActivityLifecycleCallbacks {
         private var resumed: WeakReference<Activity>? = null
         fun current(): Activity? = resumed?.get()
-        override fun onActivityResumed(activity: Activity) { resumed = WeakReference(activity) }
+        override fun onActivityResumed(activity: Activity) {
+            resumed = WeakReference(activity)
+        }
         override fun onActivityPaused(activity: Activity) {
             if (resumed?.get() === activity) resumed = null
         }

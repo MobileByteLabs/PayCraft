@@ -46,7 +46,10 @@ sealed interface SubscriptionState {
         override val billingIssue = true
     }
 
-    /** Provider is retrying a failed charge (Play `on_hold` / Apple billing-retry) — access SUSPENDED (D6: inactive). */
+    /**
+     * Provider is retrying a failed charge (Play `on_hold` / Apple billing-retry) —
+     * access SUSPENDED (D6: inactive).
+     */
     data object OnBillingRetry : SubscriptionState {
         override val isActive = false
         override val billingIssue = true

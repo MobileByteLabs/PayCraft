@@ -19,7 +19,7 @@ class FeeRouter(private val taxTable: StoreTaxTable, private val pspRate: PspRat
 
     fun quote(jurisdiction: Jurisdiction, lane: BillingLane): FeeQuote {
         val tax = taxTable.storeTax(jurisdiction, lane) ?: error("$lane not legal in $jurisdiction")
-        val total = max(pspRate.fraction, pspRate.fraction + tax)   // never below the PSP floor
+        val total = max(pspRate.fraction, pspRate.fraction + tax) // never below the PSP floor
         return FeeQuote(jurisdiction, lane, pspRate.fraction, tax, total)
     }
 }

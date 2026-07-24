@@ -44,11 +44,10 @@ fun SubscriptionState.toSubscriptionStatus(
 )
 
 /** Project an [Entitlement] onto the legacy [SubscriptionStatus] the consumer UI reads. */
-fun Entitlement.toSubscriptionStatus(email: String? = null): SubscriptionStatus =
-    canonicalState.toSubscriptionStatus(
-        plan = product,
-        email = email,
-        provider = provider,
-        expiresAt = expiresAt,
-        willRenew = willRenew,
-    )
+fun Entitlement.toSubscriptionStatus(email: String? = null): SubscriptionStatus = canonicalState.toSubscriptionStatus(
+    plan = product,
+    email = email,
+    provider = provider,
+    expiresAt = expiresAt,
+    willRenew = willRenew,
+)

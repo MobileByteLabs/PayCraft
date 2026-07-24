@@ -43,7 +43,10 @@ interface EntitlementDao {
  */
 class SettingsEntitlementDao(
     private val settings: Settings = Settings(),
-    private val json: Json = Json { ignoreUnknownKeys = true; explicitNulls = false },
+    private val json: Json = Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+    },
 ) : EntitlementDao {
 
     private val flows = mutableMapOf<String, MutableStateFlow<Entitlement?>>()
@@ -63,9 +66,8 @@ class SettingsEntitlementDao(
         flowFor(appUserId).value = null
     }
 
-    private fun readPersisted(appUserId: String): Entitlement? =
-        settings.getStringOrNull(keyFor(appUserId))
-            ?.let { runCatching { json.decodeFromString<EntitlementRow>(it).toEntitlement() }.getOrNull() }
+    private fun readPersisted(appUserId: String): Entitlement? = settings.getStringOrNull(keyFor(appUserId))
+        ?.let { runCatching { json.decodeFromString<EntitlementRow>(it).toEntitlement() }.getOrNull() }
 
     private fun keyFor(appUserId: String) = "$KEY_PREFIX$appUserId"
 

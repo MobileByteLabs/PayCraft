@@ -28,10 +28,7 @@ import org.koin.dsl.module
  * @param context application context for the [android.content.Context]-backed BillingClient.
  * @param activityProvider supplies the foreground [Activity] `launchBillingFlow` requires.
  */
-fun paycraftPlayBillingModule(
-    context: Context,
-    activityProvider: () -> Activity?,
-): Module = module {
+fun paycraftPlayBillingModule(context: Context, activityProvider: () -> Activity?): Module = module {
     single<NativeBillingClient> {
         PlayBillingNativeClient(
             context = context,

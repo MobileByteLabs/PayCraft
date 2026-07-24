@@ -8,15 +8,15 @@ import com.mobilebytelabs.paycraft.testsupport.InMemoryEntitlementDao
 import com.mobilebytelabs.paycraft.testsupport.entitlementDto
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import org.mobilenativefoundation.store.store5.StoreReadRequest
+import org.mobilenativefoundation.store.store5.StoreReadResponse
+import org.mobilenativefoundation.store.store5.impl.extensions.fresh
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
-import org.mobilenativefoundation.store.store5.StoreReadRequest
-import org.mobilenativefoundation.store.store5.StoreReadResponse
-import org.mobilenativefoundation.store.store5.impl.extensions.fresh
 
 /**
  * GREEN canary (AC9): with the network disabled the SDK serves the last-known-good entitlement

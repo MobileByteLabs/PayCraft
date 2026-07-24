@@ -53,10 +53,7 @@ import kotlin.coroutines.resume
  * @param activityProvider supplies the current foreground [Activity] required by
  *   `launchBillingFlow`; returns null when no Activity is resumed (purchase then fails cleanly).
  */
-class PlayBillingNativeClient(
-    context: Context,
-    private val activityProvider: () -> Activity?,
-) : NativeBillingClient {
+class PlayBillingNativeClient(context: Context, private val activityProvider: () -> Activity?) : NativeBillingClient {
 
     private val appContext: Context = context.applicationContext
 
@@ -198,8 +195,7 @@ class PlayBillingNativeClient(
         }
     }
 
-    private fun okResult(): BillingResult =
-        BillingResult.newBuilder().setResponseCode(BillingResponseCode.OK).build()
+    private fun okResult(): BillingResult = BillingResult.newBuilder().setResponseCode(BillingResponseCode.OK).build()
 
     private fun Purchase.toNativePurchase(): NativePurchase = NativePurchase(
         productId = products.firstOrNull().orEmpty(),
@@ -210,8 +206,5 @@ class PlayBillingNativeClient(
         packageName = packageName,
     )
 
-    private data class PurchasesUpdate(
-        val billingResult: BillingResult,
-        val purchases: List<Purchase>,
-    )
+    private data class PurchasesUpdate(val billingResult: BillingResult, val purchases: List<Purchase>)
 }

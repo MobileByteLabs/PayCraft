@@ -29,12 +29,11 @@ class RestoreCrossPlatformCanaryTest {
     private val expiresAtMs = 1_900_000_000_000L
 
     /** Fresh "device": its own SoT + native client, all pointing at the one server [service]. */
-    private fun deviceRepo(service: FakePayCraftService, native: SpyNativeBillingClient) =
-        EntitlementRepository(
-            cache = EntitlementCache(service, InMemoryEntitlementDao(), ttl = 24.hours),
-            native = native,
-            service = service,
-        )
+    private fun deviceRepo(service: FakePayCraftService, native: SpyNativeBillingClient) = EntitlementRepository(
+        cache = EntitlementCache(service, InMemoryEntitlementDao(), ttl = 24.hours),
+        native = native,
+        service = service,
+    )
 
     @Test
     fun restore_by_app_user_id_active_on_second_platform() = runTest {

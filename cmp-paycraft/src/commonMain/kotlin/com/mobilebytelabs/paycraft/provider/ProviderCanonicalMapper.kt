@@ -22,7 +22,8 @@ interface ProviderCanonicalMapper {
      * @param inGracePeriod true when the provider reports the subscription is in its billing grace window.
      * @param onBillingRetry true when the provider is actively retrying a failed charge (access suspended).
      * @param willRenew whether the subscription is set to auto-renew (distinguishes Active vs ActiveNonRenewing).
-     * @return the canonical [SubscriptionState] the reconciliation engine folds into the [com.mobilebytelabs.paycraft.model.Entitlement] row.
+     * @return the canonical [SubscriptionState] the reconciliation engine folds into
+     *   the [com.mobilebytelabs.paycraft.model.Entitlement] row.
      */
     fun toCanonical(
         rawStatus: String,

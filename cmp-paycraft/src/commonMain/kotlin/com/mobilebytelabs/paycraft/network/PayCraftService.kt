@@ -5,9 +5,15 @@ import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionState
-import kotlin.time.ExperimentalTime
-import kotlin.time.Instant
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.OtpType
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.providers.Apple
+import io.github.jan.supabase.auth.providers.Google
+import io.github.jan.supabase.auth.providers.builtin.IDToken
+import io.github.jan.supabase.auth.providers.builtin.OTP
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -19,17 +25,9 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
-import kotlinx.serialization.json.Json
-import io.github.jan.supabase.auth.OtpType
-import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.auth.providers.Apple
-import io.github.jan.supabase.auth.providers.Google
-import io.github.jan.supabase.auth.providers.builtin.IDToken
-import io.github.jan.supabase.auth.providers.builtin.OTP
-import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.rpc
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
@@ -37,6 +35,8 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 
 @Serializable
 data class SubscriptionDto(
@@ -438,7 +438,13 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
     private val http: HttpClient by lazy {
         HttpClient {
             install(ContentNegotiation) {
-                json(Json { ignoreUnknownKeys = true; explicitNulls = false; isLenient = true })
+                json(
+                    Json {
+                        ignoreUnknownKeys = true
+                        explicitNulls = false
+                        isLenient = true
+                    },
+                )
             }
         }
     }
@@ -467,7 +473,10 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
             )
         }
         if (!response.status.isSuccess()) {
-            PayCraftLogger.onRpcError("register_play_purchase", "HTTP ${response.status.value}: ${response.body<String>()}")
+            PayCraftLogger.onRpcError(
+                "register_play_purchase",
+                "HTTP ${response.status.value}: ${response.body<String>()}",
+            )
             return null
         }
         val decoded: RegisterPlayPurchaseResponse = response.body()

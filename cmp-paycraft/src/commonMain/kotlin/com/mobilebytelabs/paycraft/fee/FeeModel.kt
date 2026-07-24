@@ -8,7 +8,9 @@ enum class BillingLane { READER_APP, US_EXTERNAL_LINK, EU_DMA_CTC, GOOGLE_ALT_BI
 
 /** PSP processing rate as a fraction of gross — a HARD economic floor (D3). */
 data class PspRate(val fraction: Double) {
-    init { require(fraction > 0.0) { "PSP rate is a hard floor and must be positive" } }
+    init {
+        require(fraction > 0.0) { "PSP rate is a hard floor and must be positive" }
+    }
 }
 
 /** Resolved quote; [total] is never below [pspFloor]. */
