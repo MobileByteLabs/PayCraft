@@ -35,6 +35,8 @@ interface ProductInput {
   active: boolean
   discount_percent?: number | null
   discount_ends_at?: string | null
+  play_product_id?: string | null
+  app_store_product_id?: string | null
 }
 
 interface Subscription {
@@ -618,6 +620,49 @@ export function ProductFormShell({
                       setP({ ...p, display_order: parseInt(e.target.value) })
                     }
                     className="w-full px-4 py-2.5 bg-ink-50/50 border border-ink-200 rounded-lg text-[14px] focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+              </div>
+            </section>
+
+            {/* Store product IDs (native billing) */}
+            <section className="p-6 bg-white border border-ink-200 rounded-xl space-y-6">
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-ink-900">
+                  Store product IDs (native billing)
+                </div>
+                <p className="text-xs text-ink-500">
+                  Required for Google Play Billing on Android / StoreKit on iOS.
+                  Leave blank if this product is sold only through payment links.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-ink-500 block">
+                    Google Play product ID
+                  </label>
+                  <input
+                    type="text"
+                    value={p.play_product_id ?? ""}
+                    onChange={(e) =>
+                      setP({ ...p, play_product_id: e.target.value || null })
+                    }
+                    placeholder="e.g. premium_monthly"
+                    className="w-full px-4 py-2.5 bg-ink-50/50 border border-ink-200 rounded-lg text-[14px] font-mono transition-all focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-ink-500 block">
+                    App Store product ID
+                  </label>
+                  <input
+                    type="text"
+                    value={p.app_store_product_id ?? ""}
+                    onChange={(e) =>
+                      setP({ ...p, app_store_product_id: e.target.value || null })
+                    }
+                    placeholder="e.g. com.acme.premium.monthly"
+                    className="w-full px-4 py-2.5 bg-ink-50/50 border border-ink-200 rounded-lg text-[14px] font-mono transition-all focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
                   />
                 </div>
               </div>

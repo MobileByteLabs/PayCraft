@@ -1,6 +1,8 @@
 import { syncProductToStripe, toStripeInterval, type PriceInput } from "@/lib/stripe-product-sync"
 import { syncProductToRazorpay } from "@/lib/razorpay-product-sync"
 import { syncProductToCashfree } from "@/lib/cashfree-product-sync"
+import { syncProductToGooglePlay } from "@/lib/googleplay-product-sync"
+import { syncProductToAppStore } from "@/lib/appstore-product-sync"
 import { createClient } from "@/lib/supabase-server"
 
 interface SyncOptions {
@@ -10,6 +12,8 @@ interface SyncOptions {
   existingStripeProductId?: string
   existingPrices?: Record<string, string>
   existingRazorpayPlanIds?: Record<string, string>
+  existingPlayProductId?: string
+  existingAppStoreProductId?: string
 }
 
 function buildPriceInputs(body: Record<string, any>): PriceInput[] {
@@ -206,5 +210,122 @@ export async function cashfreeSyncProduct(
     })
   } catch (e: any) {
     console.error("[products] cashfree sync failed:", e.message)
+  }
+}
+
+/**
+ * Best-effort Google Play sync — creates/updates the Play subscription (+ base
+ * plan) for this product when the tenant has stored google_play credentials.
+ * Same shape as cashfreeSyncProduct: probe status → decrypt tenant creds →
+ * call the real Play Developer API → write the resulting product id back into
+ * tenant_products.play_product_id. Failures are logged, never surfaced.
+ *
+ * Only subscription-type products are synced to a native store; one-time /
+ * lifetime products are handled by the web-PSP lanes.
+ */
+export async function googlePlaySyncProduct(
+  supabase: ReturnType<typeof createClient>,
+  opts: SyncOptions,
+): Promise<void> {
+  const { tenantId, productId, body, existingPlayProductId } = opts
+  try {
+    if (body.type !== "subscription") return
+
+    const { data: status } = await supabase
+      .rpc("tenant_providers_store_status", { p_tenant_id: tenantId, p_provider: "google_play" })
+      .single<{ connected: boolean; config: Record<string, any> }>()
+    if (!status?.connected) return
+
+    const { data: decrypted } = await supabase
+      .rpc("tenant_providers_decrypt_store_key", { p_tenant_id: tenantId, p_provider: "google_play" })
+      .single<{ credential: string | null; config: Record<string, any> }>()
+    if (!decrypted?.credential) return
+    const packageName = decrypted.config?.package_name
+    if (!packageName) {
+      console.error("[products] google play sync skipped: no package_name in tenant store config")
+      return
+    }
+
+    const prices = buildPriceInputs(body).map((p) => ({
+      currency: p.currency,
+      amountCents: p.amountCents,
+    }))
+
+    const result = await syncProductToGooglePlay(
+      { serviceAccountJson: decrypted.credential, packageName },
+      productId,
+      body.sku,
+      body.display_name,
+      body.interval ?? null,
+      prices,
+      existingPlayProductId,
+    )
+
+    await supabase.rpc("tenant_products_set_store_ids", {
+      p_id: productId,
+      p_play_product_id: result.playProductId,
+      p_app_store_product_id: null,
+    })
+  } catch (e: any) {
+    console.error("[products] google play sync failed:", e?.message ?? String(e))
+  }
+}
+
+/**
+ * Best-effort App Store Connect sync — creates/updates the ASC subscription (+
+ * group, + price) for this product when the tenant has stored app_store
+ * credentials, then writes the ASC productId back into
+ * tenant_products.app_store_product_id. Same best-effort contract as above.
+ */
+export async function appStoreSyncProduct(
+  supabase: ReturnType<typeof createClient>,
+  opts: SyncOptions,
+): Promise<void> {
+  const { tenantId, productId, body, existingAppStoreProductId } = opts
+  try {
+    if (body.type !== "subscription") return
+
+    const { data: status } = await supabase
+      .rpc("tenant_providers_store_status", { p_tenant_id: tenantId, p_provider: "app_store" })
+      .single<{ connected: boolean; config: Record<string, any> }>()
+    if (!status?.connected) return
+
+    const { data: decrypted } = await supabase
+      .rpc("tenant_providers_decrypt_store_key", { p_tenant_id: tenantId, p_provider: "app_store" })
+      .single<{ credential: string | null; config: Record<string, any> }>()
+    if (!decrypted?.credential) return
+    const cfg = decrypted.config ?? {}
+    if (!cfg.key_id || !cfg.issuer_id || !cfg.bundle_id) {
+      console.error("[products] app store sync skipped: missing key_id/issuer_id/bundle_id in tenant store config")
+      return
+    }
+
+    const prices = buildPriceInputs(body).map((p) => ({
+      currency: p.currency,
+      amountCents: p.amountCents,
+    }))
+
+    const result = await syncProductToAppStore(
+      {
+        keyId: cfg.key_id,
+        issuerId: cfg.issuer_id,
+        bundleId: cfg.bundle_id,
+        privateKeyP8: decrypted.credential,
+      },
+      productId,
+      body.sku,
+      body.display_name,
+      body.interval ?? null,
+      prices,
+      existingAppStoreProductId,
+    )
+
+    await supabase.rpc("tenant_products_set_store_ids", {
+      p_id: productId,
+      p_play_product_id: null,
+      p_app_store_product_id: result.appStoreProductId,
+    })
+  } catch (e: any) {
+    console.error("[products] app store sync failed:", e?.message ?? String(e))
   }
 }

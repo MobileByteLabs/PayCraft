@@ -11,7 +11,7 @@ import { SignJWT, importPKCS8 } from "https://deno.land/x/jose@v5.9.6/index.ts";
 
 const ANDROID_PUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher";
 
-interface ServiceAccount {
+export interface ServiceAccount {
   client_email: string;
   private_key: string;
   token_uri?: string;
@@ -29,9 +29,19 @@ function loadServiceAccount(): ServiceAccount {
   return sa;
 }
 
-/** Obtain a Play Developer API access token (bearer) via the JWT-bearer grant. */
-export async function playDeveloperJwt(): Promise<string> {
-  const sa = loadServiceAccount();
+/**
+ * Obtain a Play Developer API access token (bearer) via the JWT-bearer grant.
+ *
+ * `creds` lets a PER-TENANT caller drive the token with a tenant's own decrypted
+ * service-account JSON (dashboard store-sync / multi-tenant edge paths). When
+ * omitted the single-tenant env credential (GOOGLE_PLAY_SA_JSON) is used, so the
+ * existing register-play-purchase / google-rtdn callers are unaffected.
+ */
+export async function playDeveloperJwt(creds?: ServiceAccount): Promise<string> {
+  const sa = creds ?? loadServiceAccount();
+  if (!sa.client_email || !sa.private_key) {
+    throw new Error("play-jwt: service account missing client_email/private_key");
+  }
   const tokenUri = sa.token_uri ?? "https://oauth2.googleapis.com/token";
   const key = await importPKCS8(sa.private_key, "RS256");
   const now = Math.floor(Date.now() / 1000);

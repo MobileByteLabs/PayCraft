@@ -5,6 +5,8 @@ import {
   stripeSyncProduct,
   razorpaySyncProduct,
   cashfreeSyncProduct,
+  googlePlaySyncProduct,
+  appStoreSyncProduct,
 } from "@/lib/stripe-route-helper"
 
 export async function POST(req: NextRequest) {
@@ -41,10 +43,14 @@ export async function POST(req: NextRequest) {
   }
 
   // Best-effort multi-provider sync (all run concurrently; failures are logged only).
+  // Web PSPs (Stripe/Razorpay/Cashfree) + native stores (Google Play / App Store)
+  // — each self-skips when the tenant hasn't connected that provider.
   void Promise.all([
     stripeSyncProduct(supabase, { tenantId: tenant.id, productId: id, body }),
     razorpaySyncProduct(supabase, { tenantId: tenant.id, productId: id, body }),
     cashfreeSyncProduct(supabase, { tenantId: tenant.id, productId: id, body }),
+    googlePlaySyncProduct(supabase, { tenantId: tenant.id, productId: id, body }),
+    appStoreSyncProduct(supabase, { tenantId: tenant.id, productId: id, body }),
   ])
 
   return NextResponse.json({ id })

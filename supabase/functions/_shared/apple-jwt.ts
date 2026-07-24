@@ -15,13 +15,28 @@ function requireEnv(name: string): string {
   return v;
 }
 
-/** Build a signed bearer token for the App Store Server API (valid ≤ 60 min). */
-export async function appStoreServerJwt(): Promise<string> {
-  const keyId = requireEnv("APPLE_ASSA_KEY_ID");
-  const issuerId = requireEnv("APPLE_ASSA_ISSUER_ID");
-  const bundleId = requireEnv("APPLE_ASSA_BUNDLE_ID");
+export interface AppleApiCreds {
+  keyId: string;
+  issuerId: string;
+  bundleId: string;
+  /** The .p8 private key in PKCS#8 PEM form. */
+  privateKeyPem: string;
+}
+
+/**
+ * Build a signed bearer token for the App Store Server API (valid ≤ 60 min).
+ *
+ * `creds` lets a PER-TENANT caller drive the token with a tenant's own decrypted
+ * .p8 key + ids (dashboard store-sync / multi-tenant edge paths). When omitted the
+ * single-tenant env credentials are used, so the existing
+ * apple-server-notifications caller is unaffected.
+ */
+export async function appStoreServerJwt(creds?: AppleApiCreds): Promise<string> {
+  const keyId = creds?.keyId ?? requireEnv("APPLE_ASSA_KEY_ID");
+  const issuerId = creds?.issuerId ?? requireEnv("APPLE_ASSA_ISSUER_ID");
+  const bundleId = creds?.bundleId ?? requireEnv("APPLE_ASSA_BUNDLE_ID");
   // The .p8 private key, in PKCS#8 PEM form, injected via env at deploy time (never committed).
-  const privateKeyPem = requireEnv("APPLE_ASSA_PRIVATE_KEY");
+  const privateKeyPem = creds?.privateKeyPem ?? requireEnv("APPLE_ASSA_PRIVATE_KEY");
 
   const key = await importPKCS8(privateKeyPem, "ES256");
   const now = Math.floor(Date.now() / 1000);
