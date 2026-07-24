@@ -97,6 +97,8 @@ export default async function ProductViewPage({
         productId={params.id}
         initialStripeProductId={p.stripe_product_id ?? null}
         initialRazorpayPlanIds={p.razorpay_plan_id_by_currency ?? null}
+        initialPlayProductId={p.play_product_id ?? null}
+        initialAppStoreProductId={p.app_store_product_id ?? null}
         stripeVerification={stripeVerification}
       />
 

@@ -39,6 +39,10 @@ export function ProductRowActions({
   stripeLivemode,
   stripeConnected,
   razorpayConnected,
+  hasPlay,
+  hasAppStore,
+  playConnected,
+  appStoreConnected,
 }: {
   productId: string
   sku: string
@@ -47,13 +51,22 @@ export function ProductRowActions({
   stripeLivemode: boolean
   stripeConnected: boolean
   razorpayConnected: boolean
+  hasPlay: boolean
+  hasAppStore: boolean
+  playConnected: boolean
+  appStoreConnected: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  // Report shape mirrors the /api/products/{id}/sync response keys exactly:
+  // stripe / razorpay / cashfree / google_play / app_store (snake_case).
   const [lastResult, setLastResult] = useState<{
     stripe: SyncReport
     razorpay: SyncReport
+    cashfree?: SyncReport
+    google_play?: SyncReport
+    app_store?: SyncReport
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -62,7 +75,10 @@ export function ProductRowActions({
       ? `https://dashboard.stripe.com/${stripeLivemode ? "" : "test/"}products/${stripeProductId}`
       : null
 
-  const canSync = stripeConnected || razorpayConnected
+  // Re-sync is enabled when ANY provider — web PSP or native store — is
+  // connected, so a store-only tenant can still push subscription products.
+  const canSync =
+    stripeConnected || razorpayConnected || playConnected || appStoreConnected
 
   async function reSync() {
     setSyncing(true)
@@ -162,6 +178,15 @@ export function ProductRowActions({
               <div className="px-3 py-2 border-t border-ink-100 space-y-1">
                 <SyncBadge name="Stripe" report={lastResult.stripe} />
                 <SyncBadge name="Razorpay" report={lastResult.razorpay} />
+                {lastResult.cashfree && (
+                  <SyncBadge name="Cashfree" report={lastResult.cashfree} />
+                )}
+                {lastResult.google_play && (
+                  <SyncBadge name="Google Play" report={lastResult.google_play} />
+                )}
+                {lastResult.app_store && (
+                  <SyncBadge name="App Store" report={lastResult.app_store} />
+                )}
               </div>
             )}
             {error && (
