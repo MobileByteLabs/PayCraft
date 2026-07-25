@@ -3,6 +3,7 @@ package com.mobilebytelabs.paycraft.di
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.billing.NativeBillingClient
 import com.mobilebytelabs.paycraft.billing.WebCheckoutNativeBillingClient
+import com.mobilebytelabs.paycraft.billing.platformDefaultNativeBillingClient
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.EntitlementRepository
 import com.mobilebytelabs.paycraft.core.PayCraftBillingManager
@@ -59,9 +60,13 @@ val PayCraftModule = module {
 
     // ─── Phase 4: Store5 offline cache + restore/cancel orchestration ─────────
 
-    // Default web-checkout native client (no native store on jvm/desktop/wasmJs/js/macos — D13).
-    // Android/iOS consumers override this binding with the Phase-3 actual StoreKit2/Play client.
-    single<NativeBillingClient> { WebCheckoutNativeBillingClient() }
+    // Native billing client, resolved PER PLATFORM automatically so a
+    // commonMain-only consumer gets the right client with no androidMain wiring:
+    //   Android → real Google Play Billing v8 (context + Activity auto-captured by
+    //             PayCraftInitializer);  iOS/web/desktop → web checkout (null here).
+    // iOS StoreKit2 + a custom Android activityProvider remain opt-in overrides via
+    // paycraftStoreKit2BillingModule / paycraftPlayBillingModule loaded afterwards.
+    single<NativeBillingClient> { platformDefaultNativeBillingClient() ?: WebCheckoutNativeBillingClient() }
 
     // Store5 read-through cache — Fetcher(/entitlements) + SourceOfTruth(offline last-known-good).
     single {

@@ -1,5 +1,6 @@
 package com.mobilebytelabs.paycraft
 
+import android.app.Application
 import android.content.Context
 import androidx.startup.Initializer
 
@@ -37,6 +38,11 @@ import androidx.startup.Initializer
 class PayCraftInitializer : Initializer<Unit> {
     override fun create(context: Context) {
         PayCraftPlatform.init(context.applicationContext)
+        // Also start foreground-Activity tracking so native Google Play Billing
+        // (launchBillingFlow) works with a commonMain-only integration — the
+        // consumer never has to supply an activityProvider. applicationContext is
+        // the Application on every real app start.
+        (context.applicationContext as? Application)?.let(PayCraftPlatform::startActivityTracking)
     }
 
     override fun dependencies(): List<Class<out Initializer<*>>> = emptyList()
