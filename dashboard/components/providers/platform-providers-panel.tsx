@@ -76,20 +76,28 @@ export function PlatformProvidersPanel({
   initialRules: RoutingRule[]
 }) {
   const connected = new Set(connectedProviders)
+  const WEB = new Set(["stripe", "razorpay", "cashfree", "direct_upi"])
 
-  // provider → { cheapest method, fee } from the fee-sorted registry (web providers only)
+  // provider → { cheapest method, fee } from the fee-sorted registry (includes native store methods)
   const providerInfo = new Map<string, { method: string; fee: number }>()
   for (const r of registry) {
     if (!providerInfo.has(r.provider)) providerInfo.set(r.provider, { method: r.method, fee: r.fee_percent ?? 99 })
   }
   const methodToProvider = new Map<string, string>()
   for (const r of registry) methodToProvider.set(r.method, r.provider)
-  // connected web providers, cheapest first — the options for both dropdowns
-  const options = [...providerInfo.keys()]
-    .filter((p) => connected.has(p))
+  // connected WEB providers, cheapest first — the routable options for the web lane
+  const webOptions = [...providerInfo.keys()]
+    .filter((p) => WEB.has(p) && connected.has(p))
     .sort((a, b) => providerInfo.get(a)!.fee - providerInfo.get(b)!.fee)
 
+  // Primary options per platform: native platforms lead with their native store, then web providers.
+  const primaryOptions = (platform: string) => {
+    const nk = PLATFORMS.find((p) => p.key === platform)?.nativeKey
+    return nk ? [nk, ...webOptions] : webOptions
+  }
+
   const fee = (p: string) => {
+    if (!WEB.has(p)) return " · native"
     const f = providerInfo.get(p)?.fee
     return f != null && f < 99 ? ` · ${f}%` : ""
   }
@@ -103,15 +111,10 @@ export function PlatformProvidersPanel({
     if (!plat || plat === "any") continue
     if (rule.country_code || rule.currency || rule.product_type) continue
     ruleIdByPlatform[plat] = rule.id
-    if (isNativePlatform(plat)) {
-      // native store is the fixed primary; the single stored web method is the web-lane fallback
-      const fallback = methodToProvider.get(rule.priority_methods?.[0] ?? "") ?? ""
-      initSel[plat] = { primary: "", fallback }
-    } else {
-      const primary = methodToProvider.get(rule.priority_methods?.[0] ?? "") ?? ""
-      const fallback = methodToProvider.get(rule.priority_methods?.[1] ?? "") ?? ""
-      initSel[plat] = { primary, fallback }
-    }
+    // priority_methods = [primary, fallback] uniformly (native methods are valid registry entries)
+    const primary = methodToProvider.get(rule.priority_methods?.[0] ?? "") ?? ""
+    const fallback = methodToProvider.get(rule.priority_methods?.[1] ?? "") ?? ""
+    initSel[plat] = { primary, fallback }
   }
 
   const [sel, setSel] = useState<Record<string, Sel>>(initSel)
@@ -135,10 +138,13 @@ export function PlatformProvidersPanel({
           return c
         })
       }
-      // ordered providers → methods. Native platforms: only the web-lane provider (native store is the
-      // fixed primary, not a routable method). Desktop/Web: [primary, fallback].
-      const ordered = isNativePlatform(platform) ? [next.fallback] : [next.primary, next.fallback]
-      const providers = ordered.filter((p, i, a) => p && connected.has(p) && a.indexOf(p) === i)
+      // ordered [primary, fallback] → methods, uniform across platforms. A native store primary
+      // (app_store/google_play) is a valid registry method (migration 076). Fallback must be a
+      // connected web provider; the native primary is always available on its platform.
+      const providers = [next.primary, next.fallback].filter((p, i, a) => {
+        if (!p || a.indexOf(p) !== i) return false
+        return WEB.has(p) ? connected.has(p) : true // web needs a connected account; native store is intrinsic
+      })
       const methods = providers.map((p) => providerInfo.get(p)?.method).filter(Boolean) as string[]
       if (methods.length > 0) {
         const res = await fetch("/api/routing-rules", {
@@ -162,7 +168,7 @@ export function PlatformProvidersPanel({
     }
   }
 
-  const noProviders = options.length === 0
+  const noProviders = webOptions.length === 0
 
   // fee label for the catalog: web → registry %, native → store-cut range
   const catalogFee = (c: (typeof CATALOG)[number]) => {
@@ -178,7 +184,7 @@ export function PlatformProvidersPanel({
         <CardBody>
           <div className="flex items-center justify-between mb-1">
             <h2 className="text-sm font-bold text-ink-900">Supported providers</h2>
-            <Badge>{options.length + CATALOG.filter((c) => c.lane === "native" && connected.has(c.key)).length} connected</Badge>
+            <Badge>{CATALOG.filter((c) => connected.has(c.key)).length} connected</Badge>
           </div>
           <p className="text-xs text-ink-500 mb-4 max-w-2xl">
             Every provider PayCraft supports. Connect the ones you want, then choose a primary +
@@ -237,10 +243,10 @@ export function PlatformProvidersPanel({
           <Badge>primary + fallback</Badge>
         </div>
         <p className="text-xs text-ink-500 mb-4 max-w-2xl">
-          <strong>iOS &amp; Android</strong> use the native store (App Store / Google Play) as the
-          primary for digital subscriptions — mandatory per store policy — and the web-lane dropdown
-          handles physical goods there. <strong>Desktop &amp; Web</strong> pick a primary + optional
-          fallback web provider. Saves instantly.
+          Pick the <strong>primary</strong> provider and an optional <strong>fallback</strong> for
+          each platform. iOS &amp; Android default to the native store (App Store / Google Play) —
+          the required lane for digital subscriptions — but you can change it; the fallback web
+          provider then serves physical goods / non-digital. Saves instantly.
         </p>
 
         {noProviders ? (
@@ -255,56 +261,43 @@ export function PlatformProvidersPanel({
             <div className="hidden sm:grid grid-cols-[120px_1fr_1fr] gap-3 px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-400">
               <span>Platform</span>
               <span>Primary</span>
-              <span>Fallback / web-lane</span>
+              <span>Fallback</span>
             </div>
             {PLATFORMS.map((p) => {
               const cur = sel[p.key] ?? { primary: "", fallback: "" }
               const native = isNativePlatform(p.key)
-              const nativeConnected = p.nativeKey ? connected.has(p.nativeKey) : false
+              // native platforms default-show their native store as primary until the merchant changes it
+              const primaryValue = cur.primary || (native ? (p.nativeKey ?? "") : "")
+              const primOpts = primaryOptions(p.key)
               return (
                 <div key={p.key} className="grid grid-cols-1 sm:grid-cols-[120px_1fr_1fr] gap-3 px-4 py-3 items-center">
                   <div className="flex items-center">
                     <span className="text-sm font-bold text-ink-900">{p.label}</span>
                   </div>
 
-                  {/* Primary */}
-                  {native ? (
-                    // native store is the mandatory primary for iOS/Android digital — locked, not routable
-                    <div className="flex items-center gap-2 px-3 py-2 bg-ink-50 border border-ink-200 rounded-lg">
-                      <span className="text-sm font-semibold text-ink-800">{p.native}</span>
-                      <Badge>native · auto</Badge>
-                      {nativeConnected ? (
-                        <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> connected
-                        </span>
-                      ) : (
-                        <Link href={p.nativeHref ?? "#"} className="ml-auto text-[10px] font-semibold text-brand-600">connect →</Link>
-                      )}
-                    </div>
-                  ) : (
+                  {/* Primary — a real dropdown on every platform; native store leads on iOS/Android */}
+                  <ProviderSelect
+                    label="Primary"
+                    value={primaryValue}
+                    placeholder={native ? "Choose primary" : "Auto — cheapest"}
+                    options={primOpts}
+                    pretty={pretty}
+                    fee={fee}
+                    disabled={saving === p.key}
+                    onChange={(v) => save(p.key, { primary: v, fallback: cur.fallback === v ? "" : cur.fallback })}
+                  />
+
+                  {/* Fallback — a connected web provider (excludes the chosen primary) */}
+                  <div className="flex items-center gap-2">
                     <ProviderSelect
-                      label="Primary"
-                      value={cur.primary}
-                      placeholder="Auto — cheapest"
-                      options={options}
+                      label="Fallback"
+                      value={cur.fallback}
+                      placeholder="None"
+                      options={webOptions.filter((o) => o !== primaryValue)}
                       pretty={pretty}
                       fee={fee}
                       disabled={saving === p.key}
-                      onChange={(v) => save(p.key, { primary: v, fallback: cur.fallback === v ? "" : cur.fallback })}
-                    />
-                  )}
-
-                  {/* Fallback / web-lane provider */}
-                  <div className="flex items-center gap-2">
-                    <ProviderSelect
-                      label={native ? "Web-lane provider" : "Fallback"}
-                      value={cur.fallback}
-                      placeholder={native ? "Web lane — none" : "None"}
-                      options={native ? options : options.filter((o) => o !== cur.primary)}
-                      pretty={pretty}
-                      fee={fee}
-                      disabled={saving === p.key || (!native && !cur.primary)}
-                      onChange={(v) => save(p.key, { primary: cur.primary, fallback: v })}
+                      onChange={(v) => save(p.key, { primary: primaryValue, fallback: v })}
                     />
                     {saving === p.key && <span className="text-[11px] text-ink-400">saving…</span>}
                     {saved === p.key && <span className="text-[11px] font-semibold text-emerald-600">✓ saved</span>}
