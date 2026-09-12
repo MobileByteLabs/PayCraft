@@ -149,6 +149,13 @@ object PayCraftTestTags {
     /** Phase 3a resilience surfaces, tagged here so AC-28 can pair all eleven states. */
     const val CONFIG_FAILED_MESSAGE = "paycraft_config_failed_message"
     const val CONFIG_FAILED_RETRY = "paycraft_config_failed_retry"
+
+    /** The escape offered when the failure is NOT retryable — see ConfigUnavailable. */
+    const val CONFIG_FAILED_DISMISS = "paycraft_config_failed_dismiss"
+
+    /** Config is healthy but the tenant has no active plans — see PlansUnavailable. */
+    const val NO_PLANS_MESSAGE = "paycraft_no_plans_message"
+    const val NO_PLANS_DISMISS = "paycraft_no_plans_dismiss"
     const val OFFLINE_MESSAGE = "paycraft_offline_message"
     const val STALE_MESSAGE = "paycraft_stale_message"
     const val STALE_REFRESH = "paycraft_stale_refresh"

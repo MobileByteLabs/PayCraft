@@ -12,9 +12,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -38,8 +42,11 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_config_failed_ge
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_config_failed_http_body
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_config_failed_not_initialized_body
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_config_failed_title
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_no_plans_body
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_no_plans_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_offline_body
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_offline_title
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_close
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_retry
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_stale_body
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_stale_refresh
@@ -51,12 +58,27 @@ import com.mobilebytelabs.paycraft.config.ConfigResult
  * The wording is chosen per reason, because "check your connection" is actively unhelpful when the
  * user's connection is fine and the fault is ours. Retry is offered only when the failure could
  * plausibly clear on its own — a decode error will not.
+ *
+ * ## Why there is always exactly one action
+ * A non-retryable failure used to render title + body and NOTHING else: a dead end the user could
+ * only escape with the system back gesture. That reads as a hang, not a decision. Retry stays gated
+ * on [ConfigResult.isRetryable] — offering a button that cannot work is a dead clickable dressed as
+ * help — so the non-retryable path gets [onDismiss] instead, which always works. Never zero actions.
+ *
+ * ## Why there is an animation
+ * This screen is reached when billing is already broken. A looping Lottie costs ~6 KB and is the
+ * cheapest signal that this path was designed rather than fallen into; a bare line of grey text on a
+ * blank surface is indistinguishable from a crash.
+ *
+ * @param onDismiss closes the paywall. Optional only so existing callers compile; when absent, a
+ *   non-retryable failure falls back to the previous no-action rendering.
  */
 @Composable
 fun ConfigUnavailable(
     result: ConfigResult,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    onDismiss: (() -> Unit)? = null,
 ) {
     // Localised, not literal. These strings existed in strings.xml from the moment this surface was
     // written — added for the AC-28 pairing — and the composable carried English literals anyway,
@@ -86,11 +108,22 @@ fun ConfigUnavailable(
         }
     }
 
+    val reason = (result as? ConfigResult.Failed)?.reason
+
     Column(
         modifier = modifier.fillMaxWidth().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // Offline gets its own motion: "we can't reach you" and "the server answered wrong" are
+        // different problems, and the picture should not claim the user's connection is at fault.
+        PayCraftStateAnimation(
+            kind = if (reason == ConfigResult.Failed.Reason.OFFLINE) {
+                PayCraftStateAnimationKind.Offline
+            } else {
+                PayCraftStateAnimationKind.ConfigError
+            },
+        )
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
@@ -104,19 +137,72 @@ fun ConfigUnavailable(
             // Tagged per-reason so AC-28 can pair the offline and http-error goldens separately —
             // they differ only in wording, and the wording is the whole product decision.
             modifier = Modifier.testTag(
-                if ((result as? ConfigResult.Failed)?.reason == ConfigResult.Failed.Reason.OFFLINE) {
+                if (reason == ConfigResult.Failed.Reason.OFFLINE) {
                     PayCraftTestTags.OFFLINE_MESSAGE
                 } else {
                     PayCraftTestTags.CONFIG_FAILED_MESSAGE
                 },
             ),
         )
-        if (result.isRetryable) {
-            Button(
+        Spacer(Modifier.height(4.dp))
+        when {
+            result.isRetryable -> Button(
                 onClick = onRetry,
+                shape = RoundedCornerShape(26.dp),
+                contentPadding = ButtonDefaults.ContentPadding,
                 modifier = Modifier.testTag(PayCraftTestTags.CONFIG_FAILED_RETRY),
             ) { Text(stringResource(Res.string.paycraft_retry)) }
+
+            // Not retryable, but never a dead end — this button always does something real.
+            onDismiss != null -> OutlinedButton(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(26.dp),
+                modifier = Modifier.testTag(PayCraftTestTags.CONFIG_FAILED_DISMISS),
+            ) { Text(stringResource(Res.string.paycraft_close)) }
         }
+    }
+}
+
+/**
+ * Config loaded, but this tenant has NO active products to sell.
+ *
+ * A separate state from [ConfigUnavailable] because nothing failed: the dashboard simply has no
+ * published plans yet (a new tenant, or store products not yet live). Routing this through the error
+ * surface would tell the user "Something went wrong" about a perfectly healthy app, and would send
+ * them retrying a request that is already succeeding.
+ *
+ * There is no Retry for the same reason — the fix is on the tenant's side, not the user's. The only
+ * honest action is to leave.
+ */
+@Composable
+fun PlansUnavailable(
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        PayCraftStateAnimation(kind = PayCraftStateAnimationKind.ConfigError)
+        Text(
+            text = stringResource(Res.string.paycraft_no_plans_title),
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = stringResource(Res.string.paycraft_no_plans_body),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.testTag(PayCraftTestTags.NO_PLANS_MESSAGE),
+        )
+        Spacer(Modifier.height(4.dp))
+        OutlinedButton(
+            onClick = onDismiss,
+            shape = RoundedCornerShape(26.dp),
+            modifier = Modifier.testTag(PayCraftTestTags.NO_PLANS_DISMISS),
+        ) { Text(stringResource(Res.string.paycraft_close)) }
     }
 }
 

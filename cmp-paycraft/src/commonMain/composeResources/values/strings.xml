@@ -196,6 +196,11 @@
     <string name="paycraft_config_failed_decode_body">We received an unexpected response while loading subscription options.</string>
     <string name="paycraft_config_failed_not_initialized_body">Billing hasn’t finished starting up.</string>
     <string name="paycraft_config_failed_generic_body">We couldn’t load subscription options right now.</string>
+    <!-- Config loaded fine, but the tenant has no ACTIVE products yet (new dashboard, or store
+         products not published). Distinct from a failure: nothing is broken, there is simply
+         nothing to sell yet, and saying "something went wrong" would be a lie. -->
+    <string name="paycraft_no_plans_title">Subscriptions aren’t available yet</string>
+    <string name="paycraft_no_plans_body">There are no subscription plans on offer right now. Everything else in the app keeps working — check back soon.</string>
     <string name="paycraft_stale_refresh">Refresh</string>
 
     <!-- Humanised cache age. Split per branch so a translator can render each unit naturally

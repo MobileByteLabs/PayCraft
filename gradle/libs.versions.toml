@@ -2,7 +2,19 @@
 # AGP 9.2.1 + Gradle 9.5.1 — aligned with mbs/kmp-toolkit, which already runs this toolchain in
 # production. Compose MP 1.12 / androidx.compose 1.12 / lifecycle 2.11 all gate on AGP 9.1+.
 agp = "9.2.1"
-kotlin = "2.4.0"
+# Aligned with mifos-x/kmp-project-template (2026-09-12): the template catalog is the
+# version source of truth for shared toolchain pins. 2.4.0 -> 2.4.20 so a composite build
+# with a 2.4.20 consumer (cappy) resolves — mismatched Kotlin plugin versions across an
+# includeBuild produce "Unresolved reference" on the consumer's commonMain metadata.
+#
+# NOT taken from the template, deliberately:
+#   supabase  — template 3.6.0; HELD at 3.1.4 here. Raising it above consumer pins inverts
+#               Gradle resolution and crashes every consumer at launch (DR-4, device-proven).
+#   store5    — HELD at 5.1.0-alpha10; alpha11 drags kermit 2.1.0 above reels' 2.0.8.
+#   roborazzi — template 1.67.0 is OLDER than 1.73.0 here; downgrading risks the 14 goldens.
+#   ktlint    — template's 14.2.0 is the jlleitschuh GRADLE PLUGIN; 1.5.0 here is the ktlint
+#               TOOL used by spotless. Different artifacts, not a version skew.
+kotlin = "2.4.20"
 # 1.11.1 — the version kmp-toolkit ships. NOT 1.12.x: that pulls androidx.compose 1.12, which
 # also demands compileSdk 37; kmp-toolkit stays on the 1.11 line at compileSdk 36.
 compose-multiplatform = "1.11.1"
@@ -21,6 +33,9 @@ ktlint = "1.5.0"
 # Testing
 junit = "4.13.2"
 coroutines = "1.11.0"
+# Compottie — Lottie renderer for Compose Multiplatform (alexzhirkevich/compottie).
+# Renders the SDK's config-failure / offline states so a dead end still looks like a product.
+compottie = "2.2.4"
 
 # AndroidX
 androidx-activityCompose = "1.12.2"
@@ -37,13 +52,29 @@ androidx-activityCompose = "1.12.2"
 #
 # ktor 3.5.2 + kotlinxSerialization 1.11.0 are aligned to what supabase 3.8.0 itself depends on
 # (3.5.1 / 1.11.0) so the resolved graph has no silent up/down-grades.
-# HELD at 3.1.4 — the version published 2.3.1 ships and every consumer resolves against today.
-# Moving to 3.8.0 inverted Gradle's resolution: PayCraft's version became HIGHER than the consumers'
-# pins, so transitively-shared Supabase modules jumped forward while each consumer's directly-pinned
-# artifacts stayed behind. Verified on device: three successive launch crashes, the last of which
-# (SelectRequestBuilder.<init>) is an API break requiring a source migration in the consumer, not a
-# version bump. Raising this again needs all three consumers migrated in the same release train.
-supabase = "3.1.4"
+# ALIGNED at 3.8.0 with the consumer ecosystem (operator decision 2026-09-12).
+#
+# WHY THE 3.1.4 HOLD WAS REVERSED. The hold was chosen because raising PayCraft ABOVE a consumer's
+# pin inverts Gradle resolution and crashed reels-downloader (DR-4, device-proven). What it missed is
+# that the hold is CONSUMER-RELATIVE, and cappy proved the other half: a library does not get a
+# private copy of a shared dependency. One app = one flattened classpath = ONE version per module.
+#
+# Cappy pins supabase-kt/auth-kt/postgrest-kt at 3.6.0 but never uses realtime-kt, so nothing competed
+# to raise it and PayCraft's 3.1.4 realtime won. PayCraft's realtime then ran against a 3.6.0 CORE and
+# died at launch in Realtime$Companion.<clinit>:
+#     NoSuchMethodError: SupabaseClient$Companion.createLogger$default
+# A split graph — PayCraft's compiled calls and the core it links against from different versions.
+#
+# So 3.1.4 was not "safe"; it was safe for reels (3.2.6, just behind) and fatal for cappy (3.6.0, well
+# ahead). Aligning the whole ecosystem on one version removes the class, rather than picking which
+# consumer to break.
+#
+# CONSEQUENCE, STATED PLAINLY: PayCraft is now the HIGHEST requester for any consumer still below
+# 3.8.0 — reels-downloader (3.2.6) and steady (3.6.0). That is the DR-4 inversion, and for reels it is
+# not just a bump: its own source calls Postgrest APIs whose shape changed (SelectRequestBuilder.<init>),
+# so it needs a source migration in the same release train. Publishing this without bumping those two
+# consumers reproduces DR-4.
+supabase = "3.8.0"
 ktor = "3.5.2"
 koin = "4.2.2"
 kotlinxSerialization = "1.11.0"
@@ -88,6 +119,8 @@ google-billing = "9.1.0"
 roborazzi = "1.73.0"
 
 [libraries]
+compottie = { module = "io.github.alexzhirkevich:compottie", version.ref = "compottie" }
+compottie-resources = { module = "io.github.alexzhirkevich:compottie-resources", version.ref = "compottie" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }

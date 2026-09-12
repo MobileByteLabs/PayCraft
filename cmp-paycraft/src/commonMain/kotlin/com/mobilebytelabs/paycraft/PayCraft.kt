@@ -102,6 +102,20 @@ object PayCraft {
         private set
 
     /**
+     * Whether a usable publishable key has been supplied to [initialize].
+     *
+     * THE SDK OWNS THIS QUESTION. Consumers previously had to answer it themselves — reading their
+     * own build config for a `pk_` key and branching their DI on the result — which meant every host
+     * app re-implemented the SDK's provisioning rule and could disagree with it. Ask here instead.
+     *
+     * Resolving [com.mobilebytelabs.paycraft.core.BillingManager] is valid whether or not this is
+     * true: unconfigured, the SDK reports a Free entitlement rather than throwing, so a host can
+     * wire billing unconditionally and let the SDK decide what it can deliver.
+     */
+    val isConfigured: Boolean
+        get() = apiKey?.let { it.startsWith("pk_test_") || it.startsWith("pk_live_") } == true
+
+    /**
      * Stable per-(device, app) fingerprint. Available for consumer-app analytics
      * (DAU/MAU dashboards, A/B-test bucketing, crash-correlation). PayCraft itself
      * does not send this value anywhere — Stripe-style test/live mode duality is
@@ -448,6 +462,14 @@ object PayCraft {
             val json = Json {
                 ignoreUnknownKeys = true
                 isLenient = true
+                // An explicit `null` for a non-nullable field with a default falls back to that
+                // default. kotlinx applies a default ONLY when the key is ABSENT, so an explicit
+                // `"template": null` throws — and the config endpoint sends explicit nulls for every
+                // unset column of a tenant that has not finished configuring its paywall
+                // (`tenant_id`, `template`, `theme_jsonb`, `branding` …). Without this, a brand-new
+                // tenant's config failed to decode ENTIRELY and fell through every resilience layer
+                // to "Something went wrong" on the first paywall its owner ever opened.
+                coerceInputValues = true
             }
             val cfg = json.decodeFromString(SuiteConfig.serializer(), raw)
                 .copy(fetchedAtEpochMillis = currentTimeMillis())
@@ -617,7 +639,7 @@ object PayCraft {
         val bundledJson = runCatching { readBundledSuiteConfigJsonOrNull() }.getOrNull()
         if (!bundledJson.isNullOrBlank()) {
             val bundled = runCatching {
-                Json { ignoreUnknownKeys = true; isLenient = true }
+                Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
                     .decodeFromString(SuiteConfig.serializer(), bundledJson)
             }.getOrNull()
             if (bundled != null) {

@@ -108,6 +108,14 @@ kotlin {
             implementation(compose.ui)
             implementation(compose.components.resources)
 
+            // Lottie for Compose Multiplatform. The SDK's terminal states (config unavailable /
+            // offline) are the screens a user hits when billing is already broken — a bare line of
+            // grey text there reads as a crash. `compottie-resources` lets the animation load from
+            // this module's own composeResources, so it renders with NO network, which matters most
+            // in exactly the offline case.
+            implementation(libs.compottie)
+            implementation(libs.compottie.resources)
+
             // Supabase
             implementation(libs.supabase.postgrest)
             implementation(libs.supabase.auth)

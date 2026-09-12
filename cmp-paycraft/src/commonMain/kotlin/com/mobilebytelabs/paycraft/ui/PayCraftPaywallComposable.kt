@@ -41,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
 import com.mobilebytelabs.paycraft.config.ConfigResult
 import com.mobilebytelabs.paycraft.ui.components.ConfigUnavailable
+import com.mobilebytelabs.paycraft.ui.components.PlansUnavailable
 import com.mobilebytelabs.paycraft.ui.components.StaleConfigNotice
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.config.SuiteConfig
@@ -371,6 +372,9 @@ private fun PayCraftPaywallSurface(
                 ConfigUnavailable(
                     result = configResult,
                     onRetry = { onAction(PayCraftPaywallAction.RefreshStatus) },
+                    // Non-retryable failures would otherwise leave the user with no action at all;
+                    // Dismiss travels the normal path (VM -> Dismissed event -> host's onDismiss).
+                    onDismiss = { onAction(PayCraftPaywallAction.Dismiss) },
                 )
             } else {
                 val template = PaywallTemplate.parse(config?.paywall?.template.orEmpty())
@@ -379,23 +383,33 @@ private fun PayCraftPaywallSurface(
                     ?.map(ProductMapper::fromDto)
                     ?.sortedBy { it.displayOrder }
                     ?: emptyList()
-                // AC-21: a warm cache offline renders last week's prices. Saying nothing would
-                // present them as current, which is the one thing a paywall must not do.
-                if (configResult.isStale) {
-                    StaleConfigNotice(
-                        ageSeconds = (configResult as? ConfigResult.Stale)?.ageSeconds ?: 0L,
+
+                // Config is healthy but there is nothing to sell — a new tenant, or store products
+                // not published yet. Rendering the template here produces a paywall with a hero, no
+                // plan cards and a CTA that cannot do anything: a silent dead end that looks like a
+                // layout bug. Say what is actually true instead. (Premium users still get their
+                // template below — they have an entitlement to see even with no plans on offer.)
+                if (products.isEmpty() && state.billingState !is BillingState.Premium) {
+                    PlansUnavailable(onDismiss = { onAction(PayCraftPaywallAction.Dismiss) })
+                } else {
+                    // AC-21: a warm cache offline renders last week's prices. Saying nothing would
+                    // present them as current, which is the one thing a paywall must not do.
+                    if (configResult.isStale) {
+                        StaleConfigNotice(
+                            ageSeconds = (configResult as? ConfigResult.Stale)?.ageSeconds ?: 0L,
+                            onRetry = { onAction(PayCraftPaywallAction.RefreshStatus) },
+                        )
+                    }
+                    template.render(
+                        state = state.billingState,
+                        products = products,
+                        onPickProduct = { product ->
+                            onAction(PayCraftPaywallAction.SelectPlan(product.toBillingPlan(config)))
+                        },
                         onRetry = { onAction(PayCraftPaywallAction.RefreshStatus) },
+                        onAction = onAction,
                     )
                 }
-                template.render(
-                    state = state.billingState,
-                    products = products,
-                    onPickProduct = { product ->
-                        onAction(PayCraftPaywallAction.SelectPlan(product.toBillingPlan(config)))
-                    },
-                    onRetry = { onAction(PayCraftPaywallAction.RefreshStatus) },
-                    onAction = onAction,
-                )
             }
         }
     }

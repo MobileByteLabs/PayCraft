@@ -51,11 +51,22 @@ val PayCraftModule = module {
     single<PayCraftService> {
         PayCraftServiceImpl(
             client = get<SupabaseClient>(qualifier = named("paycraft")),
-            // apiKey is set synchronously in PayCraft.initialize() — read it
-            // directly instead of going through requireConfig() (which depends
-            // on the async cloud fetch having finished).
-            apiKey = PayCraft.apiKey
-                ?: error("PayCraft.initialize(apiKey) must be called before resolving PayCraftService"),
+            // apiKey is set synchronously in PayCraft.initialize() — read it directly instead of
+            // going through requireConfig() (which depends on the async cloud fetch having finished).
+            //
+            // NULLABLE ON PURPOSE, and this used to `error(...)` instead. That turned the SDK's
+            // initialization order into the HOST's problem: any DI graph that materialized
+            // BillingManager before PayCraft.initialize() crashed the app at start-up with
+            // "PayCraft.initialize(apiKey) must be called before resolving PayCraftService". Hosts
+            // do not control when their DI container resolves a singleton — a generated logout
+            // registry that eagerly touches every store is enough to lose that race, which is
+            // exactly how it was hit on device (cappy, CPH2423).
+            //
+            // PayCraftServiceImpl already treats apiKey as optional (`apiKey?.let { put(...) }` at
+            // every call site), so an unconfigured service simply omits the key and the RPCs resolve
+            // no tenant — a Free entitlement, which is the correct answer for an app with no key.
+            // Callers that need to know can ask PayCraft.isConfigured.
+            apiKey = PayCraft.apiKey,
         )
     }
 
