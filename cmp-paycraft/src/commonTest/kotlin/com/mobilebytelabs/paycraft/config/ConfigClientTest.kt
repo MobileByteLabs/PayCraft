@@ -29,6 +29,7 @@ import kotlin.test.assertTrue
  * Cache fallback is observed by writing a sentinel [SuiteConfig] to a real
  * [ConfigCache] backed by [MapSettings], then forcing the HTTP path to fail.
  */
+@Suppress("DEPRECATION")
 class ConfigClientTest {
 
     private val configJson = """

@@ -32,7 +32,7 @@
     <string name="paycraft_banner_manage">Manage</string>
     <string name="paycraft_banner_active_badge">Active</string>
     <string name="paycraft_banner_premium_cd">Premium active</string>
-    <string name="paycraft_banner_support_info">Having issues with your subscription? Email us at %1$s or create a ticket via Settings → Request Feature. Don\'t forget to mention your email.</string>
+    <string name="paycraft_banner_support_info">Having issues with your subscription? Email us at %1$s or create a ticket via Settings → Request Feature. Don’t forget to mention your email.</string>
 
     <!-- Email input -->
     <string name="paycraft_email_label">Email address</string>
@@ -42,7 +42,7 @@
 
     <!-- Restore sheet -->
     <string name="paycraft_restore_title">Restore Purchases</string>
-    <string name="paycraft_restore_description">Enter the email address you used when subscribing. We\'ll check your subscription status.</string>
+    <string name="paycraft_restore_description">Enter the email address you used when subscribing. We’ll check your subscription status.</string>
     <string name="paycraft_restore_email_cd">Email address for subscription restore</string>
     <string name="paycraft_restore_checking">Checking…</string>
     <string name="paycraft_restore_button">Restore Purchases</string>
@@ -119,7 +119,7 @@
     <!-- Error UI — full screen -->
     <string name="paycraft_error_title">Something went wrong</string>
     <string name="paycraft_error_retry">Try Again</string>
-    <string name="paycraft_error_description">We couldn\'t load your billing information. Please check your connection and try again.</string>
+    <string name="paycraft_error_description">We couldn’t load your billing information. Please check your connection and try again.</string>
 
     <!-- BillingBenefit presets -->
     <string name="paycraft_benefit_unlock_all">Unlimited downloads with no wait time</string>
@@ -149,4 +149,72 @@
     <string name="paycraft_trial_plan_terms">{days}-day free trial, then {price}</string>
     <string name="paycraft_trial_disclosure_title">{days}-day free trial included</string>
     <string name="paycraft_trial_disclosure_body">Your free trial converts to a paid subscription automatically when it ends. Cancel anytime before then in your store subscription settings to avoid being charged.</string>
+
+    <!-- ═══ Phase 3b — paywall states (AC-25..AC-28) ═══ -->
+
+    <!-- Device conflict (AC-25). The payload carries the conflicting device name and a support
+         address; the old two-line body discarded both, which is why this state was a dead end —
+         the user was told to "sign in there" with no way to do it from here. (It also carried an
+         OTP send budget until the emailed-code gate was removed on 2026-09-06.) -->
+    <string name="paycraft_device_conflict_title">Device limit reached</string>
+    <string name="paycraft_device_conflict_body">Your subscription is active on %1$s. Verify ownership here to transfer it, or contact support.</string>
+    <string name="paycraft_device_conflict_account">Account: %1$s</string>
+    <string name="paycraft_device_conflict_gate_oauth_google">Sign in with Google</string>
+    <string name="paycraft_device_conflict_gate_oauth_apple">Sign in with Apple</string>
+    <string name="paycraft_device_conflict_gate_support">Contact %1$s</string>
+    <string name="paycraft_device_conflict_gate_support_hint">Can’t use Google or Apple sign-in? Contact support to move your subscription.</string>
+
+    <!-- Ownership verified (AC-25) — the confirmation before a transfer deactivates the other
+         device. Destructive for the other device, so it is an explicit confirm, never implicit. -->
+    <string name="paycraft_ownership_verified_title">Transfer subscription</string>
+    <string name="paycraft_ownership_verified_body">Deactivate %1$s and transfer your subscription to this device?</string>
+    <string name="paycraft_ownership_verified_confirm">Transfer here</string>
+    <string name="paycraft_ownership_verified_cancel">Cancel</string>
+
+    <!-- Empty products (AC-26) — previously a disabled button and nothing else. -->
+    <string name="paycraft_empty_products_title">No plans available right now</string>
+    <string name="paycraft_empty_products_body">We couldn’t load subscription plans. This is usually temporary — please try again.</string>
+    <string name="paycraft_empty_products_retry">Retry</string>
+
+    <!-- Premium entitlement operations (AC-27) — the two things a paying customer needs and
+         previously had no route to from the premium arm. -->
+    <string name="paycraft_premium_restore">Restore purchases</string>
+    <string name="paycraft_premium_manage">Manage subscription</string>
+
+    <!-- Phase 3a surfaces, given localised copy here so AC-28 can pair every state. -->
+    <string name="paycraft_config_failed_body">We couldn’t reach the subscription service.</string>
+    <string name="paycraft_offline_body">You’re offline. Reconnect to load the latest plans.</string>
+    <string name="paycraft_stale_body">Showing plans cached %1$s ago.</string>
+
+    <!-- ═══ Resilience surfaces (AC-20..AC-22) — these were shipped as hardcoded English ═══
+         The bodies below already existed (added for the AC-28 pairing) but were never referenced;
+         the composables carried literals instead, which breaks every non-English deployment. -->
+    <string name="paycraft_config_failed_title">Subscriptions are unavailable</string>
+    <string name="paycraft_offline_title">You appear to be offline</string>
+    <string name="paycraft_config_failed_http_body">We couldn’t load subscription options right now. This is on our side — please try again shortly.</string>
+    <string name="paycraft_config_failed_decode_title">Something went wrong</string>
+    <string name="paycraft_config_failed_decode_body">We received an unexpected response while loading subscription options.</string>
+    <string name="paycraft_config_failed_not_initialized_body">Billing hasn’t finished starting up.</string>
+    <string name="paycraft_config_failed_generic_body">We couldn’t load subscription options right now.</string>
+    <!-- Config loaded fine, but the tenant has no ACTIVE products yet (new dashboard, or store
+         products not published). Distinct from a failure: nothing is broken, there is simply
+         nothing to sell yet, and saying "something went wrong" would be a lie. -->
+    <string name="paycraft_no_plans_title">Subscriptions aren’t available yet</string>
+    <string name="paycraft_no_plans_body">There are no subscription plans on offer right now. Everything else in the app keeps working — check back soon.</string>
+    <string name="paycraft_stale_refresh">Refresh</string>
+
+    <!-- Humanised cache age. Split per branch so a translator can render each unit naturally
+         rather than receiving an English suffix to concatenate. -->
+    <string name="paycraft_age_moments">moments ago</string>
+    <string name="paycraft_age_minutes">%1$d min ago</string>
+    <string name="paycraft_age_hours">%1$d h ago</string>
+    <string name="paycraft_age_yesterday">yesterday</string>
+    <string name="paycraft_age_days">%1$d days ago</string>
+
+    <!-- Built-in (layer 4) paywall -->
+    <string name="paycraft_builtin_title">Upgrade</string>
+    <string name="paycraft_builtin_disclaimer">We couldn’t load the latest plan details, so this is a simplified view. Your purchase still works normally.</string>
+    <string name="paycraft_builtin_trial_label">%1$s — %2$d-day trial</string>
+    <string name="paycraft_builtin_priced_label">%1$s — %2$s</string>
+    <string name="paycraft_builtin_reload">Reload plans</string>
 </resources>

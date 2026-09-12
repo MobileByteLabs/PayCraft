@@ -1,5 +1,7 @@
 package com.mobilebytelabs.paycraft.model
 
+import com.mobilebytelabs.paycraft.billing.NativeProductType
+
 /**
  * UI-facing plan model derived from a cloud-resolved [com.mobilebytelabs.paycraft.config.ProductDto].
  *
@@ -66,4 +68,19 @@ data class BillingPlan(
     /** True when the customer should see strike-through pricing on this plan. */
     val hasActiveDiscount: Boolean
         get() = originalPrice != null && discountPercent != null
+
+    /**
+     * Which store product type this plan is bought as.
+     *
+     * Derived from [interval]: the paywall maps `Product.Lifetime` to the literal `"lifetime"`
+     * interval, everything else is a recurring subscription. Play needs this BEFORE it will look a
+     * product up (`SUBS` vs `INAPP`), and the SDK hardcoded `SUBS` everywhere — so a lifetime plan
+     * rendered on the paywall, was tappable, and failed with "Product not found on Play".
+     */
+    val nativeProductType: NativeProductType
+        get() = if (interval.equals("lifetime", ignoreCase = true)) {
+            NativeProductType.ONE_TIME
+        } else {
+            NativeProductType.SUBSCRIPTION
+        }
 }

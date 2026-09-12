@@ -1,6 +1,5 @@
 package com.mobilebytelabs.paycraft.debug
 
-import co.touchlab.kermit.Logger
 
 /**
  * Central logging layer for PayCraft.
@@ -25,11 +24,11 @@ object PayCraftLogger {
 
     fun onInitialize(backendName: String, apiKeyPrefix: String, debug: Boolean) {
         if (!enabled) return
-        Logger.d(TAG) { "══ PayCraft.initialize() ════════════════════════════" }
-        Logger.d(TAG) { "  Backend  = $backendName" }
-        Logger.d(TAG) { "  API key  = $apiKeyPrefix" }
-        Logger.d(TAG) { "  Debug    = $debug" }
-        Logger.d(TAG) { "══════════════════════════════════════════════════════" }
+        logD(TAG) { "══ PayCraft.initialize() ════════════════════════════" }
+        logD(TAG) { "  Backend  = $backendName" }
+        logD(TAG) { "  API key  = $apiKeyPrefix" }
+        logD(TAG) { "  Debug    = $debug" }
+        logD(TAG) { "══════════════════════════════════════════════════════" }
     }
 
     fun onSuiteConfigApplied(
@@ -40,26 +39,26 @@ object PayCraftLogger {
         locale: String,
     ) {
         if (!enabled) return
-        Logger.d(TAG) { "══ PayCraft SuiteConfig applied ═════════════════════" }
-        Logger.d(TAG) { "  Source           = $source" }
-        Logger.d(TAG) { "  Products         = $productCount" }
-        Logger.d(TAG) { "  Providers        = $providerCount (primary=$primaryProvider)" }
-        Logger.d(TAG) { "  Locale           = $locale" }
-        Logger.d(TAG) { "  Filter: adb logcat -s \"PayCraft:D\" \"*:S\"" }
-        Logger.d(TAG) { "════════════════════════════════════════════════════" }
+        logD(TAG) { "══ PayCraft SuiteConfig applied ═════════════════════" }
+        logD(TAG) { "  Source           = $source" }
+        logD(TAG) { "  Products         = $productCount" }
+        logD(TAG) { "  Providers        = $providerCount (primary=$primaryProvider)" }
+        logD(TAG) { "  Locale           = $locale" }
+        logD(TAG) { "  Filter: adb logcat -s \"PayCraft:D\" \"*:S\"" }
+        logD(TAG) { "════════════════════════════════════════════════════" }
     }
 
     // ── Checkout ─────────────────────────────────────────────────────────────
 
     fun onCheckout(planId: String, mode: String, url: String) {
         if (!enabled) return
-        Logger.d(TAG) { "checkout — plan=$planId, mode=$mode" }
-        Logger.d(TAG) { "  Opening: $url" }
+        logD(TAG) { "checkout — plan=$planId, mode=$mode" }
+        logD(TAG) { "  Opening: $url" }
     }
 
     fun onManageSubscription(mode: String, url: String?) {
         if (!enabled) return
-        Logger.d(TAG) { "manageSubscription — mode=$mode, url=${url ?: "⚠ portal URL not configured"}" }
+        logD(TAG) { "manageSubscription — mode=$mode, url=${url ?: "⚠ portal URL not configured"}" }
     }
 
     // ── Billing state ────────────────────────────────────────────────────────
@@ -67,9 +66,9 @@ object PayCraftLogger {
     fun onRefreshStatus(email: String?) {
         if (!enabled) return
         if (email == null) {
-            Logger.d(TAG) { "refreshStatus() — no stored email → Free (UI should prompt sign-in)" }
+            logD(TAG) { "refreshStatus() — no stored email → Free (UI should prompt sign-in)" }
         } else {
-            Logger.d(TAG) { "refreshStatus() → checking status for: ${redactEmail(email)}" }
+            logD(TAG) { "refreshStatus() → checking status for: ${redactEmail(email)}" }
         }
     }
 
@@ -83,60 +82,60 @@ object PayCraftLogger {
     ) {
         if (!enabled) return
         if (isPremium) {
-            Logger.d(TAG) {
+            logD(TAG) {
                 "✓ isPremium=true — email=${redactEmail(
                     email,
                 )}, plan=$plan, provider=$provider, expires=$expiresAt, willRenew=$willRenew"
             }
         } else {
-            Logger.d(TAG) { "isPremium=false for ${redactEmail(email)} — no active subscription found" }
+            logD(TAG) { "isPremium=false for ${redactEmail(email)} — no active subscription found" }
         }
     }
 
     fun onLogIn(email: String) {
         if (!enabled) return
-        Logger.d(TAG) { "logIn(${redactEmail(email)}) → saving + checking status..." }
+        logD(TAG) { "logIn(${redactEmail(email)}) → saving + checking status..." }
     }
 
     fun onLogOut() {
         if (!enabled) return
-        Logger.d(TAG) { "logOut() — clearing email + resetting to Free" }
+        logD(TAG) { "logOut() — clearing email + resetting to Free" }
     }
 
     // ── Network ──────────────────────────────────────────────────────────────
 
     fun onRpcCall(function: String, detail: String) {
         if (!enabled) return
-        Logger.d(TAG) { "RPC $function($detail)" }
+        logD(TAG) { "RPC $function($detail)" }
     }
 
     fun onRpcResult(function: String, result: String) {
         if (!enabled) return
-        Logger.d(TAG) { "  ↳ $function result: $result" }
+        logD(TAG) { "  ↳ $function result: $result" }
     }
 
     fun onRpcError(function: String, message: String?) {
         if (!enabled) return
-        Logger.e(TAG) { "  ✗ $function error: $message" }
+        logE(TAG) { "  ✗ $function error: $message" }
     }
 
     // ── Flow tracing (debug the billing pipeline) ─────────────────────────
 
     fun onFlow(method: String, detail: String) {
         if (!enabled) return
-        Logger.d(TAG) { "[$method] $detail" }
+        logD(TAG) { "[$method] $detail" }
     }
 
     fun onStateChange(from: String, to: String) {
         if (!enabled) return
-        Logger.d(TAG) { "STATE: $from → $to" }
+        logD(TAG) { "STATE: $from → $to" }
     }
 
     // ── Error ────────────────────────────────────────────────────────────────
 
     fun onError(source: String, message: String?) {
         if (!enabled) return
-        Logger.e(TAG) { "Error in $source: $message" }
+        logE(TAG) { "Error in $source: $message" }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -149,3 +148,21 @@ object PayCraftLogger {
         return "${parts[0].take(1)}***@${parts[1]}"
     }
 }
+
+// ── Logging shim ─────────────────────────────────────────────────────────────
+// Kermit was removed from PayCraft: it was a published transitive dependency doing nothing this
+// SDK does not already do itself, and its version skewed against consumers (PayCraft 2.1.0 vs
+// reels-downloader 2.0.8 crashed at launch on Logger$Companion.d$default; holding at the
+// consumer's 2.0.5 broke this file with overload ambiguity). A dependency the SDK does not need
+// cannot skew, so it is gone rather than pinned.
+//
+// These keep Kermit's exact call SHAPE — `logD(TAG) { "..." }` — so every existing trailing lambda
+// is untouched and the message is still built lazily, only when logging is on.
+private inline fun logD(tag: String, message: () -> String) =
+    platformLog(PayCraftLogLevel.DEBUG, tag, message())
+
+private inline fun logW(tag: String, message: () -> String) =
+    platformLog(PayCraftLogLevel.WARN, tag, message())
+
+private inline fun logE(tag: String, message: () -> String) =
+    platformLog(PayCraftLogLevel.ERROR, tag, message())

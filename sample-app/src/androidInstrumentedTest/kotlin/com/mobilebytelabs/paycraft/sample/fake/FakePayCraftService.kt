@@ -85,6 +85,15 @@ class FakePayCraftService : PayCraftService {
 
     override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String) = verifyOAuthResponse
 
+    /**
+     * Trial-eligibility probe. Defaults to eligible so existing tests, which do not exercise
+     * trials, keep their previous behaviour; override [trialEligibleResponse] to test the
+     * ineligible path.
+     */
+    var trialEligibleResponse: Boolean = true
+
+    override suspend fun isTrialEligible(serverToken: String): Boolean = trialEligibleResponse
+
     fun reset() {
         registerDeviceCallCount = 0
         checkPremiumCallCount = 0

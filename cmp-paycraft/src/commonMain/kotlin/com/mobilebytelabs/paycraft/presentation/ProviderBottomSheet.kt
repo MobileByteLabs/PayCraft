@@ -60,49 +60,74 @@ fun ProviderBottomSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val recommended = recommendedProviderKey(providers, selectedPlan)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
     ) {
-        Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
-            // Header — title + plan summary
+        ProviderPickerContent(
+            providers = providers,
+            selectedPlan = selectedPlan,
+            maxVisible = maxVisible,
+            onProviderPicked = onProviderPicked,
+        )
+    }
+}
+
+/**
+ * Provider picker WITHOUT its own modal window.
+ *
+ * Split out of [ProviderBottomSheet] so a paywall that is itself already inside a
+ * [ModalBottomSheet] can swap this content into that ONE sheet instead of opening a second modal
+ * window on top of it. Nested modal sheets each carry their own scrim and window, which stack
+ * unpredictably and darken the sheet underneath (UI-3).
+ *
+ * [ProviderBottomSheet] remains the right entry point when the paywall is rendered full-screen.
+ */
+@Composable
+fun ProviderPickerContent(
+    providers: List<ProviderDto>,
+    selectedPlan: BillingPlan? = null,
+    maxVisible: Int = 4,
+    onProviderPicked: (ProviderDto) -> Unit,
+) {
+    val recommended = recommendedProviderKey(providers, selectedPlan)
+    Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
+        // Header — title + plan summary
+        Text(
+            text = "Choose a payment method",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (selectedPlan != null) {
+            Spacer(Modifier.height(2.dp))
             Text(
-                text = "Choose a payment method",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
+                text = "${selectedPlan.name} · ${selectedPlan.price}/${planIntervalSuffix(selectedPlan.interval)}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (selectedPlan != null) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = "${selectedPlan.name} · ${selectedPlan.price}/${planIntervalSuffix(selectedPlan.interval)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        }
+        Spacer(Modifier.height(16.dp))
+
+        val visible = providers.take(maxVisible)
+        val overflow = providers.drop(maxVisible)
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(visible, key = { it.provider }) { p ->
+                ProviderTile(
+                    provider = p,
+                    isRecommended = p.provider == recommended,
+                    onClick = { onProviderPicked(p) },
                 )
             }
-            Spacer(Modifier.height(16.dp))
-
-            val visible = providers.take(maxVisible)
-            val overflow = providers.drop(maxVisible)
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(visible, key = { it.provider }) { p ->
-                    ProviderTile(
-                        provider = p,
-                        isRecommended = p.provider == recommended,
-                        onClick = { onProviderPicked(p) },
-                    )
-                }
-                if (overflow.isNotEmpty()) {
-                    item {
-                        ExpandableMoreProviders(overflow, onProviderPicked)
-                    }
+            if (overflow.isNotEmpty()) {
+                item {
+                    ExpandableMoreProviders(overflow, onProviderPicked)
                 }
             }
-
-            Spacer(Modifier.height(16.dp))
-            SecureFooter()
         }
+
+        Spacer(Modifier.height(16.dp))
+        SecureFooter()
     }
 }
 

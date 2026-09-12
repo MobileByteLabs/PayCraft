@@ -1,10 +1,17 @@
 package com.mobilebytelabs.paycraft.ui
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
+import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -70,6 +77,15 @@ fun PayCraftPaywall(
  *
  * Internally delegates to [PayCraftPaywallComposable] — the single paywall path —
  * so the sheet renders through the same v2 template pipeline as [PayCraftPaywall].
+ *
+ * The sheet declares [PayCraftSurfaceMode.Sheet], which tells the paywall and every template
+ * beneath it that THIS composable owns bounds, shape, background and scrim. Without it the
+ * paywall's own `fillMaxSize()` + opaque surface expanded the sheet to the full window and
+ * painted over the scrim, so the host app behind the sheet went blank.
+ *
+ * Brand chrome (container colour, corner radius) is applied here rather than inherited from the
+ * host app's `MaterialTheme`, matching [PayCraftRestore] and [PayCraftCheckoutSuccessSheet] so all
+ * three SDK sheets look like one product.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,22 +96,34 @@ fun PayCraftPaywallSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(
-        onDismissRequest = {
-            // Preserved from v1: force a status refresh on close so a stale subscription
-            // state (e.g. purchase completed in the browser tab) is re-fetched before
-            // the host observes billingState next.
-            viewModel.dispatch(PayCraftPaywallAction.RefreshStatus)
-            onDismiss()
-        },
-        sheetState = sheetState,
-        dragHandle = null,
-        modifier = modifier,
-    ) {
-        PayCraftPaywallComposable(
-            onDismiss = onDismiss,
-            displayMode = DisplayMode.FullScreen,
-            viewModel = viewModel,
-        )
+    // Material3 hosts sheet content in a separate window layer that does NOT inherit the
+    // PayCraftThemeProvider wrapping the host, so the brand theme is re-applied at the sheet
+    // boundary to resolve container colour + radius. Mirrors PayCraftRestore.
+    val liveConfig = PayCraft.suiteConfigFlow.collectAsState().value
+    PayCraftThemeProvider(config = liveConfig) {
+        ModalBottomSheet(
+            onDismissRequest = {
+                // Preserved from v1: force a status refresh on close so a stale subscription
+                // state (e.g. purchase completed in the browser tab) is re-fetched before
+                // the host observes billingState next.
+                viewModel.dispatch(PayCraftPaywallAction.RefreshStatus)
+                onDismiss()
+            },
+            sheetState = sheetState,
+            dragHandle = null,
+            containerColor = PayCraftTheme.colors.surface,
+            shape = RoundedCornerShape(topStart = SHEET_CORNER_RADIUS, topEnd = SHEET_CORNER_RADIUS),
+            modifier = modifier.testTag(PayCraftTestTags.PAYWALL_SHEET),
+        ) {
+            PayCraftPaywallComposable(
+                onDismiss = onDismiss,
+                displayMode = DisplayMode.FullScreen,
+                surfaceMode = PayCraftSurfaceMode.Sheet,
+                viewModel = viewModel,
+            )
+        }
     }
 }
+
+/** Shared top-corner radius for every PayCraft sheet (paywall, restore, checkout success). */
+private val SHEET_CORNER_RADIUS = 28.dp

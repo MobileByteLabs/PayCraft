@@ -2,6 +2,7 @@ package com.mobilebytelabs.paycraft.presentation
 
 import androidx.compose.runtime.Composable
 import com.mobilebytelabs.paycraft.model.BillingState
+import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
 import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.presentation.templates.BrandedStackTemplate
 import com.mobilebytelabs.paycraft.presentation.templates.DarkTemplate
@@ -54,12 +55,22 @@ enum class PaywallTemplate {
 
     @Composable
     @Suppress("DEPRECATION") // MINIMAL/PREMIUM/DARK are deprecated but still routed during the 90-day grace
-    fun render(state: BillingState, products: List<Product>, onPickProduct: (Product) -> Unit, onRetry: () -> Unit) {
+    fun render(
+        state: BillingState,
+        products: List<Product>,
+        onPickProduct: (Product) -> Unit,
+        onRetry: () -> Unit,
+        // Defaulted so existing callers compile unchanged. The device-conflict, ownership-transfer
+        // and premium-entitlement surfaces need to dispatch actions that are not "pick a product"
+        // or "retry", and previously had no channel to do so — which is the mechanical reason those
+        // arms were dead ends rather than an oversight in their bodies.
+        onAction: (PayCraftPaywallAction) -> Unit = {},
+    ) {
         when (this) {
-            BRANDED_STACK -> BrandedStackTemplate(state, products, onPickProduct, onRetry)
-            MINIMAL -> MinimalTemplate(state, products, onPickProduct, onRetry)
-            PREMIUM -> PremiumTemplate(state, products, onPickProduct, onRetry)
-            DARK -> DarkTemplate(state, products, onPickProduct, onRetry)
+            BRANDED_STACK -> BrandedStackTemplate(state, products, onPickProduct, onRetry, onAction)
+            MINIMAL -> MinimalTemplate(state, products, onPickProduct, onRetry, onAction)
+            PREMIUM -> PremiumTemplate(state, products, onPickProduct, onRetry, onAction)
+            DARK -> DarkTemplate(state, products, onPickProduct, onRetry, onAction)
         }
     }
 

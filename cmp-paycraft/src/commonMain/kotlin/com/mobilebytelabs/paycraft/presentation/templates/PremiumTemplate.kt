@@ -1,10 +1,12 @@
 package com.mobilebytelabs.paycraft.presentation.templates
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import com.mobilebytelabs.paycraft.ui.components.PremiumEntitlementActions
+import com.mobilebytelabs.paycraft.ui.components.OwnershipVerifiedContent
+import com.mobilebytelabs.paycraft.ui.components.DeviceConflictContent
+import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -16,7 +18,9 @@ import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.presentation.components.PlanCard
+import com.mobilebytelabs.paycraft.ui.components.PaymentPendingContent
 import com.mobilebytelabs.paycraft.ui.components.skeleton.PaywallSkeleton
+import com.mobilebytelabs.paycraft.ui.paywallRoot
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftBrandColorsLight
 
 /**
@@ -25,21 +29,24 @@ import com.mobilebytelabs.paycraft.ui.theme.PayCraftBrandColorsLight
  * brand light scheme).
  */
 @Composable
-fun PremiumTemplate(state: BillingState, products: List<Product>, onPick: (Product) -> Unit, onRetry: () -> Unit) {
+fun PremiumTemplate(state: BillingState, products: List<Product>, onPick: (Product) -> Unit, onRetry: () -> Unit, onAction: (PayCraftPaywallAction) -> Unit = {}) {
     val bg = PayCraftBrandColorsLight.background
     Box(
         Modifier
-            .fillMaxSize()
-            .background(bg)
+            .paywallRoot(bg)
             .padding(20.dp),
     ) {
         when (state) {
             is BillingState.Loading -> PremiumLoading()
             is BillingState.Free -> PremiumFree(products, onPick)
-            is BillingState.Premium -> PremiumActive(state)
+            is BillingState.Premium -> Column {
+                PremiumActive(state)
+                PremiumEntitlementActions(onAction)
+            }
             is BillingState.Error -> PremiumError(state.message, onRetry)
-            is BillingState.DeviceConflict -> PremiumDeviceConflict(state)
-            is BillingState.OwnershipVerified -> PremiumOwnershipVerified(state)
+            is BillingState.PaymentPending -> PaymentPendingContent(state.productId)
+            is BillingState.DeviceConflict -> DeviceConflictContent(state, onAction)
+            is BillingState.OwnershipVerified -> OwnershipVerifiedContent(state, onAction)
         }
     }
 }
@@ -96,28 +103,3 @@ private fun PremiumError(msg: String, onRetry: () -> Unit) {
     }
 }
 
-@Composable
-private fun PremiumDeviceConflict(s: BillingState.DeviceConflict) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            "Subscription bound to another device",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-        )
-        Text("Existing device: ${s.conflictingDeviceName ?: "another device"}")
-        Text("Email on file: ${s.email}")
-        Text("Reach support at ${s.supportEmail} if you don't recognize this device.")
-    }
-}
-
-@Composable
-private fun PremiumOwnershipVerified(s: BillingState.OwnershipVerified) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            "Verified via ${s.verifiedVia.name.lowercase()}",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-        )
-        Text("Confirm to transfer your subscription to this device.")
-    }
-}

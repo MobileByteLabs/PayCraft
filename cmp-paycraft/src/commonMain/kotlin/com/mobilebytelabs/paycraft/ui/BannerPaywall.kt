@@ -52,6 +52,8 @@ fun BannerPaywall(state: BillingState, onTap: () -> Unit, modifier: Modifier = M
         }
         is BillingState.Loading -> "Checking your subscription…"
         is BillingState.Error -> "Couldn't sync — tap to retry"
+        // Not an error: the store is still collecting the money. Never invite a second purchase.
+        is BillingState.PaymentPending -> "Payment pending — premium unlocks automatically"
         is BillingState.DeviceConflict -> "Verify ownership to continue"
         is BillingState.OwnershipVerified -> "Manage subscription"
     }
@@ -158,6 +160,7 @@ internal fun bannerPaywallLabelFor(state: BillingState): String = when (state) {
     }
     is BillingState.Loading -> "Checking your subscription…"
     is BillingState.Error -> "Couldn't sync — tap to retry"
+    is BillingState.PaymentPending -> "Payment pending — premium unlocks automatically"
     is BillingState.DeviceConflict -> "Verify ownership to continue"
     is BillingState.OwnershipVerified -> "Manage subscription"
 }

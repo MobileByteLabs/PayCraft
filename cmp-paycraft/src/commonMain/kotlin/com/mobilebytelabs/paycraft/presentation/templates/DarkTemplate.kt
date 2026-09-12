@@ -1,10 +1,12 @@
 package com.mobilebytelabs.paycraft.presentation.templates
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import com.mobilebytelabs.paycraft.ui.components.PremiumEntitlementActions
+import com.mobilebytelabs.paycraft.ui.components.OwnershipVerifiedContent
+import com.mobilebytelabs.paycraft.ui.components.DeviceConflictContent
+import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -16,7 +18,10 @@ import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.presentation.components.PlanCard
+import com.mobilebytelabs.paycraft.ui.components.PaymentPendingContent
 import com.mobilebytelabs.paycraft.ui.components.skeleton.PaywallSkeleton
+import androidx.compose.material3.darkColorScheme
+import com.mobilebytelabs.paycraft.ui.paywallRoot
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftBrandColorsDark
 
 /**
@@ -25,23 +30,43 @@ import com.mobilebytelabs.paycraft.ui.theme.PayCraftBrandColorsDark
  * typography.
  */
 @Composable
-fun DarkTemplate(state: BillingState, products: List<Product>, onPick: (Product) -> Unit, onRetry: () -> Unit) {
+fun DarkTemplate(state: BillingState, products: List<Product>, onPick: (Product) -> Unit, onRetry: () -> Unit, onAction: (PayCraftPaywallAction) -> Unit = {}) {
     val bg = PayCraftBrandColorsDark.background
     val onBg = PayCraftBrandColorsDark.onBackground
+    // The shared state composables (DeviceConflictContent, OwnershipVerifiedContent,
+    // PremiumEntitlementActions) read ambient MaterialTheme.colorScheme, while this template paints
+    // a near-black brand background. Before this wrapper they inherited the HOST's scheme — in a
+    // host running lightColorScheme, `onSurfaceVariant` is a dark grey rendered on near-black, i.e.
+    // effectively invisible. The old per-arm bodies dodged it by threading `onBg` explicitly; the
+    // shared ones cannot, so the template supplies a dark scheme instead of each callee guessing.
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            surface = bg,
+            onSurface = onBg,
+            surfaceVariant = bg,
+            onSurfaceVariant = onBg,
+            background = bg,
+            onBackground = onBg,
+        ),
+    ) {
     Box(
         Modifier
-            .fillMaxSize()
-            .background(bg)
+            .paywallRoot(bg)
             .padding(20.dp),
     ) {
         when (state) {
             is BillingState.Loading -> DarkLoading(onBg)
             is BillingState.Free -> DarkFree(products, onPick, onBg)
-            is BillingState.Premium -> DarkActive(state, onBg)
+            is BillingState.Premium -> Column {
+                DarkActive(state, onBg)
+                PremiumEntitlementActions(onAction)
+            }
             is BillingState.Error -> DarkError(state.message, onRetry, onBg)
-            is BillingState.DeviceConflict -> DarkDeviceConflict(state, onBg)
-            is BillingState.OwnershipVerified -> DarkOwnershipVerified(state, onBg)
+            is BillingState.PaymentPending -> PaymentPendingContent(state.productId)
+            is BillingState.DeviceConflict -> DeviceConflictContent(state, onAction)
+            is BillingState.OwnershipVerified -> OwnershipVerifiedContent(state, onAction)
         }
+    }
     }
 }
 
@@ -94,27 +119,3 @@ private fun DarkError(msg: String, onRetry: () -> Unit, textColor: Color) {
     }
 }
 
-@Composable
-private fun DarkDeviceConflict(s: BillingState.DeviceConflict, textColor: Color) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            "Subscription bound to another device",
-            style = MaterialTheme.typography.titleLarge,
-            color = textColor,
-        )
-        Text("Last seen on ${s.conflictingDeviceName ?: "another device"}", color = textColor)
-        Text("Email: ${s.email}", color = textColor)
-    }
-}
-
-@Composable
-private fun DarkOwnershipVerified(s: BillingState.OwnershipVerified, textColor: Color) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            "Verified via ${s.verifiedVia.name.lowercase()}",
-            style = MaterialTheme.typography.titleLarge,
-            color = textColor,
-        )
-        Text("Transferring subscription to this device…", color = textColor)
-    }
-}

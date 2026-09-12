@@ -4,11 +4,20 @@ object PayCraftTestTags {
     // Screen-level containers
     const val PAYWALL_SCREEN = "paycraft_paywall_screen"
     const val PAYWALL_CONTENT = "paycraft_paywall_content"
+
+    /** The ModalBottomSheet hosting the paywall (PayCraftPaywallSheet) — owns scrim + chrome. */
+    const val PAYWALL_SHEET = "paycraft_paywall_sheet"
     const val PREMIUM_STATUS_SCREEN = "paycraft_premium_status_screen"
 
     // Loading / states
     const val LOADING_INDICATOR = "paycraft_loading_indicator"
     const val ERROR_MESSAGE = "paycraft_error_message"
+
+    /** BillingState.PaymentPending surface — store took the order, money has not cleared. */
+    const val PAYMENT_PENDING = "paycraft_payment_pending"
+
+    /** The "you don't need to buy again" line — the anti-duplicate-purchase guarantee. */
+    const val PAYMENT_PENDING_REASSURANCE = "paycraft_payment_pending_reassurance"
 
     // Plan selection
     const val PLAN_SELECTOR_ROW = "paycraft_plan_selector_row"
@@ -94,4 +103,60 @@ object PayCraftTestTags {
 
     /** Tag on the annual-plan savings badge ("Save X%" vs monthly baseline). */
     const val SAVINGS_BADGE = "savings_badge"
+
+    // ── Phase 3b — paywall-state assertion pairs (AC-28) ────────────────────────────────────
+    // Each state's golden is paired with a NAMED assertion on one of these tags. A golden alone
+    // proves a bitmap was written, not that the state rendered the thing that defines it — the
+    // pair is what makes "the device-conflict screen exists" mean "it shows the conflicting
+    // device and a way out".
+
+    /** The account whose subscription is in conflict. */
+    const val DEVICE_CONFLICT_EMAIL = "paycraft_device_conflict_email"
+
+    /** The OTHER device holding the subscription — the fact the old two-line body discarded. */
+    const val DEVICE_CONFLICT_DEVICE_NAME = "paycraft_device_conflict_device_name"
+
+
+    /** Support address — the Gate 2 fallback for anyone OAuth cannot serve. */
+    const val DEVICE_CONFLICT_SUPPORT_EMAIL = "paycraft_device_conflict_support_email"
+
+    /** Resolution gate 1 — OAuth. */
+    const val DEVICE_CONFLICT_GATE_OAUTH_GOOGLE = "paycraft_device_conflict_gate_oauth_google"
+    const val DEVICE_CONFLICT_GATE_OAUTH_APPLE = "paycraft_device_conflict_gate_oauth_apple"
+
+    /** Resolution gate 2 — emailed one-time code. */
+
+    /** Resolution gate 3 — manual transfer via support. */
+    const val DEVICE_CONFLICT_GATE_SUPPORT = "paycraft_device_conflict_gate_support"
+
+    /**
+     * Ownership-verified confirmation exits.
+     *
+     * There was an OWNERSHIP_VERIFIED_DIALOG tag here too, on a dialog wrapper no template ever
+     * called — all four render the content inline. Unused public API that nobody can tell is unused
+     * is a trap for the next reader, so both went.
+     */
+    const val OWNERSHIP_VERIFIED_CONFIRM = "paycraft_ownership_verified_confirm"
+    const val OWNERSHIP_VERIFIED_CANCEL = "paycraft_ownership_verified_cancel"
+
+    /** Empty-products surface — replaces a disabled CTA with an explanation and a way forward. */
+    const val EMPTY_PRODUCTS_MESSAGE = "paycraft_empty_products_message"
+    const val EMPTY_PRODUCTS_RETRY = "paycraft_empty_products_retry"
+
+    /** Premium-arm entitlement operations. MANAGE_SUBSCRIPTION_BUTTON already exists — reused. */
+    const val PAYWALL_RESTORE_BUTTON = "paycraft_paywall_restore_button"
+
+    /** Phase 3a resilience surfaces, tagged here so AC-28 can pair all eleven states. */
+    const val CONFIG_FAILED_MESSAGE = "paycraft_config_failed_message"
+    const val CONFIG_FAILED_RETRY = "paycraft_config_failed_retry"
+
+    /** The escape offered when the failure is NOT retryable — see ConfigUnavailable. */
+    const val CONFIG_FAILED_DISMISS = "paycraft_config_failed_dismiss"
+
+    /** Config is healthy but the tenant has no active plans — see PlansUnavailable. */
+    const val NO_PLANS_MESSAGE = "paycraft_no_plans_message"
+    const val NO_PLANS_DISMISS = "paycraft_no_plans_dismiss"
+    const val OFFLINE_MESSAGE = "paycraft_offline_message"
+    const val STALE_MESSAGE = "paycraft_stale_message"
+    const val STALE_REFRESH = "paycraft_stale_refresh"
 }

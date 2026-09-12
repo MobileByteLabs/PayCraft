@@ -15,8 +15,32 @@ package com.mobilebytelabs.paycraft.billing
  * variant, which the Swift shim satisfies by wrapping its StoreKit2 `async` calls in a `Task`.
  */
 interface StoreKit2Bridge {
+    /**
+     * Attach `Transaction.updates` — the listener Apple requires an app to run for its whole
+     * lifetime.
+     *
+     * StoreKit2 delivers renewals, Ask-to-Buy approvals, family-sharing grants, refunds,
+     * revocations, and any transaction interrupted mid-purchase through this stream and NOWHERE
+     * else. Without it the SDK sees only transactions that complete inside a foreground
+     * `purchase()` call, and an interrupted purchase is never finished so StoreKit replays it
+     * forever.
+     *
+     * Called once at SDK init. The shim must keep the `Task` alive for the process lifetime.
+     */
+    fun startTransactionUpdates(listener: StoreKit2TransactionListener)
+
+    /**
+     * `Transaction.finish()` for [transactionId].
+     *
+     * Split out of [purchase] deliberately: the shim used to finish the transaction the instant it
+     * verified, BEFORE the server had ever seen the receipt. Finishing removes it from StoreKit's
+     * unfinished queue, so a server call that then failed left the customer paid-up with no
+     * entitlement and nothing to retry against.
+     */
+    suspend fun finish(transactionId: String)
+
     /** `Product.products(for:)` → `product.purchase()`; resolves the signed JWS on success. */
-    suspend fun purchase(productId: String): StoreKit2Outcome
+    suspend fun purchase(productId: String, appAccountToken: String?): StoreKit2Outcome
 
     /**
      * `Transaction.currentEntitlements` — the verified, still-active transactions for the signed-in
@@ -42,7 +66,35 @@ interface StoreKit2Bridge {
      * Null when the product is unavailable in the current storefront.
      */
     suspend fun displayPrice(productId: String): StoreKit2Price?
+
+    /**
+     * `Product.SubscriptionInfo.isEligibleForIntroOffer` for THIS Apple ID, plus the offer's terms.
+     *
+     * Eligibility is per-account and Apple is the only source of truth for it: an Apple ID that
+     * already used the introductory offer for a subscription group is not eligible again. Without
+     * this the paywall could only guess — so trial copy was either shown to ineligible buyers
+     * (who then saw a charge they were not expecting) or withheld from eligible ones (losing the
+     * conversion the trial was configured for).
+     *
+     * Null when the product has no introductory offer, or when eligibility cannot be resolved.
+     */
+    suspend fun introOffer(productId: String): StoreKit2IntroOffer?
 }
+
+/**
+ * An introductory offer and whether the signed-in Apple ID can actually use it.
+ *
+ * @param isEligible Apple's own per-account answer. NEVER inferred locally.
+ * @param freeTrialDays days of free trial, or 0 when the offer is a discounted intro price.
+ * @param displayPrice store-formatted price charged during the intro period ("Free" / "₹99").
+ * @param periodIso ISO-8601 duration of the intro period (`P1W`, `P1M`).
+ */
+data class StoreKit2IntroOffer(
+    val isEligible: Boolean,
+    val freeTrialDays: Int,
+    val displayPrice: String,
+    val periodIso: String,
+)
 
 /**
  * One StoreKit2 `Product`'s localized price, flattened to device-free primitives so `commonMain`
@@ -68,7 +120,31 @@ data class StoreKit2Transaction(
     val originalId: String,
     val purchaseDateMillis: Long,
     val isAutoRenewing: Boolean,
+    /**
+     * Apple `Transaction.id` — the per-transaction id [StoreKit2Bridge.finish] needs.
+     * Distinct from [originalId], which is stable across the whole renewal chain.
+     */
+    val transactionId: String = "",
+    /** This transaction is still unfinished (server has not confirmed the entitlement yet). */
+    val isUnfinished: Boolean = true,
+    /**
+     * Coarse subscription renewal state from `Product.SubscriptionInfo.Status.state` —
+     * `subscribed | in_grace_period | billing_retry | expired | revoked | unknown`, or null for a
+     * non-subscription (or when the status lookup failed).
+     *
+     * Without this the SDK could not tell dunning from churn on iOS: a subscriber in Apple's
+     * billing-retry window looked identical to one who had simply expired.
+     */
+    val renewalState: String? = null,
 )
+
+/**
+ * Receives every transaction StoreKit reports outside a foreground purchase — see
+ * [StoreKit2Bridge.startTransactionUpdates]. Implemented in Kotlin, invoked from the Swift shim.
+ */
+fun interface StoreKit2TransactionListener {
+    fun onTransaction(transaction: StoreKit2Transaction)
+}
 
 /** Outcome of a StoreKit2 `product.purchase()` call, mirrored from `Product.PurchaseResult`. */
 sealed interface StoreKit2Outcome {
@@ -77,6 +153,13 @@ sealed interface StoreKit2Outcome {
     /** `.userCancelled` — the shopper dismissed the sheet. */
     data object Cancelled : StoreKit2Outcome
 
-    /** `.pending` (SCA/Ask-to-Buy) or a verification/StoreKit error, with a human message. */
+    /**
+     * `.pending` — Ask to Buy awaiting a parent's approval, or SCA in progress. NOT a failure:
+     * the approval arrives later on `Transaction.updates`. Reporting it as an error told a child
+     * waiting on a parent that their purchase had failed.
+     */
+    data object Pending : StoreKit2Outcome
+
+    /** A verification failure or StoreKit error, with a human message. */
     data class Failed(val message: String) : StoreKit2Outcome
 }

@@ -49,6 +49,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
+import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
+import com.mobilebytelabs.paycraft.ui.components.EmptyProductsContent
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_disclosure_body
@@ -59,6 +61,8 @@ import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import org.jetbrains.compose.resources.stringResource
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags as Tag
+import com.mobilebytelabs.paycraft.model.sessionDisplayPrice
+import com.mobilebytelabs.paycraft.model.sessionDisplayPriceFormatted
 
 /**
  * First-class addressable plans surface — the paywall's product-list contract
@@ -93,6 +97,9 @@ fun ProductList(
     recommendedSku: String? = null,
     monthlyBaselineCents: Int? = null,
     modifier: Modifier = Modifier,
+    // Defaulted so every existing caller compiles unchanged; used only by the empty branch to
+    // dispatch a retry.
+    onAction: (PayCraftPaywallAction) -> Unit = {},
 ) {
     val paywall = LocalPayCraftConfig.current?.paywall ?: PaywallDto()
     val ctaLabel = paywall.ctaContinue.ifBlank { "Continue" }
@@ -109,6 +116,18 @@ fun ProductList(
     }
     val recommended = items.singleOrNull { it.isRecommended }
     val trialEligibleRow = items.firstOrNull { it.isTrialEligible }
+
+    // An empty product list previously fell through to the normal layout: hero, value props, an
+    // empty list, and a DISABLED buy button with no explanation. A disabled control with no
+    // adjacent reason is indistinguishable from a broken app, and there was no way to retry.
+    //
+    // Deliberately checked on `items` (the derived display rows) rather than `products`, so a list
+    // that is non-empty but yields no renderable row lands here too instead of rendering a hero
+    // above nothing.
+    if (items.isEmpty()) {
+        EmptyProductsContent(onAction = onAction, modifier = modifier)
+        return
+    }
 
     Column(
         modifier = modifier
@@ -376,7 +395,16 @@ private fun TrialEligibilityBadge(row: ProductRow, paywall: PaywallDto, modifier
  * rejects paywalls that render literal/broken placeholders (the single most common
  * trial-offer rejection cause), so a malformed tenant template must NEVER reach the UI.
  */
-private val UNRESOLVED_TRIAL_TOKEN = Regex("\\{[A-Za-z_]+}")
+// The closing brace MUST be escaped. A bare `}` is legal on the JVM's regex engine but Android's
+// ICU engine rejects it outright (PatternSyntaxException "Syntax error in regexp pattern near
+// index 13"). Because this is a top-level val, that throw happens in ProductListKt.<clinit> — the
+// class never loads, and EVERY paywall render dies with ExceptionInInitializerError. Device-proven
+// on CPH2423 / Android 15, 2026-09-05: reels-downloader crashed on first paywall composition
+// (BrandedStackTemplate.kt:140 -> PaywallTemplate.render).
+//
+// Nothing in this repo's test suite could catch it: all 385 unit tests and every Roborazzi golden
+// execute on the JVM, where the unescaped form compiles fine. JVM-green, Android-fatal.
+private val UNRESOLVED_TRIAL_TOKEN = Regex("\\{[A-Za-z_]+\\}")
 
 /**
  * Resolve a dashboard-configured trial-copy [template] against the SDK-default [fallback],
@@ -431,8 +459,8 @@ internal data class ProductRow(
  * legacy [com.mobilebytelabs.paycraft.presentation.components.PlanCard] rendering.
  */
 private fun ProductRow.formatSecondary(): String = when (val p = product) {
-    is Product.Subscription -> "${p.basePrice.format()} / ${p.interval.readable()}"
-    is Product.Lifetime -> "${p.basePrice.format()} (one-time)"
+    is Product.Subscription -> "${p.sessionDisplayPriceFormatted().orEmpty()} / ${p.interval.readable()}"
+    is Product.Lifetime -> "${p.sessionDisplayPriceFormatted().orEmpty()} (one-time)"
     is Product.Trial -> "Free for ${p.durationDays} days"
 }
 
@@ -466,11 +494,14 @@ internal fun buildProductRows(
     // popular fails the semantics (returns null → no ring) rather than showing two.
     val recommendedProduct = visible.singleOrNull { it.sku == recommendedSku }
 
+    // Resolved price, not basePrice: the savings % compares this baseline against each plan's
+    // per-month figure, so both sides must come from the SAME currency. Mixing a base-currency
+    // baseline with a locale-resolved plan price yields a meaningless percentage.
     val monthlyBaselineMinor: Int? = monthlyBaselineOverrideCents
         ?: visible
             .filterIsInstance<Product.Subscription>()
             .firstOrNull { it.interval == Product.Subscription.Interval.MONTH }
-            ?.basePrice
+            ?.sessionDisplayPrice()
             ?.amountMinor
 
     return visible.map { product ->
@@ -503,7 +534,8 @@ private fun computeSavingsPercent(product: Product, monthlyBaselineMinor: Int?):
         Product.Subscription.Interval.SEMIANNUAL -> 6
         Product.Subscription.Interval.YEAR -> 12
     }
-    val perMonth = sub.basePrice.amountMinor / monthsInInterval
+    // Resolved price — must match the currency of monthlyBaselineMinor above.
+    val perMonth = (sub.sessionDisplayPrice() ?: sub.basePrice).amountMinor / monthsInInterval
     if (perMonth >= monthlyBaselineMinor) return null
     val saved = monthlyBaselineMinor - perMonth
     return ((saved.toDouble() / monthlyBaselineMinor.toDouble()) * 100.0).toInt().coerceIn(1, 99)
@@ -522,8 +554,12 @@ private fun computePerMonthAnchor(product: Product): String? {
         Product.Subscription.Interval.SEMIANNUAL -> 6
         Product.Subscription.Interval.YEAR -> 12
     }
-    val perMonthMinor = sub.basePrice.amountMinor / months
-    val perMonth = Money(perMonthMinor, sub.basePrice.currency).format()
+    // Resolved price, not basePrice. On device this line rendered "$8.29 / mo billed annually"
+    // directly beneath a "£79.20 / year" headline — the SAME paywall showing two currencies,
+    // because the headline went through the resolver and this anchor did not.
+    val resolved = sub.sessionDisplayPrice() ?: sub.basePrice
+    val perMonthMinor = resolved.amountMinor / months
+    val perMonth = Money(perMonthMinor, resolved.currency).format()
     val periodLabel = when (sub.interval) {
         Product.Subscription.Interval.QUARTER -> "billed quarterly"
         Product.Subscription.Interval.SEMIANNUAL -> "billed every 6 months"

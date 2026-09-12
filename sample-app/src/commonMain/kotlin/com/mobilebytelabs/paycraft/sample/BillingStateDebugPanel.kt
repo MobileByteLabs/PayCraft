@@ -200,4 +200,5 @@ private fun BillingState.label(): String = when (this) {
     is BillingState.DeviceConflict -> "DeviceConflict"
     is BillingState.OwnershipVerified -> "OwnershipVerified"
     is BillingState.Error -> "Error"
+    is BillingState.PaymentPending -> "PaymentPending(${'$'}productId)"
 }

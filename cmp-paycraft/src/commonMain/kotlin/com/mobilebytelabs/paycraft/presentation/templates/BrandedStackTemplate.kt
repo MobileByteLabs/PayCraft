@@ -33,13 +33,21 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
+import com.mobilebytelabs.paycraft.ui.components.PremiumEntitlementActions
+import com.mobilebytelabs.paycraft.ui.components.OwnershipVerifiedContent
+import com.mobilebytelabs.paycraft.ui.components.DeviceConflictContent
+import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.config.ValuePropTriple
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Product
+import com.mobilebytelabs.paycraft.ui.LocalPayCraftPaywallFooterActions
 import com.mobilebytelabs.paycraft.ui.ProductList
+import com.mobilebytelabs.paycraft.ui.components.PaymentPendingContent
 import com.mobilebytelabs.paycraft.ui.components.rememberHeroIconOverride
 import com.mobilebytelabs.paycraft.ui.components.skeleton.PaywallSkeleton
+import com.mobilebytelabs.paycraft.ui.paywallContentSize
+import com.mobilebytelabs.paycraft.ui.paywallRoot
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 
 /**
@@ -65,20 +73,23 @@ fun BrandedStackTemplate(
     products: List<Product>,
     onPickProduct: (Product) -> Unit,
     onRetry: () -> Unit,
+    onAction: (PayCraftPaywallAction) -> Unit = {},
 ) {
     val tokens = PayCraftTheme
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(tokens.colors.surface),
-    ) {
+    // Bounds + background belong to whoever hosts us: full-screen → we paint; sheet → the sheet
+    // paints (and keeps its scrim, so the host app stays visible behind it). See paywallRoot.
+    Box(Modifier.paywallRoot(tokens.colors.surface)) {
         when (state) {
             is BillingState.Loading -> BrandedStackLoading()
             is BillingState.Free -> BrandedStackFree(products, onPickProduct)
-            is BillingState.Premium -> BrandedStackPremium(state)
+            is BillingState.Premium -> Column {
+                BrandedStackPremium(state)
+                PremiumEntitlementActions(onAction)
+            }
             is BillingState.Error -> BrandedStackError(state.message, onRetry)
-            is BillingState.DeviceConflict -> BrandedStackDeviceConflict(state)
-            is BillingState.OwnershipVerified -> BrandedStackOwnershipVerified(state)
+            is BillingState.PaymentPending -> PaymentPendingContent(state.productId)
+            is BillingState.DeviceConflict -> DeviceConflictContent(state, onAction)
+            is BillingState.OwnershipVerified -> OwnershipVerifiedContent(state, onAction)
         }
     }
 }
@@ -93,7 +104,7 @@ private fun BrandedStackFree(products: List<Product>, onPickProduct: (Product) -
 
     Column(
         modifier = Modifier
-            .fillMaxSize()
+            .paywallContentSize()
             .verticalScroll(scrollState)
             .padding(horizontal = 20.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -143,6 +154,9 @@ private fun BrandedStackFree(products: List<Product>, onPickProduct: (Product) -
 @Composable
 private fun PaywallMicroFooter(paywall: PaywallDto) {
     val tokens = PayCraftTheme
+    // Real handlers supplied by the hosting paywall surface — these three used to be empty
+    // lambdas, i.e. tappable text that did nothing on every shipped paywall.
+    val footerActions = LocalPayCraftPaywallFooterActions.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -151,16 +165,16 @@ private fun PaywallMicroFooter(paywall: PaywallDto) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (!paywall.privacyUrl.isNullOrBlank()) {
-            FooterLink(label = "PRIVACY", onClick = { /* host opens via custom intent */ })
+            FooterLink(label = "PRIVACY", onClick = footerActions.onOpenPrivacy)
             FooterDot()
         }
         if (!paywall.termsUrl.isNullOrBlank()) {
-            FooterLink(label = "TERMS", onClick = { /* host opens via custom intent */ })
+            FooterLink(label = "TERMS", onClick = footerActions.onOpenTerms)
             FooterDot()
         }
         FooterLink(
             label = paywall.restoreLabel.uppercase(),
-            onClick = { /* host wires onRestoreTap via PayCraftPaywallSheet */ },
+            onClick = footerActions.onRestore,
         )
     }
     BrandingFooterLine(branding = paywall.branding, customFooter = paywall.customFooter)
@@ -301,60 +315,6 @@ private fun BrandedStackError(msg: String, onRetry: () -> Unit) {
             ),
             shape = RoundedCornerShape(26.dp),
         ) { Text("Retry") }
-    }
-}
-
-@Composable
-private fun BrandedStackDeviceConflict(s: BillingState.DeviceConflict) {
-    val tokens = PayCraftTheme
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = "Device limit reached",
-            color = tokens.colors.onSurface,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            text = "Your account is active on another device. Sign in there or contact support.",
-            color = tokens.colors.onSurfaceVariant,
-            fontSize = 14.sp,
-        )
-    }
-}
-
-@Composable
-private fun BrandedStackOwnershipVerified(s: BillingState.OwnershipVerified) {
-    val tokens = PayCraftTheme
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(
-            imageVector = Icons.Filled.Check,
-            contentDescription = null,
-            tint = tokens.colors.accent,
-            modifier = Modifier.size(48.dp),
-        )
-        Text(
-            text = "Verified",
-            color = tokens.colors.onSurface,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            text = "Your subscription is now active on this device.",
-            color = tokens.colors.onSurfaceVariant,
-            fontSize = 14.sp,
-            textAlign = TextAlign.Center,
-        )
     }
 }
 

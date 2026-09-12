@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
+import com.mobilebytelabs.paycraft.model.sessionDisplayPriceFormatted
 
 /**
  * Renders a single product card — variant per [Product] subtype:
@@ -36,9 +37,9 @@ import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 @Composable
 fun PlanCard(product: Product, onClick: () -> Unit, modifier: Modifier = Modifier, popular: Boolean = false) {
     val secondary = when (product) {
-        is Product.Subscription -> "${product.basePrice.format()} / ${product.interval.label()}"
+        is Product.Subscription -> "${product.sessionDisplayPriceFormatted().orEmpty()} / ${product.interval.label()}"
         is Product.Trial -> "Free for ${product.durationDays} days"
-        is Product.Lifetime -> "${product.basePrice.format()} (one-time)"
+        is Product.Lifetime -> "${product.sessionDisplayPriceFormatted().orEmpty()} (one-time)"
     }
 
     // Top padding reserves space so the badge can overlap the card's top edge without

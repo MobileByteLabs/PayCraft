@@ -201,6 +201,10 @@ fun PayCraftRestoreContent(
         if (!hasAttemptedRestore) return@LaunchedEffect
         when (billingState) {
             is BillingState.Loading -> { /* spinner already shown via isRestoring */ }
+            // A restore never produces a pending payment (nothing is being bought), but the state
+            // is reachable if a purchase was mid-flight when the sheet opened. Hold the spinner
+            // rather than reporting a restore failure.
+            is BillingState.PaymentPending -> { /* purchase still clearing — leave the sheet as-is */ }
             is BillingState.Premium -> {
                 restoreResult = RestoreResult.Success
             }

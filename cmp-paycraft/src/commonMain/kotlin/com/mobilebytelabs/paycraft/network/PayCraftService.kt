@@ -6,12 +6,10 @@ import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionState
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.Apple
 import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.providers.builtin.IDToken
-import io.github.jan.supabase.auth.providers.builtin.OTP
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import io.ktor.client.HttpClient
@@ -101,8 +99,6 @@ data class RegisterDeviceResult(
 
 data class PremiumCheckResult(val isPremium: Boolean, val tokenValid: Boolean)
 
-data class OtpGateResult(val available: Boolean, val sendsToday: Int, val limit: Int)
-
 // ─── Interface ────────────────────────────────────────────────────────────────
 
 interface PayCraftService {
@@ -136,12 +132,6 @@ interface PayCraftService {
     suspend fun checkPremiumWithDevice(serverToken: String): PremiumCheckResult
     suspend fun transferToDevice(serverToken: String, newDeviceToken: String): Boolean
     suspend fun revokeDevice(serverToken: String, targetToken: String): Boolean
-
-    suspend fun checkOtpGate(): OtpGateResult
-
-    // OTP ownership verification
-    suspend fun sendOtp(email: String)
-    suspend fun verifyOtp(email: String, token: String): Boolean
 
     /**
      * Verifies a Google or Apple ID token via Supabase Auth (Gate 1).
@@ -194,11 +184,41 @@ interface PayCraftService {
         appUserId: String,
         packageName: String,
     ): EntitlementDto? = null
+
+    /**
+     * Register a completed **StoreKit** purchase server-side — the Apple mirror of
+     * [registerPlayPurchase].
+     *
+     * POSTs the signed transaction to the `register-appstore` edge function, which (1) verifies the
+     * JWS against Apple's pinned root, (2) rejects an originalTransactionId already bound to a
+     * different user (receipt sharing), (3) re-fetches authoritative status from the App Store
+     * Server API, and (4) reconciles ONE canonical entitlement.
+     *
+     * WHY: without this, an iOS buyer's unlock depended on Apple's ASSN-V2 webhook landing before
+     * the client's own reconcile read — a race the client usually wins, so the paywall reappeared
+     * immediately after a successful payment. ASSN-V2 remains the authoritative async channel for
+     * renewals and refunds; both converge on the same record.
+     *
+     * @param signedTransaction the StoreKit2 `VerificationResult.jwsRepresentation`.
+     * @param appUserId the STABLE app-user-id the entitlement is keyed on (email or device id).
+     * @param productId the App Store product id that was purchased (a hint only — Apple is truth).
+     * @return the reconciled entitlement, or null on failure. Default null keeps fakes/mocks
+     *   source-compatible.
+     */
+    suspend fun registerAppStorePurchase(
+        signedTransaction: String,
+        appUserId: String,
+        productId: String,
+    ): EntitlementDto? = null
 }
 
 /** Wire shape of the `register-play-purchase` edge-function response. */
 @Serializable
 data class RegisterPlayPurchaseResponse(val entitlement: EntitlementDto? = null)
+
+/** Wire shape of the `register-appstore` edge-function response. */
+@Serializable
+data class RegisterAppStoreResponse(val entitlement: EntitlementDto? = null)
 
 // ─── Implementation ───────────────────────────────────────────────────────────
 
@@ -348,32 +368,6 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         return r["revoked"]?.jsonPrimitive?.boolean ?: false
     }
 
-    override suspend fun checkOtpGate(): OtpGateResult {
-        PayCraftLogger.onRpcCall("check_otp_gate", "")
-        val r = postgrest.rpc("check_otp_gate").decodeAs<JsonObject>()
-        return OtpGateResult(
-            available = r["available"]?.jsonPrimitive?.boolean ?: false,
-            sendsToday = r["sends_today"]?.jsonPrimitive?.int ?: 0,
-            limit = r["limit"]?.jsonPrimitive?.int ?: 300,
-        )
-    }
-
-    override suspend fun sendOtp(email: String) {
-        auth.signInWith(OTP) { this.email = email }
-    }
-
-    override suspend fun verifyOtp(email: String, token: String): Boolean = try {
-        auth.verifyEmailOtp(
-            type = OtpType.Email.EMAIL,
-            email = email,
-            token = token,
-        )
-        true
-    } catch (e: Exception) {
-        PayCraftLogger.onRpcError("verifyOtp", e.message)
-        false
-    }
-
     override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String? = try {
         PayCraftLogger.onRpcCall("verifyOAuthToken", provider.name)
         when (provider) {
@@ -487,6 +481,45 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         decoded.entitlement
     } catch (e: Exception) {
         PayCraftLogger.onRpcError("register_play_purchase", e.message)
+        null
+    }
+
+    override suspend fun registerAppStorePurchase(
+        signedTransaction: String,
+        appUserId: String,
+        productId: String,
+    ): EntitlementDto? = try {
+        val backend = PayCraft.backend
+        val url = "${backend.supabaseUrl}/functions/v1/register-appstore"
+        PayCraftLogger.onRpcCall("register_appstore", "product=$productId")
+        val response: HttpResponse = http.post(url) {
+            header("Authorization", "Bearer ${backend.supabaseAnonKey}")
+            header("apikey", backend.supabaseAnonKey)
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("signed_transaction", signedTransaction)
+                    put("app_user_id", appUserId)
+                    put("product_id", productId)
+                    apiKey?.let { put("api_key", it) }
+                },
+            )
+        }
+        if (!response.status.isSuccess()) {
+            PayCraftLogger.onRpcError(
+                "register_appstore",
+                "HTTP ${response.status.value}: ${response.body<String>()}",
+            )
+            return null
+        }
+        val decoded: RegisterAppStoreResponse = response.body()
+        PayCraftLogger.onRpcResult(
+            "register_appstore",
+            "state=${decoded.entitlement?.canonicalState ?: "null"}",
+        )
+        decoded.entitlement
+    } catch (e: Exception) {
+        PayCraftLogger.onRpcError("register_appstore", e.message)
         null
     }
 }

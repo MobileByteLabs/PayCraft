@@ -1,0 +1,25 @@
+{
+  "_comment": "PayCraft layer-3 bundled fallback. TEMPLATE — copy into your app and edit before shipping. Android: app/src/main/assets/paycraft-fallback.json. iOS: add to the app target's Copy Bundle Resources. JVM/desktop: place on the classpath root. Web: not used (no app binary to bundle into).",
+  "_why": "Rendered only when the network AND the persisted cache have both failed. Its job is to keep a purchasable surface in front of a user who would otherwise see a spinner, so prices here are a last resort and will not match a dashboard change made after the app was built.",
+  "tenant_id": "REPLACE_WITH_YOUR_TENANT_ID",
+  "locale": "US",
+  "cache_ttl_seconds": 0,
+  "fetched_at_epoch_millis": 0,
+  "products": [
+    {
+      "id": "fallback-premium-monthly",
+      "sku": "REPLACE_WITH_YOUR_MONTHLY_SKU",
+      "type": "subscription",
+      "display_name": "Premium",
+      "interval": "month",
+      "base_price_cents": 499,
+      "base_currency": "USD",
+      "display_order": 0,
+      "active": true,
+      "trial_enabled": true,
+      "trial_duration_days": 7
+    }
+  ],
+  "providers": [],
+  "paywall": {}
+}

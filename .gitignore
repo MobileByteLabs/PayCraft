@@ -106,26 +106,31 @@ supabase/.env
 # CLI build output
 cli/dist/
 
-# Local supabase CLI artifacts (supabase/.gitignore covers .temp + .branches;
-# this catches the convenience symlink supabase/migrations → ../server/migrations
-# that local devs may add so `supabase db reset` finds the migrations).
-# NOTE: migrations that must be versioned + deployed are re-included below via `!`
-# negation (a blanket ignore here silently dropped schema changes on deploy — see
-# migration 075 / paycraft-provider-platform-onboarding epic). Track new schema by
-# adding a matching `!supabase/migrations/NNN_*.sql` line.
-supabase/migrations/*
-!supabase/migrations/075_routing_platform_dimension.sql
-!supabase/migrations/076_native_store_methods.sql
-!supabase/migrations/077_tenant_paywall_trial_disclosure.sql
-!supabase/migrations/078_tenant_products_sync_state.sql
-!supabase/migrations/079_encryption_passphrase_prod_guard.sql
-!supabase/migrations/080_coupon_store_offer_ids.sql
-!supabase/migrations/081_realtime_foundation.sql
+# supabase/migrations/ is VERSIONED IN FULL — do not add a blanket ignore here.
+#
+# A blanket `supabase/migrations/*` with per-file `!` negations lived here until
+# 2026-09-05. The negations stopped at 085, so 086 and 087 were never committed even
+# though live dashboard routes call an RPC defined only in 086 — and 73 earlier
+# migrations were untracked too. CI runs `supabase db push` on a fresh checkout, so the
+# schema could only be reproduced from a developer's laptop. Removed in Phase 0 of the
+# paycraft-dashboard-paywall-parity epic; a prod probe at the time confirmed all 84 were
+# applied, so this was a reproducibility defect rather than a live schema gap.
+#
+# The convenience symlink case this ignore was originally written for (a local dev
+# pointing supabase/migrations → ../server/migrations so `supabase db reset` finds them)
+# belongs in supabase/.gitignore, which already covers .temp and .branches.
 .vercel
 
 # Wrangler CLI cache (Cloudflare Workers)
 .wrangler/
-!supabase/migrations/082_rls_security_hardening.sql
-!supabase/migrations/083_rpc_tenant_ownership_guards.sql
-!supabase/migrations/084_rpc_guard_allow_backend.sql
-!supabase/migrations/085_sync_events.sql
+
+# Materialized secrets — RULE-SECRETS-VAULT-001 (SV18/SV32).
+# These are `/secrets pull` outputs, never source. Committing one is a leak that
+# survives deletion and forces a rotation.
+secrets.local.json
+secrets.local.toml
+**/secrets.local.json
+**/secrets.local.toml
+
+# Local CI scratch marker (not source).
+__ci_only__

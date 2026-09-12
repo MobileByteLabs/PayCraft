@@ -55,8 +55,6 @@ class BannerPaywallLabelTest {
             pendingToken = "tok",
             conflictingDeviceName = "Other Phone",
             conflictingLastSeen = null,
-            otpAvailable = true,
-            otpDailyLimit = 5,
             supportEmail = "support@example.com",
         )
         assertEquals("Verify ownership to continue", bannerLabelFor(state))
@@ -75,6 +73,7 @@ private fun bannerLabelFor(state: BillingState): String = when (state) {
     }
     is BillingState.Loading -> "Checking your subscription…"
     is BillingState.Error -> "Couldn't sync — tap to retry"
+    is BillingState.PaymentPending -> "Payment pending — premium unlocks automatically"
     is BillingState.DeviceConflict -> "Verify ownership to continue"
     is BillingState.OwnershipVerified -> "Manage subscription"
 }

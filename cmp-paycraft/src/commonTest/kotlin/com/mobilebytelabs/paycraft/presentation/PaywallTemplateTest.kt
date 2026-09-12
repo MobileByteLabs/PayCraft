@@ -66,8 +66,6 @@ class PaywallTemplateTest {
         pendingToken = "tok",
         conflictingDeviceName = "iPhone 14",
         conflictingLastSeen = "2026-06-01",
-        otpAvailable = true,
-        otpDailyLimit = 5,
         supportEmail = "support@example.com",
     )
 
@@ -93,10 +91,10 @@ class PaywallTemplateTest {
     @Test fun minimal_device_conflict() = renderAndAssert(
         PaywallTemplate.MINIMAL,
         conflictState,
-        "bound to another device",
+        "Verify ownership here to transfer it",
     )
 
-    @Test fun minimal_ownership_verified() = renderAndAssert(PaywallTemplate.MINIMAL, verifiedState, "Verified via")
+    @Test fun minimal_ownership_verified() = renderAndAssert(PaywallTemplate.MINIMAL, verifiedState, "Transfer subscription")
 
     // PREMIUM — 6 states
 
@@ -115,10 +113,10 @@ class PaywallTemplateTest {
     @Test fun premium_device_conflict() = renderAndAssert(
         PaywallTemplate.PREMIUM,
         conflictState,
-        "bound to another device",
+        "Verify ownership here to transfer it",
     )
 
-    @Test fun premium_ownership_verified() = renderAndAssert(PaywallTemplate.PREMIUM, verifiedState, "Verified via")
+    @Test fun premium_ownership_verified() = renderAndAssert(PaywallTemplate.PREMIUM, verifiedState, "Transfer subscription")
 
     // DARK — 6 states
 
@@ -130,9 +128,9 @@ class PaywallTemplateTest {
 
     @Test fun dark_error() = renderAndAssert(PaywallTemplate.DARK, BillingState.Error("offline"), "Retry")
 
-    @Test fun dark_device_conflict() = renderAndAssert(PaywallTemplate.DARK, conflictState, "bound to another device")
+    @Test fun dark_device_conflict() = renderAndAssert(PaywallTemplate.DARK, conflictState, "Verify ownership here to transfer it")
 
-    @Test fun dark_ownership_verified() = renderAndAssert(PaywallTemplate.DARK, verifiedState, "Verified via")
+    @Test fun dark_ownership_verified() = renderAndAssert(PaywallTemplate.DARK, verifiedState, "Transfer subscription")
 
     // BRANDED_STACK — 6 billing states (AC-5 parity with legacy templates)
 
@@ -167,7 +165,7 @@ class PaywallTemplateTest {
 
     /**
      * BrandedStackDeviceConflict renders "Device limit reached" — distinct from the
-     * legacy templates which render "bound to another device". Asserting the
+     * legacy templates which render "Verify ownership here to transfer it". Asserting the
      * BrandedStack-specific heading string guards against accidental template bleed.
      */
     @Test fun branded_stack_device_conflict() =
@@ -178,7 +176,7 @@ class PaywallTemplateTest {
      * is now active on this device." body — no "via" suffix in this template.
      */
     @Test fun branded_stack_ownership_verified() =
-        renderAndAssert(PaywallTemplate.BRANDED_STACK, verifiedState, "Your subscription is now active")
+        renderAndAssert(PaywallTemplate.BRANDED_STACK, verifiedState, "Transfer subscription")
 
     // BRANDED_STACK — content-field assertions (v2 PaywallDto fields)
 

@@ -83,13 +83,10 @@ class PayCraftRestoreContentTest {
 
         override suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String) { /* no-op */ }
 
-        override suspend fun verifyOtpOwnership(email: String, otp: String): Boolean = false
 
         override suspend fun confirmDeviceTransfer() { /* no-op */ }
 
-        override suspend fun requestOtpVerification(email: String) { /* no-op */ }
 
-        override suspend fun verifyOtp(email: String, otp: String): Boolean = false
 
         override suspend fun transferToDevice() { /* no-op */ }
 

@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
@@ -469,7 +469,7 @@ private fun PremiumBannerCard(
         // 4-state CTA button — click handled by the enclosing GradientCard
         CtaButton(
             gradient = colorCtaManage,
-            icon = Icons.Default.ArrowForward,
+            icon = Icons.AutoMirrored.Filled.ArrowForward,
             textColor = Color.White,
             text = ctaText,
             testTag = TAG_BANNER_MANAGE_BTN,

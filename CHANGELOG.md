@@ -1,5 +1,106 @@
 # Changelog
 
+## Unreleased
+
+- **088** introduces the Offering → Package → Product model (`tenant_offerings`, `tenant_packages`)
+  with RevenueCat-reserved role identifiers, plus a same-file backfill that maps every existing
+  product to a role and RAISEs rather than leaving one unmapped. Role arms mirror the existing
+  `tenant_products_interval_check` vocabulary (`month`/`quarter`/`semiannual`/`year`), not ISO-8601.
+- **089** retires the 8× `tenant_products_upsert` copy-paste chain: `_tenant_products_upsert_core`
+  owns the single column projection, the wrapper owns the auth guard and delegates. The core's
+  EXECUTE is revoked from anon/authenticated — it is SECURITY DEFINER without an ownership guard.
+- **090** locks D6: `is_entitlement_current` treats a NULL expiry as "does not expire", and the
+  entitlement read path never joins `tenant_products.active`, so disabling a product hides it from
+  the paywall but can never revoke a purchased entitlement. Adds `is_premium_by_app_user`.
+- `/config` now fails loudly when the products query errors, instead of degrading a database
+  failure into an empty product array behind HTTP 200.
+- dashboard: `GET /api/products/[id]` added (was missing — F17); the pricing page renders the real
+  row and shows an explicit failure state instead of a fabricated `Product` / `9.99` placeholder.
+- dashboard: D6 disclosure rendered beside the product active toggle.
+- **092** adds `paycraft_price_shadow_deltas` — the D11 Stage A divergence log — plus
+  `paycraft_shadow_delta_record` (dedups by divergence shape with an occurrence counter, rather
+  than one row per `/config` call) and `paycraft_shadow_read_recorded` (the Stage B admissibility
+  gate; fails closed).
+- `/config` now computes BOTH price-country chains. The SERVED price is unchanged (locale-derived,
+  byte-identical to pre-deploy); the SHADOW chain is the corrected precedence
+  (override → native SDK signal → server geo → locale) and every divergence is recorded. Every
+  product row and the response envelope carry `served_country`/`served_provenance` and
+  `shadow_country`/`shadow_provenance`.
+  The bug this targets: web and desktop have no SDK, so `Accept-Language` there is a *language*
+  preference — a US buyer whose browser prefers `fr-FR` is billed in EUR while the edge IP header
+  already said US. Cut-over to the shadow chain requires `PAYCRAFT_PRICE_CUTOVER=1` **and** an
+  operator-recorded read of the divergence (`core/scripts/paycraft-record-shadow-read.sh`).
+- dashboard: `customer-geo.ts` now reads `x-vercel-ip-country` and `cloudfront-viewer-country` —
+  both were documented but never present in the header array, so Vercel and CloudFront deployments
+  silently fell through to the merchant default. It also returns provenance now.
+- steady + cappy: wired the native StoreKit 2 bridge (Gradle export, `viewController(storeKit2Bridge:)`,
+  the Swift shim, and the Xcode registration). Their iOS storefront country never resolved before,
+  so an India buyer on an en-GB phone was billed in GBP. **Not yet device-verified.**
+- **Resilience chain (AC-20..AC-24)** — `SuiteConfig?` no longer conflates four situations.
+  New sealed `ConfigResult` (Loading / Fresh / Cached / Stale / Bundled / BuiltIn / Failed) is
+  published on `PayCraft.configResultFlow`, and both config-failure paths now fall through
+  **network → persisted cache → per-platform bundled fallback → built-in paywall** instead of
+  bare-returning. The paywall skeleton is gated on `Loading` alone, so an HTTP error or an offline
+  device no longer leaves a permanent spinner in front of a user — on hosts that gate onboarding
+  behind the paywall, that previously stranded them inside a shipped app.
+  Adds `readBundledSuiteConfigJsonOrNull()` (expect/actual across android/ios/jvm/js/wasmJs; web
+  returns null by design), a `paycraft-fallback.json` template, `BuiltInPaywall`,
+  `ConfigUnavailable` and `StaleConfigNotice`. An expired cache now says so instead of presenting
+  last week's prices as current.
+- `ConfigClient` is **deprecated** — it was never wired into the real fetch path, so its
+  `catch → cache.read()` fallback never ran. That shape now lives inline in `PayCraft`. Kept rather
+  than deleted because it is public API of a published artifact.
+- **Paywall states (AC-25..AC-28)** — the three dead-end `BillingState` arms now have real
+  surfaces. `DeviceConflict` names the conflicting device and offers all three resolution gates
+  (host-driven OAuth, emailed one-time code, support) instead of two hardcoded lines that discarded
+  the whole payload. `OwnershipVerified` shows an explicit transfer confirmation rather than
+  claiming "your subscription is now active" before the transfer had happened. Empty-products
+  renders an explanation and a retry instead of a disabled buy button. The premium arm exposes
+  Restore and Manage subscription.
+  Adds `PayCraftPaywallAction.SendOtpCode` — `BillingManager.requestOtpVerification()` existed with
+  nothing dispatching to it, so the OTP gate could be verified but never started. OAuth is driven by
+  a host-supplied `LocalPayCraftOAuthHandler`; without one the gate is omitted rather than rendered
+  dead, since the SDK cannot mint an `idToken` itself.
+  26 localised strings, new paywall-state test tags, and 13 Roborazzi goldens each paired with a
+  named semantic assertion so no golden can be captured from a blank surface.
+- **093** constrains `paycraft_price_shadow_deltas.served_provenance` / `shadow_provenance` to the
+  provenance vocabulary. 092 constrained `platform` but not these, and the edge function cast a
+  client-supplied `X-PayCraft-Country-Provenance` header past the type system — so arbitrary text
+  reached the table an operator reads before authorising a price cut-over. The edge now whitelists
+  the header as well; this is the column-level half.
+- **Price-chain corrections (Stage A).** `resolveServed` no longer honours `?country=`/`x-country`.
+  It had been doing so on the stated assumption that an override was already priced pre-deploy —
+  it was not (pre-deploy read only `apiKey` and priced unconditionally off `Accept-Language`), so
+  any request carrying an override was priced differently after the deploy than before. That is the
+  one thing D11's staging exists to prevent. The override now lives only in the shadow chain.
+  Also: the SDK arm is native-gated BEFORE the provenance header is consulted, so a web caller
+  sending `X-PayCraft-Country-Provenance: storefront` can no longer be priced off its own
+  Accept-Language; provider filtering and the response `locale` follow the country actually priced
+  on rather than `Accept-Language`; and the edge's geo-header order and ISO-2/`XX` validation now
+  match `dashboard/lib/customer-geo.ts`, which resolved five inputs differently between the two
+  chains.
+- **Localisation + resilience-surface corrections.** The resilience and built-in-paywall surfaces
+  shipped with 17 hardcoded English literals — including every failure-reason body and the humanised
+  cache age — while the strings.xml rows added for those exact surfaces sat unused. All now go
+  through `stringResource`, with each age unit its own resource rather than an English suffix glued
+  to a number. **10 strings across the module (3 of them pre-existing) used Android-style `\'`
+  escaping, which Compose Resources does not process — users saw a literal backslash, e.g.
+  "You\'re offline."** Replaced with U+2019.
+  Also: `Failed(DECODE_ERROR).isRetryable` is now `false` (a malformed response is not fixed by
+  asking again — the code's own comment said so while the code did the opposite); the
+  device-conflict "N of M codes remaining today" line is omitted unless a real used-count is
+  supplied, instead of always claiming the full daily budget; `DarkTemplate` imposes a dark scheme
+  on the shared state composables, which were reading the host's scheme and rendering dark-on-black;
+  the unused `OwnershipVerifiedDialog` public API was removed; and the manual-transfer support
+  fallback no longer points at RFC 2606-reserved `support@example.com`.
+- **091 (security)** revokes `anon`/`PUBLIC` EXECUTE on `tenant_products_upsert`,
+  `tenant_pricing_upsert`, `tenant_products_delete`, `sync_event_emit`,
+  `tenant_providers_set_account_label` and `_tenant_products_upsert_core`. Migration 084's
+  ownership guard bypasses on a NULL `auth.uid()` for the trusted backend, and assumed anon could
+  not reach these RPCs — but PostgreSQL grants EXECUTE to PUBLIC by default, so a holder of the
+  PUBLISHABLE anon key could write any tenant's products. Verified closed: `HTTP 401 permission
+  denied`, zero rows written; `authenticated` and `service_role` unaffected.
+
 ## [Unreleased] — unified country detection + per-platform provider routing
 
 Adds a unified, cross-platform buyer-country signal and platform-aware provider selection, without touching the shipped 2.3.x storefront/native-price billing core. See `paycraft-provider-platform-onboarding` epic.

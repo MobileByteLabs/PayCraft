@@ -8,7 +8,6 @@ import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
-import com.mobilebytelabs.paycraft.network.OtpGateResult
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.network.PremiumCheckResult
 import com.mobilebytelabs.paycraft.network.RegisterDeviceResult
@@ -25,7 +24,7 @@ import kotlin.test.assertTrue
 
 /**
  * Deterministic unit tests for [PayCraftBillingManager] — the device-conflict /
- * OTP / OAuth / premium state machine.
+ * OAuth / premium state machine.
  *
  * Scope note (why this is a subset of the class): the manager reaches for three
  * platform singletons that are `expect object`s and therefore cannot be injected —
@@ -38,7 +37,7 @@ import kotlin.test.assertTrue
  * actual writes `~/.paycraft/device_token`; native/JS actuals differ). These tests
  * therefore cover the state transitions that do not DEPEND on device-token state:
  * cache-driven premium application, logout reset, the OAuth error transitions, the
- * OTP verification gate, and the transfer abort guard. (One path — a correct OTP with
+ * the transfer abort guard. (One path — a verified owner with
  * no active conflict — performs a single read-only `DeviceTokenStore.getToken()`, but
  * its return value cannot affect the assertion: the transition it guards requires a
  * non-null conflict.) The write-driven token paths (register → conflict →
@@ -61,9 +60,7 @@ class PayCraftBillingManagerTest {
         var revokeCalled = false
         var getSubscriptionCalled = false
 
-        var verifyOtpBehavior: (suspend (String, String) -> Boolean) = { _, _ -> false }
         var verifyOAuthBehavior: (suspend (OAuthProvider, String) -> String?) = { _, _ -> null }
-        var sendOtpBehavior: (suspend (String) -> Unit) = { }
         var getSubscriptionBehavior: (suspend (String) -> SubscriptionDto?) = { null }
 
         override suspend fun isPremium(serverToken: String): Boolean = false
@@ -101,11 +98,8 @@ class PayCraftBillingManagerTest {
             return true
         }
 
-        override suspend fun checkOtpGate(): OtpGateResult = OtpGateResult(false, 0, 300)
 
-        override suspend fun sendOtp(email: String) = sendOtpBehavior(email)
 
-        override suspend fun verifyOtp(email: String, token: String): Boolean = verifyOtpBehavior(email, token)
 
         override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String? =
             verifyOAuthBehavior(provider, idToken)
@@ -173,16 +167,26 @@ class PayCraftBillingManagerTest {
      */
     private class FakeNativeBillingClient : NativeBillingClient {
         var purchaseCalled = false
-        override suspend fun purchase(productId: String): NativePurchaseResult {
+        override val purchaseUpdates: kotlinx.coroutines.flow.Flow<NativePurchase> =
+            kotlinx.coroutines.flow.emptyFlow()
+        override suspend fun purchase(
+            productId: String,
+            appUserId: String?,
+            productType: com.mobilebytelabs.paycraft.billing.NativeProductType,
+        ): NativePurchaseResult {
             purchaseCalled = true
             return NativePurchaseResult.Failed("not exercised in this test")
         }
+        override suspend fun finishPurchase(purchase: NativePurchase) = Unit
         override suspend fun queryPurchases(): List<NativePurchase> = emptyList()
         override suspend fun sync() = Unit
         override suspend fun restore(): List<NativePurchase> = emptyList()
         override suspend fun manageSubscription(productId: String?) = Unit
         override suspend fun storefrontCountry(): String? = null
-        override suspend fun nativeDisplayPrice(productId: String): NativeDisplayPrice? = null
+        override suspend fun nativeDisplayPrice(
+            productId: String,
+            productType: com.mobilebytelabs.paycraft.billing.NativeProductType,
+        ): NativeDisplayPrice? = null
     }
 
     private fun digitalPlan(
@@ -377,63 +381,6 @@ class PayCraftBillingManagerTest {
 
         val state = assertIs<BillingState.Error>(manager.billingState.value)
         assertEquals("Could not verify your identity. Please try again.", state.message)
-    }
-
-    // ─── OTP verification gate (Gate 2) ─────────────────────────────────────────
-
-    @Test
-    fun verifyOtp_serviceSucceeds_returnsTrue() = runTest {
-        val service = FakePayCraftService().apply { verifyOtpBehavior = { _, _ -> true } }
-        val manager = managerWithFreshPremiumCache(service)
-
-        assertTrue(manager.verifyOtp("user@example.com", "123456"))
-    }
-
-    @Test
-    fun verifyOtp_serviceThrows_returnsFalse() = runTest {
-        val service = FakePayCraftService().apply {
-            verifyOtpBehavior = { _, _ -> throw RuntimeException("bad otp") }
-        }
-        val manager = managerWithFreshPremiumCache(service)
-
-        assertFalse(manager.verifyOtp("user@example.com", "000000"))
-    }
-
-    @Test
-    fun verifyOtpOwnership_noActiveConflict_returnsResultWithoutStateTransition() = runTest {
-        // With no cached conflict, a correct OTP must NOT flip the state to
-        // OwnershipVerified — that transition requires an active DeviceConflict.
-        val service = FakePayCraftService().apply { verifyOtpBehavior = { _, _ -> true } }
-        val manager = managerWithFreshPremiumCache(service)
-
-        val ok = manager.verifyOtpOwnership("user@example.com", "123456")
-
-        assertTrue(ok)
-        assertTrue(
-            manager.billingState.value is BillingState.Premium,
-            "state must not transition to OwnershipVerified without an active conflict",
-        )
-    }
-
-    @Test
-    fun verifyOtpOwnership_serviceThrows_returnsFalse() = runTest {
-        val service = FakePayCraftService().apply {
-            verifyOtpBehavior = { _, _ -> throw RuntimeException("rpc failure") }
-        }
-        val manager = managerWithFreshPremiumCache(service)
-
-        assertFalse(manager.verifyOtpOwnership("user@example.com", "000000"))
-    }
-
-    @Test
-    fun requestOtpVerification_serviceThrows_isSwallowed() = runTest {
-        val service = FakePayCraftService().apply {
-            sendOtpBehavior = { throw RuntimeException("send failed") }
-        }
-        val manager = managerWithFreshPremiumCache(service)
-
-        // Must not propagate — the caller UI keeps working even if the send RPC fails.
-        manager.requestOtpVerification("user@example.com")
     }
 
     // ─── Transfer abort guard ───────────────────────────────────────────────────

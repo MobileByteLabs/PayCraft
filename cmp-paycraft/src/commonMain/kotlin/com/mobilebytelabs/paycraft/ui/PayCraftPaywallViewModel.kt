@@ -1,8 +1,9 @@
 package com.mobilebytelabs.paycraft.ui
 
+import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
+import com.mobilebytelabs.paycraft.debug.platformLog
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import co.touchlab.kermit.Logger
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.model.BillingPlan
@@ -138,7 +139,7 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
     }
 
     fun dispatch(action: PayCraftPaywallAction) {
-        Logger.d(TAG) { "Action dispatched: $action" }
+        logD(TAG) { "Action dispatched: $action" }
         when (action) {
             is PayCraftPaywallAction.SelectPlan -> onSelectPlan(action)
             is PayCraftPaywallAction.UpdateEmail -> onUpdateEmail(action)
@@ -158,7 +159,6 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
             is PayCraftPaywallAction.OpenRestoreSheet -> _state.update { it.copy(isRestoreSheetVisible = true) }
             is PayCraftPaywallAction.CloseRestoreSheet -> _state.update { it.copy(isRestoreSheetVisible = false) }
             is PayCraftPaywallAction.LoginWithOAuth -> onLoginWithOAuth(action)
-            is PayCraftPaywallAction.VerifyOtpOwnership -> onVerifyOtpOwnership(action)
             is PayCraftPaywallAction.ConfirmDeviceTransfer -> onConfirmDeviceTransfer()
             is PayCraftPaywallAction.CancelDeviceTransfer -> onCancelDeviceTransfer()
             is PayCraftPaywallAction.ContactSupportManualTransfer -> onContactSupportManualTransfer()
@@ -211,7 +211,7 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         try {
             PayCraft.checkout(plan, email.ifBlank { null })
         } catch (t: Throwable) {
-            Logger.e(TAG) { "checkout failed for plan ${plan.id}: ${t.message}" }
+            logE(TAG) { "checkout failed for plan ${plan.id}: ${t.message}" }
             _state.update {
                 it.copy(
                     isSubmitting = false,
@@ -245,7 +245,7 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         try {
             PayCraft.checkoutWithProvider(action.plan, action.provider, email.ifBlank { null })
         } catch (t: Throwable) {
-            Logger.e(TAG) { "checkoutWithProvider failed for ${action.plan.id}: ${t.message}" }
+            logE(TAG) { "checkoutWithProvider failed for ${action.plan.id}: ${t.message}" }
             _state.update {
                 it.copy(
                     isSubmitting = false,
@@ -268,7 +268,7 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         viewModelScope.launch {
             _events.send(PayCraftPaywallEvent.ManageLaunched(url = email))
         }
-        Logger.d(TAG) { "Managing subscription for $email, support: $supportEmail" }
+        logD(TAG) { "Managing subscription for $email, support: $supportEmail" }
     }
 
     private fun onLogIn() {
@@ -364,20 +364,6 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
         }
     }
 
-    /** Gate 2: Verify OTP code entered by user after conflict detected */
-    private fun onVerifyOtpOwnership(action: PayCraftPaywallAction.VerifyOtpOwnership) {
-        _state.update { it.copy(isRestoring = true) }
-        viewModelScope.launch {
-            val ok = billingManager.verifyOtpOwnership(action.email, action.otp)
-            if (!ok) {
-                _state.update { it.copy(isRestoring = false, errorMessage = "Incorrect code. Please try again.") }
-            } else {
-                // billingState transitions to OwnershipVerified — observer handles UI
-                _state.update { it.copy(isRestoring = false) }
-            }
-        }
-    }
-
     /** User confirmed "Deactivate [device] and transfer here?" */
     private fun onConfirmDeviceTransfer() {
         _state.update { it.copy(isRestoring = true) }
@@ -406,13 +392,18 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
     }
 
     /**
-     * Gate 3: OTP exhausted (>300/day).
+     * Gate 2: the manual route, for anyone OAuth cannot serve.
      * Opens a pre-filled mailto: with device + subscription info.
      */
     private fun onContactSupportManualTransfer() {
         val state = _state.value
         val billingState = state.billingState
-        val supportEmail = state.supportEmail.ifBlank { "support@example.com" }
+        // `example.com` is RFC 2606 reserved — mail to it is guaranteed undeliverable. The blank
+        // case is reachable exactly when the user is most stranded: on the built-in (layer 4)
+        // surface no config has loaded, so state.supportEmail is still its empty default, and
+        // "Contact support" would have opened a mailto to a black hole. The SDK's own address is
+        // the same default PayCraft.kt already uses when a tenant supplies none.
+        val supportEmail = state.supportEmail.ifBlank { "support@paycraft.mobilebytesensei.com" }
 
         val email = state.userEmail ?: ""
         val conflictDevice = when (billingState) {
@@ -453,3 +444,21 @@ private fun String.encodeForMailto(): String = this.replace(" ", "%20")
     .replace("\n", "%0A")
     .replace(":", "%3A")
     .replace("@", "%40")
+
+// ── Logging shim ─────────────────────────────────────────────────────────────
+// Kermit was removed from PayCraft: it was a published transitive dependency doing nothing this
+// SDK does not already do itself, and its version skewed against consumers (PayCraft 2.1.0 vs
+// reels-downloader 2.0.8 crashed at launch on Logger$Companion.d$default; holding at the
+// consumer's 2.0.5 broke this file with overload ambiguity). A dependency the SDK does not need
+// cannot skew, so it is gone rather than pinned.
+//
+// These keep Kermit's exact call SHAPE — `logD(TAG) { "..." }` — so every existing trailing lambda
+// is untouched and the message is still built lazily, only when logging is on.
+private inline fun logD(tag: String, message: () -> String) =
+    platformLog(PayCraftLogLevel.DEBUG, tag, message())
+
+private inline fun logW(tag: String, message: () -> String) =
+    platformLog(PayCraftLogLevel.WARN, tag, message())
+
+private inline fun logE(tag: String, message: () -> String) =
+    platformLog(PayCraftLogLevel.ERROR, tag, message())

@@ -82,10 +82,7 @@ class PayCraftPremiumBannerTest {
         override suspend fun checkTrialEligibility(): Boolean = true
         override fun refreshStatus(force: Boolean) { /* no-op */ }
         override suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String) { /* no-op */ }
-        override suspend fun verifyOtpOwnership(email: String, otp: String): Boolean = false
         override suspend fun confirmDeviceTransfer() { /* no-op */ }
-        override suspend fun requestOtpVerification(email: String) { /* no-op */ }
-        override suspend fun verifyOtp(email: String, otp: String): Boolean = false
         override suspend fun transferToDevice() { /* no-op */ }
         override suspend fun revokeCurrentDevice() { /* no-op */ }
         override fun logOut() { /* no-op */ }

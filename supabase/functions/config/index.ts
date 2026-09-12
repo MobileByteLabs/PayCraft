@@ -11,6 +11,7 @@
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { diverges, resolveServed, resolveShadow } from "../_shared/pricing-shadow.ts"
 import {
   RateLimitError,
   rateLimitResponse,
@@ -96,16 +97,73 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
   // it below the store storefront and above the device locale — one consistent signal on every
   // platform, including web/desktop where no store storefront exists. Null when the edge did not
   // attach a header (local dev / unknown host); the SDK degrades to device/locale in that case.
-  const geoCountry =
-    (req.headers.get("x-vercel-ip-country") ??
-      req.headers.get("cf-ipcountry") ??
-      req.headers.get("cloudfront-viewer-country"))?.trim()?.toUpperCase() || null
+  // Header order and validation are deliberately IDENTICAL to dashboard/lib/customer-geo.ts.
+  // They were not, and the two chains disagreed on five real inputs — a buyer priced one way in the
+  // app and another way through web checkout (AC-19). Cloudflare first because that is the runtime
+  // this deploys on; the ISO-2 shape check and the "XX" rejection are the dashboard's, which were
+  // the stricter and more correct of the two: "XX" is the CDN's *unknown-country* placeholder, so
+  // treating it as a country prices someone in a country that does not exist, and a 3-letter code
+  // is not an ISO-3166-alpha-2 value at all.
+  const GEO_HEADERS = [
+    "cf-ipcountry",
+    "x-vercel-ip-country",
+    "cloudfront-viewer-country",
+    "x-country",
+    "x-geo-country",
+  ] as const
+  const ISO2 = /^[A-Z]{2}$/
+  let geoCountry: string | null = null
+  for (const h of GEO_HEADERS) {
+    const raw = req.headers.get(h)?.trim()?.toUpperCase()
+    if (raw && ISO2.test(raw) && raw !== "XX") { geoCountry = raw; break }
+  }
   const geoSource = geoCountry ? "SERVER_IP_GEO" : "ABSENT"
 
   // Caller platform (SDK sends X-PayCraft-Platform: ios|android|desktop|web). Drives per-platform
   // provider ordering below (migration 075). Null when absent → "any" routing rules still apply.
   const callerPlatform =
     (req.headers.get("x-paycraft-platform") ?? "").trim().toLowerCase() || null
+
+  // ── D11 Stage A: compute BOTH price-country chains; keep serving the OLD one ──────────────
+  // The served chain stays locale-only so this deploy cannot move a single price. The shadow
+  // chain is the corrected precedence, and the delta between them is what makes the Stage B
+  // cut-over an evidence-based decision rather than a leap.
+  //
+  // `sdkCountry` is the Accept-Language country ONLY when a platform header proves an SDK sent it.
+  // A real browser has no such header, so its Accept-Language stays a language preference and the
+  // shadow chain falls through to server geo — which is the actual revenue fix (a US buyer whose
+  // browser prefers fr-FR is currently billed in EUR).
+  // `?country=` ONLY. `x-country` used to be an override alias here while the dashboard treated it
+  // as a geo header — the same request resolved with a different PROVENANCE depending on which
+  // entry point served it. An override should be something a caller states explicitly in the URL,
+  // not a header a CDN might inject on its behalf. It is a geo header on both sides now.
+  const overrideRaw = new URL(req.url).searchParams.get("country")?.trim()?.toUpperCase() || null
+  const overrideCountry = overrideRaw && ISO2.test(overrideRaw) && overrideRaw !== "XX"
+    ? overrideRaw
+    : null
+  // Whitelisted, not cast. This value is client-supplied and flows into every product row AND into
+  // paycraft_price_shadow_deltas — the table an operator reads before authorising the Stage B
+  // cut-over. An `as never` cast let arbitrary text through, so the audit trail the release
+  // decision rests on was shapeable by any caller.
+  const PROVENANCE_VALUES = [
+    "override", "storefront", "server_geo", "device", "locale", "default",
+  ] as const
+  const rawProvenance =
+    (req.headers.get("x-paycraft-country-provenance") ?? "").trim().toLowerCase() || null
+  const sdkProvenanceHeader =
+    rawProvenance && (PROVENANCE_VALUES as readonly string[]).includes(rawProvenance)
+      ? rawProvenance
+      : null
+  const priceInputs = {
+    overrideCountry,
+    sdkCountry: callerPlatform ? localeCountry : null,
+    sdkProvenance: sdkProvenanceHeader as never,
+    geoCountry,
+    localeCountry,
+    platform: (callerPlatform ?? "unknown") as never,
+  }
+  const servedCountryResolved = resolveServed(priceInputs)
+  const shadowCountryResolved = resolveShadow(priceInputs)
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -133,6 +191,24 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     if (e instanceof RateLimitError) return rateLimitResponse(e)
     throw e
   }
+
+  // ── D11 Stage B admissibility (AC-18) ────────────────────────────────────────────────────
+  // The cut-over needs TWO independent things to be true: the operator switched it on, AND a human
+  // has actually read a recorded divergence for this tenant. The flag alone is not enough — the
+  // whole point of Stage A is that somebody looks at the delta before real money moves. Fails
+  // CLOSED: any error resolving admissibility leaves Stage A behaviour in place.
+  //
+  // read_at is stamped only by `core/scripts/paycraft-record-shadow-read.sh`, never by hand.
+  let stageBAdmissible = false
+  if (Deno.env.get("PAYCRAFT_PRICE_CUTOVER") === "1") {
+    const { data: readOk, error: readErr } = await supabase.rpc("paycraft_shadow_read_recorded", {
+      p_tenant_id: tenantId,
+    })
+    stageBAdmissible = !readErr && readOk === true
+  }
+  const cutoverOn = stageBAdmissible
+  // Stage B: the shadow chain becomes the served one. Stage A: unchanged.
+  const effectiveCountry = cutoverOn ? shadowCountryResolved : servedCountryResolved
 
   // 3. Fetch components in parallel
   const [productsRes, paywallRes, providersRes, tenantRes] = await Promise.all([
@@ -166,6 +242,67 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
   //    vs `livePaymentLinks` from each provider based on the apiKey prefix —
   //    no server-side product filtering required. (Migration 069 dropped the
   //    legacy is_test_only product flag + test_devices allow-list.)
+  // AC-11 / D6 note: a disabled product is ALREADY absent here — `tenant_products_list`
+  // (migration 028) filters `active = true` server-side, so the disable toggle takes effect at
+  // the RPC rather than in this projection. Deliberately NOT re-filtering: a second filter in
+  // this file would drift from the RPC the day someone changes one and not the other.
+  //
+  // What was genuinely missing is the error check below. `productsRes.data ?? []` silently
+  // degrades a DATABASE FAILURE into an empty product array and a 200 response — a paywall that
+  // renders "nothing for sale" while the real cause is an outage, which is indistinguishable to
+  // the SDK from a tenant who has configured no products. Failing loudly is the only way the
+  // client can tell "no products" from "could not read products" and show a retry instead.
+  if (productsRes.error) {
+    return new Response(
+      JSON.stringify({
+        error: "products_query_failed",
+        detail: productsRes.error.message,
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    )
+  }
+
+  // The same reasoning applied to the other three reads. Sub-plan 02 fixed products and left these
+  // swallowing their errors, so each still turned a database failure into a plausible-looking 200:
+  //
+  //   paywallRes   — `paywallRes.data ?? {}` degrades to DEFAULT styling and default copy, so an
+  //                  outage renders as "this tenant never customised their paywall".
+  //   providersRes — `providersRes.data ?? []` degrades to ZERO providers, which the SDK renders as
+  //                  a paywall with no way to pay. Indistinguishable from a tenant who has
+  //                  connected none, and the more damaging of the two because it looks like a
+  //                  configuration problem the operator must go fix.
+  //   tenantRes    — `tenantRes.data?.entitlements ?? []` degrades to NO entitlements, which can
+  //                  gate features off for a tenant who is entitled to them.
+  //
+  // Each gets its own error code rather than one shared one: the SDK's resilience chain treats
+  // these differently, and a single "config_query_failed" would tell whoever reads the logs that
+  // something broke without saying which read.
+  if (paywallRes.error) {
+    return new Response(
+      JSON.stringify({ error: "paywall_query_failed", detail: paywallRes.error.message }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    )
+  }
+  if (providersRes.error) {
+    return new Response(
+      JSON.stringify({ error: "providers_query_failed", detail: providersRes.error.message }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    )
+  }
+  // `.single()` reports PGRST116 when the row is absent. That is NOT a transport failure — it means
+  // the tenant row is gone even though the api key resolved to its id, which is a real integrity
+  // problem and deserves its own status rather than being folded into a generic 500.
+  if (tenantRes.error) {
+    const missingRow = (tenantRes.error as { code?: string }).code === "PGRST116"
+    return new Response(
+      JSON.stringify({
+        error: missingRow ? "tenant_row_missing" : "tenant_query_failed",
+        detail: tenantRes.error.message,
+      }),
+      { status: missingRow ? 404 : 500, headers: { "Content-Type": "application/json" } },
+    )
+  }
+
   const pricedProducts = await Promise.all(
     (productsRes.data ?? []).map(async (p: Record<string, unknown>) => {
       const trialEnabled = p.trial_enabled === undefined || p.trial_enabled === null
@@ -206,10 +343,13 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
       }
 
       // Auto / manual mode: resolve locale-specific price from tenant_pricing rows.
+      // Stage A: servedCountryResolved.country IS localeCountry (plus the pre-existing override),
+      // so this call is byte-identical to pre-deploy. Routing it through the resolver now means the
+      // Stage B flip is a one-line change at the resolver, not surgery at the call site.
       const priceRes = await supabase.rpc("tenant_pricing_resolve", {
         p_tenant_id: tenantId,
         p_product_id: p.id,
-        p_locale: localeCountry,
+        p_locale: effectiveCountry.country,
       })
       const priceRow = priceRes.data?.[0]
       const resolved_price = priceRow
@@ -230,9 +370,35 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
         discount_percent: discountActive ? discountPercent : null,
         discount_ends_at: discountActive ? discountEndsAt : null,
         resolved_price,
+        // AC-16 — both chains travel on EVERY product row, always. A client that only ever sees
+        // the served value cannot tell a correct price from a lucky one; carrying the shadow makes
+        // the divergence observable at the point of sale, not only in the server-side log.
+        served_country: effectiveCountry.country,
+        served_provenance: effectiveCountry.provenance,
+        shadow_country: shadowCountryResolved.country,
+        shadow_provenance: shadowCountryResolved.provenance,
       }
     }),
   )
+
+  // ── AC-17: record the divergence, never let it break the response ───────────────────────
+  // Deliberately fire-and-forget with a swallowed error: this is an observability write, and a
+  // logging failure must not turn a working paywall into a 500. That is the opposite trade-off
+  // from the products query above, where an empty result IS the user-visible failure.
+  if (diverges(servedCountryResolved, shadowCountryResolved)) {
+    try {
+      await supabase.rpc("paycraft_shadow_delta_record", {
+        p_tenant_id: tenantId,
+        p_platform: callerPlatform ?? "unknown",
+        p_served_country: servedCountryResolved.country,
+        p_served_provenance: servedCountryResolved.provenance,
+        p_shadow_country: shadowCountryResolved.country,
+        p_shadow_provenance: shadowCountryResolved.provenance,
+      })
+    } catch (_e) {
+      // intentional-noop: divergence telemetry is best-effort by design.
+    }
+  }
 
   // 5. Filter providers:
   //    (a) locale-supported (null/empty supported_locales = all locales),
@@ -248,7 +414,10 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     }) => {
       const localeOk = !pr.supported_locales ||
         pr.supported_locales.length === 0 ||
-        pr.supported_locales.includes(localeCountry)
+        // effectiveCountry, not localeCountry: after cut-over a buyer priced on server_geo (say IN)
+        // would otherwise only be offered providers whose supported_locales carry their
+        // Accept-Language country (say US) — priced in one country, unable to pay in it.
+        pr.supported_locales.includes(effectiveCountry.country)
       const bySku = isTestMode ? pr.test_payment_links : pr.live_payment_links
       const linksOk = !!bySku && Object.values(bySku).some(perCurrency =>
         !!perCurrency && Object.keys(perCurrency).length > 0
@@ -342,9 +511,16 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     products: pricedProducts,
     providers: orderedProviders,
     paywall: paywallWithLegal,
-    locale: localeCountry,
+    // The country actually priced on. Emitting the raw Accept-Language country here would make
+    // SuiteConfig.locale disagree with served_country the moment cut-over lands.
+    locale: effectiveCountry.country,
     geo_country: geoCountry,
     geo_source: geoSource,
+    served_country: effectiveCountry.country,
+    served_provenance: effectiveCountry.provenance,
+    price_cutover: cutoverOn,
+    shadow_country: shadowCountryResolved.country,
+    shadow_provenance: shadowCountryResolved.provenance,
     // Phase-4 config-wins MonetizationMode passthrough — see comment above.
     mode: monetizationMode,
     cache_ttl_seconds: 3600,
