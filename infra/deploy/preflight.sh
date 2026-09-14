@@ -48,9 +48,17 @@ check "GitHub CLI logged in"  "gh auth status"
 check "Node v20+ available"   "[ \"\$(node --version | sed 's/v//' | cut -d. -f1)\" -ge 20 ]"
 check "jq available"          "command -v jq"
 
-# 3. Cloudflare Workers configured (wrangler.jsonc present)
-check "Cloudflare Worker configured (dashboard)" \
-    "[ -f ${PAYCRAFT_SRC}/dashboard/wrangler.jsonc ]"
+# 3. Cloudflare target resolvable.
+#
+# This used to HARD FAIL when dashboard/wrangler.jsonc was absent — while deploy.sh's own phase 5
+# says in as many words that its absence is "informational, not fatal", because a next-on-pages
+# Pages deploy takes its target from `--project-name` and the Pages project settings, not from a
+# repo config. The two contradicted each other and preflight won, so a repo that deploys perfectly
+# well could not get past phase 1. The check now asks the question that actually matters — is there
+# a Cloudflare target to deploy TO — which a wrangler config OR a --project-name in the deploy
+# script answers.
+check "Cloudflare target resolvable (dashboard)" \
+    "[ -f ${PAYCRAFT_SRC}/dashboard/wrangler.jsonc ] || [ -f ${PAYCRAFT_SRC}/dashboard/wrangler.toml ] || grep -q 'project-name' ${PAYCRAFT_SRC}/dashboard/package.json"
 
 # 4. Vault — required secrets for the Cloudflare deploy flow
 SECRETS=(

@@ -2,7 +2,7 @@
 #
 # deploy.sh — PayCraft v2.0 unified run/deploy orchestrator.
 #
-# Two modes, one command:
+# Four modes, one command:
 #
 #   --local   Run PayCraft on http://localhost:3000
 #             L1 LOCAL PRE-FLIGHT  Docker, supabase CLI, node_modules, supabase/.env
@@ -10,6 +10,19 @@
 #             L3 DEV SERVER START  cd dashboard && nohup npm run dev &
 #             L4 LOCAL READY WAIT  poll localhost:3000 until 200
 #             L5 LOCAL SMOKE       curl /api/health (expects env=local)
+#
+#   --staging Deploy WHATEVER IS CHECKED OUT — the current branch, including commits not yet on dev.
+#             Same phases, staging targets, no PROMOTE: staging is a rehearsal, not a decision.
+#             1 PRE-FLIGHT     as prod
+#             2 STAGING TARGET resolve the staging Supabase project from SUPABASE_ACCOUNTS_REGISTRY.
+#                              None declared → WARN and SKIP phases 3/3.5; the target is never
+#                              redirected to the prod database.
+#             3 / 3.5          migrations + Edge Functions, against the STAGING project
+#             5 DEPLOY CLOUDFLARE  same Pages project, --branch=staging → staging.paycraft.pages.dev
+#             6 SMOKE          on success writes .state/last-staging.json (the promote precondition)
+#
+#   --promote-to-prod  the prod chain, gated on: staging was deployed AND smoked AND HEAD has not
+#             moved since. Promoting an un-rehearsed commit is the one thing staging exists to stop.
 #
 #   --prod    Promote dev → main, then DIRECTLY deploy the dashboard to Cloudflare Workers
 #             1 PRE-FLIGHT     verify CLIs/vault/cloudflare/gh; warn on un-pushed dev commits;
@@ -33,6 +46,8 @@
 #   deploy.sh ship       alias for --prod --apply --confirm-production (full prod chain)
 #   deploy.sh run        alias for --local
 #   deploy.sh verify     alias for --prod --only-phase 1 (preflight + typecheck, read-only)
+#   deploy.sh stage      alias for --staging --apply
+#   deploy.sh promote    alias for --promote-to-prod --apply --confirm-production
 #
 # Stability flags:
 #   --allow-destructive  permit pending migrations containing DROP/TRUNCATE (audited; default refuse)
@@ -54,13 +69,39 @@ CF_PAGES_PROJECT="paycraft"   # Cloudflare Pages project (next-on-pages, edge ru
 GITHUB_REPO="MobileByteLabs/PayCraft"
 SUPABASE_REF="mlwfgytjxlqyfxcgpysm"
 
+# ── Staging ────────────────────────────────────────────────────────────────────────────────────
+# Staging deploys WHATEVER IS CHECKED OUT — the branch you are on, including commits not yet on
+# dev. That is the point: you see the change running before deciding it deserves production. So the
+# staging chain has no PROMOTE phase; promotion is the separate, deliberate act.
+#
+# The dashboard rides the same Cloudflare Pages project on a different BRANCH, which gives a stable
+# preview host with no new infrastructure. The DATABASE does not get that luxury: a staging deploy
+# must never apply migrations to the production project, so the Supabase target is resolved from the
+# registry and the run HALTS if no staging project is declared — rather than falling back to prod,
+# which is the one failure mode that would make staging worse than useless.
+STAGING_BRANCH="staging"
+STAGING_URL="https://${STAGING_BRANCH}.${CF_PAGES_PROJECT}.pages.dev"
+STAGING_SUPABASE_REF=""       # resolved by resolve_staging_target(); empty = not configured
+STAGING_DB_READY=false        # true only when a staging project + db_url alias both resolve
+
+# The Supabase target the migration + function phases act on. Defaults to production; the staging
+# chain reassigns all three from the registry BEFORE those phases run, so one set of phases serves
+# both environments and neither can drift from the other.
+TARGET_DB_URL_ALIAS="framework-supabase-db-url"
+TARGET_PAT_ALIAS="framework-supabase-access-token"
+TARGET_PROJECT_REF="mlwfgytjxlqyfxcgpysm"
+TARGET_URL_ALIAS="framework-supabase-url"
+TARGET_ANON_ALIAS="framework-supabase-anon-key"
+
 # ═══════════════════════════════════════════════════════════
 # Parse args
 # ═══════════════════════════════════════════════════════════
-MODE=""                         # "local" | "prod" | "" (default: matrix view via SKILL.md)
+MODE=""                         # "local" | "staging" | "prod" | "" (default: matrix view via SKILL.md)
+REQUIRE_STAGED=false            # --promote-to-prod: refuse unless staging was deployed + smoked
 APPLY=false
 CONFIRM_PROD=false
-FROM_PHASE=1
+FROM_PHASE=0   # 0, not 1: --promote-to-prod's STAGED CHECK is phase 0, and a default of 1 made
+               # the range check silently skip the one gate that guards production.
 TO_PHASE=6
 ONLY_PHASE=""
 KEEP_GOING=false
@@ -78,6 +119,12 @@ case "${1:-}" in
         SUB_COMMAND="ship"; MODE="prod"; APPLY=true; CONFIRM_PROD=true; shift ;;
     run)
         SUB_COMMAND="run"; MODE="local"; shift ;;
+    stage)
+        # No --confirm-production twin: staging exists to be run freely, and a ceremony on the
+        # rehearsal only teaches people to type the ceremony.
+        SUB_COMMAND="stage"; MODE="staging"; APPLY=true; shift ;;
+    promote)
+        SUB_COMMAND="promote"; MODE="prod"; REQUIRE_STAGED=true; APPLY=true; CONFIRM_PROD=true; shift ;;
     verify)
         SUB_COMMAND="verify"; MODE="prod"; ONLY_PHASE=1; FROM_PHASE=1; TO_PHASE=1; shift ;;
 esac
@@ -86,6 +133,12 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --local)                MODE="local"; shift ;;
         --prod)                 MODE="prod"; shift ;;
+        # `--stagging` is accepted because it is the spelling people reach for; silently, because
+        # correcting someone mid-deploy helps nobody.
+        --staging|--stagging)   MODE="staging"; shift ;;
+        # Promotion is the prod chain with one extra precondition: staging must have actually been
+        # deployed and smoke-tested. You cannot promote what you have not staged.
+        --promote-to-prod)      MODE="prod"; REQUIRE_STAGED=true; shift ;;
         --apply)                APPLY=true; shift ;;
         --dry-run)              APPLY=false; shift ;;
         --confirm-production)   CONFIRM_PROD=true; shift ;;
@@ -98,7 +151,8 @@ while [[ $# -gt 0 ]]; do
         --verbose)              VERBOSE=true; shift ;;
         --silent)               SILENT=true; shift ;;
         -h|--help)
-            sed -n '/^# Two modes/,/^# Sub-commands/p' "${BASH_SOURCE[0]}" | head -30
+            sed -n '/^# Four modes/,/^set -eo pipefail/p' "${BASH_SOURCE[0]}"
+
             exit 0 ;;
         *) echo "Unknown flag: $1 — see --help" >&2; exit 1 ;;
     esac
@@ -115,6 +169,7 @@ fi
 # ═══════════════════════════════════════════════════════════
 PHASE_RESULTS=()
 START_TS=$(date -u +%s)
+PHASE_NS=""; [[ "$MODE" = "staging" ]] && PHASE_NS="staging-"
 
 banner() { [[ "$SILENT" = "true" ]] && return; echo "═══════════════════════════════════════════════════════════════"; printf "  %s\n" "$1"; echo "═══════════════════════════════════════════════════════════════"; }
 phase_start() { [[ "$SILENT" = "true" ]] && return; echo ""; echo "▶ Phase $1: $2"; echo "──────────────────────────────────────────────────────"; }
@@ -143,7 +198,9 @@ run_phase() {
     if eval "$body"; then
         local dur=$(($(date -u +%s) - ts))
         phase_end "$n" "$name" "PASS" "$dur"
-        echo "$n" > "$STATE_DIR/phase-$n.done"
+        # Namespaced by environment: a staging run must not leave a marker that `verify` reads back
+        # as "production phase 3 passed". Prod keeps the bare name so existing markers still count.
+        echo "$n" > "$STATE_DIR/phase-${PHASE_NS}$n.done"
         return 0
     else
         local rc=$? dur=$(($(date -u +%s) - ts))
@@ -256,8 +313,8 @@ phase_3_migrations() {
     local db_url_file db_url
     db_url_file=$(mktemp -t paycraft-dburl-XXXXXX)
     trap "rm -f $db_url_file" RETURN
-    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-db-url --to-file "$db_url_file" 2>/dev/null; then
-        echo "  ✗ framework-supabase-db-url not resolvable from vault"; return 1
+    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" "$TARGET_DB_URL_ALIAS" --to-file "$db_url_file" 2>/dev/null; then
+        echo "  ✗ $TARGET_DB_URL_ALIAS not resolvable from vault"; return 1
     fi
     db_url=$(cat "$db_url_file")
 
@@ -297,7 +354,7 @@ phase_3_migrations() {
                 grep -inE "$DESTRUCTIVE_RE" "supabase/migrations/$fname" | head -4 | sed "s|^|      $fname:|"
             done
             if [[ "$APPLY" = "true" && "$ALLOW_DESTRUCTIVE" != "true" ]]; then
-                echo "  ✗ Refusing destructive migrations on production without --allow-destructive."
+                echo "  ✗ Refusing destructive migrations on ${MODE:-production} without --allow-destructive."
                 echo "    If intended, re-run: /paycraft-deploy ship --allow-destructive"
                 return 1
             fi
@@ -369,19 +426,30 @@ phase_3_5_functions() {
     local pat_file pat
     pat_file=$(mktemp -t fw-supabase-pat-XXXXXX)
     trap "rm -f $pat_file" RETURN
-    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-personal-access-token --to-file "$pat_file" 2>/dev/null; then
-        echo "  ✗ framework-supabase-personal-access-token not resolvable from vault"
-        echo "    Add via: /secrets handoff paste --id framework-supabase-personal-access-token --kind env_var"
+    # `framework-supabase-access-token` is the REGISTERED alias (SECRETS_ALIAS_REGISTRY.yaml,
+    # env_var SUPABASE_ACCESS_TOKEN, provider https://supabase.com/dashboard/account/tokens).
+    # This asked for `framework-supabase-personal-access-token`, a name that appears ZERO times in
+    # the registry — so it could never resolve, and the failure message told the operator to add a
+    # secret they already had under its real name. RULE-SECRETS-NAMING-CONVENTION-001 NC2: every
+    # alias a consumer requests must be one the registry declares.
+    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" "$TARGET_PAT_ALIAS" --to-file "$pat_file" 2>/dev/null; then
+        echo "  ✗ $TARGET_PAT_ALIAS not resolvable from vault"
+        echo "    Add via: /secrets handoff paste --id framework-supabase-access-token --kind env_var"
         echo "    See: https://supabase.com/dashboard/account/tokens"
         return 1
     fi
     pat=$(cat "$pat_file")
     export SUPABASE_ACCESS_TOKEN="$pat"
-    local project_ref="mlwfgytjxlqyfxcgpysm"
+    local project_ref="$TARGET_PROJECT_REF"
     local functions=()
     for d in supabase/functions/*/; do
         local name=$(basename "$d")
         [[ "$name" = "_shared" ]] && continue
+        # A deployable function IS its `index.ts`. `__tests__/` holds canary subdirectories and no
+        # entrypoint, so every run reported it as a failed deploy — a permanent "2 function(s)
+        # failed" on an otherwise clean deploy, which is how a real failure gets ignored. Skipping
+        # by entrypoint rather than by name also covers the next test/helper directory someone adds.
+        [[ -f "${d}index.ts" ]] || { echo "  ↷ ${name}: no index.ts — not a function, skipped"; continue; }
         functions+=("$name")
     done
     echo "  Functions: ${functions[*]}"
@@ -492,8 +560,15 @@ This PR is fast-forward-only — main is kept as an exact replica of dev at prom
 # CLOUDFLARE_API_TOKEN, pulled SV32-safe from the vault).
 phase_5_deploy_cloudflare() {
     local dash="$PAYCRAFT_SRC/dashboard"
+    # One phase, two branches of the SAME Pages project. Staging used to have its own copy of this
+    # function, which is how it lost the vault creds and the NEXT_PUBLIC_* materialization below and
+    # would have shipped a bundle pointing at whatever .env.local the operator happened to have.
+    local deploy_branch="main" public_url="$PROD_URL" label="production"
+    if [[ "$MODE" = "staging" ]]; then
+        deploy_branch="$STAGING_BRANCH"; public_url="$STAGING_URL"; label="staging"
+    fi
     if [[ "$APPLY" != "true" ]]; then
-        echo "  [DRY] would build + deploy dashboard → Cloudflare Workers (npm run cf:deploy)"
+        echo "  [DRY] would build + deploy dashboard → Cloudflare Pages branch '$deploy_branch' ($public_url)"
         return 0
     fi
     command -v npx >/dev/null 2>&1 || { echo "  ✗ node/npx required for cf:deploy"; return 1; }
@@ -516,24 +591,32 @@ phase_5_deploy_cloudflare() {
     # right before the build. Gitignored via dashboard/.gitignore `.env*.local`.
     local ep="$dash/.env.production.local"
     : > "$ep"; chmod 600 "$ep"
-    bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-url      --to-file "$tmpd/sburl" 2>/dev/null || { echo "  ✗ vault pull: framework-supabase-url"; return 1; }
-    bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-anon-key --to-file "$tmpd/sbanon" 2>/dev/null || { echo "  ✗ vault pull: framework-supabase-anon-key"; return 1; }
+    bash "$FW_ROOT/core/scripts/secrets-get.sh" "$TARGET_URL_ALIAS"  --to-file "$tmpd/sburl" 2>/dev/null || { echo "  ✗ vault pull: $TARGET_URL_ALIAS"; return 1; }
+    bash "$FW_ROOT/core/scripts/secrets-get.sh" "$TARGET_ANON_ALIAS" --to-file "$tmpd/sbanon" 2>/dev/null || { echo "  ✗ vault pull: $TARGET_ANON_ALIAS"; return 1; }
     {
         printf 'NEXT_PUBLIC_SUPABASE_URL=%s\n'          "$(cat "$tmpd/sburl")"
         printf 'NEXT_PUBLIC_PAYCRAFT_SUPABASE_URL=%s\n' "$(cat "$tmpd/sburl")"
         printf 'NEXT_PUBLIC_SUPABASE_ANON_KEY=%s\n'     "$(cat "$tmpd/sbanon")"
-        printf 'NEXT_PUBLIC_PAYCRAFT_DASHBOARD_URL=%s\n' "https://paycraft.mobilebytesensei.com"
+        printf 'NEXT_PUBLIC_PAYCRAFT_DASHBOARD_URL=%s\n' "$public_url"
     } >> "$ep"
-    echo "  ✓ Prod build-time env materialized → .env.production.local (public NEXT_PUBLIC_* from vault)"
+    echo "  ✓ ${label} build-time env materialized → .env.production.local ($TARGET_URL_ALIAS, $TARGET_ANON_ALIAS)"
 
-    echo "  Building + deploying dashboard → Cloudflare Pages (next-on-pages, edge)…"
+    echo "  Building + deploying dashboard → Cloudflare Pages branch '$deploy_branch' (next-on-pages, edge)…"
     [[ -d "$dash/node_modules" ]] || ( cd "$dash" && npm install --no-audit --no-fund --legacy-peer-deps >/dev/null 2>&1 )
+    # `npm run pages:deploy` hardcodes --branch=main, so staging spells the two steps out rather
+    # than passing a branch the script would ignore. Same binaries, same artifact directory.
     if ( cd "$dash" \
-          && CLOUDFLARE_ACCOUNT_ID="$(cat "$tmpd/acct")" \
-             CLOUDFLARE_API_TOKEN="$(cat "$tmpd/tok")" \
-             npm run pages:deploy ); then
-        echo "  ✓ Dashboard deployed to Cloudflare Pages ($CF_PAGES_PROJECT → https://$CF_PAGES_PROJECT.pages.dev)"
-        echo "$PROD_URL" > "$STATE_DIR/last-deploy-url"
+          && export CLOUDFLARE_ACCOUNT_ID="$(cat "$tmpd/acct")" \
+                    CLOUDFLARE_API_TOKEN="$(cat "$tmpd/tok")" \
+          && if [[ "$deploy_branch" = "main" ]]; then
+                 npm run pages:deploy
+             else
+                 npx @cloudflare/next-on-pages@1 \
+                   && npx wrangler pages deploy .vercel/output/static \
+                        --project-name="$CF_PAGES_PROJECT" --branch="$deploy_branch"
+             fi ); then
+        echo "  ✓ Dashboard deployed to Cloudflare Pages ($CF_PAGES_PROJECT, branch $deploy_branch → $public_url)"
+        [[ "$MODE" = "staging" ]] || echo "$PROD_URL" > "$STATE_DIR/last-deploy-url"
         return 0
     fi
     echo "  ✗ pages:deploy failed — check next-on-pages/wrangler output above (edge-runtime on all routes? nodejs_compat set? token Pages-scope?)"
@@ -689,14 +772,24 @@ failure_banner() {
     echo "  Phases completed:"
     for r in "${PHASE_RESULTS[@]}"; do
         IFS='|' read -r rn rname rstatus rdur rdetails <<< "$r"
-        [[ "$rstatus" = "PASS" ]] && printf "    [%d] %-20s ✓ PASS  %ss\n" "$rn" "$rname" "$rdur"
+        # %s, not %d — phase 3.5 is not an integer, and printing the completed-phase list is the
+        # one moment an operator needs it exact: a failed run reported "[3] FUNCTIONS DEPLOY",
+        # naming a phase that had NOT just run and hiding which one actually had.
+        [[ "$rstatus" = "PASS" ]] && printf "    [%s] %-20s ✓ PASS  %ss\n" "$rn" "$rname" "$rdur"
     done
     echo ""
     echo "  Resume after fix:"
-    echo "    bash infra/deploy/deploy.sh --apply --confirm-production --from-phase $n"
+    if [[ "$MODE" = "staging" ]]; then
+        echo "    bash infra/deploy/deploy.sh --staging --apply --from-phase $n"
+    else
+        echo "    bash infra/deploy/deploy.sh --apply --confirm-production --from-phase $n"
+    fi
     echo "═══════════════════════════════════════════════════════════════"
 
-    printf '{"ts":"%s","env":"production","status":"aborted","duration_s":%d,"failed_phase":"%d","apply":%s}\n' \
+    # %s, not %d: phases are not all integers — 3.5 (FUNCTIONS DEPLOY) made printf fail with
+    # "invalid number" and write a malformed ledger line at the exact moment the ledger matters,
+    # i.e. when a production deploy has just aborted. The field is quoted in the JSON anyway.
+    printf '{"ts":"%s","env":"production","status":"aborted","duration_s":%d,"failed_phase":"%s","apply":%s}\n' \
         "$(date -u +%FT%TZ)" "$(($(date -u +%s) - START_TS))" "$n" "$APPLY" >> "$LEDGER"
 }
 
@@ -800,6 +893,203 @@ if [[ -z "$MODE" ]]; then
     exit 1
 fi
 
+# ═══════════════════════════════════════════════════════════
+# Staging target resolution + staging-only phases
+# ═══════════════════════════════════════════════════════════
+
+# Resolve the STAGING Supabase project from the registry — never a fallback to prod.
+#
+# A staging deploy that silently ran its migrations against the production database would be worse
+# than having no staging at all: it would carry the confidence of a rehearsal with the blast radius
+# of the real thing. So an unconfigured staging project is a HARD stop with the exact remediation.
+resolve_staging_target() {
+    local fw="$FW_ROOT" reg acct
+    reg="$fw/core/registries/SUPABASE_ACCOUNTS_REGISTRY.yaml"
+    acct="$(yq -r '.supabase.account // ""' "$fw/workspaces/mbs/PayCraft/secrets-manifest.yaml" 2>/dev/null)"
+    local row
+    row="$(A="$acct" yq -r \
+        '.accounts[strenv(A)] as $a | $a.projects | to_entries[] | select(.value.environment == "staging")
+         | [.value.project_ref, (.value.secret_aliases.db_url // ""), ($a.access_token_alias // ""),
+            (.value.secret_aliases.url // ""), (.value.secret_aliases.anon // "")] | @tsv' \
+        "$reg" 2>/dev/null | head -1)"
+    STAGING_SUPABASE_REF="$(echo "$row" | cut -f1)"
+    local db_alias pat_alias
+    db_alias="$(echo "$row" | cut -f2)"; pat_alias="$(echo "$row" | cut -f3)"
+
+    # Missing staging DB disables the DB phases; it does not abort the deploy.
+    #
+    # The two halves of a staging run carry completely different risk. Publishing the dashboard to a
+    # preview branch is reversible and is the whole reason to stage at all — you want to click
+    # through the branch you are on. Running migrations is not reversible, and running them against
+    # the PRODUCTION billing database while the output says "staging" is the single worst thing this
+    # script could do. So the missing-project case skips phases 3 and 3.5 and still deploys the
+    # dashboard, rather than blocking the safe half to guard the dangerous one.
+    if [[ -z "$STAGING_SUPABASE_REF" || "$STAGING_SUPABASE_REF" = "null" || -z "$db_alias" ]]; then
+        STAGING_DB_READY=false
+        local why="no project with environment: staging"
+        [[ -n "$STAGING_SUPABASE_REF" && "$STAGING_SUPABASE_REF" != "null" && -z "$db_alias" ]] \
+            && why="project $STAGING_SUPABASE_REF declares no secret_aliases.db_url"
+        cat <<EOF
+  ⚠ NO STAGING DATABASE — $why for account '${acct:-<unresolved>}'.
+
+    → MIGRATIONS + FUNCTIONS phases are SKIPPED this run. They will NOT be redirected to the
+      production project; a run that migrated the live billing database while reporting "staging"
+      is the exact failure this refuses to commit.
+    → The dashboard still deploys to $STAGING_URL, reading the PRODUCTION Supabase.
+      Treat what you see there as live data: it is.
+
+    To get a real staging database, create a project in the same Supabase account, then add to
+    core/registries/SUPABASE_ACCOUNTS_REGISTRY.yaml under accounts.${acct:-<account>}.projects:
+
+        paycraft-staging:
+          project_ref: <ref>
+          environment: staging
+          consumers: [mbs/PayCraft]
+          secret_aliases: { url: …, anon: …, service_role: …, db_url: … }
+EOF
+        return 0
+    fi
+    STAGING_DB_READY=true
+    # Point the shared migration + function phases at staging. Assigned HERE, before either phase
+    # runs, so there is no window in which a staging chain could touch the production database.
+    TARGET_PROJECT_REF="$STAGING_SUPABASE_REF"
+    TARGET_DB_URL_ALIAS="$db_alias"
+    [[ -n "$pat_alias" ]] && TARGET_PAT_ALIAS="$pat_alias"
+    # The dashboard bundle must point at the same database the migrations went to, or the preview
+    # shows staging's schema over production's rows.
+    local url_alias anon_alias
+    url_alias="$(echo "$row" | cut -f4)"; anon_alias="$(echo "$row" | cut -f5)"
+    [[ -n "$url_alias"  ]] && TARGET_URL_ALIAS="$url_alias"
+    [[ -n "$anon_alias" ]] && TARGET_ANON_ALIAS="$anon_alias"
+    echo "  ✓ staging Supabase: $STAGING_SUPABASE_REF (db: $TARGET_DB_URL_ALIAS, pat: $TARGET_PAT_ALIAS)"
+    return 0
+}
+
+phase_s1_resolve() { resolve_staging_target; }
+
+# Phase 2.5 — make sure the staging origin is an allowed auth redirect.
+#
+# The decision logic lives in lib-auth-allowlist.sh (canary:
+# tests/auth-allowlist-canary/run.sh) so it is testable without a project, a PAT, or a network.
+# This function is only the I/O around it: read the config, PATCH it back.
+#
+# site_url is never touched — production stays the fallback for anything genuinely unrecognized.
+phase_s2_5_auth_allowlist() {
+    . "$PAYCRAFT_SRC/infra/deploy/lib-auth-allowlist.sh"
+    local ref="${TARGET_PROJECT_REF}" raw cur m
+    echo "  Auth project: $ref$([[ "$STAGING_DB_READY" = "true" ]] || echo "  (PRODUCTION — no staging DB)")"
+
+    raw="$(bash "$FW_ROOT/core/scripts/supabase-connect.sh" mgmt GET "projects/$ref/config/auth" \
+            --target mbs/PayCraft 2>/dev/null)"
+    cur="$(parse_uri_allow_list "$raw")"
+    if [[ -z "$cur" ]]; then
+        # Empty means "could not read", NOT "the list is empty" — PATCHing an empty list back would
+        # delete every existing redirect, including production's. Unverifiable, so say so and stop
+        # short of writing.
+        echo "  ⚠ could not read uri_allow_list for $ref — not writing."
+        echo "    Staging sign-in may bounce to production; verify in Supabase → Auth → URL Configuration."
+        return 0
+    fi
+
+    local missing=()
+    while IFS= read -r m; do [[ -n "$m" ]] && missing+=("$m"); done \
+        < <(auth_allowlist_missing "$cur" "$STAGING_URL" "$CF_PAGES_PROJECT")
+
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        echo "  ✓ staging origin already an allowed auth redirect"
+        return 0
+    fi
+    if [[ "$APPLY" != "true" ]]; then
+        echo "  [DRY] would add to uri_allow_list: ${missing[*]}"
+        return 0
+    fi
+
+    local next; next="$(allowlist_join "$cur" "${missing[@]}")"
+    if bash "$FW_ROOT/core/scripts/supabase-connect.sh" mgmt PATCH "projects/$ref/config/auth" \
+            --data "{\"uri_allow_list\":\"$next\"}" --target mbs/PayCraft >/dev/null 2>&1; then
+        echo "  ✓ added to uri_allow_list: ${missing[*]}"
+        return 0
+    fi
+
+    # Reaching here is PROOF that staging sign-in is broken — entries are missing AND the write
+    # failed. Failing the phase is right: the point of staging is clicking through the app, and the
+    # front door is sign-in. A green deploy the operator cannot log into wastes more time than a
+    # stopped one. (`--keep-going` deploys anyway if you only need the marketing pages.)
+    echo "  ✗ uri_allow_list PATCH failed — staging sign-in WILL bounce to production."
+    echo "    Add manually: Supabase → Auth → URL Configuration → Redirect URLs:"
+    for m in "${missing[@]}"; do echo "      $m"; done
+    echo "    Or deploy anyway without sign-in: re-run with --keep-going"
+    return 1
+}
+
+phase_s6_smoke_staging() {
+    echo "  Target: $STAGING_URL"
+    if [[ "$APPLY" != "true" ]]; then
+        echo "  [DRY] would curl $STAGING_URL/ + /api/health"; return 0
+    fi
+    local code
+    code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 20 "$STAGING_URL/" 2>&1) || true
+    [[ "$code" = "200" ]] && echo "  ✓ Root URL → HTTP 200" || { echo "  ✗ Root URL → HTTP $code"; return 1; }
+    # The marker --promote-to-prod reads. Written ONLY after a passing smoke, so "it deployed" and
+    # "it worked" cannot be confused with each other.
+    printf '{"ts":"%s","env":"staging","status":"success","url":"%s","sha":"%s","db":"%s"}\n' \
+        "$(date -u +%FT%TZ)" "$STAGING_URL" "$(git -C "$PAYCRAFT_SRC" rev-parse HEAD 2>/dev/null)" \
+        "$([[ "$STAGING_DB_READY" = "true" ]] && echo "$STAGING_SUPABASE_REF" || echo "none-prod-backed")" \
+        > "$STATE_DIR/last-staging.json"
+    return 0
+}
+
+# --promote-to-prod: refuse unless staging was deployed AND its smoke passed.
+assert_staged() {
+    local f="$STATE_DIR/last-staging.json"
+    if [[ ! -s "$f" ]]; then
+        echo "  ✗ nothing has been staged — run: bash infra/deploy/deploy.sh --staging --apply" >&2
+        return 1
+    fi
+    local staged_sha head_sha
+    staged_sha="$(yq -r '.sha // ""' "$f" 2>/dev/null || true)"
+    head_sha="$(git -C "$PAYCRAFT_SRC" rev-parse HEAD 2>/dev/null)"
+    echo "  staged: ${staged_sha:0:8}   HEAD: ${head_sha:0:8}"
+    if [[ -n "$staged_sha" && "$staged_sha" != "$head_sha" ]]; then
+        # Promoting a different commit than the one that was rehearsed is the failure this whole
+        # two-step exists to prevent.
+        echo "  ✗ HEAD has moved since staging — re-stage before promoting." >&2
+        return 1
+    fi
+    local staged_db; staged_db="$(yq -r '.db // "?"' "$f" 2>/dev/null || echo "?")"
+    if [[ "$staged_db" = "none-prod-backed" ]]; then
+        echo "  ⚠ that staging run had NO staging database — migrations were never rehearsed."
+        echo "    Phase 3 will apply them to production for the first time. Watch it."
+    fi
+    echo "  ✓ staging verified for this commit"
+    return 0
+}
+
+if [[ "$MODE" = "staging" ]]; then
+    banner "PayCraft Deploy — env=staging, mode=$([ "$APPLY" = true ] && echo APPLY || echo DRY-RUN)"
+    echo "  Deploying: $(git -C "$PAYCRAFT_SRC" rev-parse --abbrev-ref HEAD 2>/dev/null) @ $(git -C "$PAYCRAFT_SRC" rev-parse --short HEAD 2>/dev/null)"
+
+    run_phase 1   "PRE-FLIGHT"        "phase_1_preflight"                 || exit 1
+    run_phase 2   "STAGING TARGET"    "phase_s1_resolve"                  || exit 1
+    run_phase 2.5 "AUTH ALLOWLIST"    "phase_s2_5_auth_allowlist"         || exit 1
+    if [[ "$STAGING_DB_READY" = "true" ]]; then
+        run_phase 3   "MIGRATIONS"       "phase_3_migrations"             || exit 1
+        run_phase 3.5 "FUNCTIONS DEPLOY" "phase_3_5_functions"            || exit 1
+    else
+        phase_end 3   "MIGRATIONS"       "SKIP" "0" "no staging database"
+        phase_end 3.5 "FUNCTIONS DEPLOY" "SKIP" "0" "no staging database"
+    fi
+    run_phase 5   "DEPLOY CLOUDFLARE" "phase_5_deploy_cloudflare"        || exit 1
+    run_phase 6   "SMOKE"             "phase_s6_smoke_staging"            || exit 1
+
+    banner "PayCraft Staging — done in $(($(date -u +%s) - START_TS))s"
+    echo "  Staging: $STAGING_URL"
+    echo "  Promote: bash infra/deploy/deploy.sh --promote-to-prod --apply --confirm-production"
+    printf '{"ts":"%s","env":"staging","status":"success","duration_s":%d,"apply":%s}\n' \
+        "$(date -u +%FT%TZ)" "$(($(date -u +%s) - START_TS))" "$APPLY" >> "$LEDGER"
+    exit 0
+fi
+
 if [[ "$MODE" = "local" ]]; then
     banner "PayCraft Local — $LOCAL_URL"
     run_phase 1 "LOCAL PRE-FLIGHT"    "phase_local_1_preflight"      || exit 1
@@ -827,6 +1117,11 @@ fi
 
 # MODE = prod
 banner "PayCraft Deploy — env=production, mode=$([ "$APPLY" = true ] && echo APPLY || echo DRY-RUN)"
+
+# --promote-to-prod only: production takes the commit staging already proved, or nothing.
+if [[ "$REQUIRE_STAGED" = "true" ]]; then
+    run_phase 0 "STAGED CHECK" "assert_staged" || exit 1
+fi
 
 run_phase 1   "PRE-FLIGHT"       "phase_1_preflight"     || exit 1
 run_phase 2   "SECRETS SYNC"     "phase_2_secrets_sync"  || exit 1
