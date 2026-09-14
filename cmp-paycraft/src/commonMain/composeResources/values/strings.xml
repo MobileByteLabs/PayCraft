@@ -106,6 +106,10 @@
 
     <!-- Restore sheet — additional -->
     <string name="paycraft_restore_hint">This is the email you used when you first subscribed or made a purchase.</string>
+    <!-- The lock-icon footer. Distinct from paycraft_restore_hint on purpose: both slots rendered
+         the SAME sentence, so the sheet said one thing twice and the padlock explained nothing.
+         A padlock promises privacy, so this says what happens to the address. -->
+    <string name="paycraft_restore_privacy">We only use this to look up your subscription. It is never shared.</string>
     <string name="paycraft_restore_success_title">Subscription Restored</string>
     <string name="paycraft_restore_success_message">Welcome back! Your premium access is now active.</string>
     <string name="paycraft_restore_failed_title">Not Found</string>

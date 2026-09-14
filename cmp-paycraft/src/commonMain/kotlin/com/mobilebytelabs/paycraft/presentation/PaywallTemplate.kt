@@ -1,13 +1,8 @@
 package com.mobilebytelabs.paycraft.presentation
 
-import androidx.compose.runtime.Composable
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
 import com.mobilebytelabs.paycraft.model.Product
-import com.mobilebytelabs.paycraft.presentation.templates.BrandedStackTemplate
-import com.mobilebytelabs.paycraft.presentation.templates.DarkTemplate
-import com.mobilebytelabs.paycraft.presentation.templates.MinimalTemplate
-import com.mobilebytelabs.paycraft.presentation.templates.PremiumTemplate
 
 /**
  * One of the pre-built paywall surfaces shipped with PayCraft.
@@ -53,26 +48,10 @@ enum class PaywallTemplate {
     DARK,
     ;
 
-    @Composable
-    @Suppress("DEPRECATION") // MINIMAL/PREMIUM/DARK are deprecated but still routed during the 90-day grace
-    fun render(
-        state: BillingState,
-        products: List<Product>,
-        onPickProduct: (Product) -> Unit,
-        onRetry: () -> Unit,
-        // Defaulted so existing callers compile unchanged. The device-conflict, ownership-transfer
-        // and premium-entitlement surfaces need to dispatch actions that are not "pick a product"
-        // or "retry", and previously had no channel to do so — which is the mechanical reason those
-        // arms were dead ends rather than an oversight in their bodies.
-        onAction: (PayCraftPaywallAction) -> Unit = {},
-    ) {
-        when (this) {
-            BRANDED_STACK -> BrandedStackTemplate(state, products, onPickProduct, onRetry, onAction)
-            MINIMAL -> MinimalTemplate(state, products, onPickProduct, onRetry, onAction)
-            PREMIUM -> PremiumTemplate(state, products, onPickProduct, onRetry, onAction)
-            DARK -> DarkTemplate(state, products, onPickProduct, onRetry, onAction)
-        }
-    }
+    // `render()` lived here and dispatched to four Kotlin templates. It is gone: those templates
+    // were one state machine (now PaywallStateHost) plus four layouts (now seed trees, resolved by
+    // BuiltInPaywallSeeds). The enum remains because it still answers a real question — WHICH seed a
+    // tenant starts from — which is the "seed selection" role the plan reserved for it.
 
     companion object {
         /**

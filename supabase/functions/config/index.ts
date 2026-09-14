@@ -211,9 +211,14 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
   const effectiveCountry = cutoverOn ? shadowCountryResolved : servedCountryResolved
 
   // 3. Fetch components in parallel
-  const [productsRes, paywallRes, providersRes, tenantRes] = await Promise.all([
+  const [productsRes, paywallRes, providersRes, tenantRes, offeringsRes] = await Promise.all([
     supabase.rpc("tenant_products_list", { p_tenant_id: tenantId }),
-    supabase.rpc("tenant_paywall_get", { p_tenant_id: tenantId }),
+    // `tenant_paywall_public_get`, NOT `tenant_paywall_get`. The latter is `SELECT *` on the row,
+    // so once migration 100 added the draft `workflow` column it would have shipped unpublished
+    // work — next quarter's pricing, half-written copy — to every app on every device. The public
+    // reader picks its fields explicitly and sources the tree from published_workflow only, so a
+    // draft has no field to arrive in (101).
+    supabase.rpc("tenant_paywall_public_get", { p_tenant_id: tenantId }),
     supabase
       .from("tenant_providers")
       .select(
@@ -226,6 +231,10 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
       .select("plan,entitlements")
       .eq("id", tenantId)
       .single(),
+    // D8/AC-11 — offerings→packages→skus. 088 created these tables and nothing ever surfaced them,
+    // so they terminated in the database. A component tree binds `package` nodes to ROLES
+    // (`$rc_annual`), never SKUs, which is unresolvable on the client without this.
+    supabase.rpc("tenant_offerings_public_list", { p_tenant_id: tenantId }),
   ])
 
   // Mode-aware: the SDK reads payment_links from the matching map per
@@ -511,6 +520,13 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     products: pricedProducts,
     providers: orderedProviders,
     paywall: paywallWithLegal,
+    // D8/AC-11 — offerings→packages→skus, so a component tree's `package` nodes resolve by ROLE.
+    // Degrades to [] rather than failing the response: a tenant who never created an offering is
+    // the common case, and older SDKs ignore the field entirely (additive, ignoreUnknownKeys).
+    // NOTE the deliberate asymmetry with productsRes, which 500s on error — an empty products array
+    // is a paywall with nothing to sell and is indistinguishable from a broken query, whereas empty
+    // offerings just means the tree falls back to SKU-addressed products.
+    offerings: offeringsRes.error ? [] : (offeringsRes.data ?? []),
     // The country actually priced on. Emitting the raw Accept-Language country here would make
     // SuiteConfig.locale disagree with served_country the moment cut-over lands.
     locale: effectiveCountry.country,

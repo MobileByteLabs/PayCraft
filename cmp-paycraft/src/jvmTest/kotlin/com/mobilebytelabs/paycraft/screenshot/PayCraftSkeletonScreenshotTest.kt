@@ -64,7 +64,12 @@ import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Money
 import com.mobilebytelabs.paycraft.model.Product
-import com.mobilebytelabs.paycraft.presentation.templates.BrandedStackTemplate
+import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
+import com.mobilebytelabs.paycraft.presentation.tree.PackagePrice
+import com.mobilebytelabs.paycraft.presentation.tree.PaywallTreeParser
+import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
+import com.mobilebytelabs.paycraft.presentation.tree.monthlyEquivalentNote
+import com.mobilebytelabs.paycraft.presentation.tree.savingsVersusMonthly
 import com.mobilebytelabs.paycraft.ui.LocalPayCraftSurfaceMode
 import com.mobilebytelabs.paycraft.ui.PayCraftSurfaceMode
 import com.mobilebytelabs.paycraft.ui.ProductList
@@ -109,7 +114,7 @@ class PayCraftSkeletonScreenshotTest {
 
     /**
      * Golden #2 — Content state: the branded paywall's Free branch with the same
-     * deterministic product list. Exercises the whole BrandedStackTemplate composition
+     * deterministic product list. Exercises the whole host + seed-tree composition
      * (hero → value props → plan stack → CTA → footer) as the user sees it, so a
      * regression to any of those surfaces flips the golden.
      */
@@ -117,12 +122,7 @@ class PayCraftSkeletonScreenshotTest {
     fun content_paywall_render() = runComposeUiTest {
         setContent {
             DeterministicPayCraftTheme(config = deterministicSuiteConfig()) {
-                BrandedStackTemplate(
-                    state = BillingState.Free,
-                    products = deterministicProducts(),
-                    onPickProduct = { /* deterministic no-op — golden is a static frame */ },
-                    onRetry = { /* deterministic no-op */ },
-                )
+                HostFree(deterministicProducts())
             }
         }
         // Paired assertion (AC-28): the content paywall must offer a purchase.
@@ -143,11 +143,16 @@ class PayCraftSkeletonScreenshotTest {
     fun payment_pending_render() = runComposeUiTest {
         setContent {
             DeterministicPayCraftTheme(config = deterministicSuiteConfig()) {
-                BrandedStackTemplate(
+                PaywallStateHost(
                     state = BillingState.PaymentPending("premium_monthly"),
-                    products = deterministicProducts(),
-                    onPickProduct = { /* deterministic no-op */ },
-                    onRetry = { /* deterministic no-op */ },
+                    workflow = brandedSeed(),
+                    context = RenderContext(),
+                    priceFor = { null },
+                    onSelectPackage = {},
+                    onPurchase = {},
+                    onRestore = {},
+                    onRetry = {},
+                    onAction = {},
                 )
             }
         }
@@ -195,12 +200,7 @@ class PayCraftSkeletonScreenshotTest {
                             // ONE product keeps the composition short enough that the host
                             // window is genuinely taller than the paywall — which is the whole
                             // point of the capture.
-                            BrandedStackTemplate(
-                                state = BillingState.Free,
-                                products = deterministicProducts().take(1),
-                                onPickProduct = { /* deterministic no-op */ },
-                                onRetry = { /* deterministic no-op */ },
-                            )
+                            HostFree(deterministicProducts().take(1))
                         }
                     }
                 }
@@ -368,6 +368,53 @@ class PayCraftSkeletonScreenshotTest {
             "captureRoboImage did not write $relativePath — verifyRoborazziJvm would be vacuously green",
         )
     }
+
+    /** The SHIPPED branded-stack seed — what a tenant on that template now receives. */
+    private fun brandedSeed() = PaywallTreeParser.parse(
+        java.io.File("src/commonMain/composeResources/files/paycraft/seed/branded_stack.json").readText(),
+    )
+
+    /**
+     * The Free arm through the host, priced from the deterministic catalogue so the golden stays a
+     * static frame. Replaces the direct BrandedStackTemplate render that D3 deleted.
+     */
+    @Composable
+    private fun HostFree(products: List<Product>) {
+        PaywallStateHost(
+            state = BillingState.Free,
+            workflow = brandedSeed(),
+            context = RenderContext(
+                selectedPackageRole = "${'$'}rc_annual",
+                // Stands in for the app: only the plans this catalogue sells. With one product the
+                // sheet must stay short enough to leave the host window visible above it.
+                availableRoles = products.filterIsInstance<Product.Subscription>().map {
+                    if (it.interval == Product.Subscription.Interval.YEAR) "${'$'}rc_annual" else "${'$'}rc_monthly"
+                }.toSet(),
+            ),
+            priceFor = { role ->
+                val sub = products.filterIsInstance<Product.Subscription>().firstOrNull {
+                    it.interval == if (role == "${'$'}rc_annual") {
+                        Product.Subscription.Interval.YEAR
+                    } else {
+                        Product.Subscription.Interval.MONTH
+                    }
+                }
+                sub?.let {
+                    PackagePrice(
+                        display = it.basePrice.format(),
+                        perPeriodNote = it.monthlyEquivalentNote(),
+                        savingsPercent = it.savingsVersusMonthly(products),
+                    )
+                }
+            },
+            onSelectPackage = {},
+            onPurchase = {},
+            onRestore = {},
+            onRetry = {},
+            onAction = {},
+        )
+    }
+
 }
 
 /** Fixed window for the sheet-over-host golden. */

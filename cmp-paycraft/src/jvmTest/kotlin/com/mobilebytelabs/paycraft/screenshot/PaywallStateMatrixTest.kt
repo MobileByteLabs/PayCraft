@@ -32,7 +32,9 @@ import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.model.VerificationMethod
-import com.mobilebytelabs.paycraft.presentation.templates.DarkTemplate
+import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
+import com.mobilebytelabs.paycraft.presentation.tree.PaywallTreeParser
+import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import com.mobilebytelabs.paycraft.ui.components.DeviceConflictContent
 import com.mobilebytelabs.paycraft.ui.components.EmptyProductsContent
@@ -160,25 +162,33 @@ class PaywallStateMatrixTest {
 
 
     /**
-     * DarkTemplate rendering DeviceConflict through the FULL template stack.
+     * A DARK tree rendering DeviceConflict through the FULL host stack.
      *
      * Every other golden here captures a component in isolation under a fixed lightColorScheme,
      * which is exactly why a dark-mode regression could not be seen: the shared composables read
      * ambient `MaterialTheme.colorScheme`, and in isolation that ambient scheme is the test's, not
-     * the template's. Rendering through `DarkTemplate` is the only way this class of defect shows up.
+     * the paywall's. Rendering through the host is the only way this class of defect shows up.
+     *
+     * This used to render `DarkTemplate`, which D3 deleted. The property it guards did NOT go with
+     * it: a tree declaring `color_scheme: dark` must impose that scheme on every arm, or a dark-tree
+     * tenant hitting a device conflict gets dark-grey text on near-black — rendered, and invisible.
      */
     @Test
-    fun dark_template_device_conflict_render() = runComposeUiTest {
+    fun dark_tree_device_conflict_render() = runComposeUiTest {
         setContent {
             // Deliberately a LIGHT host scheme — the case that was broken. The template must impose
             // its own dark scheme regardless of what the host app is running.
             MaterialTheme(colorScheme = lightColorScheme()) {
                 Box(modifier = Modifier.size(width = 411.dp, height = 891.dp)) {
                     PayCraftThemeProvider {
-                        DarkTemplate(
+                        PaywallStateHost(
                             state = conflict(),
-                            products = emptyList(),
-                            onPick = {},
+                            workflow = darkWorkflow(),
+                            context = RenderContext(),
+                            priceFor = { null },
+                            onSelectPackage = {},
+                            onPurchase = {},
+                            onRestore = {},
                             onRetry = {},
                             onAction = {},
                         )
@@ -191,6 +201,11 @@ class PaywallStateMatrixTest {
         onRoot().captureRoboImage(P_DARK_CONFLICT)
         assertCaptured(P_DARK_CONFLICT)
     }
+
+    /** The SHIPPED dark seed — the same artifact a tenant selecting "dark" receives. */
+    private fun darkWorkflow() = PaywallTreeParser.parse(
+        java.io.File("src/commonMain/composeResources/files/paycraft/seed/dark.json").readText(),
+    )
 
     @Suppress("unused")
     private fun unusedStatusAnchor(): SubscriptionStatus? = null

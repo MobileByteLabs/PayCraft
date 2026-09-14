@@ -4,6 +4,7 @@ import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -11,6 +12,70 @@ import kotlin.test.assertTrue
 class SyncPolicyTest {
 
     // ─── isSyncDue ──────────────────────────────────────────────
+
+    /**
+     * A cancelled subscription is the one CERTAIN to lapse, so as expiry nears it needs checking
+     * more often, not less. `willRenew == false` used to short-circuit to ONE_DAY before the
+     * proximity ladder ran, so a sub cancelled and expiring in six hours was polled daily —
+     * premium stayed live for up to ~18 hours past what the customer paid for. This is the exact
+     * shape `s4_premiumCache_syncFindsExpired_transitionsToFree` exercises on a device.
+     */
+    @Test
+    fun syncInterval_cancelledSubscriptionNearingExpiry_hourly() {
+        val status = SubscriptionStatus(
+            isPremium = true,
+            expiresAt = futureIso(hours = 6),
+            willRenew = false,
+        )
+        assertEquals(SyncPolicy.ONE_HOUR, SyncPolicy.syncInterval(status))
+    }
+
+    @Test
+    fun syncInterval_cancelledSubscriptionFarFromExpiry_stillNotWeekly() {
+        // 15 days out, a RENEWING sub would be weekly. A cancelled one stays daily: cancellation
+        // can be reversed in the store, and the app should notice sooner than a week. This is the
+        // shape `s10_cancelledSubscription_syncsDaily` asserts on a device — and the case a fix
+        // that merely deleted the willRenew branch would have regressed.
+        val status = SubscriptionStatus(
+            isPremium = true,
+            expiresAt = futureIso(days = 15),
+            willRenew = false,
+        )
+        assertEquals(SyncPolicy.ONE_DAY, SyncPolicy.syncInterval(status))
+        assertEquals(
+            SyncPolicy.ONE_WEEK,
+            SyncPolicy.syncInterval(status.copy(willRenew = true)),
+            "a RENEWING sub 15 days out is the weekly case — the cap must apply only to cancelled",
+        )
+    }
+
+    /**
+     * Expiry in the past forces the question regardless of the interval. It must NOT demote
+     * locally — the server owns entitlement, and revoking on a device clock would cut off someone
+     * whose renewal simply has not reached the cache.
+     */
+    @Test
+    fun isSyncDue_premiumCacheAlreadyExpired_returnsTrueEvenWhenIntervalSaysNo() {
+        val expired = SubscriptionStatus(
+            isPremium = true,
+            expiresAt = futureIso(hours = -2),
+            willRenew = true,
+        )
+        // Synced one minute ago: no interval would call this due.
+        val justSynced = currentTimeMillis() - 60_000L
+        assertTrue(SyncPolicy.isSyncDue(expired, justSynced))
+    }
+
+    @Test
+    fun isSyncDue_premiumCacheNotYetExpired_respectsInterval() {
+        val live = SubscriptionStatus(
+            isPremium = true,
+            expiresAt = futureIso(days = 20),
+            willRenew = true,
+        )
+        val justSynced = currentTimeMillis() - 60_000L
+        assertFalse(SyncPolicy.isSyncDue(live, justSynced))
+    }
 
     @Test
     fun isSyncDue_noCachedStatus_returnsTrue() {

@@ -1,6 +1,8 @@
 package com.mobilebytelabs.paycraft.sample
 
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -71,11 +73,16 @@ abstract class BasePayCraftUiTest {
     }
 
     protected fun assertBillingState(expected: String) {
+        // `entry.value` for a Text node is a List<AnnotatedString> under SemanticsProperties.Text,
+        // never a String — so the previous `entry.value == expected` could not be true for ANY
+        // state, and every assertion here burned its full 5s timeout before failing. Read the
+        // property that actually holds the text.
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule.onAllNodesWithTag("billing_state_label")
                 .fetchSemanticsNodes()
                 .any { node ->
-                    node.config.any { entry -> entry.value == expected }
+                    node.config.getOrNull(SemanticsProperties.Text)
+                        ?.any { it.text == expected } == true
                 }
         }
         composeTestRule.onNodeWithTag("billing_state_label").assertTextEquals(expected)

@@ -26,6 +26,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +44,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
 import com.mobilebytelabs.paycraft.config.ConfigResult
 import com.mobilebytelabs.paycraft.ui.components.ConfigUnavailable
+import com.mobilebytelabs.paycraft.presentation.tree.PackagePrice
+import com.mobilebytelabs.paycraft.presentation.tree.monthlyEquivalentNote
+import com.mobilebytelabs.paycraft.presentation.tree.savingsVersusMonthly
+import com.mobilebytelabs.paycraft.presentation.tree.PaywallTreeContent
+import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
+import com.mobilebytelabs.paycraft.presentation.tree.BuiltInPaywallSeeds
+import com.mobilebytelabs.paycraft.presentation.tree.PaywallWorkflow
+import com.mobilebytelabs.paycraft.presentation.tree.defaultSelectedRole
+import com.mobilebytelabs.paycraft.presentation.tree.PaywallTreeParser
+import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
+import com.mobilebytelabs.paycraft.presentation.tree.packageRoles
+import com.mobilebytelabs.paycraft.config.productForRole
 import com.mobilebytelabs.paycraft.ui.components.PlansUnavailable
 import com.mobilebytelabs.paycraft.ui.components.StaleConfigNotice
 import com.mobilebytelabs.paycraft.PayCraft
@@ -389,6 +404,67 @@ private fun PayCraftPaywallSurface(
                 // plan cards and a CTA that cannot do anything: a silent dead end that looks like a
                 // layout bug. Say what is actually true instead. (Premium users still get their
                 // template below — they have an entitlement to see even with no plans on offer.)
+                // ── D7: tree-else-template ──────────────────────────────────────────────────
+                // A published component tree wins over the `template` enum. Decided HERE rather than
+                // inside a template, because the question is "which renderer", not "how does this
+                // template draw" — and the fallback must stay reachable: a tree that fails to parse
+                // lands on the template path instead of an empty screen.
+                //
+                // remember(json) so a dashboard edit arriving on the config flow re-parses, while
+                // scroll and recomposition do not.
+                val treeWorkflow = remember(config?.paywall?.workflow) {
+                    config?.paywall?.workflow?.let { PaywallTreeParser.parse(it.toString()) }
+                }
+
+
+                // The tenant's published tree, else the bundled seed for the template they chose.
+                // `paywall.template` is a SEED SELECTION now, not a second rendering path: the four
+                // Kotlin templates it used to dispatch to were one state machine plus four layouts,
+                // and both halves live elsewhere — the machine in PaywallStateHost, the layouts in
+                // composeResources. A tenant who published a tree is unaffected; one who never did
+                // gets the same design, rendered by the renderer instead of by a hand-written twin.
+                var seedWorkflow by remember(template) { mutableStateOf<PaywallWorkflow?>(null) }
+                LaunchedEffect(template) { seedWorkflow = BuiltInPaywallSeeds.workflow(template) }
+                val effectiveWorkflow = treeWorkflow ?: seedWorkflow
+
+                // The tree's authored default selection, applied ONCE. The ViewModel preselects
+                // "popular, else first" with no knowledge of the tree; when an author marked a
+                // different package as the default, that mark is the more specific intent and wins.
+                // Applied through SelectPlan rather than by styling the card, so what is RINGED and
+                // what `Continue` BUYS can never disagree — the failure mode of a display-only fix.
+                // EFFECTIVE, not `treeWorkflow`. This read the tenant's tree only — written before
+                // the built-in seed became the render path, and never updated when D3 made seeds the
+                // fallback for everyone. The result on a real app (cappy, no published tree): the
+                // paywall opened with NOTHING selected, so the first tap on Continue bought whatever
+                // the ViewModel had guessed. The ring and the charge could disagree — the exact
+                // failure this block exists to prevent.
+                val authoredDefaultRole = remember(effectiveWorkflow) {
+                    effectiveWorkflow?.defaultSelectedRole()
+                }
+                val appliedDefault = remember(effectiveWorkflow) { mutableStateOf(false) }
+                LaunchedEffect(effectiveWorkflow, authoredDefaultRole, products.size) {
+                    if (appliedDefault.value || authoredDefaultRole == null || products.isEmpty()) {
+                        return@LaunchedEffect
+                    }
+                    config?.productForRole(authoredDefaultRole)
+                        ?.let { dto -> products.firstOrNull { it.id == dto.id } }
+                        ?.let { onAction(PayCraftPaywallAction.SelectPlan(it.toBillingPlan(config))) }
+                    // Marked applied either way: a role with no matching product is an authoring
+                    // mistake, and retrying it every recomposition would fight the user's own taps.
+                    appliedDefault.value = true
+                }
+
+                // Selection is read back out of `selectedPlan` by matching the plan id to the role's
+                // product, because the ViewModel owns selection in BillingPlan terms and the tree
+                // speaks roles. Translating here keeps both sides unchanged.
+                val selectedRole = effectiveWorkflow?.let { wf ->
+                    config?.let { cfg ->
+                        wf.packageRoles().firstOrNull { role ->
+                            cfg.productForRole(role)?.id == state.selectedPlan?.id
+                        }
+                    }
+                }
+
                 if (products.isEmpty() && state.billingState !is BillingState.Premium) {
                     PlansUnavailable(onDismiss = { onAction(PayCraftPaywallAction.Dismiss) })
                 } else {
@@ -400,14 +476,66 @@ private fun PayCraftPaywallSurface(
                             onRetry = { onAction(PayCraftPaywallAction.RefreshStatus) },
                         )
                     }
-                    template.render(
+                    PaywallStateHost(
                         state = state.billingState,
-                        products = products,
-                        onPickProduct = { product ->
-                            onAction(PayCraftPaywallAction.SelectPlan(product.toBillingPlan(config)))
+                        workflow = effectiveWorkflow,
+                        context = RenderContext(
+                            locale = effectiveWorkflow?.localizations?.keys?.firstOrNull() ?: "en_US",
+                            // An intro offer exists when the catalogue carries a Trial product.
+                            // `Product` is a sealed hierarchy — trials are their own variant, not a
+                            // nullable field on Subscription.
+                            hasIntroOffer = products.any { it is Product.Trial },
+                            selectedPackageRole = selectedRole,
+                            // Only the roles this tenant's catalogue can actually price. A tree may
+                            // author more plans than a given tenant sells; the unsold ones do not
+                            // render rather than sitting inert on the paywall.
+                            // Roles this catalogue can price — but NEVER an empty set. An empty
+                            // filter hides every plan, which is a paywall with a headline, a CTA
+                            // and nothing to buy. If nothing resolves, the honest state is "I
+                            // cannot tell what is on offer", and showing the authored plans beats
+                            // showing none: worst case a price is missing, versus no way to
+                            // subscribe at all. (The `products.isEmpty()` branch above already
+                            // covers a genuinely empty catalogue.)
+                            availableRoles = effectiveWorkflow
+                                ?.packageRoles()
+                                ?.filter { role ->
+                                    config?.productForRole(role)?.let { dto ->
+                                        products.any { it.id == dto.id }
+                                    } == true
+                                }
+                                ?.toSet()
+                                ?.takeIf { it.isNotEmpty() },
+                        ),
+                        priceFor = { role ->
+                            config?.productForRole(role)?.let { dto ->
+                                products.firstOrNull { it.id == dto.id }?.let { product ->
+                                    val plan = product.toBillingPlan(config)
+                                    PackagePrice(
+                                        display = plan.price,
+                                        // The template's "$3.49 / mo billed annually" line. Derived,
+                                        // never authored — an authored note goes stale the moment a
+                                        // price or storefront changes, and stale pricing on a paywall
+                                        // is the one error that costs money in both directions.
+                                        perPeriodNote = product.monthlyEquivalentNote(),
+                                        savingsPercent = product.savingsVersusMonthly(products),
+                                    )
+                                }
+                            }
                         },
+                        onSelectPackage = { role ->
+                            config?.productForRole(role)?.let { dto ->
+                                products.firstOrNull { it.id == dto.id }?.let { product ->
+                                    onAction(PayCraftPaywallAction.SelectPlan(product.toBillingPlan(config)))
+                                }
+                            }
+                        },
+                        onPurchase = { onAction(PayCraftPaywallAction.Subscribe) },
+                        onRestore = { onAction(PayCraftPaywallAction.OpenRestoreSheet) },
                         onRetry = { onAction(PayCraftPaywallAction.RefreshStatus) },
                         onAction = onAction,
+                        // v1 `valueProps`/`popularPlanSku` are carried into a BUILT-IN SEED only.
+                        // A tenant who authored a tree already said what their paywall contains.
+                        enrichFromConfig = treeWorkflow == null,
                     )
                 }
             }

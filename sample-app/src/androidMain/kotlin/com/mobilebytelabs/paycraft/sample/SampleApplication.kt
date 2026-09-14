@@ -33,9 +33,34 @@ class SampleApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // Instrumented tests own this setup themselves: BasePayCraftUiTest calls
+        // PayCraft.initialize with a Mock backend and starts Koin with fakes in @Before, then
+        // stopKoin()s in @After. If the Application ALSO initialises — especially against a real
+        // backend, where init launches a realtime-identity refresh — that background coroutine
+        // outlives the test and resolves Koin after the scope closed, failing every test with
+        // `ClosedScopeException: Scope '_root_' is closed`. Observed the moment the APK was built
+        // with -PpaycraftBaseUrl; a default (Mock) build hid it, because Mock has nothing to refresh.
+        if (isRunningUnderInstrumentation()) {
+            registerActivityLifecycleCallbacks(ForegroundActivityTracker)
+            return
+        }
+
+        // Mock by default so the showcase runs offline. Supply -PpaycraftBaseUrl (and a key) at
+        // build time to point it at a real PayCraft backend — a local Supabase, a staging stack —
+        // which is how a server-authored paywall tree gets verified on an actual device rather
+        // than inferred from a JVM render.
+        val baseUrl = BuildConfig.PAYCRAFT_BASE_URL
         PayCraft.initialize(
-            apiKey = "pk_test_sample",
-            backend = PayCraftBackend.Mock(staticConfig = sampleSuiteConfig()),
+            apiKey = BuildConfig.PAYCRAFT_API_KEY,
+            backend =
+                if (baseUrl.isNotBlank()) {
+                    PayCraftBackend.SelfHosted(
+                        supabaseUrl = baseUrl,
+                        supabaseAnonKey = BuildConfig.PAYCRAFT_ANON_KEY,
+                    )
+                } else {
+                    PayCraftBackend.Mock(staticConfig = sampleSuiteConfig())
+                },
         )
 
         // Track the foreground Activity so paycraftPlayBillingModule can hand it to
@@ -56,6 +81,21 @@ class SampleApplication : Application() {
             )
         }
     }
+
+    /**
+     * True when the process is hosting an instrumented test.
+     *
+     * The test APK's classes are loaded into the app's classloader for an instrumented run and are
+     * absent otherwise, so the presence of the runner registry is the signal — no build flag to
+     * forget to set, and no test-only code shipped in a release.
+     */
+    private fun isRunningUnderInstrumentation(): Boolean =
+        try {
+            Class.forName("androidx.test.platform.app.InstrumentationRegistry")
+            true
+        } catch (_: ClassNotFoundException) {
+            false
+        }
 
     /** Holds a WeakReference to the currently-resumed Activity for the Play billing flow. */
     private object ForegroundActivityTracker : Application.ActivityLifecycleCallbacks {

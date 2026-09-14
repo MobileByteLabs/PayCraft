@@ -1,0 +1,260 @@
+{
+  "schema_version": 2,
+  "initial_step_id": "paywall",
+  "steps": [
+    {
+      "id": "paywall",
+      "name": "Paywall screen",
+      "is_last_step": true,
+      "components_config": {
+        "type": "stack",
+        "dimension": "vertical",
+        "spacing": 16,
+        "padding": {
+          "top": 20,
+          "leading": 20,
+          "bottom": 20,
+          "trailing": 20
+        },
+        "components": [
+          {
+            "type": "text",
+            "text_lid": "title",
+            "font_size": 32,
+            "font_weight_int": 800
+          },
+          {
+            "type": "text",
+            "text_lid": "subtitle",
+            "font_size": 16
+          },
+          {
+            "type": "package",
+            "package_id": "$rc_annual",
+            "is_selected_by_default": true,
+            "stack": {
+              "type": "stack",
+              "dimension": "vertical",
+              "spacing": 2,
+              "padding": {
+                "top": 12,
+                "leading": 16,
+                "bottom": 12,
+                "trailing": 16
+              },
+              "components": [
+                {
+                  "type": "stack",
+                  "dimension": "horizontal",
+                  "spacing": 8,
+                  "components": [
+                    {
+                      "type": "text",
+                      "text_lid": "annual",
+                      "font_size": 16,
+                      "font_weight_int": 600
+                    },
+                    {
+                      "type": "spacer",
+                      "size": 0,
+                      "grow": true
+                    },
+                    {
+                      "type": "stack",
+                      "dimension": "horizontal",
+                      "spacing": 0,
+                      "shape": {
+                        "radius": 6
+                      },
+                      "background": {
+                        "value": {
+                          "light": {
+                            "type": "hex",
+                            "value": "accent"
+                          }
+                        }
+                      },
+                      "padding": {
+                        "top": 3,
+                        "leading": 8,
+                        "bottom": 3,
+                        "trailing": 8
+                      },
+                      "components": [
+                        {
+                          "type": "text",
+                          "text_lid": "v_savings",
+                          "font_size": 11,
+                          "font_weight_int": 700,
+                          "color": {
+                            "light": {
+                              "type": "hex",
+                              "value": "on_accent"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "text_lid": "v_price",
+                      "font_size": 16,
+                      "font_weight_int": 700
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text_lid": "v_per_period",
+                  "font_size": 12
+                }
+              ],
+              "overrides": [
+                {
+                  "conditions": [
+                    {
+                      "type": "selected"
+                    }
+                  ],
+                  "properties": {
+                    "border": "accent",
+                    "border_width": "2",
+                    "background": "accent_soft"
+                  }
+                }
+              ],
+              "shape": {
+                "radius": 14
+              }
+            }
+          },
+          {
+            "type": "package",
+            "package_id": "$rc_monthly",
+            "is_selected_by_default": false,
+            "stack": {
+              "type": "stack",
+              "dimension": "vertical",
+              "spacing": 2,
+              "padding": {
+                "top": 12,
+                "leading": 16,
+                "bottom": 12,
+                "trailing": 16
+              },
+              "components": [
+                {
+                  "type": "stack",
+                  "dimension": "horizontal",
+                  "spacing": 8,
+                  "components": [
+                    {
+                      "type": "text",
+                      "text_lid": "monthly",
+                      "font_size": 16,
+                      "font_weight_int": 600
+                    },
+                    {
+                      "type": "spacer",
+                      "size": 0,
+                      "grow": true
+                    },
+                    {
+                      "type": "stack",
+                      "dimension": "horizontal",
+                      "spacing": 0,
+                      "shape": {
+                        "radius": 6
+                      },
+                      "background": {
+                        "value": {
+                          "light": {
+                            "type": "hex",
+                            "value": "accent"
+                          }
+                        }
+                      },
+                      "padding": {
+                        "top": 3,
+                        "leading": 8,
+                        "bottom": 3,
+                        "trailing": 8
+                      },
+                      "components": [
+                        {
+                          "type": "text",
+                          "text_lid": "v_savings",
+                          "font_size": 11,
+                          "font_weight_int": 700,
+                          "color": {
+                            "light": {
+                              "type": "hex",
+                              "value": "on_accent"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "text_lid": "v_price",
+                      "font_size": 16,
+                      "font_weight_int": 700
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text_lid": "v_per_period",
+                  "font_size": 12
+                }
+              ],
+              "overrides": [
+                {
+                  "conditions": [
+                    {
+                      "type": "selected"
+                    }
+                  ],
+                  "properties": {
+                    "border": "accent",
+                    "border_width": "2",
+                    "background": "accent_soft"
+                  }
+                }
+              ],
+              "shape": {
+                "radius": 14
+              }
+            }
+          },
+          {
+            "type": "spacer",
+            "size": 8
+          },
+          {
+            "type": "purchase_button",
+            "text_lid": "cta_continue"
+          },
+          {
+            "type": "restore_purchases",
+            "text_lid": "restore_label"
+          }
+        ]
+      }
+    }
+  ],
+  "localizations": {
+    "en_US": {
+      "title": "Upgrade to Premium",
+      "subtitle": "Unlock everything PayCraft has to offer.",
+      "annual": "Annual",
+      "monthly": "Monthly",
+      "cta_continue": "Continue",
+      "restore_label": "Restore Purchases",
+      "v_price": "{{ product.price }}",
+      "v_per_period": "{{ product.price_per_period }}",
+      "v_savings": "{{ product.offer_savings_label }}"
+    }
+  }
+}

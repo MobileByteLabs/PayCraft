@@ -69,6 +69,7 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_email_cd
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_failed_message
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_failed_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_hint
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_privacy
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_oauth_description
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_or_email
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_sign_in_apple
@@ -503,7 +504,10 @@ fun PayCraftRestoreContent(
                 modifier = Modifier.size(14.dp),
             )
             Text(
-                text = stringResource(Res.string.paycraft_restore_hint),
+                // The FIELD already carries paycraft_restore_hint as its supporting text. Repeating
+                // it beside a padlock told the user nothing twice; the padlock's job is to say what
+                // happens to the address they just typed.
+                text = stringResource(Res.string.paycraft_restore_privacy),
                 style = MaterialTheme.typography.labelSmall,
                 color = paycraftColors.onSurfaceVariant,
                 textAlign = TextAlign.Center,

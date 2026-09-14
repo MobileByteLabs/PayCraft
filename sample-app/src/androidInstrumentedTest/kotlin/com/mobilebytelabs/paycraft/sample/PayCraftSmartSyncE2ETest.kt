@@ -1,5 +1,7 @@
 package com.mobilebytelabs.paycraft.sample
 
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -83,7 +85,7 @@ class PayCraftSmartSyncE2ETest : BasePayCraftUiTest() {
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule.onAllNodesWithTag("billing_plan")
                 .fetchSemanticsNodes()
-                .any { node -> node.config.any { it.value == "yearly" } }
+                .any { node -> node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == "yearly" } == true }
         }
         assertTextWithTag("billing_plan", "yearly")
 
@@ -118,7 +120,7 @@ class PayCraftSmartSyncE2ETest : BasePayCraftUiTest() {
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule.onAllNodesWithTag("billing_state_label")
                 .fetchSemanticsNodes()
-                .any { node -> node.config.any { it.value == "Premium" } }
+                .any { node -> node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == "Premium" } == true }
         }
         assertBillingState("Premium")
         assertTextWithTag("billing_plan", "monthly")
@@ -151,7 +153,7 @@ class PayCraftSmartSyncE2ETest : BasePayCraftUiTest() {
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule.onAllNodesWithTag("billing_state_label")
                 .fetchSemanticsNodes()
-                .any { node -> node.config.any { it.value == "Free" } }
+                .any { node -> node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == "Free" } == true }
         }
         assertBillingState("Free")
         assertEquals(1, fakeService.checkPremiumCallCount)
@@ -256,7 +258,7 @@ class PayCraftSmartSyncE2ETest : BasePayCraftUiTest() {
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule.onAllNodesWithTag("billing_plan")
                 .fetchSemanticsNodes()
-                .any { node -> node.config.any { it.value == "yearly" } }
+                .any { node -> node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == "yearly" } == true }
         }
         assertTextWithTag("billing_plan", "yearly")
         assertEquals(1, fakeService.checkPremiumCallCount)

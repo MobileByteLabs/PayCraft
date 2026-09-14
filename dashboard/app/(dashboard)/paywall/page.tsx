@@ -1,5 +1,6 @@
 export const runtime = "edge"
 
+import Link from "next/link"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
 import { PageHeader } from "@/components/ui/page-header"
@@ -41,6 +42,22 @@ export default async function PaywallPage() {
           </Badge>
         }
       />
+      {/* The gallery is a sibling page rather than a modal: applying a template rewrites the draft,
+          which is a navigation-worthy action, and a URL makes it linkable from docs and support. */}
+      <div className="mb-6">
+        <Link
+          href="/paywall/templates"
+          className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          Browse paywall templates →
+        </Link>
+        <Link
+          href="/paywall/designer"
+          className="ml-2 inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          Open tree editor →
+        </Link>
+      </div>
       <PaywallDesigner
         initial={
           paywall ?? {
