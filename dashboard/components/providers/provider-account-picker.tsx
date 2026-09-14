@@ -102,10 +102,10 @@ export function ProviderAccountPicker({ provider, attachedId, resolvedLabel, res
   const defaultLabel = connections.find((c) => c.is_default)?.label ?? "none set"
 
   return (
-    <section className="space-y-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+    <section className="bg-white border border-ink-200 rounded-xl p-4 space-y-3">
       <div>
-        <h3 className="font-semibold">Billing account</h3>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <h3 className="text-sm font-bold text-ink-900">Billing account</h3>
+        <p className="text-xs text-ink-500 mt-0.5 leading-relaxed">
           {resolvedLabel
             ? resolvedViaDefault
               ? `This app follows the account default — ${resolvedLabel}.`
@@ -114,13 +114,13 @@ export function ProviderAccountPicker({ provider, attachedId, resolvedLabel, res
         </p>
       </div>
 
-      <label className="block text-xs text-zinc-500">
+      <label className="block text-[11px] font-bold uppercase tracking-tighter text-ink-500">
         Use connection
         <select
           disabled={busy}
           value={selected}
           onChange={(e) => apply(e.target.value)}
-          className="mt-1 w-full rounded-md border border-zinc-300 p-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+          className="mt-1 w-full rounded-lg border border-ink-200 p-2 text-sm text-ink-900 disabled:opacity-50"
         >
           <option value="">Follow the account default ({defaultLabel})</option>
           {connections.map((c) => (
@@ -134,7 +134,7 @@ export function ProviderAccountPicker({ provider, attachedId, resolvedLabel, res
       </label>
 
       {connections.length > 0 && (
-        <ul className="space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
+        <ul className="space-y-1 text-[11px] text-ink-600">
           {connections.map((c) => (
             <li key={c.id} className="flex items-center justify-between gap-2">
               <span>
@@ -145,7 +145,7 @@ export function ProviderAccountPicker({ provider, attachedId, resolvedLabel, res
                   type="button"
                   disabled={busy}
                   onClick={() => makeDefault(c.id)}
-                  className="rounded border border-zinc-300 px-2 py-0.5 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  className="rounded border border-ink-200 px-2 py-0.5 font-bold hover:bg-ink-50 disabled:opacity-50"
                 >
                   Make default
                 </button>
@@ -155,8 +155,8 @@ export function ProviderAccountPicker({ provider, attachedId, resolvedLabel, res
         </ul>
       )}
 
-      {note && <p role="status" className="text-xs text-emerald-700 dark:text-emerald-400">{note}</p>}
-      {error && <p role="alert" className="text-xs text-red-700 dark:text-red-400">{error}</p>}
+      {note && <p role="status" className="text-[11px] text-emerald-700">{note}</p>}
+      {error && <p role="alert" className="text-[11px] text-red-700">{error}</p>}
     </section>
   )
 }

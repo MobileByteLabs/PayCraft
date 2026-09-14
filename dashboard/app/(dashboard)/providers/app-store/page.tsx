@@ -5,6 +5,7 @@ import { ArrowLeft, Info, Key, ShieldCheck } from "lucide-react"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
 import { AppStoreKeysForm } from "@/components/providers/app-store-keys-form"
+import { ProviderAccountPicker } from "@/components/providers/provider-account-picker"
 
 /**
  * App Store Connect store setup page.
@@ -29,6 +30,18 @@ export default async function AppStoreSetupPage() {
 
   const connected = !!status?.connected
   const cfg = status?.config ?? {}
+
+  // Which App Store Connect team this app bills through — see the Google Play page for why this
+  // asks `tenant_provider_resolve` rather than reading the pointer.
+  const { data: resolved } = await supabase.rpc("tenant_provider_resolve", {
+    p_tenant: tenant.id,
+    p_provider: "app_store",
+  })
+  const conn = (resolved ?? {}) as {
+    account_id?: string | null
+    label?: string | null
+    via_default?: boolean
+  }
 
   return (
     <div className="space-y-6">
@@ -84,11 +97,19 @@ export default async function AppStoreSetupPage() {
         />
       </div>
 
+      <ProviderAccountPicker
+        provider="app_store"
+        attachedId={conn.via_default ? null : conn.account_id ?? null}
+        resolvedLabel={conn.label ?? null}
+        resolvedViaDefault={!!conn.via_default}
+      />
+
       <AppStoreKeysForm
         connected={connected}
         keyId={(cfg.key_id as string | undefined) ?? null}
         issuerId={(cfg.issuer_id as string | undefined) ?? null}
         bundleId={(cfg.bundle_id as string | undefined) ?? null}
+        connectionLabel={conn.label ?? null}
       />
 
       {/* Status */}

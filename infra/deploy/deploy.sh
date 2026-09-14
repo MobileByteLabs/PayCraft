@@ -24,7 +24,7 @@
 #   --promote-to-prod  the prod chain, gated on: staging was deployed AND smoked AND HEAD has not
 #             moved since. Promoting an un-rehearsed commit is the one thing staging exists to stop.
 #
-#   --prod    Promote dev → main, then DIRECTLY deploy the dashboard to Cloudflare Workers
+#   --prod    Build + DIRECTLY deploy the dashboard from `dev` to Cloudflare
 #             1 PRE-FLIGHT     verify CLIs/vault/cloudflare/gh; warn on un-pushed dev commits;
 #                              TYPECHECK the dashboard (tsc --noEmit) so a broken build never
 #                              reaches main (--skip-build to bypass)
@@ -33,7 +33,6 @@
 #                              --allow-destructive) → pre-push schema BACKUP → supabase db push →
 #                              POST-PUSH VERIFY (0 pending). Aborts the chain on any failure.
 #             3.5 FUNCTIONS DEPLOY  vault-mediated supabase functions deploy (Edge Functions)
-#             4 PROMOTE        open PR dev → main, merge it (fast-forward) — source-of-truth replica
 #             5 DEPLOY CLOUDFLARE  build + `npm run cf:deploy` → dashboard on Cloudflare Workers (OpenNext)
 #             6 SMOKE          curl /api/health + /auth/login + root + Edge Function /config reachability
 #
@@ -227,7 +226,7 @@ phase_1_preflight() {
 
     cd "$PAYCRAFT_SRC"
 
-    # Warn on un-pushed local dev commits — prod promotes origin/dev, so any
+    # Warn on un-pushed local dev commits — prod deploys origin/dev, so any
     # commit not pushed there will NOT deploy. (Warning only; you may be deploying intentionally.)
     git fetch origin dev 2>/dev/null || true
     local unpushed
@@ -237,9 +236,9 @@ phase_1_preflight() {
         echo "    Push them first (/git-session-commit) if you intend to ship them."
     fi
 
-    # Build verification — typecheck the dashboard BEFORE any mutation so a broken build never
-    # reaches main (Vercel would fail the deploy AFTER promote, polluting main). Fast, deterministic,
-    # no env needed. The authoritative Next.js build still runs on Vercel (Phase 5 aborts on ERROR).
+    # Build verification — typecheck the dashboard BEFORE any mutation, so a broken build is caught
+    # here rather than after migrations have already been applied. Fast, deterministic, no env
+    # needed; the authoritative Next.js build runs in phase 5, which aborts on error.
     if [[ "$SKIP_BUILD" = "true" ]]; then
         echo "  ↷ build verify skipped (--skip-build)"
         return 0
@@ -475,7 +474,7 @@ phase_3_5_functions() {
             echo "  ✓ remaining ${#functions[@]} functions deployed successfully"
             # Don't abort the phase — partial deploy is acceptable; the failing
             # functions surface in the dashboard for follow-up. Returning 0
-            # lets the chain proceed to PROMOTE.
+            # lets the chain proceed.
         fi
     else
         echo "  [DRY] would deploy ${#functions[@]} function(s) to project $project_ref"
@@ -483,72 +482,16 @@ phase_3_5_functions() {
     unset SUPABASE_ACCESS_TOKEN
 }
 
-# Phase 4 — promote dev → main as exact fast-forward replica
+# Phase 4 PROMOTE — RETIRED (2026-09-14).
+#
+# `dev` is the deploy branch. There is no `main` replica any more, so there is nothing to promote:
+# a production deploy builds and ships whatever `dev` holds, exactly like staging ships whatever
+# branch you are on. The phase is kept as a visible SKIP rather than deleted from the chain so the
+# numbering stays stable — `--from-phase 5` and every ledger row written before this change still
+# mean what they meant — and so a reader wondering where PROMOTE went finds this instead of silence.
 phase_4_promote() {
-    cd "$PAYCRAFT_SRC"
-
-    # Ensure local main + dev are up to date
-    git fetch origin dev main 2>/dev/null
-
-    local dev_sha main_sha
-    dev_sha=$(git rev-parse origin/dev)
-    main_sha=$(git rev-parse origin/main)
-
-    if [[ "$dev_sha" = "$main_sha" ]]; then
-        echo "  ✓ main already at dev HEAD ($dev_sha) — nothing to promote"
-        return 0
-    fi
-
-    echo "  dev: $dev_sha"
-    echo "  main:        $main_sha"
-    echo "  Promoting dev → main..."
-
-    if [[ "$APPLY" != "true" ]]; then
-        local ahead
-        ahead=$(git rev-list --count origin/main..origin/dev)
-        echo "  [DRY] would open PR dev → main ($ahead commits ahead)"
-        echo "  [DRY] would auto-merge with --merge to keep main = dev"
-        return 0
-    fi
-
-    # Check for an existing open dev→main PR; reuse if present
-    local pr_num
-    pr_num=$(gh pr list --base main --head dev --state open --json number --jq '.[0].number // empty' 2>/dev/null)
-    if [[ -z "$pr_num" ]]; then
-        echo "  Opening PR dev → main..."
-        pr_num=$(gh pr create --base main --head dev \
-            --title "release: promote dev → main ($(date -u +%Y-%m-%dT%H:%M:%SZ))" \
-            --body "Auto-opened by /paycraft-deploy Phase 4 PROMOTE.
-
-Source: origin/dev @ ${dev_sha}
-Target: origin/main @ ${main_sha}
-Diff:   $(git rev-list --count origin/main..origin/dev) commits
-
-This PR is fast-forward-only — main is kept as an exact replica of dev at promote time. No manual edits should land on main." 2>&1 | grep -oE 'https://[^ ]+/[0-9]+' | grep -oE '[0-9]+$' | head -1)
-        if [[ -z "$pr_num" ]]; then
-            echo "  ✗ Failed to open PR"; return 1
-        fi
-        echo "  ✓ Opened PR #${pr_num}"
-    else
-        echo "  ✓ Reusing existing PR #${pr_num}"
-    fi
-
-    # Auto-merge: prefer --merge (preserves history); GitHub falls back to required strategy if --merge disabled
-    echo "  Merging PR #${pr_num}..."
-    if gh pr merge "$pr_num" --merge --delete-branch=false 2>&1 | head -3; then
-        echo "  ✓ PR #${pr_num} merged"
-    else
-        echo "  ⚠ --merge strategy unavailable; falling back to --squash"
-        gh pr merge "$pr_num" --squash --delete-branch=false 2>&1 | head -3 \
-            || { echo "  ✗ Merge failed"; return 1; }
-    fi
-
-    # Refresh local state and confirm
-    git fetch origin main 2>/dev/null
-    local new_main_sha
-    new_main_sha=$(git rev-parse origin/main)
-    echo "  main HEAD now: $new_main_sha"
-    echo "$new_main_sha" > "$STATE_DIR/last-promoted-sha"
+    echo "  ↷ retired — dev is the deploy branch; no dev→main replica to promote"
+    return 0
 }
 
 # Phase 5 — poll Vercel API until the deploy of the latest main commit is READY
@@ -714,18 +657,19 @@ emit_status() {
 
     echo "─── branches ───────────────────────────────────────"
     cd "$PAYCRAFT_SRC"
-    git fetch -q origin dev main 2>/dev/null || true
-    local dev_sha main_sha ahead
+    git fetch -q origin dev 2>/dev/null || true
+    # dev IS the deploy branch — there is no main replica and so no promote_state to report.
+    # What matters instead is whether the checkout you would deploy from matches origin/dev.
+    local dev_sha head_sha head_ref
     dev_sha=$(git rev-parse --short origin/dev 2>/dev/null || echo "?")
-    main_sha=$(git rev-parse --short origin/main 2>/dev/null || echo "?")
-    ahead=$(git rev-list --count origin/main..origin/dev 2>/dev/null || echo "?")
-    printf "dev:   %s\n" "$dev_sha"
-    printf "main:          %s\n" "$main_sha"
-    printf "ahead:         %s commits (dev ahead of main)\n" "$ahead"
-    if [[ "$dev_sha" = "$main_sha" ]]; then
-        printf "promote_state: SYNCED\n"
+    head_sha=$(git rev-parse --short HEAD 2>/dev/null || echo "?")
+    head_ref=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
+    printf "origin/dev:  %s\n" "$dev_sha"
+    printf "checkout:    %s @ %s\n" "$head_ref" "$head_sha"
+    if [[ "$dev_sha" = "$head_sha" ]]; then
+        printf "deploy_state: AT-DEV\n"
     else
-        printf "promote_state: PENDING (run Phase 4 to promote)\n"
+        printf "deploy_state: DIVERGED (a --prod deploy ships origin/dev, not this checkout)\n"
     fi
     echo ""
 
@@ -735,7 +679,7 @@ emit_status() {
         case "$n" in
             1) name="PRE-FLIGHT" ;; 2) name="SECRETS SYNC" ;;
             3) name="MIGRATIONS" ;; 3.5) name="FUNCTIONS DEPLOY" ;;
-            4) name="PROMOTE" ;; 5) name="DEPLOY CLOUDFLARE" ;; 6) name="SMOKE" ;;
+            4) name="PROMOTE (retired)" ;; 5) name="DEPLOY CLOUDFLARE" ;; 6) name="SMOKE" ;;
         esac
         local marker="$STATE_DIR/phase-$n.done"
         if [[ -f "$marker" ]]; then
@@ -1127,15 +1071,15 @@ run_phase 1   "PRE-FLIGHT"       "phase_1_preflight"     || exit 1
 run_phase 2   "SECRETS SYNC"     "phase_2_secrets_sync"  || exit 1
 run_phase 3   "MIGRATIONS"       "phase_3_migrations"    || exit 1
 run_phase 3.5 "FUNCTIONS DEPLOY" "phase_3_5_functions"   || exit 1
-run_phase 4   "PROMOTE"          "phase_4_promote"       || exit 1
+phase_end 4   "PROMOTE"          "SKIP" "0" "retired — dev is the deploy branch"
 run_phase 5   "DEPLOY CLOUDFLARE" "phase_5_deploy_cloudflare" || exit 1
 run_phase 6   "SMOKE"            "phase_6_smoke"         || exit 1
 
 banner "PayCraft Deploy — done in $(($(date -u +%s) - START_TS))s"
 echo "  Live: $PROD_URL"
 
-printf '{"ts":"%s","env":"production","status":"success","duration_s":%d,"apply":%s,"main_sha":"%s"}\n' \
+printf '{"ts":"%s","env":"production","status":"success","duration_s":%d,"apply":%s,"dev_sha":"%s"}\n' \
     "$(date -u +%FT%TZ)" "$(($(date -u +%s) - START_TS))" "$APPLY" \
-    "$(git -C $PAYCRAFT_SRC rev-parse --short origin/main 2>/dev/null)" >> "$LEDGER"
+    "$(git -C $PAYCRAFT_SRC rev-parse --short origin/dev 2>/dev/null)" >> "$LEDGER"
 
 # cloudflare-deploy wired via /paycraft-deploy phase 5 (2026-08-23)

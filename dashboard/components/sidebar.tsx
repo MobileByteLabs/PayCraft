@@ -20,6 +20,7 @@ import {
   Tag,
   Users,
   Users2,
+  Link2,
   Webhook,
 } from "lucide-react"
 
@@ -66,6 +67,7 @@ const groups: NavGroup[] = [
     items: [
       { href: "/billing", label: "Billing", icon: CreditCard },
       { href: "/team", label: "Team", icon: Users2 },
+      { href: "/settings/provider-accounts", label: "Provider connections", icon: Link2 },
       { href: "/settings/api-keys", label: "API keys", icon: KeyRound },
       { href: "/settings", label: "Settings", icon: Settings },
     ],

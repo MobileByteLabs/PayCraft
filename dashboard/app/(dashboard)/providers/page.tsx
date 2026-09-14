@@ -59,10 +59,10 @@ export default async function ProvidersPage({
         .select("country_code")
         .eq("id", tenant.id)
         .single<{ country_code: string | null }>(),
-      supabase
-        .from("tenant_providers")
-        .select("provider")
-        .eq("tenant_id", tenant.id),
+      // RESOLVED connectivity, not row existence. An app with no tenant_providers row still bills
+      // through the account default, so `has(provider)` reported "Set up" on a perfectly connected
+      // app — the connected-only-after-clicking-Manage symptom.
+      supabase.rpc("tenant_providers_resolved_list", { p_tenant_id: tenant.id }),
       supabase.rpc("tenant_payment_methods_list", { p_tenant_id: tenant.id }),
       supabase
         .from("tenant_stripe_connect")
@@ -86,8 +86,18 @@ export default async function ProvidersPage({
 
   const recommendations = recommendationsFor(activeCountry)
 
+  type ResolvedProvider = {
+    provider: string
+    connected: boolean
+    via_default: boolean
+    label: string | null
+  }
+  const resolved = (providersRes.data ?? []) as ResolvedProvider[]
+  const resolvedByProvider = new Map(resolved.map((r) => [r.provider, r]))
+  // Kept as a Set of CONNECTED providers so every downstream `has()` now means "bills through
+  // something" rather than "has a row".
   const tenantProviders = new Set<string>(
-    (providersRes.data ?? []).map((r: any) => r.provider as string),
+    resolved.filter((r) => r.connected).map((r) => r.provider),
   )
   const tenantPaymentMethods = new Set<string>(
     (paymentMethodsRes.data ?? [])
@@ -212,6 +222,8 @@ export default async function ProvidersPage({
             reason="Mandatory for digital goods on Android under Google Play's Payments policy. Connect your Play service account to auto-create/sync subscription products and let the SDK bill via Google Play instead of an external web page."
             href="/providers/google-play"
             connected={tenantProviders.has("google_play")}
+            connectionLabel={resolvedByProvider.get("google_play")?.label ?? null}
+            viaDefault={resolvedByProvider.get("google_play")?.via_default ?? false}
           />
           <StoreCard
             name="App Store Connect"
@@ -219,6 +231,8 @@ export default async function ProvidersPage({
             reason="Required for digital goods on iOS. Connect your App Store Connect API key (.p8) to auto-create/sync StoreKit subscription products."
             href="/providers/app-store"
             connected={tenantProviders.has("app_store")}
+            connectionLabel={resolvedByProvider.get("app_store")?.label ?? null}
+            viaDefault={resolvedByProvider.get("app_store")?.via_default ?? false}
           />
         </div>
       </Section>
@@ -442,12 +456,18 @@ function StoreCard({
   reason,
   href,
   connected,
+  connectionLabel = null,
+  viaDefault = false,
 }: {
   name: string
   subtitle: string
   reason: string
   href: string
   connected: boolean
+  /** Which connection this app bills through — the card states the effect, not just the state. */
+  connectionLabel?: string | null
+  /** True when this app inherits the account default rather than being pinned to a connection. */
+  viaDefault?: boolean
 }) {
   return (
     <Card
@@ -469,6 +489,15 @@ function StoreCard({
             <Badge tone="neutral">Setup</Badge>
           )}
         </div>
+
+        {connected && connectionLabel && (
+          // Naming the connection matters most in the via-default case: the app was never
+          // configured and still bills, which reads as a mistake until you can see WHY.
+          <p className="text-[11px] text-ink-500 mb-2">
+            {viaDefault ? "Using account default" : "Using"}{" "}
+            <span className="font-bold text-ink-700">{connectionLabel}</span>
+          </p>
+        )}
 
         <p className="text-xs text-ink-700 leading-relaxed mb-4">{reason}</p>
 

@@ -99,13 +99,17 @@ else
     printf "  ⚠ paycraft.mobilebytesensei.com unreachable — first-deploy is OK; otherwise check DNS\n"
 fi
 
-# 7. main branch exists on remote
+# 7. dev branch exists on remote
+#
+# This used to hard-fail on a missing origin/main, whose only justification was Phase 4 PROMOTE —
+# retired 2026-09-14 when dev became the deploy branch. Keeping it would have blocked every deploy
+# on a branch nothing reads. The branch that must exist is the one we actually ship.
 cd "$PAYCRAFT_SRC"
-if git ls-remote --heads origin main >/dev/null 2>&1 && [ -n "$(git ls-remote --heads origin main)" ]; then
-    printf "  ✓ origin/main exists\n"; PASS=$((PASS + 1))
+if [ -n "$(git ls-remote --heads origin dev 2>/dev/null)" ]; then
+    printf "  ✓ origin/dev exists (deploy branch)\n"; PASS=$((PASS + 1))
 else
-    printf "  ✗ origin/main missing — Phase 4 PROMOTE will fail. Create with: git checkout -b main && git push -u origin main\n"
-    FAILURES+=("origin-main-missing"); FAIL=$((FAIL + 1))
+    printf "  ✗ origin/dev missing — there is nothing to deploy.\n"
+    FAILURES+=("origin-dev-missing"); FAIL=$((FAIL + 1))
 fi
 
 echo "─────────────────────────────────────────────────────"

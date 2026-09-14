@@ -5,6 +5,7 @@ import { ArrowLeft, Info, Key, ShieldCheck } from "lucide-react"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
 import { GooglePlayKeysForm } from "@/components/providers/google-play-keys-form"
+import { ProviderAccountPicker } from "@/components/providers/provider-account-picker"
 
 /**
  * Google Play store setup page.
@@ -29,6 +30,20 @@ export default async function GooglePlaySetupPage() {
 
   const connected = !!status?.connected
   const packageName = (status?.config?.package_name as string | undefined) ?? null
+
+  // Which Play console this app bills through. `tenant_provider_resolve` answers the question the
+  // operator actually has — "what is in effect right now" — including the case where the app is
+  // pinned to nothing and rides the account default, which a raw `provider_account_id` read cannot
+  // distinguish from "not set up".
+  const { data: resolved } = await supabase.rpc("tenant_provider_resolve", {
+    p_tenant: tenant.id,
+    p_provider: "google_play",
+  })
+  const conn = (resolved ?? {}) as {
+    account_id?: string | null
+    label?: string | null
+    via_default?: boolean
+  }
 
   return (
     <div className="space-y-6">
@@ -85,7 +100,14 @@ export default async function GooglePlaySetupPage() {
         />
       </div>
 
-      <GooglePlayKeysForm connected={connected} packageName={packageName} />
+      <ProviderAccountPicker
+        provider="google_play"
+        attachedId={conn.via_default ? null : conn.account_id ?? null}
+        resolvedLabel={conn.label ?? null}
+        resolvedViaDefault={!!conn.via_default}
+      />
+
+      <GooglePlayKeysForm connected={connected} packageName={packageName} connectionLabel={conn.label ?? null} />
 
       {/* Status */}
       <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-xs text-emerald-900">
