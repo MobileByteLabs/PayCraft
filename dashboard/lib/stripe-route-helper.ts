@@ -587,6 +587,47 @@ export function classifyProvider(
  * Every helper now returns STRUCTURED status ({ok,skipped,error} or {error,warning}),
  * so each provider's result is classified precisely — no read-back id inference.
  */
+/**
+ * Load a product row plus its pricing rows in the shape `runProductSync` expects.
+ *
+ * Extracted so the single-product route and the bulk drain share ONE definition of "the product
+ * payload". Two copies of this select drift the moment a column is added — the new column lands in
+ * one path and silently vanishes from the other, which surfaces as a product that syncs correctly
+ * when you click it and incorrectly when the drain touches it.
+ */
+export async function loadProductSyncBody(
+  supabase: ReturnType<typeof createClient>,
+  tenantId: string,
+  productId: string,
+): Promise<{ product: any; body: Record<string, any> } | null> {
+  const { data: product, error } = await supabase
+    .from("tenant_products")
+    .select(
+      "id, sku, type, display_name, interval, base_price_cents, base_currency, trial_enabled, trial_duration_days, trial_per_platform, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency, play_product_id, app_store_product_id",
+    )
+    .eq("tenant_id", tenantId)
+    .eq("id", productId)
+    .single()
+  if (error || !product) return null
+
+  const { data: pricing } = await supabase
+    .from("tenant_pricing")
+    .select("currency, amount_cents")
+    .eq("tenant_id", tenantId)
+    .eq("product_id", productId)
+
+  return {
+    product,
+    body: {
+      ...product,
+      pricing_rows: (pricing ?? []).map((r: any) => ({
+        currency: r.currency,
+        amount_cents: r.amount_cents,
+      })),
+    },
+  }
+}
+
 export async function runProductSync(
   supabase: ReturnType<typeof createClient>,
   opts: SyncOptions,

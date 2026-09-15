@@ -412,7 +412,7 @@ step_5_supabase_push_edge_functions() {
 # alias_to_keyname:  vault alias  ->  KEY=  name Supabase expects
 declare -a SUPABASE_SECRETS=(
   "mbs-paycraft-stripe-live-sk:STRIPE_SECRET_KEY"
-  "mbs-paycraft-razorpay-live-secret:RAZORPAY_KEY_SECRET"
+  "mbs-razorpay-key-secret:RAZORPAY_KEY_SECRET"
   "mbs-paycraft-postmark-token:POSTMARK_SERVER_TOKEN"
   "mbs-paycraft-sentry-dsn:SENTRY_DSN"
 )
@@ -482,8 +482,8 @@ declare -a VERCEL_ENV_VARS=(
   "mbs-paycraft-supabase-prod-service-role:SUPABASE_SERVICE_ROLE_KEY"
   "mbs-paycraft-stripe-live-pk:NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"
   "mbs-paycraft-stripe-live-sk:STRIPE_SECRET_KEY"
-  "mbs-paycraft-razorpay-live-key:NEXT_PUBLIC_RAZORPAY_KEY_ID"
-  "mbs-paycraft-razorpay-live-secret:RAZORPAY_KEY_SECRET"
+  "mbs-razorpay-key-id:NEXT_PUBLIC_RAZORPAY_KEY_ID"
+  "mbs-razorpay-key-secret:RAZORPAY_KEY_SECRET"
   "mbs-paycraft-postmark-token:POSTMARK_SERVER_TOKEN"
   "mbs-paycraft-sentry-dsn:NEXT_PUBLIC_SENTRY_DSN"
 )

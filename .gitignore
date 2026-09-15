@@ -133,4 +133,3 @@ secrets.local.toml
 **/secrets.local.toml
 
 # Local CI scratch marker (not source).
-__ci_only__

@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- **117 + 118 give onboarding a source of truth.** Progress previously lived in `useState<Step>` on
+  one dashboard page, so a refresh erased it and nothing could resume a half-finished customer or
+  app; no table in the schema matched `%onboard%`. `onboarding_customer_state` (C1..C3, keyed on
+  `owner_user_id`) and `onboarding_app_state` (A0..A7, keyed on `tenant_id`) now record each step
+  with the evidence that proves it, and a trigger REFUSES `status='passed'` when `evidence IS NULL`.
+  That turns "no skip" from a convention a runtime is asked to honour into a constraint the database
+  enforces against every writer. `blocked` carries a reason from a closed enum
+  (`pending-provider-credential` · `pending-account-api-key` · `provider-api-unavailable` ·
+  `pending-device-verify`); `awaiting-human-signin` is deliberately absent because the account key
+  removes interactive sign-in, and re-adding it turns a canary red.
+
+- **118 adds account-scoped API keys** (`account_api_keys`, hash-only) exchanged at
+  `functions/v1/account-token` for a 15-minute JWT carrying `sub = owner_user_id`. Every existing
+  RPC, RLS policy and `auth.uid()` guard keeps working unchanged — the alternative shapes both
+  widened the surface migrations 105/107 swept: service_role bypasses RLS entirely, and a
+  caller-supplied owner parameter is the exact anti-pattern that sweep removed. Only a SHA-256 hash
+  is stored, and a `key_hash ~ '^[0-9a-f]{64}$'` CHECK makes a skipped hash impossible to persist.
+  All refusal paths return one generic 401, so revocation cannot be distinguished from invalidity.
+
+- **Both migrations REVOKE anon.** RLS already returned no rows, but the residual table grant is
+  removed too — anon now gets `permission denied` outright rather than an empty filtered result.
+
+- **Global sync reconciles instead of draining.** `GET /api/sync/drift` reads real provider state
+  through five detectors, each drawn from a defect measured in production: a product unaddressable
+  because it shares a `tenant_packages` row; a paywall never published (the SDK renders from
+  `published_workflow` only, so cappy served bundled copy advertising "HD downloads"); a `rzp_test_`
+  key in a LIVE slot; an `is_active` provider with zero payment links, which `/config` filters out
+  entirely; and a served country with no price row. `POST /api/sync/all` drains behind a
+  count-bearing confirmation that 409s when the drift set moved.
+
+- **The onboarding wizard reads and writes the same rows** the commands do, so a customer resumes
+  from either direction and a refresh no longer erases progress.
+
 - **088** introduces the Offering → Package → Product model (`tenant_offerings`, `tenant_packages`)
   with RevenueCat-reserved role identifiers, plus a same-file backfill that maps every existing
   product to a role and RAISEs rather than leaving one unmapped. Role arms mirror the existing

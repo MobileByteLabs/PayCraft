@@ -23,24 +23,24 @@ Get values from https://dashboard.stripe.com/apikeys (live mode) + https://dashb
 
 ```bash
 # 1.1 — sk_live_*  (Stripe secret key)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-stripe-platform-secret-key:STRIPE_SECRET_KEY
-security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-stripe-platform-secret-key:STRIPE_SECRET_KEY -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-stripe-platform-secret-key --stdin --account-email mobilebytesensei@gmail.com
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com mbs-stripe-platform-secret-key:STRIPE_SECRET_KEY
+security find-generic-password -s paycraft.mobilebytesensei.com -a mbs-stripe-platform-secret-key:STRIPE_SECRET_KEY -w | \
+  bash core/scripts/secrets-push.sh --vault mbs --secret-id mbs-stripe-platform-secret-key --stdin --account-email mobilebytesensei@gmail.com
 
 # 1.2 — pk_live_*  (Stripe publishable key — PUBLIC, but still vaulted for source-of-truth)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-stripe-platform-publishable-key:STRIPE_PUBLISHABLE_KEY
-security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-stripe-platform-publishable-key:STRIPE_PUBLISHABLE_KEY -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-stripe-platform-publishable-key --stdin --account-email mobilebytesensei@gmail.com
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com mbs-stripe-platform-publishable-key:STRIPE_PUBLISHABLE_KEY
+security find-generic-password -s paycraft.mobilebytesensei.com -a mbs-stripe-platform-publishable-key:STRIPE_PUBLISHABLE_KEY -w | \
+  bash core/scripts/secrets-push.sh --vault mbs --secret-id mbs-stripe-platform-publishable-key --stdin --account-email mobilebytesensei@gmail.com
 
 # 1.3 — whsec_*  (Stripe webhook signing secret — Dashboard → Webhooks → endpoint → Signing secret)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-stripe-platform-webhook-secret:STRIPE_WEBHOOK_SECRET
-security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-stripe-platform-webhook-secret:STRIPE_WEBHOOK_SECRET -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-stripe-platform-webhook-secret --stdin --account-email mobilebytesensei@gmail.com
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com mbs-stripe-platform-webhook-secret:STRIPE_WEBHOOK_SECRET
+security find-generic-password -s paycraft.mobilebytesensei.com -a mbs-stripe-platform-webhook-secret:STRIPE_WEBHOOK_SECRET -w | \
+  bash core/scripts/secrets-push.sh --vault mbs --secret-id mbs-stripe-platform-webhook-secret --stdin --account-email mobilebytesensei@gmail.com
 
 # 1.4 — ca_*  (Stripe Connect client ID — Dashboard → Connect → Settings → Application name)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-stripe-connect-client-id:STRIPE_CONNECT_CLIENT_ID
-security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-stripe-connect-client-id:STRIPE_CONNECT_CLIENT_ID -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-stripe-connect-client-id --stdin --account-email mobilebytesensei@gmail.com
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com mbs-stripe-connect-client-id:STRIPE_CONNECT_CLIENT_ID
+security find-generic-password -s paycraft.mobilebytesensei.com -a mbs-stripe-connect-client-id:STRIPE_CONNECT_CLIENT_ID -w | \
+  bash core/scripts/secrets-push.sh --vault mbs --secret-id mbs-stripe-connect-client-id --stdin --account-email mobilebytesensei@gmail.com
 ```
 
 ## Step 2 — Razorpay (3 secrets)
@@ -49,19 +49,19 @@ Get values from https://dashboard.razorpay.com/app/keys + https://dashboard.razo
 
 ```bash
 # 2.1 — rzp_live_*  (Razorpay key ID)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-razorpay-key-id:RAZORPAY_KEY_ID
-security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-razorpay-key-id:RAZORPAY_KEY_ID -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-razorpay-key-id --stdin --account-email mobilebytesensei@gmail.com
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com mbs-razorpay-key-id:RAZORPAY_KEY_ID
+security find-generic-password -s paycraft.mobilebytesensei.com -a mbs-razorpay-key-id:RAZORPAY_KEY_ID -w | \
+  bash core/scripts/secrets-push.sh --vault mbs --secret-id mbs-razorpay-key-id --stdin --account-email mobilebytesensei@gmail.com
 
 # 2.2 — Razorpay key secret
-bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-razorpay-key-secret:RAZORPAY_KEY_SECRET
-security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-razorpay-key-secret:RAZORPAY_KEY_SECRET -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-razorpay-key-secret --stdin --account-email mobilebytesensei@gmail.com
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com mbs-razorpay-key-secret:RAZORPAY_KEY_SECRET
+security find-generic-password -s paycraft.mobilebytesensei.com -a mbs-razorpay-key-secret:RAZORPAY_KEY_SECRET -w | \
+  bash core/scripts/secrets-push.sh --vault mbs --secret-id mbs-razorpay-key-secret --stdin --account-email mobilebytesensei@gmail.com
 
 # 2.3 — Razorpay webhook secret
-bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-razorpay-webhook-secret:RAZORPAY_WEBHOOK_SECRET
-security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-razorpay-webhook-secret:RAZORPAY_WEBHOOK_SECRET -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-razorpay-webhook-secret --stdin --account-email mobilebytesensei@gmail.com
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com mbs-razorpay-webhook-secret:RAZORPAY_WEBHOOK_SECRET
+security find-generic-password -s paycraft.mobilebytesensei.com -a mbs-razorpay-webhook-secret:RAZORPAY_WEBHOOK_SECRET -w | \
+  bash core/scripts/secrets-push.sh --vault mbs --secret-id mbs-razorpay-webhook-secret --stdin --account-email mobilebytesensei@gmail.com
 ```
 
 > **NOTE**: Razorpay MCP keys (for personal dev automation via Claude) are NOT a PayCraft deploy

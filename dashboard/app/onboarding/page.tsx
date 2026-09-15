@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
@@ -18,6 +18,31 @@ import { Badge } from "@/components/ui/badge"
 
 type Step = 1 | 2 | 3 | 4
 
+/** What the server knows about this app's onboarding. Shape mirrors onboarding_app_state. */
+interface CustomerState {
+  tenant: { id: string; name?: string; api_key_test: string; api_key_live: string } | null
+  app: { current_step: string; steps: Array<{ id: string; status: string }> } | null
+}
+
+/**
+ * Derive the wizard step from SERVER state rather than remembering it locally.
+ *
+ * Local component step state was erased by a refresh, so a half-finished app could not be resumed —
+ * and nothing on the server recorded that the operator had reached step 3 at all.
+ *
+ * Tenant existence is the first signal because step 1 is what CREATES the tenant; before it
+ * completes there is no onboarding_app_state row to read.
+ */
+function deriveStep(state: CustomerState | null): Step {
+  if (!state?.tenant) return 1
+  const passed = new Set(
+    (state.app?.steps ?? []).filter((s) => s.status === "passed").map((s) => s.id),
+  )
+  if (passed.has("A4")) return 4
+  if (passed.has("A2")) return 3
+  return 2
+}
+
 const STEPS = [
   { num: 1, label: "App name" },
   { num: 2, label: "Connect provider" },
@@ -27,7 +52,37 @@ const STEPS = [
 
 export default function OnboardingPage() {
   const router = useRouter()
-  const [step, setStep] = useState<Step>(1)
+  // Server-derived, never locally remembered. `serverState` is the only thing that decides which
+  // step is showing, so a refresh resumes exactly where the operator left off.
+  const [serverState, setServerState] = useState<CustomerState | null>(null)
+  const [loadingState, setLoadingState] = useState(true)
+  const step: Step = deriveStep(serverState)
+
+  const refreshState = useCallback(async () => {
+    try {
+      const res = await fetch("/api/onboarding/state")
+      if (res.ok) setServerState((await res.json()) as CustomerState)
+    } finally {
+      setLoadingState(false)
+    }
+  }, [])
+
+  useEffect(() => { void refreshState() }, [refreshState])
+
+  /** Record a step as reached, with the evidence the trigger requires, then re-derive. */
+  const markStep = useCallback(
+    async (stepId: string, evidence: Record<string, unknown>) => {
+      const tenantId = serverState?.tenant?.id
+      if (!tenantId) return
+      await fetch("/api/onboarding/state", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tenant_id: tenantId, step_id: stepId, evidence }),
+      })
+      await refreshState()
+    },
+    [serverState, refreshState],
+  )
   const [appName, setAppName] = useState("")
   const [tenant, setTenant] = useState<{
     id: string
@@ -54,7 +109,8 @@ export default function OnboardingPage() {
     }
     const t = await res.json()
     setTenant(t)
-    setStep(2)
+    // No local step bump: the tenant now exists, so deriveStep moves to 2 on its own.
+    await refreshState()
   }
 
   return (
@@ -128,15 +184,15 @@ export default function OnboardingPage() {
           {step === 2 && tenant && (
             <Step2
               tenant={tenant}
-              onContinue={() => setStep(3)}
-              onBack={() => setStep(1)}
+              onContinue={() => void markStep("A2", { via: "onboarding-wizard", action: "provider-connected" })}
+              onBack={() => void refreshState()}
             />
           )}
           {step === 3 && tenant && (
             <Step3
               tenant={tenant}
-              onContinue={() => setStep(4)}
-              onBack={() => setStep(2)}
+              onContinue={() => void markStep("A4", { via: "onboarding-wizard", action: "product-created" })}
+              onBack={() => void refreshState()}
             />
           )}
           {step === 4 && tenant && (
@@ -145,7 +201,7 @@ export default function OnboardingPage() {
               copied={copied}
               setCopied={setCopied}
               onFinish={() => router.push("/dashboard")}
-              onBack={() => setStep(3)}
+              onBack={() => void refreshState()}
             />
           )}
         </div>
@@ -165,7 +221,7 @@ export default function OnboardingPage() {
               type="button"
               variant="ghost"
               leading={<ArrowLeft className="w-4 h-4" strokeWidth={2} />}
-              onClick={() => setStep((step - 1) as Step)}
+              onClick={() => void refreshState()}
             >
               Back
             </Button>
@@ -185,7 +241,7 @@ export default function OnboardingPage() {
           {step === 2 && (
             <Button
               type="button"
-              onClick={() => setStep(3)}
+              onClick={() => void markStep("A2", { via: "onboarding-wizard", action: "provider-connected" })}
               trailing={<ArrowRight className="w-4 h-4" strokeWidth={2.5} />}
             >
               Continue
@@ -194,7 +250,7 @@ export default function OnboardingPage() {
           {step === 3 && (
             <Button
               type="button"
-              onClick={() => setStep(4)}
+              onClick={() => void markStep("A4", { via: "onboarding-wizard", action: "product-created" })}
               trailing={<ArrowRight className="w-4 h-4" strokeWidth={2.5} />}
             >
               Continue
