@@ -1,5 +1,6 @@
 package com.mobilebytelabs.paycraft
 
+
 /**
  * Where a resolved billing country came from, most-authoritative first. Downstream pricing/tax
  * logic can decide how much to trust the value (e.g. prefer the store storefront over an IP guess,
@@ -34,7 +35,12 @@ data class DetectedCountry(val country: String, val provenance: CountryProvenanc
  */
 object CountryDetector {
     fun resolve(storefront: String?, serverGeo: String?, deviceSim: String?, configLocale: String?): DetectedCountry {
-        storefront?.trim()?.takeIf { it.isNotBlank() }
+        // Passed through VERBATIM, including StoreKit's alpha-3 ("IND"). Normalizing here would put
+        // an ISO table inside the SDK, where correcting it costs a Maven release plus a bump in every
+        // consumer — so a storefront Apple adds tomorrow would be wrong until three apps ship. The
+        // server normalizes instead (), which is also
+        // where the values are CONSUMED: tenant_pricing.locale and supported_locales.
+        storefront?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
             ?.let { return DetectedCountry(it, CountryProvenance.AUTHORITATIVE_STORE) }
         serverGeo?.trim()?.takeIf { it.isNotBlank() }
             ?.let { return DetectedCountry(it, CountryProvenance.SERVER_IP_GEO) }

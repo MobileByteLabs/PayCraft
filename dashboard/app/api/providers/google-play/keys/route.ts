@@ -100,6 +100,16 @@ export async function POST(req: NextRequest) {
   if (accountEmail) acctConfig.client_email = accountEmail
   const appConfig: Record<string, unknown> = { package_name: packageName }
 
+  // `package_name` and `bundle_id` are the SAME string — the application id — and were stored twice,
+  // once per provider row, where they could silently diverge. 111 made `tenants.app_identifier` the
+  // single value and mirrors it onto both rows; this is the write that was missing, so the RPC had
+  // no callers and the duplication survived in the UI.
+  const { error: idErr } = await supabase.rpc("tenant_app_identifier_set", {
+    p_tenant_id: tenant.id,
+    p_identifier: packageName,
+  })
+  if (idErr) return NextResponse.json({ error: idErr.message }, { status: 500 })
+
   // Optional operator-supplied label; else the SA email names the connection, which is what an
   // operator recognises in a list of consoles.
   const accountLabel =

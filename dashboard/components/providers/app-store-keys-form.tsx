@@ -148,7 +148,7 @@ export function AppStoreKeysForm({
             onChange={(e) => setIss(e.target.value)}
           />
         </Field>
-        <Field label="Bundle ID">
+        <Field label="Application ID">
           <input
             type="text"
             className="w-full px-3 py-2 bg-ink-50 border border-ink-200 rounded-lg text-sm font-mono focus:outline-none focus:border-brand-500"
@@ -156,6 +156,10 @@ export function AppStoreKeysForm({
             value={bid}
             onChange={(e) => setBid(e.target.value)}
           />
+        <p className="text-[11px] text-ink-500">
+          One value for both platforms — the Android package name and the iOS bundle ID are the
+          same string. Saving it here updates it for the other store too.
+        </p>
         </Field>
       </div>
 

@@ -31,6 +31,11 @@ export default async function AppStoreSetupPage() {
   const connected = !!status?.connected
   const cfg = status?.config ?? {}
 
+  // Same single application id the Play page reads (111) — iOS bundle id and Android package name
+  // are the same string, so they must come from the same place.
+  const { data: appRow } = await supabase
+    .from("tenants").select("app_identifier").eq("id", tenant.id).maybeSingle<{ app_identifier: string | null }>()
+
   // Which App Store Connect team this app bills through — see the Google Play page for why this
   // asks `tenant_provider_resolve` rather than reading the pointer.
   const { data: resolved } = await supabase.rpc("tenant_provider_resolve", {
@@ -108,7 +113,7 @@ export default async function AppStoreSetupPage() {
         connected={connected}
         keyId={(cfg.key_id as string | undefined) ?? null}
         issuerId={(cfg.issuer_id as string | undefined) ?? null}
-        bundleId={(cfg.bundle_id as string | undefined) ?? null}
+        bundleId={appRow?.app_identifier ?? ((cfg.bundle_id as string | undefined) ?? null)}
         connectionLabel={conn.label ?? null}
       />
 

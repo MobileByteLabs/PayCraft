@@ -106,7 +106,7 @@ export function GooglePlayKeysForm({
 
       <div className="space-y-1.5">
         <label className="text-[11px] font-bold uppercase tracking-wider text-ink-400 block">
-          Package name
+          Application ID
         </label>
         <input
           type="text"
@@ -115,6 +115,10 @@ export function GooglePlayKeysForm({
           value={pkg}
           onChange={(e) => setPkg(e.target.value)}
         />
+        <p className="text-[11px] text-ink-500">
+          One value for both platforms — the Android package name and the iOS bundle ID are the
+          same string. Saving it here updates it for the other store too.
+        </p>
       </div>
 
       {connected && (

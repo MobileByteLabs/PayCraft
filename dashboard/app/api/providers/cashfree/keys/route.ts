@@ -3,11 +3,12 @@ export const runtime = "edge"
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
+import { savePspAccount } from "@/lib/psp-account-save"
 
 /**
  * Cashfree credentials persistence — same shape as the Stripe / Razorpay
- * Manual API keys flow. Saves via `tenant_providers_save_keys` /
- * `tenant_providers_update_keys` so the credentials live in the same
+ * Manual API keys flow. Saves onto the provider ACCOUNT via `tenant_psp_account_save` (112) so one
+ * Cashfree account can serve many apps, keeping the credentials in the same
  * encrypted-at-rest table as the other providers.
  *
  * Validation here is lighter than Stripe's: Cashfree doesn't publish a
@@ -23,6 +24,12 @@ interface Body {
   live_secret_key: string
   live_webhook_secret: string
   account_label: string
+  /** Target a SPECIFIC connection; null/absent = the one this app already resolves to. */
+  account_id: string | null
+  /** Insert a NEW connection instead of resolving to an existing one. */
+  create_new: boolean
+  /** Permit replacing a credential more than one app bills through. */
+  confirm_shared_overwrite: boolean
 }
 
 /**
@@ -80,35 +87,27 @@ export async function POST(req: NextRequest) {
   // echoes blank when "Also configure live keys" is off).
   const liveProvided = !!live_pk && live_pk !== test_pk
 
-  if (isUpdate) {
-    const { error } = await supabase.rpc("tenant_providers_update_keys", {
-      p_tenant_id: tenant.id,
-      p_provider: "cashfree",
-      p_test_key_id: test_pk || null,
-      p_test_secret: test_sk || null,
-      p_test_webhook_secret: test_wh || null,
-      p_live_key_id: liveProvided ? live_pk : null,
-      p_live_secret: liveProvided ? live_sk : null,
-      p_live_webhook_secret: liveProvided ? live_wh : null,
-      p_supported_locales: null,
-    })
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    await saveAccountLabel(supabase, tenant.id, "cashfree", body.account_label ?? "")
-    return NextResponse.json({ ok: true, mode: "update" })
-  }
 
-  const { error } = await supabase.rpc("tenant_providers_save_keys", {
-    p_tenant_id: tenant.id,
-    p_provider: "cashfree",
-    p_test_key_id: test_pk,
-    p_test_secret: test_sk,
-    p_test_webhook_secret: test_wh || "pending-webhook",
-    p_live_key_id: liveProvided ? live_pk : test_pk,
-    p_live_secret: liveProvided ? live_sk : test_sk,
-    p_live_webhook_secret: liveProvided ? live_wh : test_wh || "pending-webhook",
-    p_supported_locales: null,
-  })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  await saveAccountLabel(supabase, tenant.id, "cashfree", body.account_label ?? "")
-  return NextResponse.json({ ok: true, mode: "create" })
+  // ONE call: the account-tier RPC merges over the existing credential document, so a blank field
+  // means "unchanged" and the old create-vs-update branch is no longer needed. `liveProvided`
+  // still decides whether the live slots carry real values or echo the test ones.
+  return savePspAccount(
+    supabase,
+    tenant.id,
+    "cashfree",
+    {
+      test_key_id: test_pk,
+      test_secret: test_sk,
+      test_webhook_secret: test_wh,
+      live_key_id: liveProvided ? live_pk : test_pk,
+      live_secret: liveProvided ? live_sk : test_sk,
+      live_webhook_secret: liveProvided ? live_wh : test_wh,
+    },
+    {
+      label: body.account_label ?? "",
+      accountId: body.account_id ?? null,
+      createNew: body.create_new === true,
+      confirmShared: body.confirm_shared_overwrite === true,
+    },
+  )
 }

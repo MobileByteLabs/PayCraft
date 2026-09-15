@@ -161,3 +161,42 @@ the checkout-lane decision reads.
 - Ship an `sk_` key in client source (KEY_TIERING.md).
 - Open a web checkout for a digital good on Android or iOS (PROVIDERS_AND_STORES.md).
 - Treat `BillingState.PaymentPending` as a failure (BILLING_STATE_SEMANTICS.md).
+
+---
+
+## Removing something from this surface
+
+**Default: change it and fix the call sites in the same change.** Every consumer of this SDK is ours
+— `reels-downloader`, `steady`, `cappy` — and they are updated directly. When you own every call
+site, a deprecation window warns nobody: it is ceremony paid on each change and never collected.
+
+**Deprecate only when a release could reach code we cannot edit.** The artifact is published to
+Maven Central as `io.github.mobilebytelabs:cmp-paycraft`, so this becomes true the day PayCraft has
+an adopter outside the workspace. Until then it is not true, and pretending otherwise adds process
+without adding safety.
+
+**When that day comes, or when something is already deprecated, these hold:**
+
+- State the version that removes it. "Superseded by X" with no date either lives forever or vanishes
+  without notice. `PaywallTemplate` gets this right — *"will be removed in cmp-paycraft 3.0.0"*.
+- Add `replaceWith` only when the migration is a mechanical substitution. `MINIMAL → BRANDED_STACK`
+  is one identifier for another, so the IDE should apply it. `ConfigClient → collect
+  PayCraft.configResultFlow` is not, and a quick-fix that rewrites to something wrong is worse than
+  none, because it is applied without being read.
+- `DeprecationLevel.WARNING` means the call still works. If it cannot, the honest states are ERROR
+  or removal.
+
+`infra/verify/verify-deprecation-policy.sh` enforces the first of these — the other two need
+judgement a grep cannot supply.
+
+### The case this was written from, stated accurately
+
+`PayCraft.configure {}` was introduced in v1.0.0 and deleted in v2.0 in one release, with no version
+in between carrying `@Deprecated`. The plan for that release (`dashboard-provider-integration` 06 T1)
+asked for the deprecation.
+
+That task was **superseded, not skipped**: the consumer was migrated directly instead —
+`reels-downloader` runs `2.3.1` and calls `PayCraft.initialize(...)`. No integrator was ever left
+holding a broken build, which is the only harm a deprecation window exists to prevent. Doing it that
+way was correct for a library whose consumers we own, and it is what the default above now says to
+do deliberately rather than by accident.

@@ -17,6 +17,7 @@ import {
   rateLimitResponse,
   requireRateLimit,
 } from "../_shared/rate-limit.ts"
+import { toAlpha2 } from "../_shared/country-code.ts"
 
 /** Map a routing method name (stripe_card, razorpay_upi, direct_upi…) to its provider. */
 function methodToProvider(method: string): string {
@@ -89,8 +90,10 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
   // Locale extraction from Accept-Language header (default US). The SDK already sends its
   // storefront-first resolved country here, so this stays authoritative for per-locale pricing.
   const acceptLanguage = req.headers.get("accept-language") ?? "en-US"
-  const localeCountry =
-    (acceptLanguage.split(",")[0].split("-")[1] ?? "US").toUpperCase()
+  // NORMALIZED, because the SDK forwards the store's code verbatim and StoreKit speaks alpha-3:
+  // an iOS caller arrives as `en-USA`, whose region subtag is "USA" — which matches no
+  // `tenant_pricing.locale` row and no `supported_locales` entry. See `_shared/country-code.ts`.
+  const localeCountry = toAlpha2(acceptLanguage.split(",")[0].split("-")[1]) ?? "US"
 
   // Unified server IP-geo: the hosting edge (Vercel / Cloudflare / CloudFront) attaches the buyer's
   // country as a request header. Return it as `geo_country` so the SDK's CountryDetector can fold
@@ -137,7 +140,9 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
   // as a geo header — the same request resolved with a different PROVENANCE depending on which
   // entry point served it. An override should be something a caller states explicitly in the URL,
   // not a header a CDN might inject on its behalf. It is a geo header on both sides now.
-  const overrideRaw = new URL(req.url).searchParams.get("country")?.trim()?.toUpperCase() || null
+  // Normalized before the ISO2 gate below, so an explicit `?country=IND` is honoured rather than
+  // silently rejected as malformed — the override exists to let a caller state a country.
+  const overrideRaw = toAlpha2(new URL(req.url).searchParams.get("country")) || null
   const overrideCountry = overrideRaw && ISO2.test(overrideRaw) && overrideRaw !== "XX"
     ? overrideRaw
     : null

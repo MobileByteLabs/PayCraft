@@ -26,6 +26,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardBody } from "@/components/ui/card"
+import { ProviderAccountPicker } from "@/components/providers/provider-account-picker"
 
 type ConnectionStatus = {
   connected: boolean
@@ -207,6 +208,8 @@ function ConnectedStatusView({
   return (
     <div className="space-y-6">
       {/* Connection summary */}
+      <ProviderAccountPicker provider="razorpay" />
+
       <Card className="shadow-sm border-2 border-success-200">
         <CardBody className="p-8">
           <div className="flex items-start gap-4 mb-6">

@@ -29,7 +29,13 @@ export default async function GooglePlaySetupPage() {
     .single<{ connected: boolean; config: Record<string, any> }>()
 
   const connected = !!status?.connected
-  const packageName = (status?.config?.package_name as string | undefined) ?? null
+  // The app identifier is one value shared with iOS (111). Reading it from `tenants` rather than
+  // from this provider's store_config means the Play page and the App Store page cannot disagree
+  // about what the application id is.
+  const { data: appRow } = await supabase
+    .from("tenants").select("app_identifier").eq("id", tenant.id).maybeSingle<{ app_identifier: string | null }>()
+  const packageName =
+    appRow?.app_identifier ?? (status?.config?.package_name as string | undefined) ?? null
 
   // Which Play console this app bills through. `tenant_provider_resolve` answers the question the
   // operator actually has — "what is in effect right now" — including the case where the app is

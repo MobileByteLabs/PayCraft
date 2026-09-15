@@ -24,16 +24,32 @@ export interface ProviderConnection {
 }
 
 interface Props {
-  provider: "google_play" | "app_store"
-  /** The connection this app is pinned to, or null when it follows the default. */
-  attachedId: string | null
+  provider: string
+  /**
+   * The connection this app is pinned to, or null when it follows the default.
+   *
+   * All three resolution props are OPTIONAL: a server component that already resolved can pass
+   * them and save a round trip, and a client component can omit them and let the picker ask. The
+   * Stripe and Razorpay pages are client components, so without the self-fetching path the picker
+   * could not appear on them at all without refactoring 1,000+ line files.
+   */
+  attachedId?: string | null
   /** What the app resolves to right now, default included — so the UI states the effect, not the setting. */
-  resolvedLabel: string | null
-  resolvedViaDefault: boolean
+  resolvedLabel?: string | null
+  resolvedViaDefault?: boolean
 }
 
-export function ProviderAccountPicker({ provider, attachedId, resolvedLabel, resolvedViaDefault }: Props) {
+export function ProviderAccountPicker({
+  provider,
+  attachedId,
+  resolvedLabel,
+  resolvedViaDefault,
+}: Props) {
+  const serverResolved = resolvedLabel !== undefined
   const [connections, setConnections] = useState<ProviderConnection[]>([])
+  const [resolved, setResolved] = useState<
+    { label: string | null; viaDefault: boolean; source?: string } | null
+  >(serverResolved ? { label: resolvedLabel ?? null, viaDefault: !!resolvedViaDefault } : null)
   const [selected, setSelected] = useState<string | "">(attachedId ?? "")
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -51,6 +67,25 @@ export function ProviderAccountPicker({ provider, attachedId, resolvedLabel, res
       cancelled = true
     }
   }, [provider])
+
+  // Only when the host page did not already resolve — a server component passing props must not
+  // trigger a second, slower answer that could briefly contradict what it rendered.
+  useEffect(() => {
+    if (serverResolved) return
+    let cancelled = false
+    fetch(`/api/provider-accounts/resolve?provider=${provider}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled) return
+        const rr = j?.resolved ?? {}
+        setResolved({ label: rr.label ?? null, viaDefault: !!rr.via_default, source: rr.source })
+        setSelected(rr.via_default ? "" : (rr.account_id ?? ""))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [provider, serverResolved])
 
   async function apply(next: string) {
     setBusy(true)
@@ -106,11 +141,22 @@ export function ProviderAccountPicker({ provider, attachedId, resolvedLabel, res
       <div>
         <h3 className="text-sm font-bold text-ink-900">Billing account</h3>
         <p className="text-xs text-ink-500 mt-0.5 leading-relaxed">
-          {resolvedLabel
-            ? resolvedViaDefault
-              ? `This app follows the account default — ${resolvedLabel}.`
-              : `This app bills through ${resolvedLabel}.`
-            : "This app has no store credential yet."}
+          {resolved === null
+            ? // Do not assert absence while the answer is still in flight. Rendering "no credential
+              // yet" during the fetch tells an operator their live integration is unconfigured, and
+              // it is the state the page spends its first few hundred milliseconds in.
+              "Checking which account this app bills through…"
+            : resolved.source === "app"
+            ? // Its own key, not an account connection. Saying "no credential yet" here — which is
+              // what this read before `source` existed — contradicted the very page it sits on for
+              // every app configured before the account tier, and invited an operator to "fix" a
+              // default that has no bearing on this app.
+              "This app uses its own credentials. Pick a connection below to move it onto a shared account."
+            : resolved.label
+              ? resolved.viaDefault
+                ? `This app follows the account default — ${resolved.label}.`
+                : `This app bills through ${resolved.label}.`
+              : "This app has no credential for this provider yet."}
         </p>
       </div>
 

@@ -6,7 +6,10 @@
 #
 #   --local   Run PayCraft on http://localhost:3000
 #             L1 LOCAL PRE-FLIGHT  Docker, supabase CLI, node_modules, supabase/.env
-#             L2 SUPABASE RESTART  supabase stop ; supabase start
+#             L2 SUPABASE RESTART  supabase stop ; supabase start (retries once on a health timeout)
+#             L2.5 MIGRATIONS      supabase migration up --local, then ASSERT the local schema is
+#                                  not behind the files on disk (supabase start restores a volume
+#                                  backup and does NOT apply pending migrations)
 #             L3 DEV SERVER START  cd dashboard && nohup npm run dev &
 #             L4 LOCAL READY WAIT  poll localhost:3000 until 200
 #             L5 LOCAL SMOKE       curl /api/health (expects env=local)
@@ -97,6 +100,7 @@ TARGET_ANON_ALIAS="framework-supabase-anon-key"
 # ═══════════════════════════════════════════════════════════
 MODE=""                         # "local" | "staging" | "prod" | "" (default: matrix view via SKILL.md)
 REQUIRE_STAGED=false            # --promote-to-prod: refuse unless staging was deployed + smoked
+SYNC_PROD=true                  # --local: mirror production into the local DB (--no-sync-prod skips)
 APPLY=false
 CONFIRM_PROD=false
 FROM_PHASE=0   # 0, not 1: --promote-to-prod's STAGED CHECK is phase 0, and a default of 1 made
@@ -135,6 +139,8 @@ while [[ $# -gt 0 ]]; do
         # `--stagging` is accepted because it is the spelling people reach for; silently, because
         # correcting someone mid-deploy helps nobody.
         --staging|--stagging)   MODE="staging"; shift ;;
+        --no-sync-prod)         SYNC_PROD=false; shift ;;
+        --sync-prod)            SYNC_PROD=true; shift ;;
         # Promotion is the prod chain with one extra precondition: staging must have actually been
         # deployed and smoke-tested. You cannot promote what you have not staged.
         --promote-to-prod)      MODE="prod"; REQUIRE_STAGED=true; shift ;;
@@ -767,12 +773,190 @@ phase_local_1_preflight() {
     [[ $fails -eq 0 ]]
 }
 
+# Phase 2 — restart the local Supabase stack, with a retry.
+#
+# `supabase start` waits a fixed period for every container to report healthy and tears the whole
+# stack down if one misses it. That deadline is missed for reasons that have nothing to do with the
+# stack: Docker Desktop having just launched, or other Supabase projects booting at the same time and
+# competing for CPU. Observed 2026-09-14 — `supabase_storage_PayCraft` was declared "not ready:
+# unhealthy" while its OWN logs read `Server listening` + `Started Successfully`, and on the next
+# attempt it went healthy in ~6s with a zero failing-streak, with 33 containers from three other
+# projects booting alongside it.
+#
+# So a first failure is a hypothesis, not a verdict. The retry costs one minute; treating a timing
+# artifact as a broken environment costs an operator their afternoon — and, worse, teaches them to
+# work around this command by hand, which is how the local chain's real defects stayed hidden.
 phase_local_2_supabase_restart() {
     cd "$PAYCRAFT_SRC"
-    echo "  Stopping any running Supabase stack..."
-    supabase stop 2>&1 | tail -3 || true
-    echo "  Starting Supabase (this can take 30-60s on first run)..."
-    supabase start 2>&1 | tail -20
+    local attempt rc log
+    for attempt in 1 2; do
+        echo "  Stopping any running Supabase stack (attempt $attempt/2)..."
+        supabase stop >/dev/null 2>&1 || true
+        echo "  Starting Supabase (this can take 30-60s on first run)..."
+        log=$(mktemp -t pc-sbstart-XXXXXX)
+        supabase start > "$log" 2>&1
+        rc=$?
+        if [[ $rc -eq 0 ]]; then
+            tail -5 "$log"; rm -f "$log"
+            echo "  ✓ Supabase stack up"
+            return 0
+        fi
+        # Name the container that missed its deadline — "unhealthy" alone sends the reader hunting.
+        local stuck
+        stuck=$(grep -oE 'supabase_[a-z_]+_[A-Za-z-]+ container is not ready' "$log" | head -1 | awk '{print $1}')
+        tail -8 "$log"; rm -f "$log"
+        if [[ $attempt -eq 1 ]]; then
+            echo "  ⚠ ${stuck:-a container} missed its health deadline — retrying once."
+            echo "    (usually contention: Docker just started, or other Supabase projects are booting)"
+            [[ -n "$stuck" ]] && docker logs "$stuck" 2>&1 | tail -4 | sed 's/^/      /'
+        fi
+    done
+    echo "  ✗ Supabase failed to start twice — this is not a timing artifact."
+    echo "    Inspect: supabase start --debug   ·   docker ps -a --filter name=supabase"
+    echo "    Free contention: docker ps --format '{{.Names}}' | grep -v PayCraft | xargs docker stop"
+    return 1
+}
+
+# Phase 2.6 — make local an actual COPY of production.
+#
+# "Run it locally" is only useful if local is the same system. A local stack seeded from an old
+# docker volume plus test fixtures answers different questions than production does: your apps are
+# missing, so you cannot click through them; `tenant_admins` points at user ids that do not exist
+# here, so signing in creates a NEW local user who owns nothing. That is the state that made
+# mobilebytesensei@gmail.com see 1 app locally against 6 in production.
+#
+# Three things have to travel for the mirror to be real, and the first two are the ones a naive
+# "dump the public schema" misses:
+#
+#   • the `auth` schema — your identity. tenant_admins joins on auth.users.id, so without the same
+#     user rows (same UUIDs) the apps are present but unreachable.
+#   • `paycraft_secrets_config` — the pgcrypto passphrase `decrypt_provider_key` reads. Copy the
+#     encrypted credentials without it and every provider reads "connected" and fails to decrypt.
+#   • everything else in `public` — the apps, products, paywalls, providers, subscribers.
+#
+# This puts REAL subscriber records and a live encryption passphrase on the developer's machine, in
+# a Postgres whose Studio (:54323) has no authentication. That is a deliberate, operator-approved
+# trade for an exact mirror — not an accident. `--no-sync-prod` skips it.
+phase_local_2_6_sync_prod() {
+    cd "$PAYCRAFT_SRC"
+    local tmpd db_url_file dump_pub dump_auth
+    tmpd=$(mktemp -d); trap 'rm -rf "$tmpd" 2>/dev/null' RETURN
+    db_url_file="$tmpd/dburl"
+
+    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-db-url --to-file "$db_url_file" 2>/dev/null; then
+        echo "  ✗ framework-supabase-db-url not resolvable from vault — cannot mirror production"
+        return 1
+    fi
+    local prod; prod=$(cat "$db_url_file")
+
+    dump_auth="$tmpd/auth.sql"; dump_pub="$tmpd/public.sql"
+    echo "  Dumping production (data only)…"
+    if ! supabase db dump --db-url "$prod" --data-only -s auth   -f "$dump_auth" >/dev/null 2>&1; then
+        echo "  ✗ auth-schema dump failed"; return 1
+    fi
+    if ! supabase db dump --db-url "$prod" --data-only -s public -f "$dump_pub" >/dev/null 2>&1; then
+        echo "  ✗ public-schema dump failed"; return 1
+    fi
+    # Sizes only — the contents are real subscriber data and an encryption passphrase, and a
+    # transcript is forever.
+    echo "  ✓ dumped: auth $(wc -c < "$dump_auth" | tr -d " ") B · public $(wc -c < "$dump_pub" | tr -d " ") B"
+
+    local C="supabase_db_${PC_PROJECT_ID:-PayCraft}"
+    # Wipe first: a data-only restore onto existing rows collides on every primary key, and a
+    # half-restored local database is worse than an empty one because it still looks populated.
+    echo "  Clearing local data…"
+    # Two statements, not one block, and no RESTART IDENTITY on auth.
+    #
+    # `TRUNCATE auth.users RESTART IDENTITY CASCADE` fails with "must be owner of sequence
+    # refresh_tokens_id_seq" — that sequence belongs to supabase_auth_admin, not postgres. Inside a
+    # DO block that error rolls back the WHOLE transaction, silently undoing every public truncate
+    # that had already succeeded; the restore then collided on every primary key and the phase
+    # reported success over a database that had never been cleared. Keeping them separate means an
+    # auth failure cannot revert the public wipe, and dropping RESTART IDENTITY removes the only
+    # thing that needed ownership we do not have.
+    local wipe_log="$tmpd/wipe.log"
+    docker exec -i "$C" psql -q -U postgres -d postgres > "$wipe_log" 2>&1 <<'SQL'
+DO $$
+DECLARE t TEXT;
+BEGIN
+  FOR t IN SELECT quote_ident(schemaname)||'.'||quote_ident(tablename)
+           FROM pg_tables WHERE schemaname = 'public'
+  LOOP EXECUTE 'TRUNCATE TABLE '||t||' RESTART IDENTITY CASCADE'; END LOOP;
+END $$;
+TRUNCATE TABLE auth.users CASCADE;
+-- flow_state holds in-flight PKCE exchanges and has no FK to users, so the cascade above misses it
+-- and the restore then collides on its primary key. Clearing it costs nothing: a half-finished
+-- login from another database is meaningless here anyway.
+TRUNCATE TABLE auth.flow_state CASCADE;
+SQL
+    if grep -qi '^ERROR' "$wipe_log"; then
+        echo "  ✗ local wipe failed — a partial wipe makes the restore collide and the mirror a lie:"
+        grep -i '^ERROR' "$wipe_log" | head -3 | sed 's/^/      /'
+        return 1
+    fi
+
+    echo "  Restoring into local…"
+    local rc_a rc_p
+    docker exec -i "$C" psql -q -v ON_ERROR_STOP=0 -U postgres -d postgres < "$dump_auth" > "$tmpd/ra.log" 2>&1; rc_a=$?
+    docker exec -i "$C" psql -q -v ON_ERROR_STOP=0 -U postgres -d postgres < "$dump_pub" > "$tmpd/rp.log" 2>&1; rc_p=$?
+    local errs; errs=$(grep -ci '^ERROR' "$tmpd/ra.log" "$tmpd/rp.log" 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')
+    [[ "$errs" -gt 0 ]] && { echo "  ⚠ $errs restore error line(s):"; grep -h -i '^ERROR' "$tmpd/ra.log" "$tmpd/rp.log" | sort -u | head -5 | sed 's/^/      /'; }
+
+    # Verify by COUNT, not by exit code: psql without ON_ERROR_STOP reports success while skipping
+    # rows, which is exactly how a mirror ends up quietly partial.
+    local tn un pn
+    tn=$(docker exec -i "$C" psql -tA -U postgres -d postgres -c "select count(*) from tenants" 2>/dev/null | tr -d '[:space:]')
+    un=$(docker exec -i "$C" psql -tA -U postgres -d postgres -c "select count(*) from auth.users" 2>/dev/null | tr -d '[:space:]')
+    pn=$(docker exec -i "$C" psql -tA -U postgres -d postgres -c "select count(*) from paycraft_secrets_config" 2>/dev/null | tr -d '[:space:]')
+    echo "  ✓ local now holds: ${tn:-?} tenants · ${un:-?} auth users · ${pn:-?} secrets-config row(s)"
+    if [[ "${tn:-0}" -eq 0 || "${un:-0}" -eq 0 ]]; then
+        echo "  ✗ mirror is empty — local would look like a different product. Refusing to continue."
+        return 1
+    fi
+    if [[ "${pn:-0}" -eq 0 ]]; then
+        echo "  ⚠ no paycraft_secrets_config row — provider credentials will not decrypt locally"
+    fi
+    return 0
+}
+
+# Phase 2.5 — bring the LOCAL database up to the migrations on disk.
+#
+# The chain had no migrations step at all, and `supabase start` does not apply them: it restores the
+# database from a docker volume backup at whatever version that volume last held. Measured on the
+# same 2026-09-14 run — the restored volume was at 098 while the repo carried through 114, so
+# `--local` would have handed the operator a dashboard running a schema SIXTEEN migrations stale and
+# reported success. Local was the one environment nothing verified.
+#
+# Numbered 2.5 rather than renumbering 3-5, so `--from-phase 4` keeps meaning what it meant and old
+# ledger rows stay readable.
+phase_local_2_5_migrations() {
+    cd "$PAYCRAFT_SRC"
+    local out rc
+    out=$(supabase migration up --local 2>&1); rc=$?
+    if [[ $rc -ne 0 ]]; then
+        printf '%s\n' "$out" | tail -12
+        echo "  ✗ local migrations failed to apply"
+        return 1
+    fi
+    printf '%s\n' "$out" | grep -E '^Applying migration|up to date' | tail -12
+
+    # Assert, rather than trust the exit code: the failure this phase exists to prevent is a SILENT
+    # gap, and a command that prints "up to date" while the volume is behind would reproduce it.
+    local newest applied
+    newest=$(ls supabase/migrations/*.sql 2>/dev/null | sed -E 's|.*/([0-9]+)_.*|\1|' | sort -n | tail -1)
+    applied=$(docker exec -i "supabase_db_${PC_PROJECT_ID:-PayCraft}" psql -tA -U postgres -d postgres \
+        -c "select version from supabase_migrations.schema_migrations order by version desc limit 1" 2>/dev/null | tr -d '[:space:]')
+    if [[ -z "$applied" ]]; then
+        echo "  ⚠ could not read the local migration table — schema currency unverified"
+        return 0
+    fi
+    if [[ "$((10#$applied))" -lt "$((10#$newest))" ]]; then
+        echo "  ✗ local schema is BEHIND: applied=$applied, newest on disk=$newest"
+        echo "    A stale local database makes every local test meaningless. Reset with: supabase db reset"
+        return 1
+    fi
+    echo "  ✓ local schema current (applied $applied, newest on disk $newest)"
+    return 0
 }
 
 phase_local_3_dev_server() {
@@ -1038,6 +1222,12 @@ if [[ "$MODE" = "local" ]]; then
     banner "PayCraft Local — $LOCAL_URL"
     run_phase 1 "LOCAL PRE-FLIGHT"    "phase_local_1_preflight"      || exit 1
     run_phase 2 "SUPABASE RESTART"    "phase_local_2_supabase_restart" || exit 1
+    run_phase 2.5 "MIGRATIONS (local)" "phase_local_2_5_migrations"    || exit 1
+    if [[ "$SYNC_PROD" = "true" ]]; then
+        run_phase 2.6 "MIRROR PRODUCTION" "phase_local_2_6_sync_prod"   || exit 1
+    else
+        phase_end 2.6 "MIRROR PRODUCTION" "SKIP" "0" "--no-sync-prod"
+    fi
     run_phase 3 "DEV SERVER START"    "phase_local_3_dev_server"     || exit 1
     run_phase 4 "READY WAIT"          "phase_local_4_ready_wait"     || exit 1
     run_phase 5 "LOCAL SMOKE"         "phase_local_5_smoke"          || true   # smoke is informational

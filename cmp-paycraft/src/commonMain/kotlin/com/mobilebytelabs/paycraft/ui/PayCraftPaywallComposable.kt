@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -161,6 +162,12 @@ fun PayCraftPaywallComposable(
     CompositionLocalProvider(
         LocalPayCraftSurfaceMode provides surfaceMode,
         LocalPayCraftPaywallFooterActions provides footerActions,
+        // PUBLISH the resolved config downward. It was only ever READ here (as a host override) and
+        // never provided, so `LocalPayCraftConfig.current` was null everywhere below — which made
+        // the frame's footer unable to see `terms_url`/`privacy_url` that this very function had
+        // just read, and silently disabled the tree's config enrichment in `PaywallStateHost`,
+        // whose `enrichFromConfig` branch reads the same local.
+        LocalPayCraftConfig provides liveConfig,
     ) {
         PayCraftThemeProvider(config = liveConfig) {
             val sheetTarget = state.providerSheetTarget
@@ -312,8 +319,11 @@ private fun PayCraftPaywallSurface(
         modifier = modifier
             .then(sizing)
             .testTag(PayCraftTestTags.PAYWALL_SCREEN),
-        // Sheet callers set zero insets so the sheet handles insets itself.
-        contentWindowInsets = WindowInsets(0.dp),
+        // Sheet callers set zero insets so the sheet handles insets itself. FULL-SCREEN callers own
+        // the window, so they must honour `safeDrawing` — without it the footer renders UNDER the
+        // gesture bar (observed on a device: "Powered by PayCraft" half-clipped by the nav pill,
+        // while a screenshot of the same frame looked fine because the pill is drawn by the system).
+        contentWindowInsets = if (isSheet) WindowInsets(0.dp) else WindowInsets.safeDrawing,
         containerColor = if (isSheet) Color.Transparent else MaterialTheme.colorScheme.surface,
         topBar = {
             TopAppBar(

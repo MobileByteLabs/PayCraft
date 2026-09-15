@@ -25,7 +25,8 @@ import kotlinx.serialization.json.Json
         "the Settings dependency — so its catch → cache.read() fallback never ran in production. " +
         "That shape now lives in PayCraft.fallBackThroughChain(), which additionally falls through " +
         "to a bundled fallback and a built-in paywall, and publishes ConfigResult so the UI can " +
-        "tell a failure from a load. Collect PayCraft.configResultFlow instead.",
+        "tell a failure from a load. Collect PayCraft.configResultFlow instead. " +
+        "Removed in cmp-paycraft 3.0.0.",
     level = DeprecationLevel.WARNING,
 )
 class ConfigClient(

@@ -37,7 +37,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.size
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
-import com.mobilebytelabs.paycraft.ui.components.BrandingFooterLine
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 
 /**
@@ -64,8 +63,6 @@ fun PaywallTreeContent(
     onSelectPackage: (role: String) -> Unit = {},
     onPurchase: () -> Unit = {},
     onRestore: () -> Unit = {},
-    branding: String = "attribution",
-    customFooter: String? = null,
 ) {
     // Which step is on screen. A multi-step paywall (D15) moves between them via a `button` node
     // with a `navigate_to` action; a single-step tree never leaves its first.
@@ -83,6 +80,9 @@ fun PaywallTreeContent(
     // WIDTH is filled, HEIGHT wraps — the host owns the bounds (see `paywallRoot`). `fillMaxSize`
     // here made a sheet-mode paywall paint edge-to-edge over the app behind it, which is the whole
     // property sheet mode exists to preserve.
+    // Width is filled, height WRAPS — the frame owns the bounds and the scrolling (see
+    // `PaywallStateHost`'s frame box). The tree is pure content: it is server-authored and its
+    // height is unknowable here, so deciding how overflow is reached is not its call to make.
     Column(modifier = modifier.fillMaxWidth().background(surface)) {
         RenderNode(
             node = root,
@@ -102,15 +102,16 @@ fun PaywallTreeContent(
                 if (workflow.steps.any { it.id == target }) stepId = target
             },
         )
-        // BRANDING IS NOT PART OF THE TREE, and must not be.
+        // BRANDING AND LEGAL ARE NOT PART OF THE TREE, and must not be.
         //
-        // The tree is tenant-authored; attribution is a plan obligation. If the footer were a node,
-        // a free-tier tenant could delete it — deliberately or by starting from a template that
-        // never had one — and the paywall would ship without the attribution their tier requires,
-        // with nothing failing. Composing it here means the author cannot express its absence.
+        // The tree is tenant-authored; attribution is a plan obligation and reachable Terms/Privacy
+        // is a store one. If either were a node, a tenant could delete it — deliberately or by
+        // starting from a template that never had one — and the paywall would ship without what its
+        // tier and its store require, with nothing failing.
         //
-        // Same composable the templates use, so the wording and styling cannot drift apart.
-        BrandingFooterLine(branding = branding, customFooter = customFooter)
+        // Both now render in the FRAME (`PaywallStateHost`'s footer chrome), which is also what gives
+        // them their bottom inset: as the last rows of this scrolling column they sat against the
+        // gesture bar.
     }
 }
 

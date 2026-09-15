@@ -81,6 +81,14 @@ export async function POST(req: NextRequest) {
   const acctConfig: Record<string, unknown> = { key_id: keyId, issuer_id: issuerId }
   const appConfig: Record<string, unknown> = { bundle_id: bundleId }
 
+  // Same value as the Android package name (111) — set the app identifier, which mirrors to both
+  // provider rows, instead of writing an iOS-only copy that can drift from the Android one.
+  const { error: idErr } = await supabase.rpc("tenant_app_identifier_set", {
+    p_tenant_id: tenant.id,
+    p_identifier: bundleId,
+  })
+  if (idErr) return NextResponse.json({ error: idErr.message }, { status: 500 })
+
   // Preserve any prior label unless the operator typed a new one; else name the connection by its
   // key id, which is what distinguishes two teams in a list.
   const label = accountLabel || (existingCfg.account_label as string) || `App Store key ${keyId}`

@@ -61,16 +61,32 @@ export async function getPlatformConnectClientId(): Promise<string | null> {
   return dbVal ?? process.env.STRIPE_CONNECT_CLIENT_ID ?? null
 }
 
-export async function getConnectedStripeClient(tenantId: string): Promise<Stripe> {
+export async function getConnectedStripeClient(
+  tenantId: string,
+  /**
+   * Which credential slot to use. Omit to keep the historical behaviour — OAuth first, then live,
+   * then test.
+   *
+   * Passing a mode is what lets a caller sync the SAME product into BOTH Stripe accounts. Without
+   * it there is no way to reach the test account once a live key exists, because the resolver
+   * prefers live and stops — which is how a tenant ends up with live payment links and an empty
+   * test map, and a paywall that shows zero providers to every `pk_test_` build.
+   */
+  mode?: "live" | "test",
+): Promise<Stripe> {
   const supabase = createClient()
 
   // OAuth path first — Connect access tokens already carry the connected
   // account scope, so no on-behalf-of header is required downstream.
-  const { data: oauth } = await supabase
-    .rpc("tenant_stripe_connect_decrypt", { p_tenant_id: tenantId })
-    .single<{ access_token: string }>()
-  if (oauth?.access_token) {
-    return new Stripe(oauth.access_token, { apiVersion: STRIPE_API_VERSION })
+  // A Connect token is bound to one account and carries its own livemode, so it cannot serve a
+  // caller that explicitly asked for the other mode. Only take this path when no mode was demanded.
+  if (!mode) {
+    const { data: oauth } = await supabase
+      .rpc("tenant_stripe_connect_decrypt", { p_tenant_id: tenantId })
+      .single<{ access_token: string }>()
+    if (oauth?.access_token) {
+      return new Stripe(oauth.access_token, { apiVersion: STRIPE_API_VERSION })
+    }
   }
 
   // Manual-keys fallback — decrypt the tenant's saved secret key. We prefer
@@ -87,6 +103,16 @@ export async function getConnectedStripeClient(tenantId: string): Promise<Stripe
       .single<{ secret_key: string; key_id: string }>()
     return data?.secret_key ?? null
   }
+  // An explicit mode is exact: fall back to the other slot and the caller silently syncs into the
+  // wrong Stripe account, which is worse than failing.
+  if (mode) {
+    const key = await tryMode(mode).catch(() => null)
+    if (key) return new Stripe(key, { apiVersion: STRIPE_API_VERSION })
+    throw new Error(
+      `No Stripe ${mode} credentials for tenant ${tenantId}. Add them at /providers/stripe first.`,
+    )
+  }
+
   const liveKey = await tryMode("live").catch(() => null)
   const key = liveKey ?? (await tryMode("test").catch(() => null))
   if (key) {

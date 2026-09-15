@@ -31,18 +31,21 @@ enum class PaywallTemplate {
 
     @Deprecated(
         message = "Use BRANDED_STACK — minimal will be removed in cmp-paycraft 3.0.0",
+        replaceWith = ReplaceWith("BRANDED_STACK"),
         level = DeprecationLevel.WARNING,
     )
     MINIMAL,
 
     @Deprecated(
         message = "Use BRANDED_STACK — premium will be removed in cmp-paycraft 3.0.0",
+        replaceWith = ReplaceWith("BRANDED_STACK"),
         level = DeprecationLevel.WARNING,
     )
     PREMIUM,
 
     @Deprecated(
         message = "Use BRANDED_STACK — dark will be removed in cmp-paycraft 3.0.0",
+        replaceWith = ReplaceWith("BRANDED_STACK"),
         level = DeprecationLevel.WARNING,
     )
     DARK,
