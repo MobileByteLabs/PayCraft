@@ -410,11 +410,14 @@ step_5_supabase_push_edge_functions() {
 # ──────────────────────────────────────────────────────────────────────────────
 
 # alias_to_keyname:  vault alias  ->  KEY=  name Supabase expects
+# Every `mbs-paycraft-*` name here resolved to NOTHING — no such alias was ever registered — so
+# each entry failed with a plausible per-secret error and the bootstrap reported partial success.
+# Postmark is gone entirely: the project moved to Resend, and no postmark alias exists.
 declare -a SUPABASE_SECRETS=(
-  "mbs-paycraft-stripe-live-sk:STRIPE_SECRET_KEY"
+  "mbs-stripe-platform-secret-key:STRIPE_SECRET_KEY"
   "mbs-razorpay-key-secret:RAZORPAY_KEY_SECRET"
-  "mbs-paycraft-postmark-token:POSTMARK_SERVER_TOKEN"
-  "mbs-paycraft-sentry-dsn:SENTRY_DSN"
+  "paycraft-resend-api-key:RESEND_API_KEY"
+  "paycraft-sentry-dsn:SENTRY_DSN"
 )
 
 step_6_supabase_set_secrets() {
@@ -476,16 +479,19 @@ step_8_vercel_link_project() {
 # ──────────────────────────────────────────────────────────────────────────────
 
 # alias -> VERCEL_ENV_NAME
+# Same phantom-alias class as SUPABASE_SECRETS above. PayCraft talks to the FRAMEWORK Supabase
+# project, so the Supabase values are the `framework-supabase-*` aliases — there is no
+# paycraft-owned prod URL/anon/service-role secret to name.
 declare -a VERCEL_ENV_VARS=(
-  "mbs-paycraft-supabase-prod-url:NEXT_PUBLIC_SUPABASE_URL"
-  "mbs-paycraft-supabase-prod-anon-key:NEXT_PUBLIC_SUPABASE_ANON_KEY"
-  "mbs-paycraft-supabase-prod-service-role:SUPABASE_SERVICE_ROLE_KEY"
-  "mbs-paycraft-stripe-live-pk:NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"
-  "mbs-paycraft-stripe-live-sk:STRIPE_SECRET_KEY"
+  "framework-supabase-url:NEXT_PUBLIC_SUPABASE_URL"
+  "framework-supabase-anon-key:NEXT_PUBLIC_SUPABASE_ANON_KEY"
+  "framework-supabase-service-role-key:SUPABASE_SERVICE_ROLE_KEY"
+  "mbs-stripe-platform-publishable-key:NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"
+  "mbs-stripe-platform-secret-key:STRIPE_SECRET_KEY"
   "mbs-razorpay-key-id:NEXT_PUBLIC_RAZORPAY_KEY_ID"
   "mbs-razorpay-key-secret:RAZORPAY_KEY_SECRET"
-  "mbs-paycraft-postmark-token:POSTMARK_SERVER_TOKEN"
-  "mbs-paycraft-sentry-dsn:NEXT_PUBLIC_SENTRY_DSN"
+  "paycraft-resend-api-key:RESEND_API_KEY"
+  "paycraft-sentry-dsn:NEXT_PUBLIC_SENTRY_DSN"
 )
 
 step_9_vercel_set_env_vars() {
