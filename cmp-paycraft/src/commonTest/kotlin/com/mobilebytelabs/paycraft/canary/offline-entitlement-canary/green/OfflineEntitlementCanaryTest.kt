@@ -20,7 +20,7 @@ import kotlin.time.Duration.Companion.hours
 
 /**
  * GREEN canary (AC9): with the network disabled the SDK serves the last-known-good entitlement
- * from the Store5 SQLDelight-shaped SoT, honouring the cached `expires_at` + grace window — and
+ * from the Store5 SoT, honouring the cached `expires_at` + grace window — and
  * the naive no-SoT path ([OfflineEntitlementRedFixture]) cannot (proving the bug the SoT fixes).
  */
 class OfflineEntitlementCanaryTest {
@@ -43,7 +43,7 @@ class OfflineEntitlementCanaryTest {
         // Seed the SoT while online.
         cache.store.fresh(EntitlementKey("u-1"))
 
-        // Network now disabled — the cached read must still emit Data from the SQLDelight-shaped SoT.
+        // Network now disabled — the cached read must still emit Data from the cached SoT.
         service.networkUp = false
         val response = cache.store
             .stream(StoreReadRequest.cached(EntitlementKey("u-1"), refresh = false))

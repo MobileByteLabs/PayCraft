@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * In-memory [EntitlementDao] for hermetic canaries — a reactive SoT with no driver/persistence
- * (the settings-backed production DAO and the SQLDelight one both satisfy the same contract).
+ * (the settings-backed production DAO and any future one satisfy the same contract).
  */
 class InMemoryEntitlementDao : EntitlementDao {
     private val flows = mutableMapOf<String, MutableStateFlow<Entitlement?>>()

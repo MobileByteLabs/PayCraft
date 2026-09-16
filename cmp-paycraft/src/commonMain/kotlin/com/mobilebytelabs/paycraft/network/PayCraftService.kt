@@ -59,7 +59,7 @@ data class SubscriptionDto(
  * cache's [com.mobilebytelabs.paycraft.persistence.EntitlementCache] fetches through and what
  * cross-platform restore reconciles to (one canonical record shared across iOS/Android/web).
  *
- * Timestamps are epoch-millis here (as the `get_entitlements` RPC / `Entitlement.sq` INTEGER
+ * Timestamps are epoch-millis here (as the `get_entitlements` RPC INTEGER
  * columns carry them); they are converted to the canonical model's ISO-8601 strings by
  * [toEntitlement].
  */

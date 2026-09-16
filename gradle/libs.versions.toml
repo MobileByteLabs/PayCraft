@@ -1,7 +1,7 @@
 [versions]
 # AGP 9.2.1 + Gradle 9.5.1 — aligned with mbs/kmp-toolkit, which already runs this toolchain in
 # production. Compose MP 1.12 / androidx.compose 1.12 / lifecycle 2.11 all gate on AGP 9.1+.
-agp = "9.2.1"
+agp = "9.4.0"
 # Aligned with mifos-x/kmp-project-template (2026-09-12): the template catalog is the
 # version source of truth for shared toolchain pins. 2.4.0 -> 2.4.20 so a composite build
 # with a 2.4.20 consumer (cappy) resolves — mismatched Kotlin plugin versions across an
@@ -99,7 +99,6 @@ lifecycle = "2.9.6"
 # Do NOT raise to alpha11+ without first checking its kermit requirement against every consumer pin
 # (reels 2.0.8; steady + cappy 2.1.0 and therefore unaffected either way).
 store5 = "5.1.0-alpha10"
-sqldelight = "2.3.2"
 # Google Play Billing Library v9 — native Android IAP client (Phase 3, D8/D13). billing-ktx
 # bundles the suspend query extensions used by PlayBillingNativeClient.
 #
@@ -159,9 +158,9 @@ compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4", versio
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest", version = "1.7.6" }
 
 # Lifecycle (KMP ViewModel + collectAsStateWithLifecycle)
-lifecycle-viewmodel = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel", version.ref = "lifecycle" }
-lifecycle-viewmodel-savedstate = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-savedstate", version.ref = "lifecycle" }
-lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+jb-lifecycleViewmodel = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel", version.ref = "lifecycle" }
+jb-lifecycleViewmodelSavedState = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-savedstate", version.ref = "lifecycle" }
+jb-lifecycle-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
 
 # Logging
 
@@ -172,7 +171,6 @@ multiplatform-settings = { module = "com.russhwolf:multiplatform-settings-no-arg
 store5 = { module = "org.mobilenativefoundation.store:store5", version.ref = "store5" }
 # SQLDelight coroutines-extensions — consumed by the SQLDelight-backed EntitlementDao once its
 # driver + code-gen are wired (Phase 3 / platform layer); schema-of-record: Entitlement.sq.
-sqldelight-coroutines-extensions = { module = "app.cash.sqldelight:coroutines-extensions", version.ref = "sqldelight" }
 
 # Google Play Billing v9 (androidMain) — connect / queryProductDetails / launchBillingFlow /
 # queryPurchasesAsync / acknowledge. -ktx bundles the suspend query extensions used by
@@ -184,15 +182,19 @@ google-billing-ktx = { module = "com.android.billingclient:billing-ktx", version
 # in package io.github.takahirom.roborazzi (RoborazziDesktopKt). The plain `roborazzi` AAR is
 # Android-only (no JVM variant); scanner-support is Android-only (we author explicit capture tests
 # so no scanner needed).
-roborazzi-compose-desktop = { module = "io.github.takahirom.roborazzi:roborazzi-compose-desktop", version.ref = "roborazzi" }
+# Alias spelled `roborazzi-composeDesktop` to match cappy / the kmp-project-template catalog, so a
+# source-consuming build resolves the same accessor. The MODULE and version.ref are unchanged —
+# only the alias name is aligned. NOTE the version is deliberately NOT aligned: the template is on
+# 1.67.0 and this SDK on 1.73.0, and downgrading risks the 14 goldens (see the versions note above).
+roborazzi-composeDesktop = { module = "io.github.takahirom.roborazzi:roborazzi-compose-desktop", version.ref = "roborazzi" }
 
 [plugins]
-android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+android-kmp-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
-kotlinxSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
-composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
-composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+jetbrainsCompose = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 vanniktech-mavenPublish = { id = "com.vanniktech.maven.publish", version.ref = "vanniktechMavenPublish" }
 detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }

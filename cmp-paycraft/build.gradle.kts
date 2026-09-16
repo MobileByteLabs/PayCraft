@@ -3,16 +3,16 @@ import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
 plugins {
-    alias(libs.plugins.kotlinMultiplatform)
-    alias(libs.plugins.android.kotlin.multiplatform.library)
-    alias(libs.plugins.kotlinxSerialization)
-    alias(libs.plugins.composeMultiplatform)
-    alias(libs.plugins.composeCompiler)
-    alias(libs.plugins.vanniktech.mavenPublish)
+    alias(paycraftLibs.plugins.kotlinMultiplatform)
+    alias(paycraftLibs.plugins.android.kmp.library)
+    alias(paycraftLibs.plugins.kotlin.serialization)
+    alias(paycraftLibs.plugins.jetbrainsCompose)
+    alias(paycraftLibs.plugins.compose.compiler)
+    alias(paycraftLibs.plugins.vanniktech.mavenPublish)
     // Roborazzi Gradle plugin — generates recordRoborazziJvm / verifyRoborazziJvm tasks
     // once `roborazzi-compose-desktop` is on the jvmTest classpath. Applied to :cmp-paycraft
     // only (AC-15 device-free golden gate for skeleton + Content paywall + ProductList).
-    alias(libs.plugins.roborazzi)
+    alias(paycraftLibs.plugins.roborazzi)
 }
 
 group = "io.github.mobilebytelabs"
@@ -24,14 +24,14 @@ kotlin {
 
     jvm()
 
-    androidLibrary {
+    android {
         namespace = "com.mobilebytelabs.paycraft"
         compileSdk =
-            libs.versions.android.compileSdk
+            paycraftLibs.versions.android.compileSdk
                 .get()
                 .toInt()
         minSdk =
-            libs.versions.android.minSdk
+            paycraftLibs.versions.android.minSdk
                 .get()
                 .toInt()
         androidResources.enable = true
@@ -166,82 +166,70 @@ kotlin {
             // grey text there reads as a crash. `compottie-resources` lets the animation load from
             // this module's own composeResources, so it renders with NO network, which matters most
             // in exactly the offline case.
-            implementation(libs.compottie)
-            implementation(libs.compottie.resources)
+            implementation(paycraftLibs.compottie)
+            implementation(paycraftLibs.compottie.resources)
 
             // Supabase
-            implementation(libs.supabase.postgrest)
-            implementation(libs.supabase.auth)
-            implementation(libs.supabase.realtime)
+            implementation(paycraftLibs.supabase.postgrest)
+            implementation(paycraftLibs.supabase.auth)
+            implementation(paycraftLibs.supabase.realtime)
 
             // Koin
-            implementation(libs.koin.core)
-            implementation(libs.koin.core.viewmodel)
-            implementation(libs.koin.compose)
-            implementation(libs.koin.compose.viewmodel)
+            implementation(paycraftLibs.koin.core)
+            implementation(paycraftLibs.koin.core.viewmodel)
+            implementation(paycraftLibs.koin.compose)
+            implementation(paycraftLibs.koin.compose.viewmodel)
 
             // Lifecycle (ViewModel + collectAsStateWithLifecycle)
-            implementation(libs.lifecycle.viewmodel)
+            implementation(paycraftLibs.jb.lifecycleViewmodel)
             // SavedStateHandle is referenced at LINK time by koin's ViewModel factory on Kotlin/Native.
             // Koin MUST match the lifecycle version Compose Multiplatform pulls (lifecycle 2.9.x, which
             // relocated SavedStateHandle to androidx.savedstate) — see the `koin = "4.1.0"` pin in
-            // libs.versions.toml. A koin built against lifecycle 2.8.x hits
+            // paycraftLibs.versions.toml. A koin built against lifecycle 2.8.x hits
             // `IrLinkageError: No class found for symbol androidx.lifecycle/SavedStateHandle` the moment
             // a viewModelOf(...) resolves (e.g. PayCraftPaywallViewModel on paywall open).
-            implementation(libs.lifecycle.viewmodel.savedstate)
-            implementation(libs.lifecycle.runtime.compose)
+            implementation(paycraftLibs.jb.lifecycleViewmodelSavedState)
+            implementation(paycraftLibs.jb.lifecycle.compose)
 
             // Logging
 
             // Serialization
-            implementation(libs.kotlinx.serialization.json)
-            implementation(libs.kotlinx.coroutines.core)
+            implementation(paycraftLibs.kotlinx.serialization.json)
+            implementation(paycraftLibs.kotlinx.coroutines.core)
 
             // Settings (email persistence + offline entitlement SourceOfTruth — persistence/EntitlementDao.kt)
-            implementation(libs.multiplatform.settings)
+            implementation(paycraftLibs.multiplatform.settings)
 
             // Store5 read-through cache for offline-correct entitlement gating (D8, AC9 —
             // persistence/EntitlementCache.kt + core/EntitlementRepository.kt).
-            implementation(libs.store5)
-
-            // SQLDelight SourceOfTruth: the offline SoT schema-of-record lives at
-            //   src/commonMain/sqldelight/com/mobilebytelabs/paycraft/db/Entitlement.sq
-            // The Store5 SoT is backed today by the multiplatform-settings SettingsEntitlementDao
-            // (all six targets, process-death-durable). The SQLDelight code-gen plugin + per-platform
-            // drivers (android-driver / native-driver / sqlite-driver) are wired alongside the native
-            // StoreKit2/Play clients in Phase 3 (E3) — at which point SqlDelightEntitlementDao becomes
-            // a drop-in EntitlementDao. Enable then with:
-            //   plugins { alias(libs.plugins.sqldelight) }
-            //   sqldelight { databases { create("PayCraftDb") {
-            //     packageName.set("com.mobilebytelabs.paycraft.db") } } }
-            //   implementation(libs.sqldelight.coroutines.extensions)
+            implementation(paycraftLibs.store5)
         }
 
         androidMain.dependencies {
-            implementation(libs.ktor.client.cio)
+            implementation(paycraftLibs.ktor.client.cio)
             implementation("androidx.security:security-crypto:1.1.0-alpha06")
             // androidx-startup hands the Application Context to PayCraftInitializer
             // before Application.onCreate runs — see PayCraftInitializer.kt.
             implementation("androidx.startup:startup-runtime:1.2.0")
             // Google Play Billing v8 — native Android IAP client (Phase 3, D8/D13).
             // PlayBillingNativeClient wraps BillingClient v9 (billing/NativeBillingClient.android.kt).
-            implementation(libs.google.billing.ktx)
+            implementation(paycraftLibs.google.billing.ktx)
         }
 
         iosMain.dependencies {
-            implementation(libs.ktor.client.darwin)
+            implementation(paycraftLibs.ktor.client.darwin)
         }
 
         jvmMain.dependencies {
-            implementation(libs.ktor.client.cio)
+            implementation(paycraftLibs.ktor.client.cio)
         }
 
         jsMain.dependencies {
-            implementation(libs.ktor.client.js)
+            implementation(paycraftLibs.ktor.client.js)
         }
 
         commonTest.dependencies {
-            implementation(libs.kotlin.test)
+            implementation(paycraftLibs.kotlin.test)
             @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
             implementation(compose.uiTest)
             // ConfigClientTest — Ktor MockEngine for in-memory HTTP responses
@@ -261,7 +249,7 @@ kotlin {
                 // which is incompatible with js/wasm/ios compile, and Android AAR variants of
                 // the plain `roborazzi` module. Keeping it in jvmTest keeps the publish clean
                 // (nothing leaks into the six target artifacts) and matches the memory recipe.
-                implementation(libs.roborazzi.compose.desktop)
+                implementation(paycraftLibs.roborazzi.composeDesktop)
             }
         }
     }

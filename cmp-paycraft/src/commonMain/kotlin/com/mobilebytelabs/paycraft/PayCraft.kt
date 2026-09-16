@@ -970,14 +970,22 @@ object PayCraft {
         val billingManager = KoinPlatform.getKoinOrNull()?.getOrNull<BillingManager>()
         if (billingManager == null) {
             // No Koin graph (should never happen in a real app — the paywall itself is Koin-resolved).
-            // Fail CLOSED: log and stop. We deliberately do NOT open the browser here — that would be
-            // the exact anti-steering violation we are preventing.
-            PayCraftLogger.onError(
-                "checkout",
-                "native digital checkout for ${plan.id} but no BillingManager in the Koin graph — " +
-                    "load PayCraftModule + the platform billing module. Refusing web fallback (anti-steering).",
-            )
-            return
+            // Fail CLOSED: we deliberately do NOT open the browser here — that would be the exact
+            // anti-steering violation we are preventing.
+            //
+            // THROW rather than return. A bare `return` made this the worst possible failure: the
+            // store was never called, yet `checkout()` returned NORMALLY, so the caller's
+            // `try/catch` saw no error, cleared `isSubmitting` and emitted `CheckoutLaunched`. The
+            // paywall reported a launched checkout while nothing had happened — the buyer taps
+            // Continue and the app does nothing, with only a log line to say why. Failing closed is
+            // correct; failing closed SILENTLY while the caller reports success is not.
+            //
+            // PayCraftPaywallViewModel.onSubscribe already wraps this call and surfaces a throw as a
+            // visible error state, so throwing is what makes the failure reach the buyer.
+            val message = "native digital checkout for ${plan.id} but no BillingManager in the Koin graph — " +
+                "load PayCraftModule + the platform billing module. Refusing web fallback (anti-steering)."
+            PayCraftLogger.onError("checkout", message)
+            error(message)
         }
         when (lane) {
             is CheckoutLane.NativePlay -> billingManager.purchaseViaPlayBilling(plan, email)
