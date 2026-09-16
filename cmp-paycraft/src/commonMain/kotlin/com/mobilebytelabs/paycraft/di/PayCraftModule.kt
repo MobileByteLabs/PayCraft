@@ -85,7 +85,8 @@ val PayCraftModule = module {
     //   Android → real Google Play Billing v8 (context + Activity auto-captured by
     //             PayCraftInitializer);  iOS/web/desktop → web checkout (null here).
     // iOS StoreKit2 + a custom Android activityProvider remain opt-in overrides via
-    // paycraftStoreKit2BillingModule / paycraftPlayBillingModule loaded afterwards.
+    // paycraftPlayBillingModule loaded afterwards (iOS needs no opt-in module — its StoreKit 2
+    // shim is SDK-internal).
     single<NativeBillingClient> { platformDefaultNativeBillingClient() ?: WebCheckoutNativeBillingClient() }
 
     // Store5 read-through cache — Fetcher(/entitlements) + SourceOfTruth(offline last-known-good).

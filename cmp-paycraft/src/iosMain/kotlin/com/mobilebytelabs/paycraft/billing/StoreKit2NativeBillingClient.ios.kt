@@ -1,45 +1,53 @@
 package com.mobilebytelabs.paycraft.billing
 
+import com.mobilebytelabs.paycraft.storekit.PCOutcomeKindCancelled
+import com.mobilebytelabs.paycraft.storekit.PCOutcomeKindPending
+import com.mobilebytelabs.paycraft.storekit.PCOutcomeKindSuccess
+import com.mobilebytelabs.paycraft.storekit.PCPrice
+import com.mobilebytelabs.paycraft.storekit.PCTransaction
+import com.mobilebytelabs.paycraft.storekit.PayCraftStoreKitShim
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import platform.Foundation.NSURL
-import platform.UIKit.UIApplication
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /**
- * iOS [NativeBillingClient] over **StoreKit2** — the Phase-3 native IAP client (D8/D13).
+ * iOS [NativeBillingClient] over **StoreKit 2**.
  *
- * StoreKit2 is Swift-only, so the store calls (`Product.purchase()`,
- * `Transaction.currentEntitlements`, `AppStore.sync()`) run in the injected [StoreKit2Bridge]
- * Swift shim (`iosMain/swift/PayCraftStoreKit2.swift`); this class is the device-free Kotlin
- * adapter that maps the bridge results onto the store-agnostic [NativeBillingClient] contract.
+ * The StoreKit calls live in [PayCraftStoreKitShim] — an SDK-INTERNAL Swift file compiled into a
+ * static archive and reached through cinterop (`src/nativeInterop/swift/PayCraftStoreKitShim.swift`).
+ * This class is the device-free Kotlin adapter that maps its results onto the store-agnostic
+ * [NativeBillingClient] contract.
+ *
+ * It used to take the bridge as a constructor parameter, injected by the CONSUMING APP from a Swift
+ * file each app kept its own copy of. That is gone: the shim is constructed here, the consumer's
+ * integration is `PayCraft.initialize(apiKey)` in commonMain and nothing else, and there is no
+ * per-app Swift to drift (cappy's copy had already diverged 91 lines from canonical).
  *
  * Like the Android client it is a *pure store adapter* (D5): it surfaces the signed JWS as
- * [NativePurchase.purchaseToken] for the Phase-2 engine to re-verify against Apple, and never
- * decides entitlement truth itself.
- *
- *  - [purchase] — bridge `Product.purchase()`; maps `.userCancelled`/`.pending`/errors.
- *  - [queryPurchases] — bridge `Transaction.currentEntitlements` (no network re-link).
- *  - [sync] / [restore] — bridge `AppStore.sync()` to re-link receipts, then re-read entitlements.
- *  - [manageSubscription] — deep-links the App Store account subscriptions surface; StoreKit's own
- *    `showManageSubscriptions(in:)` is offered by the shim when a `UIWindowScene` is available, but
- *    the account deep-link works app-wide and needs no scene (stores forbid programmatic cancel, D7).
- *
- * DI: bind on iOS via [com.mobilebytelabs.paycraft.di.paycraftStoreKit2BillingModule], which
- * overrides the default `WebCheckoutNativeBillingClient` binding from `PayCraftModule`.
+ * [NativePurchase.purchaseToken] for the server to re-verify against Apple, and never decides
+ * entitlement truth itself.
  */
-class StoreKit2NativeBillingClient(private val bridge: StoreKit2Bridge) : NativeBillingClient {
+@OptIn(ExperimentalForeignApi::class)
+internal class StoreKit2NativeBillingClient(
+    private val shim: PayCraftStoreKitShim = PayCraftStoreKitShim(),
+) : NativeBillingClient {
 
-    private val outboundUpdates = MutableSharedFlow<NativePurchase>(extraBufferCapacity = 16)
+    private val outboundUpdates = MutableSharedFlow<NativePurchase>(
+        replay = 0,
+        extraBufferCapacity = 16,
+    )
 
     override val purchaseUpdates: Flow<NativePurchase> = outboundUpdates.asSharedFlow()
 
     init {
-        // Apple requires Transaction.updates to be attached at launch and kept for the process
-        // lifetime. It is the ONLY delivery path for renewals, Ask-to-Buy approvals, family-sharing
-        // grants, refunds, revocations, and purchases interrupted mid-flight.
-        bridge.startTransactionUpdates { transaction ->
-            outboundUpdates.tryEmit(transaction.toNativePurchase())
+        // Apple requires this listener to run for the process lifetime. It is the ONLY delivery path
+        // for renewals, Ask-to-Buy approvals, family-sharing grants, refunds, revocations, and
+        // transactions interrupted mid-purchase.
+        shim.startTransactionUpdates { transaction ->
+            transaction?.let { outboundUpdates.tryEmit(it.toNativePurchase()) }
         }
     }
 
@@ -47,26 +55,38 @@ class StoreKit2NativeBillingClient(private val bridge: StoreKit2Bridge) : Native
         productId: String,
         appUserId: String?,
         productType: NativeProductType,
-    ): NativePurchaseResult = // StoreKit resolves the product type from the product itself, so no branch is needed here
+    ): NativePurchaseResult =
+        // StoreKit resolves the product type from the product itself, so no branch is needed here
         // the way Play needs SUBS vs INAPP up front.
-        when (val outcome = bridge.purchase(productId, appUserId?.let(::appAccountToken))) {
-            is StoreKit2Outcome.Success -> NativePurchaseResult.Success(outcome.transaction.toNativePurchase())
-            StoreKit2Outcome.Cancelled -> NativePurchaseResult.Cancelled
-            StoreKit2Outcome.Pending -> NativePurchaseResult.Pending(
-                // Ask to Buy / SCA: no verified transaction exists yet, so this placeholder carries
-                // only what we know. The real transaction arrives on [purchaseUpdates] when the
-                // approval lands.
-                NativePurchase(
-                    productId = productId,
-                    purchaseToken = "",
-                    originalTransactionId = null,
-                    purchaseTimeMillis = 0L,
-                    isAutoRenewing = false,
-                    isPending = true,
-                    isAcknowledged = false,
-                ),
-            )
-            is StoreKit2Outcome.Failed -> NativePurchaseResult.Failed(outcome.message)
+        suspendCancellableCoroutine { cont ->
+            shim.purchase(productId, appUserId?.let(::appAccountToken)) { outcome ->
+                val result = when (outcome?.kind) {
+                    PCOutcomeKindSuccess ->
+                        outcome.transaction
+                            ?.let { NativePurchaseResult.Success(it.toNativePurchase()) }
+                            ?: NativePurchaseResult.Failed("StoreKit reported success with no transaction")
+
+                    PCOutcomeKindCancelled -> NativePurchaseResult.Cancelled
+
+                    PCOutcomeKindPending -> NativePurchaseResult.Pending(
+                        // Ask to Buy / SCA: no verified transaction exists yet, so this placeholder
+                        // carries only what we know. The real one arrives on [purchaseUpdates] when
+                        // the approval lands.
+                        NativePurchase(
+                            productId = productId,
+                            purchaseToken = "",
+                            originalTransactionId = null,
+                            purchaseTimeMillis = 0L,
+                            isAutoRenewing = false,
+                            isPending = true,
+                            isAcknowledged = false,
+                        ),
+                    )
+
+                    else -> NativePurchaseResult.Failed(outcome?.message ?: "StoreKit purchase failed")
+                }
+                cont.resume(result)
+            }
         }
 
     /**
@@ -76,44 +96,71 @@ class StoreKit2NativeBillingClient(private val bridge: StoreKit2Bridge) : Native
      */
     override suspend fun finishPurchase(purchase: NativePurchase) {
         val transactionId = purchase.storeKitTransactionId ?: return
-        bridge.finish(transactionId)
+        suspendCancellableCoroutine { cont ->
+            shim.finish(transactionId) { cont.resume(Unit) }
+        }
     }
 
     override suspend fun queryPurchases(): List<NativePurchase> =
-        bridge.currentEntitlements().map { it.toNativePurchase() }
+        suspendCancellableCoroutine { cont ->
+            shim.currentEntitlementsWithCompletion { list ->
+                cont.resume(list.orEmpty().filterIsInstance<PCTransaction>().map { it.toNativePurchase() })
+            }
+        }
 
     override suspend fun sync() {
-        bridge.sync()
+        suspendCancellableCoroutine { cont ->
+            // A sync failure is non-fatal for restore — currentEntitlements still reads the local
+            // receipt — so the message is swallowed here rather than thrown.
+            shim.syncWithCompletion { cont.resume(Unit) }
+        }
     }
 
     override suspend fun restore(): List<NativePurchase> {
-        bridge.sync()
-        return bridge.currentEntitlements().map { it.toNativePurchase() }
+        sync()
+        return queryPurchases()
     }
 
     override suspend fun manageSubscription(productId: String?) {
-        // Product-specific management is not addressable via URL; StoreKit2's
-        // showManageSubscriptions(in:) needs a UIWindowScene, so the account-level deep-link is the
-        // scene-free path that always works. productId is accepted for contract parity (D7).
-        val url = NSURL.URLWithString(MANAGE_SUBSCRIPTIONS_URL) ?: return
-        UIApplication.sharedApplication.openURL(url)
+        // Product-specific management is not addressable; StoreKit's own sheet needs a
+        // UIWindowScene, and the shim falls back to the account-level deep-link when there is none.
+        // productId is accepted for contract parity (D7).
+        suspendCancellableCoroutine { cont ->
+            shim.showManageSubscriptionsWithCompletion { cont.resume(Unit) }
+        }
     }
 
-    override suspend fun storefrontCountry(): String? = bridge.storefrontCountry()
-
-    override suspend fun nativeDisplayPrice(productId: String, productType: NativeProductType): NativeDisplayPrice? =
-        bridge.displayPrice(productId)?.let {
-            NativeDisplayPrice(formatted = it.formatted, currencyCode = it.currencyCode, amountMicros = it.amountMicros)
+    override suspend fun storefrontCountry(): String? =
+        suspendCancellableCoroutine { cont ->
+            shim.storefrontCountryWithCompletion { country -> cont.resume(country) }
         }
 
-    private fun StoreKit2Transaction.toNativePurchase(): NativePurchase = NativePurchase(
+    override suspend fun nativeDisplayPrice(
+        productId: String,
+        productType: NativeProductType,
+    ): NativeDisplayPrice? =
+        suspendCancellableCoroutine { cont ->
+            shim.displayPrice(productId) { price: PCPrice? ->
+                cont.resume(
+                    price?.let {
+                        NativeDisplayPrice(
+                            formatted = it.formatted,
+                            currencyCode = it.currencyCode,
+                            amountMicros = it.amountMicros,
+                        )
+                    },
+                )
+            }
+        }
+
+    private fun PCTransaction.toNativePurchase(): NativePurchase = NativePurchase(
         productId = productId,
-        purchaseToken = jwsRepresentation,
-        originalTransactionId = originalId,
-        purchaseTimeMillis = purchaseDateMillis,
-        // Now the REAL renewal switch (Product.SubscriptionInfo.RenewalInfo.willAutoRenew), not
-        // "is this an auto-renewable product" — which reported true for cancelled subscriptions
-        // and made the paywall promise a charge that was never coming.
+        purchaseToken = jws,
+        originalTransactionId = originalTransactionId,
+        purchaseTimeMillis = purchaseTimeMillis,
+        // The REAL renewal switch (RenewalInfo.willAutoRenew), resolved in the shim — not "is this
+        // an auto-renewable product", which stayed true for cancelled subscriptions and made the
+        // paywall promise a charge that was never coming.
         isAutoRenewing = isAutoRenewing,
         // StoreKit's per-transaction id rides in packageName, the one free-form slot on the
         // store-agnostic value object (Play uses it for the app package, which StoreKit has no
@@ -126,10 +173,6 @@ class StoreKit2NativeBillingClient(private val bridge: StoreKit2Bridge) : Native
     /** The StoreKit transaction id carried through [NativePurchase.packageName]. */
     private val NativePurchase.storeKitTransactionId: String?
         get() = packageName?.takeIf { it.isNotBlank() }
-
-    private companion object {
-        const val MANAGE_SUBSCRIPTIONS_URL = "itms-apps://apps.apple.com/account/subscriptions"
-    }
 }
 
 /**

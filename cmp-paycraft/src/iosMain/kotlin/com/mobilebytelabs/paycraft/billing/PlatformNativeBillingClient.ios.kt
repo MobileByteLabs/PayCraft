@@ -1,20 +1,14 @@
 package com.mobilebytelabs.paycraft.billing
 
 /**
- * iOS default native client.
+ * iOS default native client — a real StoreKit 2 client, always.
  *
- * Resolves the StoreKit 2 bridge installed via [PayCraftStoreKit.register] (one line at app start:
- * `PayCraftStoreKit2.install()`). StoreKit 2 is Swift-only with no Objective-C surface, so unlike
- * Android — where [platformDefaultNativeBillingClient] builds a real Play client straight from the
- * captured Application context — iOS needs that Swift shim compiled into the app target, where the
- * StoreKit entitlement lives.
- *
- * Never returns null. Before the bridge is installed this hands back
- * [UnconfiguredStoreKitClient], which fails CLOSED with a message naming the missing line. The old
- * null return collapsed into a generic "App Store billing is not available on this device", which
- * reads like a device fault and sends integrators looking in entirely the wrong place.
+ * This used to return `null` (later an `UnconfiguredStoreKitClient`) because StoreKit 2 needed a
+ * Swift bridge that only the consuming app could supply, so iOS consumers had to copy a Swift file
+ * into their Xcode target and load `paycraftStoreKit2BillingModule` by hand. The shim is now
+ * SDK-internal (compiled to a static archive and reached via cinterop), so there is nothing to
+ * inject and no way to be "unconfigured": `PayCraft.initialize(apiKey)` in commonMain is the whole
+ * iOS integration, exactly as it already was on Android.
  */
-actual fun platformDefaultNativeBillingClient(): NativeBillingClient? {
-    val bridge = PayCraftStoreKit.current() ?: return UnconfiguredStoreKitClient()
-    return StoreKit2NativeBillingClient(bridge)
-}
+@OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+actual fun platformDefaultNativeBillingClient(): NativeBillingClient? = StoreKit2NativeBillingClient()

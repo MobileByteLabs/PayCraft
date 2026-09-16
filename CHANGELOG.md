@@ -2,10 +2,35 @@
 
 ## Unreleased
 
+- **iOS no longer asks the app to supply StoreKit.** The StoreKit 2 shim is Swift by necessity —
+  StoreKit 2 has no Objective-C surface, so Kotlin/Native cannot cinterop it — but it used to
+  conform to a Kotlin-exported protocol, which forced `import <SharedFramework>`. That module name
+  is chosen by the consumer, so the file could not ship inside the library: every app kept its own
+  copy, wired it through a `storeKit2Bridge` parameter, and re-added both after each template sync.
+  cappy's copy had drifted 91 lines from canonical, and was missing the retained `updatesTask` that
+  keeps `Transaction.updates` alive — the sole delivery path for renewals, refunds and Ask-to-Buy
+  approvals. The boundary is now inverted: `PayCraftStoreKitShim.swift` imports only
+  Foundation/StoreKit/UIKit, exposes `@objc` value types, and is compiled by the SDK's own Gradle
+  build into a static archive that cinterop EMBEDS in the published klib. `PayCraft.initialize(apiKey)`
+  in commonMain is the entire iOS integration, exactly as it already was on Android.
+  `StoreKit2Bridge`, `PayCraftStoreKit` and `paycraftStoreKit2BillingModule` are **removed** —
+  breaking for any app that wired them, hence the minor bump.
+- **`isAutoRenewing` now reports whether the next period will actually be billed.** It is resolved
+  from `RenewalInfo.willAutoRenew` rather than `productType == .autoRenewable`, which stayed true
+  after a cancellation and made the paywall promise a charge that was never coming.
+- **A8 — the inbound path is a chain rung.** A0..A7 proved only the outbound direction: that the
+  provider answers us, that the SKU reads back, that `/config` serves the right paywall. None of
+  them proved the provider can reach US. Measured on production 2026-09-15 with every one of A0..A7
+  satisfiable: Razorpay was posting 53 event types to a route that has never existed in git history,
+  Stripe had auto-disabled its endpoint, and both functions ran `verify_jwt = true`. A8 registers the
+  webhook, asserts the route is not 404, delivers a signed test event, asserts a forged signature is
+  REJECTED, and reads back the row it should have written. Blocks `pending-webhook-roundtrip`
+  (migration 119).
+
 - **117 + 118 give onboarding a source of truth.** Progress previously lived in `useState<Step>` on
   one dashboard page, so a refresh erased it and nothing could resume a half-finished customer or
   app; no table in the schema matched `%onboard%`. `onboarding_customer_state` (C1..C3, keyed on
-  `owner_user_id`) and `onboarding_app_state` (A0..A7, keyed on `tenant_id`) now record each step
+  `owner_user_id`) and `onboarding_app_state` (A0..A8, keyed on `tenant_id`) now record each step
   with the evidence that proves it, and a trigger REFUSES `status='passed'` when `evidence IS NULL`.
   That turns "no skip" from a convention a runtime is asked to honour into a constraint the database
   enforces against every writer. `blocked` carries a reason from a closed enum

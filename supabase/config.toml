@@ -428,3 +428,42 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# ── Provider webhooks: verify_jwt MUST be false ───────────────────────────────────────────────────
+#
+# A payment provider POSTs from its own infrastructure and cannot present a Supabase JWT. With the
+# platform default (verify_jwt = true) the gateway rejects every delivery BEFORE the function runs,
+# returning `{"code":"UNAUTHORIZED_NO_AUTH_HEADER"}` — which is indistinguishable from a healthy
+# signature rejection if you only look at the status code (both are 401). Measured on production
+# 2026-09-16: razorpay-webhook and stripe-webhook were both being rejected at the gateway, so the
+# subscription row never flipped and buyers paid without being entitled.
+#
+# These blocks are the fix rather than a dashboard toggle BECAUSE config.toml is what
+# `supabase functions deploy` applies: a toggle set in the dashboard is silently reverted by the
+# next deploy, which is exactly how this regressed after being "fixed" earlier.
+#
+# Security is NOT weakened: each function verifies the provider's own HMAC signature against its
+# signing secret and rejects a forged one. That is the correct authentication for this caller —
+# a JWT the provider cannot possibly hold is not.
+[functions.razorpay-webhook]
+verify_jwt = false
+[functions.stripe-webhook]
+verify_jwt = false
+[functions.paypal-webhook]
+verify_jwt = false
+[functions.paddle-webhook]
+verify_jwt = false
+[functions.paystack-webhook]
+verify_jwt = false
+[functions.flutterwave-webhook]
+verify_jwt = false
+[functions.lemonsqueezy-webhook]
+verify_jwt = false
+[functions.midtrans-webhook]
+verify_jwt = false
+[functions.cashfree-webhook]
+verify_jwt = false
+[functions.btcpay-webhook]
+verify_jwt = false
+[functions.cloud-billing-webhook]
+verify_jwt = false

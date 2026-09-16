@@ -13,8 +13,9 @@ package com.mobilebytelabs.paycraft.billing
  *    Application context + foreground-Activity tracking that `PayCraftInitializer`
  *    already sets up. The consumer does NOT load `paycraftPlayBillingModule` or
  *    supply an activityProvider — just `PayCraft.initialize(apiKey)` in commonMain.
- *  - **iOS** → `null` for now: StoreKit2 needs the app-supplied Swift bridge, so
- *    iOS consumers still opt in via `paycraftStoreKit2BillingModule`.
+ *  - **iOS** → the real StoreKit 2 client. Its Swift shim is SDK-internal (compiled to a static
+ *    archive, reached via cinterop), so `PayCraft.initialize(apiKey)` in commonMain is the whole
+ *    integration — no Swift file to copy, no module to load, same as Android.
  *  - **web / desktop** → `null` → web checkout (correct: no native store exists).
  *
  * A consumer can still override the binding explicitly (e.g. a custom

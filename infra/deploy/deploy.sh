@@ -53,6 +53,8 @@
 #
 # Stability flags:
 #   --allow-destructive  permit pending migrations containing DROP/TRUNCATE (audited; default refuse)
+#   --allow-no-backup    proceed when the pre-migration schema snapshot fails (prod only; never
+#                        available when the pending set is destructive — that case has no override)
 #   --skip-build         skip the PRE-FLIGHT dashboard typecheck (not recommended)
 #
 set -eo pipefail
@@ -112,6 +114,8 @@ VERBOSE=false
 SILENT=false
 SUB_COMMAND=""
 ALLOW_DESTRUCTIVE=false          # gate: pending migrations with DROP/TRUNCATE abort unless set
+ALLOW_NO_BACKUP=false            # gate: a failed pre-migration snapshot aborts prod unless set
+BACKUP_PATH=""                   # set by take_schema_backup on success
 SKIP_BUILD=false                 # escape hatch: skip the local typecheck in PRE-FLIGHT
 
 # Sub-command detection (shorthand aliases)
@@ -152,6 +156,7 @@ while [[ $# -gt 0 ]]; do
         --only-phase)           ONLY_PHASE="$2"; FROM_PHASE="$2"; TO_PHASE="$2"; shift 2 ;;
         --keep-going)           KEEP_GOING=true; shift ;;
         --allow-destructive)    ALLOW_DESTRUCTIVE=true; shift ;;
+        --allow-no-backup)      ALLOW_NO_BACKUP=true; shift ;;
         --skip-build)           SKIP_BUILD=true; shift ;;
         --verbose)              VERBOSE=true; shift ;;
         --silent)               SILENT=true; shift ;;
@@ -313,6 +318,71 @@ phase_2_secrets_sync() {
     return 0
 }
 
+# ── Pre-migration schema snapshot ────────────────────────────────────────────────────────────────
+# There is no auto-rollback in this pipeline, so this dump is the ONLY route back from a bad
+# migration. It used to warn-and-continue on failure — which meant that on any machine without
+# pg_dump the safety net was absent for EVERY migration ever applied, silently, because the warning
+# blocked nothing and nobody reads a warning that costs nothing. Measured 2026-09-16: pg_dump was not
+# on PATH here, so migrations 117 and 118 (tables, triggers, RLS) went to production with no snapshot.
+#
+# `supabase db dump` shells out to pg_dump, so its absence is the failure worth naming explicitly —
+# rc=1 alone sends you looking at credentials or the network instead.
+#
+# Sets BACKUP_PATH on success. Returns non-zero on failure.
+take_schema_backup() {   # $1 = db_url
+    local db_url="$1"
+    local backup="$STATE_DIR/pre-deploy-schema-$(date -u +%Y%m%dT%H%M%SZ).sql"
+    BACKUP_PATH=""
+
+    echo "  Backing up remote schema → $backup"
+    # The dump's own stderr is the diagnosis. It used to go to /dev/null, leaving only "rc=1" — which
+    # is indistinguishable between a missing pg_dump, a version mismatch, and a credential problem,
+    # and sends you to the wrong one. RULE-SYSTEMATIC-DEBUG-001: never discard the real error.
+    local dump_log
+    dump_log=$(mktemp -t paycraft-dbdump-XXXXXX)
+    local dump_rc
+
+    # `supabase db dump` runs pg_dump INSIDE A DOCKER CONTAINER — it never uses the local binary. So
+    # on a machine with no Docker daemon it fails with "failed to inspect docker image", which reads
+    # like a local-dev problem and has nothing to do with the remote database. That is why this
+    # backup had never once succeeded here (measured 2026-09-16), and why installing pg_dump alone
+    # did not fix it.
+    #
+    # A schema dump needs no container. Prefer the local client and keep Docker as the fallback, so
+    # the recovery artifact does not depend on a daemon being up. --schema-only is deliberate: this
+    # is a structural snapshot for reversing a migration, not a data backup (Supabase PITR covers
+    # data), and dumping production data to a local file would be a far larger exposure than the
+    # rollback is worth.
+    set +o pipefail
+    if command -v pg_dump >/dev/null 2>&1; then
+        pg_dump --schema-only --no-owner --no-privileges --dbname="$db_url" -f "$backup" > "$dump_log" 2>&1
+        dump_rc=$?
+        if [[ $dump_rc -ne 0 ]]; then
+            echo "  … local pg_dump failed (rc=$dump_rc) — retrying via supabase db dump (needs Docker)" >> "$dump_log"
+            supabase db dump --db-url "$db_url" -f "$backup" >> "$dump_log" 2>&1
+            dump_rc=$?
+        fi
+    else
+        echo "  (pg_dump not on PATH — falling back to supabase db dump, which requires Docker)"
+        echo "   install the local client to remove that dependency: brew install libpq && brew link --force libpq"
+        supabase db dump --db-url "$db_url" -f "$backup" > "$dump_log" 2>&1
+        dump_rc=$?
+    fi
+    set -o pipefail
+
+    if [[ $dump_rc -eq 0 && -s "$backup" ]]; then
+        echo "  ✓ schema backup saved ($(wc -l < "$backup" | tr -d ' ') lines) — restore with: psql <db-url> -f $backup"
+        BACKUP_PATH="$backup"
+        rm -f "$dump_log"
+        return 0
+    fi
+    echo "  ✗ schema backup FAILED (rc=$dump_rc) — no pre-migration snapshot exists."
+    sed -e 's|postgres://[^ ]*|<redacted-db-url>|g' -e 's|postgresql://[^ ]*|<redacted-db-url>|g' \
+        "$dump_log" | tail -12 | sed 's/^/      /'
+    rm -f "$dump_log" "$backup"
+    return 1
+}
+
 phase_3_migrations() {
     cd "$PAYCRAFT_SRC"
     local db_url_file db_url
@@ -346,6 +416,7 @@ phase_3_migrations() {
 
     # ── Destructive-change scan over PENDING files only (data-loss guard) ──
     local DESTRUCTIVE_RE='drop[[:space:]]+table|drop[[:space:]]+column|truncate[[:space:]]|alter[[:space:]]+table[[:space:]].*drop[[:space:]]+column|drop[[:space:]]+type|drop[[:space:]]+schema'
+    local destructive_count=0
     if [[ -n "$pending" ]]; then
         local destructive=() fname
         while IFS= read -r fname; do
@@ -353,6 +424,7 @@ phase_3_migrations() {
             [[ -f "supabase/migrations/$fname" ]] || continue
             if grep -iqE "$DESTRUCTIVE_RE" "supabase/migrations/$fname"; then destructive+=("$fname"); fi
         done <<< "$pending"
+        destructive_count=${#destructive[@]}
         if [[ ${#destructive[@]} -gt 0 ]]; then
             echo "  ⚠ DESTRUCTIVE operations detected in pending migrations:"
             for fname in "${destructive[@]}"; do
@@ -367,24 +439,36 @@ phase_3_migrations() {
         fi
     fi
 
+    # ── Pre-push schema backup, taken on DRY-RUN as well as APPLY ──────────────────────────────────
+    # A dump is read-only, so there is no cost to exercising it during a dry run — and every reason
+    # to. The alternative is discovering the recovery artifact cannot be produced at the exact moment
+    # it is needed, which is what happened here. `verify`/`--dry-run` now answers "is this deployable"
+    # honestly, snapshot included.
+    local backup_ok=true
+    take_schema_backup "$db_url" || backup_ok=false
+
+    if [[ "$backup_ok" != "true" ]]; then
+        # Destructive + no snapshot is unrecoverable by construction. No flag clears this one:
+        # --allow-destructive says "I accept dropping things", not "I accept dropping things with no
+        # way back", and conflating the two is how an irreversible deploy gets a routine approval.
+        if [[ $destructive_count -gt 0 ]]; then
+            echo "  ✗ HARD STOP — destructive migrations with no schema snapshot, and no auto-rollback."
+            echo "    Fix the snapshot failure above and re-run. There is deliberately no override for this case."
+            return 1
+        fi
+        if [[ "$MODE" = "prod" && "$ALLOW_NO_BACKUP" != "true" ]]; then
+            echo "  ✗ HARD STOP — production migration with no pre-migration snapshot."
+            echo "    Fix the snapshot failure above, or re-run with --allow-no-backup to accept no rollback path."
+            return 1
+        fi
+        echo "  ⚠ continuing without a snapshot (mode=$MODE, allow_no_backup=$ALLOW_NO_BACKUP)"
+    fi
+
     if [[ "$APPLY" != "true" ]]; then
         echo "  [DRY] $([[ -n "$pending" ]] && echo "would apply the pending migrations above" || echo "nothing parsed to apply")"
         return 0
     fi
-
-    # ── Pre-push schema backup (recovery artifact — there is no auto-rollback) ──
-    local backup="$STATE_DIR/pre-deploy-schema-$(date -u +%Y%m%dT%H%M%SZ).sql"
-    echo "  Backing up remote schema → $backup"
-    set +o pipefail
-    supabase db dump --db-url "$db_url" -f "$backup" > /dev/null 2>&1
-    local dump_rc=$?
-    set -o pipefail
-    if [[ $dump_rc -eq 0 && -s "$backup" ]]; then
-        echo "  ✓ schema backup saved ($(wc -l < "$backup" | tr -d ' ') lines) — restore with: psql <db-url> -f $backup"
-    else
-        echo "  ⚠ schema backup failed (rc=$dump_rc) — continuing, but no pre-migration snapshot exists."
-        rm -f "$backup"
-    fi
+    local backup="$BACKUP_PATH"
 
     # ── Apply (echo y, not yes — yes triggers SIGPIPE/141 under pipefail) ──
     echo "  Running: supabase db push --include-all --db-url <framework-supabase>"
