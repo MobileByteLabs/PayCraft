@@ -6,11 +6,11 @@ import com.mobilebytelabs.paycraft.billing.NativeDisplayPrice
 import com.mobilebytelabs.paycraft.billing.resolveCheckoutLane
 import com.mobilebytelabs.paycraft.config.ConfigCache
 import com.mobilebytelabs.paycraft.config.ConfigResult
-import com.mobilebytelabs.paycraft.config.readBundledSuiteConfigJsonOrNull
 import com.mobilebytelabs.paycraft.config.CouponDto
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
+import com.mobilebytelabs.paycraft.config.readBundledSuiteConfigJsonOrNull
 import com.mobilebytelabs.paycraft.core.AdFreeEntitlement
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.EntitlementSnapshot
@@ -639,7 +639,11 @@ object PayCraft {
         val bundledJson = runCatching { readBundledSuiteConfigJsonOrNull() }.getOrNull()
         if (!bundledJson.isNullOrBlank()) {
             val bundled = runCatching {
-                Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
+                Json {
+                    ignoreUnknownKeys = true
+                    isLenient = true
+                    coerceInputValues = true
+                }
                     .decodeFromString(SuiteConfig.serializer(), bundledJson)
             }.getOrNull()
             if (bundled != null) {

@@ -16,12 +16,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
-import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
-import org.jetbrains.compose.resources.stringResource
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_premium_manage
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_premium_restore
+import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
+import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * Restore + Manage, on the premium arm.
@@ -35,10 +35,7 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_premium_restore
  * Reuses the existing MANAGE_SUBSCRIPTION_BUTTON tag rather than declaring a second one.
  */
 @Composable
-fun PremiumEntitlementActions(
-    onAction: (PayCraftPaywallAction) -> Unit,
-    modifier: Modifier = Modifier,
-) {
+fun PremiumEntitlementActions(onAction: (PayCraftPaywallAction) -> Unit, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),

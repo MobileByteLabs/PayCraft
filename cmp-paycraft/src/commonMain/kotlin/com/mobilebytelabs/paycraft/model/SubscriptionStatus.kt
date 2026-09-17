@@ -7,7 +7,7 @@ enum class OAuthProvider { GOOGLE, APPLE }
  * How ownership was verified before a device transfer is confirmed.
  * The OTP arm was removed 2026-09-06 — OAuth is the only self-service proof.
  */
-enum class VerificationMethod { OAUTH }
+enum class VerificationMethod { OAUTH, }
 
 data class SubscriptionStatus(
     val isPremium: Boolean = false,

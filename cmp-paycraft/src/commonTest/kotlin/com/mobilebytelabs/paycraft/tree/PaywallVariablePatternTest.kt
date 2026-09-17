@@ -1,8 +1,8 @@
 package com.mobilebytelabs.paycraft.tree
 
+import com.mobilebytelabs.paycraft.presentation.tree.PackagePrice
 import com.mobilebytelabs.paycraft.presentation.tree.paywallVariablePatternSource
 import com.mobilebytelabs.paycraft.presentation.tree.substituteVariables
-import com.mobilebytelabs.paycraft.presentation.tree.PackagePrice
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

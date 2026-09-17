@@ -1,8 +1,6 @@
 package com.mobilebytelabs.paycraft.presentation
 
 import com.mobilebytelabs.paycraft.model.BillingState
-import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
-import com.mobilebytelabs.paycraft.model.Product
 
 /**
  * One of the pre-built paywall surfaces shipped with PayCraft.

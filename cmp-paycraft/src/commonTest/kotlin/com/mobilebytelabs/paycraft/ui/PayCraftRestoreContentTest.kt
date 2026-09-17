@@ -83,10 +83,7 @@ class PayCraftRestoreContentTest {
 
         override suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String) { /* no-op */ }
 
-
         override suspend fun confirmDeviceTransfer() { /* no-op */ }
-
-
 
         override suspend fun transferToDevice() { /* no-op */ }
 

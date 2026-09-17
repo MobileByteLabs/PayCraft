@@ -25,7 +25,6 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
-import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
@@ -34,6 +33,7 @@ import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.model.Money
 import com.mobilebytelabs.paycraft.model.Product
+import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import com.mobilebytelabs.paycraft.ui.components.BuiltInPaywall
 import com.mobilebytelabs.paycraft.ui.components.ConfigUnavailable
 import com.mobilebytelabs.paycraft.ui.components.StaleConfigNotice
@@ -109,21 +109,29 @@ class ResilienceSurfaceScreenshotTest {
                 BuiltInPaywall(
                     products = listOf(
                         Product.Subscription(
-                            id = "p1", sku = "premium_monthly", displayName = "Premium",
+                            id = "p1",
+                            sku = "premium_monthly",
+                            displayName = "Premium",
                             displayOrder = 0,
                             interval = Product.Subscription.Interval.MONTH,
                             basePrice = Money(amountMinor = 499, currency = "USD"),
                         ),
                         Product.Lifetime(
-                            id = "p2", sku = "premium_lifetime", displayName = "Lifetime",
+                            id = "p2",
+                            sku = "premium_lifetime",
+                            displayName = "Lifetime",
                             displayOrder = 1,
                             basePrice = Money(amountMinor = 9_999, currency = "USD"),
                         ),
                         // A Trial carries no price at all — included so the golden pins that it
                         // renders its duration rather than a fabricated amount.
                         Product.Trial(
-                            id = "p3", sku = "premium_trial", displayName = "Free trial",
-                            displayOrder = 2, durationDays = 7, attachesToProductId = "p1",
+                            id = "p3",
+                            sku = "premium_trial",
+                            displayName = "Free trial",
+                            displayOrder = 2,
+                            durationDays = 7,
+                            attachesToProductId = "p1",
                         ),
                     ),
                     onPickProduct = {},

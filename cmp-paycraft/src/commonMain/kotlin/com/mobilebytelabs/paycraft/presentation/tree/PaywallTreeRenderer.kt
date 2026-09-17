@@ -9,14 +9,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,16 +28,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.Icon
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.layout.size
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 
@@ -121,11 +120,7 @@ fun PaywallTreeContent(
  * [savingsPercent] and [perPeriodNote] are DERIVED from the catalogue rather than authored, so a
  * price change cannot leave a stale "SAVE 50%" chip behind on a live paywall.
  */
-data class PackagePrice(
-    val display: String,
-    val perPeriodNote: String? = null,
-    val savingsPercent: Int? = null,
-)
+data class PackagePrice(val display: String, val perPeriodNote: String? = null, val savingsPercent: Int? = null)
 
 @Composable
 private fun RenderNode(
@@ -202,7 +197,21 @@ private fun RenderNode(
 
             val kids: @Composable (Modifier?) -> Unit = { grow ->
                 node.components.forEach {
-                    RenderNode(it, workflow, context, onSurface, onSurfaceVariant, owningPackageRole, priceFor, onSelectPackage, onPurchase, onRestore, onNavigate, grow, node.axis)
+                    RenderNode(
+                        it,
+                        workflow,
+                        context,
+                        onSurface,
+                        onSurfaceVariant,
+                        owningPackageRole,
+                        priceFor,
+                        onSelectPackage,
+                        onPurchase,
+                        onRestore,
+                        onNavigate,
+                        grow,
+                        node.axis,
+                    )
                 }
             }
             when (node.axis) {
@@ -272,62 +281,64 @@ private fun RenderNode(
                         },
                     ),
             ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .testTag(PayCraftTestTags.PRODUCT_LIST_ITEM)
-                    .clickable { onSelectPackage(node.roleIdentifier) },
-            ) {
-                // The child stack is rendered with THIS package as the owning role, which is what
-                // makes a `selected` override apply to one card instead of all of them.
-                RenderNode(
-                    node = node.stack,
-                    workflow = workflow,
-                    context = context,
-                    onSurface = onSurface,
-                    onSurfaceVariant = onSurfaceVariant,
-                    owningPackageRole = node.roleIdentifier,
-                    priceFor = priceFor,
-                    onSelectPackage = onSelectPackage,
-                    onPurchase = onPurchase,
-                    onRestore = onRestore,
-                    onNavigate = onNavigate,
-                )
-                // FALLBACK ONLY. A card that prices itself — any descendant text carrying a
-                // `{{ product.* }}` variable — lays its own price out, inside its own bounds. This
-                // corner overlay exists for trees authored before variables existed, which would
-                // otherwise show a plan with no price at all. It is deliberately not the default:
-                // being outside the stack, it is not part of the card's measured height, so it
-                // escapes the card's background and border.
-                if (!node.stack.pricesItself(workflow, context)) priceFor(node.roleIdentifier)?.let { price ->
-                    Column(
-                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-                        horizontalAlignment = Alignment.End,
-                    ) {
-                        // The "SAVE n%" chip the template draws inside ProductList. Authored
-                        // nowhere — derived from the prices themselves, so it cannot go stale.
-                        price.savingsPercent?.let { pct ->
-                            Text(
-                                text = "SAVE $pct%",
-                                color = PayCraftTheme.colors.onPopularBadge,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier
-                                    .background(PayCraftTheme.colors.popularBadge, RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
-                            )
-                        }
-                        Text(
-                            text = price.display,
-                            color = onSurface,
-                            fontSize = 14.sp,
-                        )
-                        price.perPeriodNote?.let {
-                            Text(it, color = onSurfaceVariant, fontSize = 12.sp)
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .testTag(PayCraftTestTags.PRODUCT_LIST_ITEM)
+                        .clickable { onSelectPackage(node.roleIdentifier) },
+                ) {
+                    // The child stack is rendered with THIS package as the owning role, which is what
+                    // makes a `selected` override apply to one card instead of all of them.
+                    RenderNode(
+                        node = node.stack,
+                        workflow = workflow,
+                        context = context,
+                        onSurface = onSurface,
+                        onSurfaceVariant = onSurfaceVariant,
+                        owningPackageRole = node.roleIdentifier,
+                        priceFor = priceFor,
+                        onSelectPackage = onSelectPackage,
+                        onPurchase = onPurchase,
+                        onRestore = onRestore,
+                        onNavigate = onNavigate,
+                    )
+                    // FALLBACK ONLY. A card that prices itself — any descendant text carrying a
+                    // `{{ product.* }}` variable — lays its own price out, inside its own bounds. This
+                    // corner overlay exists for trees authored before variables existed, which would
+                    // otherwise show a plan with no price at all. It is deliberately not the default:
+                    // being outside the stack, it is not part of the card's measured height, so it
+                    // escapes the card's background and border.
+                    if (!node.stack.pricesItself(workflow, context)) {
+                        priceFor(node.roleIdentifier)?.let { price ->
+                            Column(
+                                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                                horizontalAlignment = Alignment.End,
+                            ) {
+                                // The "SAVE n%" chip the template draws inside ProductList. Authored
+                                // nowhere — derived from the prices themselves, so it cannot go stale.
+                                price.savingsPercent?.let { pct ->
+                                    Text(
+                                        text = "SAVE $pct%",
+                                        color = PayCraftTheme.colors.onPopularBadge,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .background(PayCraftTheme.colors.popularBadge, RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    )
+                                }
+                                Text(
+                                    text = price.display,
+                                    color = onSurface,
+                                    fontSize = 14.sp,
+                                )
+                                price.perPeriodNote?.let {
+                                    Text(it, color = onSurfaceVariant, fontSize = 12.sp)
+                                }
+                            }
                         }
                     }
                 }
-            }
             }
         }
 
@@ -378,7 +389,19 @@ private fun RenderNode(
 
         is PaywallNode.Footer -> Column(Modifier.fillMaxWidth()) {
             node.components.forEach {
-                RenderNode(it, workflow, context, onSurface, onSurfaceVariant, owningPackageRole, priceFor, onSelectPackage, onPurchase, onRestore, onNavigate)
+                RenderNode(
+                    it,
+                    workflow,
+                    context,
+                    onSurface,
+                    onSurfaceVariant,
+                    owningPackageRole,
+                    priceFor,
+                    onSelectPackage,
+                    onPurchase,
+                    onRestore,
+                    onNavigate,
+                )
             }
         }
 
@@ -387,7 +410,19 @@ private fun RenderNode(
             verticalArrangement = Arrangement.spacedBy(node.itemSpacing.dp),
         ) {
             node.items.forEach {
-                RenderNode(it, workflow, context, onSurface, onSurfaceVariant, owningPackageRole, priceFor, onSelectPackage, onPurchase, onRestore, onNavigate)
+                RenderNode(
+                    it,
+                    workflow,
+                    context,
+                    onSurface,
+                    onSurfaceVariant,
+                    owningPackageRole,
+                    priceFor,
+                    onSelectPackage,
+                    onPurchase,
+                    onRestore,
+                    onNavigate,
+                )
             }
         }
 
@@ -435,8 +470,11 @@ private fun RenderNode(
         is PaywallNode.Image -> Spacer(Modifier.height(0.dp))
 
         is PaywallNode.Spacer -> Spacer(
-            if (node.grow) growModifier ?: Modifier.height(node.size.dp)
-            else Modifier.height(node.size.dp),
+            if (node.grow) {
+                growModifier ?: Modifier.height(node.size.dp)
+            } else {
+                Modifier.height(node.size.dp)
+            },
         )
 
         // See the class KDoc: shape was already preserved at parse time; drawing a visible
@@ -446,5 +484,8 @@ private fun RenderNode(
 }
 
 private fun Edges.toPadding() = PaddingValues(
-    start = leading.dp, top = top.dp, end = trailing.dp, bottom = bottom.dp,
+    start = leading.dp,
+    top = top.dp,
+    end = trailing.dp,
+    bottom = bottom.dp,
 )

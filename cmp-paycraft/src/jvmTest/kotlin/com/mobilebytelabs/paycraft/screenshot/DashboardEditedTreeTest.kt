@@ -47,7 +47,12 @@ class DashboardEditedTreeTest {
     // what survived. Asserted against the fixture rather than against what the edits were meant to
     // do — a test that agrees with the intention instead of the artifact proves nothing.
     private val monthly = Product.Subscription(
-        "p_month", "sku_month", "Monthly", 1, Product.Subscription.Interval.MONTH, Money(699, "USD"),
+        "p_month",
+        "sku_month",
+        "Monthly",
+        1,
+        Product.Subscription.Interval.MONTH,
+        Money(699, "USD"),
     )
 
     @Test
@@ -64,12 +69,15 @@ class DashboardEditedTreeTest {
                             workflow = wf,
                             context = RenderContext(selectedPackageRole = "${'$'}rc_monthly"),
                             priceFor = { role ->
-                                if (role != "${'$'}rc_monthly") null
-                                else PackagePrice(
-                                    display = monthly.basePrice.format(),
-                                    perPeriodNote = monthly.monthlyEquivalentNote(),
-                                    savingsPercent = null,
-                                )
+                                if (role != "${'$'}rc_monthly") {
+                                    null
+                                } else {
+                                    PackagePrice(
+                                        display = monthly.basePrice.format(),
+                                        perPeriodNote = monthly.monthlyEquivalentNote(),
+                                        savingsPercent = null,
+                                    )
+                                }
                             },
                         )
                     }

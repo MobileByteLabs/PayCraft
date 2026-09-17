@@ -12,24 +12,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.mobilebytelabs.paycraft.model.BillingState
-import com.mobilebytelabs.paycraft.model.OAuthProvider
-import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
-import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
-import org.jetbrains.compose.resources.stringResource
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_device_conflict_account
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_device_conflict_body
@@ -38,6 +30,11 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_device_conflict_
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_device_conflict_gate_support
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_device_conflict_gate_support_hint
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_device_conflict_title
+import com.mobilebytelabs.paycraft.model.BillingState
+import com.mobilebytelabs.paycraft.model.OAuthProvider
+import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
+import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * Host-supplied platform OAuth trigger.
@@ -56,16 +53,15 @@ val LocalPayCraftOAuthHandler = staticCompositionLocalOf<((OAuthProvider) -> Uni
 
 /** Convenience for hosts wiring the OAuth gate. */
 @Composable
-fun ProvidePayCraftOAuthHandler(
-    handler: (OAuthProvider) -> Unit,
-    content: @Composable () -> Unit,
-) = CompositionLocalProvider(LocalPayCraftOAuthHandler provides handler, content = content)
+fun ProvidePayCraftOAuthHandler(handler: (OAuthProvider) -> Unit, content: @Composable () -> Unit) =
+    CompositionLocalProvider(LocalPayCraftOAuthHandler provides handler, content = content)
 
 /**
  * Renders the conflict payload and every route out of it.
  *
  * The previous body was two hardcoded lines — "Device limit reached" and "Sign in there or contact
- * support" — which discarded `conflictingDeviceName` and `supportEmail`. Telling someone to sign in on a device you decline to name, with no way to act
+ * support" — which discarded `conflictingDeviceName` and `supportEmail`. Telling someone to sign in on a device
+ * you decline to name, with no way to act
  * from here, is the definition of a dead end.
  */
 @Composable

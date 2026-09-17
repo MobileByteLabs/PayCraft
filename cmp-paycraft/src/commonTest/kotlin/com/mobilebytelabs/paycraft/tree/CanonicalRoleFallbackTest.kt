@@ -19,8 +19,12 @@ import kotlin.test.assertNull
 class CanonicalRoleFallbackTest {
 
     private fun sub(sku: String, interval: String) = ProductDto(
-        id = "id_$sku", sku = sku, type = "subscription",
-        displayName = sku, interval = interval, basePriceCents = 100,
+        id = "id_$sku",
+        sku = sku,
+        type = "subscription",
+        displayName = sku,
+        interval = interval,
+        basePriceCents = 100,
     )
 
     private val legacyTenant = SuiteConfig(
@@ -75,7 +79,10 @@ class CanonicalRoleFallbackTest {
             products = listOf(sub("yearly_v2", "year"), sub("yearly_promo", "year")),
             offerings = listOf(
                 com.mobilebytelabs.paycraft.config.OfferingDto(
-                    id = "o1", identifier = "default", displayName = "Default", isCurrent = true,
+                    id = "o1",
+                    identifier = "default",
+                    displayName = "Default",
+                    isCurrent = true,
                     packages = listOf(
                         com.mobilebytelabs.paycraft.config.PackageDto(
                             id = "p1",

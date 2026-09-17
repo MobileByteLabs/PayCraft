@@ -34,20 +34,17 @@ class SessionDisplayPriceTest {
         PayCraft.resetConfigStateForTesting()
     }
 
-    private fun monthly(
-        basePriceCents: Int = 999,
-        baseCurrency: String = "USD",
-        resolved: PriceDto? = null,
-    ) = ProductDto(
-        id = "p_monthly",
-        sku = "pro_monthly",
-        type = "subscription",
-        displayName = "Pro Monthly",
-        interval = "month",
-        basePriceCents = basePriceCents,
-        baseCurrency = baseCurrency,
-        resolvedPrice = resolved,
-    )
+    private fun monthly(basePriceCents: Int = 999, baseCurrency: String = "USD", resolved: PriceDto? = null) =
+        ProductDto(
+            id = "p_monthly",
+            sku = "pro_monthly",
+            type = "subscription",
+            displayName = "Pro Monthly",
+            interval = "month",
+            basePriceCents = basePriceCents,
+            baseCurrency = baseCurrency,
+            resolvedPrice = resolved,
+        )
 
     private fun session(vararg products: ProductDto) {
         PayCraft.initialize(

@@ -31,7 +31,8 @@ class PaywallTreeParserTest {
           {"type":"holo_carousel","spin":true},
           {"type":"restore_purchases","text_lid":"restore"}
         ]}}],
-     "localizations":{"en_US":{"hero":"Upgrade","hero_trial":"Start your free trial","annual":"Annual","cta":"Continue","restore":"Restore"},
+     "localizations":{"en_US":{"hero":"Upgrade","hero_trial":"Start your free trial",
+                       "annual":"Annual","cta":"Continue","restore":"Restore"},
                       "de_DE":{"hero":"Upgraden"}}}
     """.trimIndent()
 

@@ -14,11 +14,8 @@
  */
 package com.mobilebytelabs.paycraft.ui
 
-import androidx.compose.runtime.Composable
-import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
-import com.mobilebytelabs.paycraft.presentation.tree.BuiltInPaywallSeeds
-import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertHasClickAction
@@ -33,7 +30,10 @@ import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Money
 import com.mobilebytelabs.paycraft.model.Product
+import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
 import com.mobilebytelabs.paycraft.presentation.PaywallTemplate
+import com.mobilebytelabs.paycraft.presentation.tree.BuiltInPaywallSeeds
+import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -496,5 +496,4 @@ class ProductListTest {
             )
         }
     }
-
 }

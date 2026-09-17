@@ -69,9 +69,9 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_email_cd
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_failed_message
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_failed_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_hint
-import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_privacy
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_oauth_description
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_or_email
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_privacy
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_sign_in_apple
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_sign_in_google
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_success_message

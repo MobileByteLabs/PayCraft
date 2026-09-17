@@ -1,23 +1,23 @@
 package com.mobilebytelabs.paycraft.presentation
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.mobilebytelabs.paycraft.LocalPayCraftConfig
+import com.mobilebytelabs.paycraft.config.productForRole
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.presentation.tree.PackagePrice
 import com.mobilebytelabs.paycraft.presentation.tree.PaywallTreeContent
 import com.mobilebytelabs.paycraft.presentation.tree.PaywallWorkflow
-import com.mobilebytelabs.paycraft.presentation.tree.withV1Config
-import com.mobilebytelabs.paycraft.LocalPayCraftConfig
-import com.mobilebytelabs.paycraft.config.productForRole
 import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
+import com.mobilebytelabs.paycraft.presentation.tree.withV1Config
 import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
 import com.mobilebytelabs.paycraft.ui.components.DeviceConflictContent
 import com.mobilebytelabs.paycraft.ui.components.OwnershipVerifiedContent
@@ -96,91 +96,91 @@ fun PaywallStateHost(
     }
 
     MaterialTheme(colorScheme = scheme) {
-    // ── THE FRAME BOX ────────────────────────────────────────────────────────────────────────
-    // Everything the paywall renders is server-authored, so the FRAME is the only part of this
-    // screen whose shape is known at build time. It owns exactly three things and no content:
-    // the BOUNDS (`paywallRoot` — full window, or wrap-height inside a sheet), the SURFACE it
-    // paints, and the SCROLL.
-    //
-    // Scrolling belongs here rather than in any arm below. Every arm can overflow — a tree with a
-    // third plan card, a long error message, a device-conflict explanation — and each one solving
-    // it separately means each one can forget, which is how a purchase button ends up below the
-    // fold with no way to reach it (production, cappy, three plan cards). One container, and the
-    // question is settled for every state the paywall can be in.
-    //
-    // `paywallContentSize` exists for precisely this column: it sizes without painting, so a
-    // scrolling body inside a wrap-height sheet cannot force the sheet to full height.
-    Box(Modifier.paywallRoot(if (dark) DARK_SURFACE else PayCraftTheme.colors.surface)) {
-        Column(
-            modifier = Modifier
-                .paywallContentSize()
-                .verticalScroll(rememberScrollState()),
-        ) {
-        when (state) {
-            is BillingState.Loading -> PaywallSkeleton(planCount = 3)
+        // ── THE FRAME BOX ────────────────────────────────────────────────────────────────────────
+        // Everything the paywall renders is server-authored, so the FRAME is the only part of this
+        // screen whose shape is known at build time. It owns exactly three things and no content:
+        // the BOUNDS (`paywallRoot` — full window, or wrap-height inside a sheet), the SURFACE it
+        // paints, and the SCROLL.
+        //
+        // Scrolling belongs here rather than in any arm below. Every arm can overflow — a tree with a
+        // third plan card, a long error message, a device-conflict explanation — and each one solving
+        // it separately means each one can forget, which is how a purchase button ends up below the
+        // fold with no way to reach it (production, cappy, three plan cards). One container, and the
+        // question is settled for every state the paywall can be in.
+        //
+        // `paywallContentSize` exists for precisely this column: it sizes without painting, so a
+        // scrolling body inside a wrap-height sheet cannot force the sheet to full height.
+        Box(Modifier.paywallRoot(if (dark) DARK_SURFACE else PayCraftTheme.colors.surface)) {
+            Column(
+                modifier = Modifier
+                    .paywallContentSize()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                when (state) {
+                    is BillingState.Loading -> PaywallSkeleton(planCount = 3)
 
-            is BillingState.Free ->
-                if (workflow != null) {
-                    FreeArm(
-                        workflow = workflow,
-                        context = context,
-                        priceFor = priceFor,
-                        onSelectPackage = onSelectPackage,
-                        onPurchase = onPurchase,
-                        onRestore = onRestore,
-                        enrichFromConfig = enrichFromConfig,
-                    )
-                } else {
-                    PaywallErrorContent(
-                        message = "This paywall could not be loaded.",
-                        onRetry = onRetry,
-                    )
-                }
+                    is BillingState.Free ->
+                        if (workflow != null) {
+                            FreeArm(
+                                workflow = workflow,
+                                context = context,
+                                priceFor = priceFor,
+                                onSelectPackage = onSelectPackage,
+                                onPurchase = onPurchase,
+                                onRestore = onRestore,
+                                enrichFromConfig = enrichFromConfig,
+                            )
+                        } else {
+                            PaywallErrorContent(
+                                message = "This paywall could not be loaded.",
+                                onRetry = onRetry,
+                            )
+                        }
 
-            is BillingState.Premium -> Column {
-                PremiumStatusContent(state)
-                PremiumEntitlementActions(onAction)
-            }
-
-            // A purchase that failed is not a paywall that failed. When there is still something
-            // to render — a tree — the error is a banner ABOVE the plans, so the customer can pick
-            // a different plan or simply try again. Only a paywall that cannot render at all gets
-            // the full-screen treatment.
-            is BillingState.Error ->
-                if (workflow != null) {
-                    Column {
-                        PaywallInlineError(state.message, onRetry)
-                        FreeArm(
-                            workflow = workflow,
-                            context = context,
-                            priceFor = priceFor,
-                            onSelectPackage = onSelectPackage,
-                            onPurchase = onPurchase,
-                            onRestore = onRestore,
-                            enrichFromConfig = enrichFromConfig,
-                        )
+                    is BillingState.Premium -> Column {
+                        PremiumStatusContent(state)
+                        PremiumEntitlementActions(onAction)
                     }
-                } else {
-                    PaywallErrorContent(state.message, onRetry)
-                }
-            is BillingState.PaymentPending -> PaymentPendingContent(state.productId)
-            is BillingState.DeviceConflict -> DeviceConflictContent(state, onAction)
-            is BillingState.OwnershipVerified -> OwnershipVerifiedContent(state, onAction)
-        }
 
-        // Footer chrome closes the frame for EVERY state above. It scrolls with the body rather
-        // than pinning, because a paywall this short would otherwise reserve a strip of dead space
-        // above the fold on a tall screen — and once the body scrolls at all, reaching the footer is
-        // the same gesture as reaching the purchase button.
-        val paywall = LocalPayCraftConfig.current?.paywall
-        PaywallChromeFooter(
-            termsUrl = paywall?.termsUrl,
-            privacyUrl = paywall?.privacyUrl,
-            branding = paywall?.branding ?: "attribution",
-            customFooter = paywall?.customFooter,
-        )
+                    // A purchase that failed is not a paywall that failed. When there is still something
+                    // to render — a tree — the error is a banner ABOVE the plans, so the customer can pick
+                    // a different plan or simply try again. Only a paywall that cannot render at all gets
+                    // the full-screen treatment.
+                    is BillingState.Error ->
+                        if (workflow != null) {
+                            Column {
+                                PaywallInlineError(state.message, onRetry)
+                                FreeArm(
+                                    workflow = workflow,
+                                    context = context,
+                                    priceFor = priceFor,
+                                    onSelectPackage = onSelectPackage,
+                                    onPurchase = onPurchase,
+                                    onRestore = onRestore,
+                                    enrichFromConfig = enrichFromConfig,
+                                )
+                            }
+                        } else {
+                            PaywallErrorContent(state.message, onRetry)
+                        }
+                    is BillingState.PaymentPending -> PaymentPendingContent(state.productId)
+                    is BillingState.DeviceConflict -> DeviceConflictContent(state, onAction)
+                    is BillingState.OwnershipVerified -> OwnershipVerifiedContent(state, onAction)
+                }
+
+                // Footer chrome closes the frame for EVERY state above. It scrolls with the body rather
+                // than pinning, because a paywall this short would otherwise reserve a strip of dead space
+                // above the fold on a tall screen — and once the body scrolls at all, reaching the footer is
+                // the same gesture as reaching the purchase button.
+                val paywall = LocalPayCraftConfig.current?.paywall
+                PaywallChromeFooter(
+                    termsUrl = paywall?.termsUrl,
+                    privacyUrl = paywall?.privacyUrl,
+                    branding = paywall?.branding ?: "attribution",
+                    customFooter = paywall?.customFooter,
+                )
+            }
         }
-    }
     }
 }
 
@@ -236,4 +236,4 @@ private fun FreeArm(
         onPurchase = onPurchase,
         onRestore = onRestore,
     )
-    }
+}

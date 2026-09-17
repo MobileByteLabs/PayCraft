@@ -116,7 +116,6 @@ object PayCraftTestTags {
     /** The OTHER device holding the subscription — the fact the old two-line body discarded. */
     const val DEVICE_CONFLICT_DEVICE_NAME = "paycraft_device_conflict_device_name"
 
-
     /** Support address — the Gate 2 fallback for anyone OAuth cannot serve. */
     const val DEVICE_CONFLICT_SUPPORT_EMAIL = "paycraft_device_conflict_support_email"
 

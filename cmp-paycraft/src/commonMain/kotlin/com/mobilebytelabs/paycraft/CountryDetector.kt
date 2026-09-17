@@ -1,6 +1,5 @@
 package com.mobilebytelabs.paycraft
 
-
 /**
  * Where a resolved billing country came from, most-authoritative first. Downstream pricing/tax
  * logic can decide how much to trust the value (e.g. prefer the store storefront over an IP guess,

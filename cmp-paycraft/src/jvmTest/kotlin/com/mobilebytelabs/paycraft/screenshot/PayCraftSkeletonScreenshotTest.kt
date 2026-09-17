@@ -50,10 +50,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.assertIsDisplayed
-import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
@@ -72,6 +71,7 @@ import com.mobilebytelabs.paycraft.presentation.tree.monthlyEquivalentNote
 import com.mobilebytelabs.paycraft.presentation.tree.savingsVersusMonthly
 import com.mobilebytelabs.paycraft.ui.LocalPayCraftSurfaceMode
 import com.mobilebytelabs.paycraft.ui.PayCraftSurfaceMode
+import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import com.mobilebytelabs.paycraft.ui.ProductList
 import com.mobilebytelabs.paycraft.ui.components.skeleton.PaywallSkeleton
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
@@ -414,7 +414,6 @@ class PayCraftSkeletonScreenshotTest {
             onAction = {},
         )
     }
-
 }
 
 /** Fixed window for the sheet-over-host golden. */

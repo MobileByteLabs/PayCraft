@@ -23,7 +23,10 @@ import kotlin.test.assertNull
  */
 class DualPathRoutingTest {
 
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     private fun config(workflowJson: String?) = SuiteConfig(
         tenantId = "t1",
@@ -33,7 +36,9 @@ class DualPathRoutingTest {
         ),
         offerings = listOf(
             OfferingDto(
-                id = "o1", identifier = "default", isCurrent = true,
+                id = "o1",
+                identifier = "default",
+                isCurrent = true,
                 packages = listOf(
                     PackageDto(roleIdentifier = "\$rc_annual", productSkus = listOf("sku_year")),
                     PackageDto(roleIdentifier = "\$rc_monthly", productSkus = listOf("sku_month")),
@@ -94,10 +99,18 @@ class DualPathRoutingTest {
                 ProductDto(id = "new", sku = "sku_new", type = "subscription", displayName = "New"),
             ),
             offerings = listOf(
-                OfferingDto(id = "legacy", identifier = "legacy", isCurrent = false,
-                    packages = listOf(PackageDto(roleIdentifier = "\$rc_annual", productSkus = listOf("sku_old")))),
-                OfferingDto(id = "current", identifier = "default", isCurrent = true,
-                    packages = listOf(PackageDto(roleIdentifier = "\$rc_annual", productSkus = listOf("sku_new")))),
+                OfferingDto(
+                    id = "legacy",
+                    identifier = "legacy",
+                    isCurrent = false,
+                    packages = listOf(PackageDto(roleIdentifier = "\$rc_annual", productSkus = listOf("sku_old"))),
+                ),
+                OfferingDto(
+                    id = "current",
+                    identifier = "default",
+                    isCurrent = true,
+                    packages = listOf(PackageDto(roleIdentifier = "\$rc_annual", productSkus = listOf("sku_new"))),
+                ),
             ),
         )
         assertEquals("new", cfg.productForRole("\$rc_annual")?.id, "the current offering must win")

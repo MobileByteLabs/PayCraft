@@ -1,11 +1,11 @@
 package com.mobilebytelabs.paycraft.config
 
 import com.mobilebytelabs.paycraft.PayCraftBackend
+import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
-import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.HttpResponse

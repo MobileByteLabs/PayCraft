@@ -16,19 +16,18 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.testTag
-import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
-import org.jetbrains.compose.resources.stringResource
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_builtin_disclaimer
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_builtin_priced_label
-import com.mobilebytelabs.paycraft.generated.resources.paycraft_builtin_reload
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_builtin_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_builtin_trial_label
 import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.model.sessionDisplayPriceFormatted
+import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * Rendered when network, persisted cache and bundled fallback have all failed, but the SDK can
@@ -78,17 +77,20 @@ fun BuiltInPaywall(
                 val label = when (product) {
                     is Product.Subscription -> stringResource(
                         Res.string.paycraft_builtin_priced_label,
-                        product.displayName, product.sessionDisplayPriceFormatted().orEmpty(),
+                        product.displayName,
+                        product.sessionDisplayPriceFormatted().orEmpty(),
                     )
                     is Product.Lifetime -> stringResource(
                         Res.string.paycraft_builtin_priced_label,
-                        product.displayName, product.sessionDisplayPriceFormatted().orEmpty(),
+                        product.displayName,
+                        product.sessionDisplayPriceFormatted().orEmpty(),
                     )
                     // The English "-day trial" suffix was concatenated onto a number; it is now a
                     // whole parameterised phrase so a translator can order the units naturally.
                     is Product.Trial -> stringResource(
                         Res.string.paycraft_builtin_trial_label,
-                        product.displayName, product.durationDays,
+                        product.displayName,
+                        product.durationDays,
                     )
                 }
                 Text(label)

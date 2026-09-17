@@ -6,7 +6,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -30,7 +29,10 @@ object PaywallTreeParser {
     /** Highest `schema_version` this build renders. A higher one still parses — see [PaywallWorkflow]. */
     const val SUPPORTED_SCHEMA_VERSION: Int = 2
 
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     fun parse(raw: String): PaywallWorkflow? =
         runCatching { parse(json.parseToJsonElement(raw).jsonObject) }.getOrNull()
@@ -68,9 +70,11 @@ object PaywallTreeParser {
 
     private fun localizations(obj: JsonObject?): Map<String, Map<String, String>> =
         obj?.entries?.associate { (locale, table) ->
-            locale to ((table as? JsonObject)?.entries
-                ?.mapNotNull { (lid, v) -> v.jsonPrimitive.contentOrNull?.let { lid to it } }
-                ?.toMap() ?: emptyMap())
+            locale to (
+                (table as? JsonObject)?.entries
+                    ?.mapNotNull { (lid, v) -> v.jsonPrimitive.contentOrNull?.let { lid to it } }
+                    ?.toMap() ?: emptyMap()
+                )
         } ?: emptyMap()
 
     private fun node(obj: JsonObject): PaywallNode {
@@ -106,7 +110,9 @@ object PaywallTreeParser {
             "package" -> PaywallNode.Package(
                 roleIdentifier = obj.str("package_id").orEmpty(),
                 isSelectedByDefault = obj["is_selected_by_default"]?.jsonPrimitive?.booleanOrNull ?: false,
-                stack = (obj["stack"] as? JsonObject)?.let { stack(it, overrides(it["overrides"] as? JsonArray)) } ?: PaywallNode.Stack(),
+                stack =
+                (obj["stack"] as? JsonObject)?.let { stack(it, overrides(it["overrides"] as? JsonArray)) }
+                    ?: PaywallNode.Stack(),
                 overrides = overrides,
             )
             "button" -> {
@@ -200,19 +206,18 @@ object PaywallTreeParser {
     private fun children(obj: JsonObject): List<PaywallNode> =
         (obj["components"] as? JsonArray).orEmptyArray().map { node(it.jsonObject) }
 
-    private fun overrides(arr: JsonArray?): List<Override> =
-        arr.orEmptyArray().mapNotNull { el ->
-            val o = el as? JsonObject ?: return@mapNotNull null
-            // An override whose conditions are ALL unrecognised is dropped: applying it would
-            // restyle unconditionally, which is the opposite of what it asks for.
-            val conditions = (o["conditions"] as? JsonArray).orEmptyArray()
-                .mapNotNull { c -> (c as? JsonObject)?.str("type")?.let(Condition::from) }
-            if (conditions.isEmpty()) return@mapNotNull null
-            val props = (o["properties"] as? JsonObject)?.entries
-                ?.mapNotNull { (k, v) -> v.jsonPrimitive.contentOrNull?.let { k to it } }
-                ?.toMap() ?: emptyMap()
-            Override(conditions, props)
-        }
+    private fun overrides(arr: JsonArray?): List<Override> = arr.orEmptyArray().mapNotNull { el ->
+        val o = el as? JsonObject ?: return@mapNotNull null
+        // An override whose conditions are ALL unrecognised is dropped: applying it would
+        // restyle unconditionally, which is the opposite of what it asks for.
+        val conditions = (o["conditions"] as? JsonArray).orEmptyArray()
+            .mapNotNull { c -> (c as? JsonObject)?.str("type")?.let(Condition::from) }
+        if (conditions.isEmpty()) return@mapNotNull null
+        val props = (o["properties"] as? JsonObject)?.entries
+            ?.mapNotNull { (k, v) -> v.jsonPrimitive.contentOrNull?.let { k to it } }
+            ?.toMap() ?: emptyMap()
+        Override(conditions, props)
+    }
 
     // ── tiny readers; each returns null rather than throwing on a shape surprise ────────────────
     private fun JsonArray?.orEmptyArray(): List<kotlinx.serialization.json.JsonElement> = this ?: emptyList()

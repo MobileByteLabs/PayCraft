@@ -1,6 +1,5 @@
 package com.mobilebytelabs.paycraft.debug
 
-
 /**
  * Central logging layer for PayCraft.
  *
@@ -158,11 +157,8 @@ object PayCraftLogger {
 //
 // These keep Kermit's exact call SHAPE — `logD(TAG) { "..." }` — so every existing trailing lambda
 // is untouched and the message is still built lazily, only when logging is on.
-private inline fun logD(tag: String, message: () -> String) =
-    platformLog(PayCraftLogLevel.DEBUG, tag, message())
+private inline fun logD(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.DEBUG, tag, message())
 
-private inline fun logW(tag: String, message: () -> String) =
-    platformLog(PayCraftLogLevel.WARN, tag, message())
+private inline fun logW(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.WARN, tag, message())
 
-private inline fun logE(tag: String, message: () -> String) =
-    platformLog(PayCraftLogLevel.ERROR, tag, message())
+private inline fun logE(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.ERROR, tag, message())

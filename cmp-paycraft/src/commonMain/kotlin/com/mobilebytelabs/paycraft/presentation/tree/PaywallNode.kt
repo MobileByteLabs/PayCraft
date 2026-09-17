@@ -107,10 +107,8 @@ sealed interface PaywallNode {
         override val overrides: List<Override> = emptyList(),
     ) : PaywallNode
 
-    data class RestorePurchases(
-        val labelLid: String,
-        override val overrides: List<Override> = emptyList(),
-    ) : PaywallNode
+    data class RestorePurchases(val labelLid: String, override val overrides: List<Override> = emptyList()) :
+        PaywallNode
 
     /** Footer; `sticky` pins it outside the scrolling body. */
     data class Footer(
@@ -152,10 +150,7 @@ sealed interface PaywallNode {
      * nowhere. Here that would be a paywall with nothing purchasable on a binary the user cannot
      * update — so the shape is preserved and the host decides what to draw.
      */
-    data class Unknown(
-        val type: String,
-        override val overrides: List<Override> = emptyList(),
-    ) : PaywallNode
+    data class Unknown(val type: String, override val overrides: List<Override> = emptyList()) : PaywallNode
 }
 
 /**
@@ -179,7 +174,9 @@ enum class Axis { VERTICAL, HORIZONTAL, Z }
 
 /** Uniform edge insets. A single type for margin and padding so the two can never be confused. */
 data class Edges(val top: Int = 0, val leading: Int = 0, val bottom: Int = 0, val trailing: Int = 0) {
-    companion object { val ZERO = Edges() }
+    companion object {
+        val ZERO = Edges()
+    }
 }
 
 /**
@@ -189,10 +186,7 @@ data class Edges(val top: Int = 0, val leading: Int = 0, val bottom: Int = 0, va
  * selected-package styling in DATA: without it each variant is a branch in the renderer, which is
  * how a "template" ends up being code that only its author can change.
  */
-data class Override(
-    val conditions: List<Condition>,
-    val properties: Map<String, String>,
-)
+data class Override(val conditions: List<Condition>, val properties: Map<String, String>)
 
 /** The condition vocabulary; mirrors what the dashboard can author. */
 enum class Condition(val wire: String) {

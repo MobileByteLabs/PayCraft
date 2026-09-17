@@ -53,14 +53,14 @@ class SampleApplication : Application() {
         PayCraft.initialize(
             apiKey = BuildConfig.PAYCRAFT_API_KEY,
             backend =
-                if (baseUrl.isNotBlank()) {
-                    PayCraftBackend.SelfHosted(
-                        supabaseUrl = baseUrl,
-                        supabaseAnonKey = BuildConfig.PAYCRAFT_ANON_KEY,
-                    )
-                } else {
-                    PayCraftBackend.Mock(staticConfig = sampleSuiteConfig())
-                },
+            if (baseUrl.isNotBlank()) {
+                PayCraftBackend.SelfHosted(
+                    supabaseUrl = baseUrl,
+                    supabaseAnonKey = BuildConfig.PAYCRAFT_ANON_KEY,
+                )
+            } else {
+                PayCraftBackend.Mock(staticConfig = sampleSuiteConfig())
+            },
         )
 
         // Track the foreground Activity so paycraftPlayBillingModule can hand it to
@@ -89,13 +89,12 @@ class SampleApplication : Application() {
      * absent otherwise, so the presence of the runner registry is the signal — no build flag to
      * forget to set, and no test-only code shipped in a release.
      */
-    private fun isRunningUnderInstrumentation(): Boolean =
-        try {
-            Class.forName("androidx.test.platform.app.InstrumentationRegistry")
-            true
-        } catch (_: ClassNotFoundException) {
-            false
-        }
+    private fun isRunningUnderInstrumentation(): Boolean = try {
+        Class.forName("androidx.test.platform.app.InstrumentationRegistry")
+        true
+    } catch (_: ClassNotFoundException) {
+        false
+    }
 
     /** Holds a WeakReference to the currently-resumed Activity for the Play billing flow. */
     private object ForegroundActivityTracker : Application.ActivityLifecycleCallbacks {

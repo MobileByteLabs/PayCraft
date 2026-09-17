@@ -31,9 +31,8 @@ import kotlin.coroutines.resume
  * entitlement truth itself.
  */
 @OptIn(ExperimentalForeignApi::class)
-internal class StoreKit2NativeBillingClient(
-    private val shim: PayCraftStoreKitShim = PayCraftStoreKitShim(),
-) : NativeBillingClient {
+internal class StoreKit2NativeBillingClient(private val shim: PayCraftStoreKitShim = PayCraftStoreKitShim()) :
+    NativeBillingClient {
 
     private val outboundUpdates = MutableSharedFlow<NativePurchase>(
         replay = 0,
@@ -55,8 +54,7 @@ internal class StoreKit2NativeBillingClient(
         productId: String,
         appUserId: String?,
         productType: NativeProductType,
-    ): NativePurchaseResult =
-        // StoreKit resolves the product type from the product itself, so no branch is needed here
+    ): NativePurchaseResult = // StoreKit resolves the product type from the product itself, so no branch is needed here
         // the way Play needs SUBS vs INAPP up front.
         suspendCancellableCoroutine { cont ->
             shim.purchase(productId, appUserId?.let(::appAccountToken)) { outcome ->
@@ -101,12 +99,11 @@ internal class StoreKit2NativeBillingClient(
         }
     }
 
-    override suspend fun queryPurchases(): List<NativePurchase> =
-        suspendCancellableCoroutine { cont ->
-            shim.currentEntitlementsWithCompletion { list ->
-                cont.resume(list.orEmpty().filterIsInstance<PCTransaction>().map { it.toNativePurchase() })
-            }
+    override suspend fun queryPurchases(): List<NativePurchase> = suspendCancellableCoroutine { cont ->
+        shim.currentEntitlementsWithCompletion { list ->
+            cont.resume(list.orEmpty().filterIsInstance<PCTransaction>().map { it.toNativePurchase() })
         }
+    }
 
     override suspend fun sync() {
         suspendCancellableCoroutine { cont ->
@@ -130,15 +127,11 @@ internal class StoreKit2NativeBillingClient(
         }
     }
 
-    override suspend fun storefrontCountry(): String? =
-        suspendCancellableCoroutine { cont ->
-            shim.storefrontCountryWithCompletion { country -> cont.resume(country) }
-        }
+    override suspend fun storefrontCountry(): String? = suspendCancellableCoroutine { cont ->
+        shim.storefrontCountryWithCompletion { country -> cont.resume(country) }
+    }
 
-    override suspend fun nativeDisplayPrice(
-        productId: String,
-        productType: NativeProductType,
-    ): NativeDisplayPrice? =
+    override suspend fun nativeDisplayPrice(productId: String, productType: NativeProductType): NativeDisplayPrice? =
         suspendCancellableCoroutine { cont ->
             shim.displayPrice(productId) { price: PCPrice? ->
                 cont.resume(

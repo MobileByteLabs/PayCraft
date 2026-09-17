@@ -8,19 +8,19 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.model.Money
 import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.presentation.tree.PackagePrice
-import com.mobilebytelabs.paycraft.presentation.tree.monthlyEquivalentNote
-import com.mobilebytelabs.paycraft.presentation.tree.savingsVersusMonthly
 import com.mobilebytelabs.paycraft.presentation.tree.PaywallTreeContent
 import com.mobilebytelabs.paycraft.presentation.tree.PaywallTreeParser
 import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
+import com.mobilebytelabs.paycraft.presentation.tree.monthlyEquivalentNote
+import com.mobilebytelabs.paycraft.presentation.tree.savingsVersusMonthly
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
 import io.github.takahirom.roborazzi.captureRoboImage
 import kotlin.test.Test
@@ -69,7 +69,14 @@ class SeedTreeParityTest {
 
     private fun products() = listOf(
         Product.Subscription("p_year", "sku_year", "Annual", 0, Product.Subscription.Interval.YEAR, Money(4199, "USD")),
-        Product.Subscription("p_month", "sku_month", "Monthly", 1, Product.Subscription.Interval.MONTH, Money(699, "USD")),
+        Product.Subscription(
+            "p_month",
+            "sku_month",
+            "Monthly",
+            1,
+            Product.Subscription.Interval.MONTH,
+            Money(699, "USD"),
+        ),
     )
 
     @Composable

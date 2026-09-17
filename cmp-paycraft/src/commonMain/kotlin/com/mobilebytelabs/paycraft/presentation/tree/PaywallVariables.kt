@@ -57,8 +57,10 @@ internal fun hasVariable(text: String): Boolean = PATTERN.containsMatchIn(text)
  * Every variable then resolves to empty, so a card degrades to its static copy rather than showing
  * a stale or invented number on a payment surface.
  */
-internal fun substituteVariables(text: String, price: PackagePrice?): String =
-    if (!hasVariable(text)) text else PATTERN.replace(text) { m ->
+internal fun substituteVariables(text: String, price: PackagePrice?): String = if (!hasVariable(text)) {
+    text
+} else {
+    PATTERN.replace(text) { m ->
         when (m.groupValues[1]) {
             "product.price" -> price?.display.orEmpty()
             "product.price_per_period" -> price?.perPeriodNote.orEmpty()
@@ -70,6 +72,7 @@ internal fun substituteVariables(text: String, price: PackagePrice?): String =
             else -> ""
         }
     }
+}
 
 /**
  * True when this subtree lays out its own price — i.e. any text in it carries a `{{ … }}` variable.
@@ -77,15 +80,14 @@ internal fun substituteVariables(text: String, price: PackagePrice?): String =
  * Resolution goes through the localization table because the variable lives in the TRANSLATED copy,
  * not in the node: `{"price_line": "{{ product.price }}"}`. Checking the lid would find nothing.
  */
-internal fun PaywallNode.pricesItself(workflow: PaywallWorkflow, context: RenderContext): Boolean =
-    when (this) {
-        is PaywallNode.Text -> hasVariable(workflow.resolve(textLid, context.locale))
-        is PaywallNode.Stack -> components.any { it.pricesItself(workflow, context) }
-        is PaywallNode.Package -> stack.pricesItself(workflow, context)
-        is PaywallNode.PurchaseButton -> stack?.pricesItself(workflow, context) == true
-        is PaywallNode.Footer -> components.any { it.pricesItself(workflow, context) }
-        else -> false
-    }
+internal fun PaywallNode.pricesItself(workflow: PaywallWorkflow, context: RenderContext): Boolean = when (this) {
+    is PaywallNode.Text -> hasVariable(workflow.resolve(textLid, context.locale))
+    is PaywallNode.Stack -> components.any { it.pricesItself(workflow, context) }
+    is PaywallNode.Package -> stack.pricesItself(workflow, context)
+    is PaywallNode.PurchaseButton -> stack?.pricesItself(workflow, context) == true
+    is PaywallNode.Footer -> components.any { it.pricesItself(workflow, context) }
+    else -> false
+}
 
 /**
  * True when this node would paint nothing but its own decoration.

@@ -2,7 +2,6 @@ package com.mobilebytelabs.paycraft.sample
 
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
 import com.mobilebytelabs.paycraft.network.PremiumCheckResult
 import com.mobilebytelabs.paycraft.network.RegisterDeviceResult
 import com.mobilebytelabs.paycraft.network.SubscriptionDto

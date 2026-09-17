@@ -36,13 +36,12 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class PaywallStateHostTest {
 
-    private fun seed(name: String): PaywallWorkflow =
-        assertNotNull(
-            PaywallTreeParser.parse(
-                java.io.File("src/commonMain/composeResources/files/paycraft/seed/$name.json").readText(),
-            ),
-            "$name seed failed to parse",
-        )
+    private fun seed(name: String): PaywallWorkflow = assertNotNull(
+        PaywallTreeParser.parse(
+            java.io.File("src/commonMain/composeResources/files/paycraft/seed/$name.json").readText(),
+        ),
+        "$name seed failed to parse",
+    )
 
     private fun premium() = BillingState.Premium(
         SubscriptionStatus(

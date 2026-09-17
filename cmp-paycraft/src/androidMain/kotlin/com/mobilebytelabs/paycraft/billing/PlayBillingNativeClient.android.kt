@@ -1,7 +1,5 @@
 package com.mobilebytelabs.paycraft.billing
 
-import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
-import com.mobilebytelabs.paycraft.debug.platformLog
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -23,6 +21,8 @@ import com.android.billingclient.api.QueryPurchasesParams
 import com.android.billingclient.api.acknowledgePurchase
 import com.android.billingclient.api.queryProductDetails
 import com.android.billingclient.api.queryPurchasesAsync
+import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
+import com.mobilebytelabs.paycraft.debug.platformLog
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -43,7 +43,8 @@ import kotlin.coroutines.resume
  * v8+ is required for all new apps by 2026-08-31 (GOAL Risks); this client tracks the v9 line.
  * It uses only the modern `ProductDetails` surface, never the SKU-era APIs (`SkuDetails`,
  * `QueryPurchaseHistoryParams`, `BillingClient.SkuType`) that v9 REMOVED outright — which is why
- * the 8.x→9.x move needed no code change here. This client is a *pure store adapter* (D5): it drives the Play purchase / query / manage flows and emits [NativePurchase]
+ * the 8.x→9.x move needed no code change here. This client is a *pure store adapter* (D5): it drives the Play
+ * purchase / query / manage flows and emits [NativePurchase]
  * records (product id + `purchaseToken` + order id) for the Phase-2 reconciliation engine to
  * validate server-side (`subscriptionsv2.get`). It NEVER decides entitlement truth.
  *
@@ -498,11 +499,8 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
 //
 // These keep Kermit's exact call SHAPE — `logD(TAG) { "..." }` — so every existing trailing lambda
 // is untouched and the message is still built lazily, only when logging is on.
-private inline fun logD(tag: String, message: () -> String) =
-    platformLog(PayCraftLogLevel.DEBUG, tag, message())
+private inline fun logD(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.DEBUG, tag, message())
 
-private inline fun logW(tag: String, message: () -> String) =
-    platformLog(PayCraftLogLevel.WARN, tag, message())
+private inline fun logW(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.WARN, tag, message())
 
-private inline fun logE(tag: String, message: () -> String) =
-    platformLog(PayCraftLogLevel.ERROR, tag, message())
+private inline fun logE(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.ERROR, tag, message())

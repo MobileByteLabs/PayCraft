@@ -25,13 +25,12 @@ import com.mobilebytelabs.paycraft.ui.theme.parseHexColor
 internal fun treeColorOrNull(hex: String?): Color? {
     val raw = hex?.trim()?.removePrefix("#")?.takeIf { it.isNotEmpty() } ?: return null
     val androidOrder = when (raw.length) {
-        8 -> raw.substring(6, 8) + raw.substring(0, 6)   // RRGGBBAA → AARRGGBB
+        8 -> raw.substring(6, 8) + raw.substring(0, 6) // RRGGBBAA → AARRGGBB
         6 -> raw
         else -> return null
     }
     return parseHexColor(androidOrder).takeIf { it != Color.Unspecified }
 }
-
 
 /**
  * Design TOKENS a tree may name instead of a literal hex (D11: "schema_version 2 introduces tokens").

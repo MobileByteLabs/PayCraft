@@ -35,6 +35,5 @@ object BuiltInPaywallSeeds {
         runCatching { Res.readBytes(path(template)).decodeToString() }.getOrNull()
 
     /** Parsed seed tree for [template], or null if it is missing or does not parse. */
-    suspend fun workflow(template: PaywallTemplate): PaywallWorkflow? =
-        json(template)?.let(PaywallTreeParser::parse)
+    suspend fun workflow(template: PaywallTemplate): PaywallWorkflow? = json(template)?.let(PaywallTreeParser::parse)
 }

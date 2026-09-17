@@ -11,31 +11,31 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.testTag
-import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
-import org.jetbrains.compose.resources.stringResource
+import com.mobilebytelabs.paycraft.config.ConfigResult
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_age_days
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_age_hours
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_age_minutes
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_age_moments
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_age_yesterday
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_close
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_config_failed_decode_body
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_config_failed_decode_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_config_failed_generic_body
@@ -46,11 +46,11 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_no_plans_body
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_no_plans_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_offline_body
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_offline_title
-import com.mobilebytelabs.paycraft.generated.resources.paycraft_close
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_retry
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_stale_body
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_stale_refresh
-import com.mobilebytelabs.paycraft.config.ConfigResult
+import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * Terminal state: every resilience layer failed and there is nothing purchasable to show.
@@ -175,10 +175,7 @@ fun ConfigUnavailable(
  * honest action is to leave.
  */
 @Composable
-fun PlansUnavailable(
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+fun PlansUnavailable(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier.fillMaxWidth().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -213,11 +210,7 @@ fun PlansUnavailable(
  * a warning would trade one bad outcome for another. The user is told, and can refresh.
  */
 @Composable
-fun StaleConfigNotice(
-    ageSeconds: Long,
-    onRetry: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+fun StaleConfigNotice(ageSeconds: Long, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         shape = RoundedCornerShape(8.dp),

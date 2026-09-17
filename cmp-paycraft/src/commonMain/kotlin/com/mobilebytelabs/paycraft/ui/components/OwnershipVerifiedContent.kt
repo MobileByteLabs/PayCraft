@@ -10,21 +10,21 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import com.mobilebytelabs.paycraft.model.BillingState
-import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
-import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
-import org.jetbrains.compose.resources.stringResource
+import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_ownership_verified_body
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_ownership_verified_cancel
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_ownership_verified_confirm
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_ownership_verified_title
+import com.mobilebytelabs.paycraft.model.BillingState
+import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
+import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * Explicit confirmation before a device transfer.

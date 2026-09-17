@@ -1,9 +1,6 @@
 package com.mobilebytelabs.paycraft
 
 import androidx.compose.runtime.Composable
-import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
-import com.mobilebytelabs.paycraft.presentation.tree.BuiltInPaywallSeeds
-import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -14,7 +11,10 @@ import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.model.TrialInfo
 import com.mobilebytelabs.paycraft.model.VerificationMethod
+import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
 import com.mobilebytelabs.paycraft.presentation.PaywallTemplate
+import com.mobilebytelabs.paycraft.presentation.tree.BuiltInPaywallSeeds
+import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import kotlin.test.Test
 
@@ -213,5 +213,4 @@ class SinglePaywallPathTest {
             )
         }
     }
-
 }

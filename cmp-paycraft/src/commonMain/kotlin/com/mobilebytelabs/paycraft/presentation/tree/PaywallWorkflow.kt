@@ -48,12 +48,7 @@ data class PaywallWorkflow(
     }
 }
 
-data class PaywallStep(
-    val id: String,
-    val name: String,
-    val isLastStep: Boolean,
-    val root: PaywallNode?,
-)
+data class PaywallStep(val id: String, val name: String, val isLastStep: Boolean, val root: PaywallNode?)
 
 /**
  * What is true while rendering — the inputs every [Override] is judged against (D14).
@@ -81,10 +76,7 @@ data class RenderContext(
  * Later overrides win: the tree is authored top-down, so a more specific rule written afterwards is
  * the one the author most recently intended.
  */
-fun PaywallNode.effectiveProperties(
-    context: RenderContext,
-    packageRole: String? = null,
-): Map<String, String> {
+fun PaywallNode.effectiveProperties(context: RenderContext, packageRole: String? = null): Map<String, String> {
     val out = mutableMapOf<String, String>()
     for (override in overrides) {
         val holds = override.conditions.all { condition ->
@@ -112,7 +104,10 @@ fun PaywallWorkflow.packageRoles(): List<String> {
     fun walk(node: PaywallNode?) {
         when (node) {
             null -> Unit
-            is PaywallNode.Package -> { roles += node.roleIdentifier; walk(node.stack) }
+            is PaywallNode.Package -> {
+                roles += node.roleIdentifier
+                walk(node.stack)
+            }
             is PaywallNode.Stack -> node.components.forEach(::walk)
             is PaywallNode.Footer -> node.components.forEach(::walk)
             is PaywallNode.Timeline -> node.items.forEach(::walk)

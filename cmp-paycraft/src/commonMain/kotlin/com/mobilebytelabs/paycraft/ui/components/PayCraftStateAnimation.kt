@@ -3,6 +3,7 @@
  */
 package com.mobilebytelabs.paycraft.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,7 +23,6 @@ import io.github.alexzhirkevich.compottie.animateLottieCompositionAsState
 import io.github.alexzhirkevich.compottie.rememberLottieComposition
 import io.github.alexzhirkevich.compottie.rememberLottiePainter
 import org.jetbrains.compose.resources.ExperimentalResourceApi
-import androidx.compose.foundation.Image
 
 /**
  * Which bundled animation a terminal state shows.
@@ -59,11 +59,7 @@ enum class PayCraftStateAnimationKind(internal val path: String) {
  */
 @OptIn(ExperimentalResourceApi::class)
 @Composable
-fun PayCraftStateAnimation(
-    kind: PayCraftStateAnimationKind,
-    modifier: Modifier = Modifier,
-    size: Dp = 148.dp,
-) {
+fun PayCraftStateAnimation(kind: PayCraftStateAnimationKind, modifier: Modifier = Modifier, size: Dp = 148.dp) {
     var json by remember(kind) { mutableStateOf<String?>(null) }
     LaunchedEffect(kind) {
         json = runCatching { Res.readBytes(kind.path).decodeToString() }.getOrNull()

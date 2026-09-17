@@ -22,10 +22,7 @@ import com.mobilebytelabs.paycraft.config.PaywallDto
  * thing the tree replaced. As nodes they are inspectable, previewable in the dashboard, and
  * editable the moment a tenant adopts a tree of their own.
  */
-internal fun PaywallWorkflow.withV1Config(
-    paywall: PaywallDto,
-    isPopularRole: (String) -> Boolean,
-): PaywallWorkflow {
+internal fun PaywallWorkflow.withV1Config(paywall: PaywallDto, isPopularRole: (String) -> Boolean): PaywallWorkflow {
     if (paywall.valueProps.isEmpty() && paywall.popularPlanSku.isNullOrBlank()) return this
 
     val lids = mutableMapOf<String, String>()

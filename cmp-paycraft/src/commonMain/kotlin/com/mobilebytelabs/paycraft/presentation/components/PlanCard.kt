@@ -22,8 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.model.Product
-import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import com.mobilebytelabs.paycraft.model.sessionDisplayPriceFormatted
+import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 
 /**
  * Renders a single product card — variant per [Product] subtype:

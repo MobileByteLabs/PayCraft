@@ -1,9 +1,6 @@
 package com.mobilebytelabs.paycraft.presentation
 
 import androidx.compose.runtime.Composable
-import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
-import com.mobilebytelabs.paycraft.presentation.tree.BuiltInPaywallSeeds
-import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -20,6 +17,9 @@ import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.model.TrialInfo
 import com.mobilebytelabs.paycraft.model.VerificationMethod
+import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
+import com.mobilebytelabs.paycraft.presentation.tree.BuiltInPaywallSeeds
+import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import kotlin.test.Test
 
@@ -98,7 +98,11 @@ class PaywallTemplateTest {
         "Verify ownership here to transfer it",
     )
 
-    @Test fun minimal_ownership_verified() = renderAndAssert(PaywallTemplate.MINIMAL, verifiedState, "Transfer subscription")
+    @Test fun minimal_ownership_verified() = renderAndAssert(
+        PaywallTemplate.MINIMAL,
+        verifiedState,
+        "Transfer subscription",
+    )
 
     // PREMIUM — 6 states
 
@@ -120,7 +124,11 @@ class PaywallTemplateTest {
         "Verify ownership here to transfer it",
     )
 
-    @Test fun premium_ownership_verified() = renderAndAssert(PaywallTemplate.PREMIUM, verifiedState, "Transfer subscription")
+    @Test fun premium_ownership_verified() = renderAndAssert(
+        PaywallTemplate.PREMIUM,
+        verifiedState,
+        "Transfer subscription",
+    )
 
     // DARK — 6 states
 
@@ -132,7 +140,8 @@ class PaywallTemplateTest {
 
     @Test fun dark_error() = renderAndAssert(PaywallTemplate.DARK, BillingState.Error("offline"), "Retry")
 
-    @Test fun dark_device_conflict() = renderAndAssert(PaywallTemplate.DARK, conflictState, "Verify ownership here to transfer it")
+    @Test fun dark_device_conflict() =
+        renderAndAssert(PaywallTemplate.DARK, conflictState, "Verify ownership here to transfer it")
 
     @Test fun dark_ownership_verified() = renderAndAssert(PaywallTemplate.DARK, verifiedState, "Transfer subscription")
 
@@ -338,10 +347,7 @@ class PaywallTemplateTest {
     private suspend fun hostContent(state: BillingState): @Composable () -> Unit =
         hostContentFor(PaywallTemplate.BRANDED_STACK, state)
 
-    private suspend fun hostContentFor(
-        template: PaywallTemplate,
-        state: BillingState,
-    ): @Composable () -> Unit {
+    private suspend fun hostContentFor(template: PaywallTemplate, state: BillingState): @Composable () -> Unit {
         val wf = BuiltInPaywallSeeds.workflow(template)
         return {
             PaywallStateHost(
@@ -357,5 +363,4 @@ class PaywallTemplateTest {
             )
         }
     }
-
 }

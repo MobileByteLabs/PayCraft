@@ -4,11 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material.icons.Icons
@@ -28,9 +28,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -43,38 +42,37 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
-import com.mobilebytelabs.paycraft.config.ConfigResult
-import com.mobilebytelabs.paycraft.ui.components.ConfigUnavailable
-import com.mobilebytelabs.paycraft.presentation.tree.PackagePrice
-import com.mobilebytelabs.paycraft.presentation.tree.monthlyEquivalentNote
-import com.mobilebytelabs.paycraft.presentation.tree.savingsVersusMonthly
-import com.mobilebytelabs.paycraft.presentation.tree.PaywallTreeContent
-import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
-import com.mobilebytelabs.paycraft.presentation.tree.BuiltInPaywallSeeds
-import com.mobilebytelabs.paycraft.presentation.tree.PaywallWorkflow
-import com.mobilebytelabs.paycraft.presentation.tree.defaultSelectedRole
-import com.mobilebytelabs.paycraft.presentation.tree.PaywallTreeParser
-import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
-import com.mobilebytelabs.paycraft.presentation.tree.packageRoles
-import com.mobilebytelabs.paycraft.config.productForRole
-import com.mobilebytelabs.paycraft.ui.components.PlansUnavailable
-import com.mobilebytelabs.paycraft.ui.components.StaleConfigNotice
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.config.ConfigResult
 import com.mobilebytelabs.paycraft.config.SuiteConfig
+import com.mobilebytelabs.paycraft.config.productForRole
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Money
 import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.model.ProductMapper
+import com.mobilebytelabs.paycraft.model.sessionDisplayPriceFormatted
+import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
 import com.mobilebytelabs.paycraft.presentation.PaywallTemplate
 import com.mobilebytelabs.paycraft.presentation.ProviderBottomSheet
 import com.mobilebytelabs.paycraft.presentation.ProviderPickerContent
+import com.mobilebytelabs.paycraft.presentation.tree.BuiltInPaywallSeeds
+import com.mobilebytelabs.paycraft.presentation.tree.PackagePrice
+import com.mobilebytelabs.paycraft.presentation.tree.PaywallTreeParser
+import com.mobilebytelabs.paycraft.presentation.tree.PaywallWorkflow
+import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
+import com.mobilebytelabs.paycraft.presentation.tree.defaultSelectedRole
+import com.mobilebytelabs.paycraft.presentation.tree.monthlyEquivalentNote
+import com.mobilebytelabs.paycraft.presentation.tree.packageRoles
+import com.mobilebytelabs.paycraft.presentation.tree.savingsVersusMonthly
 import com.mobilebytelabs.paycraft.provider.StripeProvider
+import com.mobilebytelabs.paycraft.ui.components.ConfigUnavailable
+import com.mobilebytelabs.paycraft.ui.components.PlansUnavailable
+import com.mobilebytelabs.paycraft.ui.components.StaleConfigNotice
 import com.mobilebytelabs.paycraft.ui.components.skeleton.PaywallSkeleton
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import com.mobilebytelabs.paycraft.model.sessionDisplayPriceFormatted
 
 /**
  * v2 cloud-driven paywall surface — the **single paywall path** for the PayCraft SDK
@@ -425,7 +423,6 @@ private fun PayCraftPaywallSurface(
                 val treeWorkflow = remember(config?.paywall?.workflow) {
                     config?.paywall?.workflow?.let { PaywallTreeParser.parse(it.toString()) }
                 }
-
 
                 // The tenant's published tree, else the bundled seed for the template they chose.
                 // `paywall.template` is a SEED SELECTION now, not a second rendering path: the four

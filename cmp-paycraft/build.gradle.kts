@@ -1,6 +1,6 @@
-import javax.inject.Inject
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
+import javax.inject.Inject
 
 plugins {
     alias(paycraftLibs.plugins.kotlinMultiplatform)
@@ -55,36 +55,63 @@ kotlin {
     // klib — that is what lets the shim travel inside the published artifact instead of being
     // copied. The consumer's integration becomes commonMain-only.
     val shimSource = layout.projectDirectory.file("src/nativeInterop/swift/PayCraftStoreKitShim.swift")
-    val shimTargets = mapOf(
-        "iosArm64" to ("arm64-apple-ios16.0" to "iphoneos"),
-        "iosSimulatorArm64" to ("arm64-apple-ios16.0-simulator" to "iphonesimulator"),
-    )
-    val shimTasks = shimTargets.mapValues { (targetName, spec) ->
-        val (triple, sdk) = spec
-        // Resolved at CONFIGURATION time as value providers. Doing this inside doLast is what
-        // captures `Project` and discards the configuration cache — the same defect that makes
-        // worker-kmp codegen force a cold reconfigure (RULE-BUILD-WARMTH-001). ExecOperations is
-        // injected instead, so nothing project-scoped is serialized into the task.
-        val sdkPathProvider = providers.exec { commandLine("xcrun", "--sdk", sdk, "--show-sdk-path") }
-            .standardOutput.asText.map { it.trim() }
-        val xcodePathProvider = providers.exec { commandLine("xcode-select", "-p") }
-            .standardOutput.asText.map { it.trim() }
-        tasks.register<CompileStoreKitShim>("compileStoreKitShim${targetName.replaceFirstChar(Char::uppercase)}") {
-            source.set(shimSource)
-            outputDir.set(layout.buildDirectory.dir("storekit-shim/$targetName"))
-            targetTriple.set(triple)
-            sdkPath.set(sdkPathProvider)
-            // Part of the input identity: switching Xcode changes the SDK the shim is built
-            // against, and a stale archive from the old toolchain fails to link obscurely.
-            xcodePath.set(xcodePathProvider)
+    // `xcrun` / `xcode-select` exist only on macOS, and `providers.exec {}` value sources are
+    // evaluated whenever Gradle CONFIGURES this project — not merely when an iOS task runs. So on
+    // the Linux CI runner even `./gradlew spotlessCheck` died with
+    //   failed to compute value with custom source 'ProcessOutputValueSource'
+    //   (output of the external process 'xcode-select')
+    // Gating the TARGET MAP is what keeps this to one guard: every block below derives from it, so
+    // an empty map makes the task registration, the cinterop wiring and the exec providers inside
+    // them all no-ops. The iOS targets themselves stay declared — metadata still resolves
+    // cross-platform; only the Apple-native toolchain, which no non-Mac host can run, is skipped.
+    val isMacHost = System.getProperty("os.name").orEmpty().startsWith("Mac")
+    val shimTargets =
+        if (!isMacHost) {
+            emptyMap()
+        } else {
+            mapOf(
+                "iosArm64" to ("arm64-apple-ios16.0" to "iphoneos"),
+                "iosSimulatorArm64" to ("arm64-apple-ios16.0-simulator" to "iphonesimulator"),
+            )
         }
-    }
+    val shimTasks =
+        shimTargets.mapValues { (targetName, spec) ->
+            val (triple, sdk) = spec
+            // Resolved at CONFIGURATION time as value providers. Doing this inside doLast is what
+            // captures `Project` and discards the configuration cache — the same defect that makes
+            // worker-kmp codegen force a cold reconfigure (RULE-BUILD-WARMTH-001). ExecOperations is
+            // injected instead, so nothing project-scoped is serialized into the task.
+            val sdkPathProvider =
+                providers
+                    .exec { commandLine("xcrun", "--sdk", sdk, "--show-sdk-path") }
+                    .standardOutput.asText
+                    .map { it.trim() }
+            val xcodePathProvider =
+                providers
+                    .exec { commandLine("xcode-select", "-p") }
+                    .standardOutput.asText
+                    .map { it.trim() }
+            tasks.register<CompileStoreKitShim>("compileStoreKitShim${targetName.replaceFirstChar(Char::uppercase)}") {
+                source.set(shimSource)
+                outputDir.set(layout.buildDirectory.dir("storekit-shim/$targetName"))
+                targetTriple.set(triple)
+                sdkPath.set(sdkPathProvider)
+                // Part of the input identity: switching Xcode changes the SDK the shim is built
+                // against, and a stale archive from the old toolchain fails to link obscurely.
+                xcodePath.set(xcodePathProvider)
+            }
+        }
 
     shimTargets.keys.forEach { targetName ->
         targets.named(targetName, org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget::class.java) {
             compilations.getByName("main").cinterops.create("paycraftStoreKit") {
                 val shimTask = shimTasks.getValue(targetName)
-                defFile(layout.buildDirectory.file("storekit-shim/$targetName/paycraftStoreKit.def").get().asFile)
+                defFile(
+                    layout.buildDirectory
+                        .file("storekit-shim/$targetName/paycraftStoreKit.def")
+                        .get()
+                        .asFile,
+                )
                 // The def, header and archive are all produced by the shim task, so the cinterop
                 // task must not run before it.
                 tasks.named(interopProcessingTaskName) { dependsOn(shimTask) }
@@ -108,6 +135,7 @@ kotlin {
     // Xcode lives. No-op when the directory is absent (non-Mac / no Xcode).
     val swiftRuntimeSearchPaths: Map<String, File> =
         runCatching {
+            check(isMacHost) { "Apple toolchain lookup is macOS-only" }
             val developerDir =
                 providers
                     .exec {
@@ -309,9 +337,13 @@ compose.resources {
  */
 abstract class CompileStoreKitShim : DefaultTask() {
     @get:InputFile abstract val source: RegularFileProperty
+
     @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
     @get:Input abstract val targetTriple: Property<String>
+
     @get:Input abstract val sdkPath: Property<String>
+
     @get:Input abstract val xcodePath: Property<String>
 
     @get:Inject abstract val execOps: ExecOperations
@@ -321,12 +353,27 @@ abstract class CompileStoreKitShim : DefaultTask() {
         val dir = outputDir.get().asFile.apply { mkdirs() }
         execOps.exec {
             commandLine(
-                "xcrun", "swiftc", "-emit-library", "-static", "-emit-object",
-                "-module-name", "PayCraftStoreKitShim",
-                "-emit-objc-header", "-emit-objc-header-path", "$dir/PayCraftStoreKitShim.h",
-                "-target", targetTriple.get(), "-sdk", sdkPath.get(),
-                "-swift-version", "5", "-parse-as-library", "-O",
-                source.get().asFile.absolutePath, "-o", "$dir/shim.o",
+                "xcrun",
+                "swiftc",
+                "-emit-library",
+                "-static",
+                "-emit-object",
+                "-module-name",
+                "PayCraftStoreKitShim",
+                "-emit-objc-header",
+                "-emit-objc-header-path",
+                "$dir/PayCraftStoreKitShim.h",
+                "-target",
+                targetTriple.get(),
+                "-sdk",
+                sdkPath.get(),
+                "-swift-version",
+                "5",
+                "-parse-as-library",
+                "-O",
+                source.get().asFile.absolutePath,
+                "-o",
+                "$dir/shim.o",
             )
         }
         execOps.exec {

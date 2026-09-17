@@ -93,5 +93,4 @@ fun Product.sessionDisplayPrice(): Money? {
  * end up showing an empty string. Trial products return null from both (they show "Free for N
  * days", not money) — callers handle that arm separately.
  */
-fun Product.sessionDisplayPriceFormatted(): String? =
-    sessionDisplayPrice()?.format() ?: fallbackPrice()?.format()
+fun Product.sessionDisplayPriceFormatted(): String? = sessionDisplayPrice()?.format() ?: fallbackPrice()?.format()

@@ -1,7 +1,5 @@
 package com.mobilebytelabs.paycraft
 
-import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
-import com.mobilebytelabs.paycraft.debug.platformLog
 import android.app.Activity
 import android.app.Application
 import android.content.Intent
@@ -9,6 +7,8 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
+import com.mobilebytelabs.paycraft.debug.platformLog
 import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.russhwolf.settings.Settings
 import com.russhwolf.settings.SharedPreferencesSettings
@@ -109,11 +109,8 @@ actual object PayCraftPlatform {
 //
 // These keep Kermit's exact call SHAPE — `logD(TAG) { "..." }` — so every existing trailing lambda
 // is untouched and the message is still built lazily, only when logging is on.
-private inline fun logD(tag: String, message: () -> String) =
-    platformLog(PayCraftLogLevel.DEBUG, tag, message())
+private inline fun logD(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.DEBUG, tag, message())
 
-private inline fun logW(tag: String, message: () -> String) =
-    platformLog(PayCraftLogLevel.WARN, tag, message())
+private inline fun logW(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.WARN, tag, message())
 
-private inline fun logE(tag: String, message: () -> String) =
-    platformLog(PayCraftLogLevel.ERROR, tag, message())
+private inline fun logE(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.ERROR, tag, message())

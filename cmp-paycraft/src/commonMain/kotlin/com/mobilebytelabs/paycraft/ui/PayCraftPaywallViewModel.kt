@@ -1,11 +1,11 @@
 package com.mobilebytelabs.paycraft.ui
 
-import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
-import com.mobilebytelabs.paycraft.debug.platformLog
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.core.BillingManager
+import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
+import com.mobilebytelabs.paycraft.debug.platformLog
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
@@ -454,11 +454,8 @@ private fun String.encodeForMailto(): String = this.replace(" ", "%20")
 //
 // These keep Kermit's exact call SHAPE — `logD(TAG) { "..." }` — so every existing trailing lambda
 // is untouched and the message is still built lazily, only when logging is on.
-private inline fun logD(tag: String, message: () -> String) =
-    platformLog(PayCraftLogLevel.DEBUG, tag, message())
+private inline fun logD(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.DEBUG, tag, message())
 
-private inline fun logW(tag: String, message: () -> String) =
-    platformLog(PayCraftLogLevel.WARN, tag, message())
+private inline fun logW(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.WARN, tag, message())
 
-private inline fun logE(tag: String, message: () -> String) =
-    platformLog(PayCraftLogLevel.ERROR, tag, message())
+private inline fun logE(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.ERROR, tag, message())

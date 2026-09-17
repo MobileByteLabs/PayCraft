@@ -81,8 +81,8 @@ sealed interface ConfigResult {
     val isRetryable: Boolean
         get() = when (this) {
             is Failed -> when (reason) {
-                Failed.Reason.NOT_INITIALIZED -> false  // retry cannot start a billing stack
-                Failed.Reason.DECODE_ERROR -> false     // the response is malformed, not flaky
+                Failed.Reason.NOT_INITIALIZED -> false // retry cannot start a billing stack
+                Failed.Reason.DECODE_ERROR -> false // the response is malformed, not flaky
                 else -> true
             }
             BuiltIn, is Stale, is Bundled -> true

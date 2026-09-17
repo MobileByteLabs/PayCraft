@@ -17,21 +17,21 @@ import com.mobilebytelabs.paycraft.model.Money
 import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.presentation.tree.PackagePrice
 import com.mobilebytelabs.paycraft.presentation.tree.PaywallNode
-import com.mobilebytelabs.paycraft.presentation.tree.effectiveProperties
-import com.mobilebytelabs.paycraft.presentation.tree.treeColorOrNull
 import com.mobilebytelabs.paycraft.presentation.tree.PaywallTreeContent
 import com.mobilebytelabs.paycraft.presentation.tree.PaywallTreeParser
 import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
+import com.mobilebytelabs.paycraft.presentation.tree.effectiveProperties
 import com.mobilebytelabs.paycraft.presentation.tree.monthlyEquivalentNote
 import com.mobilebytelabs.paycraft.presentation.tree.savingsVersusMonthly
+import com.mobilebytelabs.paycraft.presentation.tree.treeColorOrNull
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
 import io.github.takahirom.roborazzi.captureRoboImage
-import kotlin.test.Test
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
-import kotlin.test.assertEquals
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 /**
  * D3/D4 — the remaining three templates as seed trees, each captured for parity review.
@@ -61,7 +61,14 @@ class SeedTreeSuiteTest {
 
     private fun products() = listOf(
         Product.Subscription("p_year", "sku_year", "Annual", 0, Product.Subscription.Interval.YEAR, Money(4199, "USD")),
-        Product.Subscription("p_month", "sku_month", "Monthly", 1, Product.Subscription.Interval.MONTH, Money(699, "USD")),
+        Product.Subscription(
+            "p_month",
+            "sku_month",
+            "Monthly",
+            1,
+            Product.Subscription.Interval.MONTH,
+            Money(699, "USD"),
+        ),
     )
 
     private fun price(role: String): PackagePrice {
@@ -95,7 +102,9 @@ class SeedTreeSuiteTest {
     @Test
     fun minimal_seed_tree() = runComposeUiTest {
         val wf = assertNotNull(PaywallTreeParser.parse(seed("minimal")))
-        setContent { Frame { PaywallTreeContent(wf, RenderContext(selectedPackageRole = "${'$'}rc_annual"), priceFor = ::price) } }
+        setContent {
+            Frame { PaywallTreeContent(wf, RenderContext(selectedPackageRole = "${'$'}rc_annual"), priceFor = ::price) }
+        }
         onNodeWithText("Upgrade to Premium").assertIsDisplayed()
         onNodeWithText("Annual").assertIsDisplayed()
         onNodeWithText("Continue").assertIsDisplayed()
@@ -108,7 +117,9 @@ class SeedTreeSuiteTest {
         val wf = assertNotNull(PaywallTreeParser.parse(seed("dark")))
         // Host scheme is deliberately LIGHT: the tree's own colours must win, the same property
         // `dark_template_device_conflict_render` exists to protect for the Kotlin template.
-        setContent { Frame { PaywallTreeContent(wf, RenderContext(selectedPackageRole = "${'$'}rc_annual"), priceFor = ::price) } }
+        setContent {
+            Frame { PaywallTreeContent(wf, RenderContext(selectedPackageRole = "${'$'}rc_annual"), priceFor = ::price) }
+        }
         onNodeWithText("Upgrade to Premium").assertIsDisplayed()
         onNodeWithText("Continue").assertIsDisplayed()
         onRoot().captureRoboImage(P_DARK)
@@ -118,7 +129,9 @@ class SeedTreeSuiteTest {
     @Test
     fun premium_seed_tree() = runComposeUiTest {
         val wf = assertNotNull(PaywallTreeParser.parse(seed("premium")))
-        setContent { Frame { PaywallTreeContent(wf, RenderContext(selectedPackageRole = "${'$'}rc_annual"), priceFor = ::price) } }
+        setContent {
+            Frame { PaywallTreeContent(wf, RenderContext(selectedPackageRole = "${'$'}rc_annual"), priceFor = ::price) }
+        }
         onNodeWithText("Upgrade to Premium").assertIsDisplayed()
         onNodeWithText("Unlock everything PayCraft has to offer.").assertIsDisplayed()
         onNodeWithText("Continue").assertIsDisplayed()
@@ -143,7 +156,10 @@ class SeedTreeSuiteTest {
             val packages = mutableListOf<PaywallNode.Package>()
             fun walk(n: PaywallNode?) {
                 when (n) {
-                    is PaywallNode.Package -> { packages += n; walk(n.stack) }
+                    is PaywallNode.Package -> {
+                        packages += n
+                        walk(n.stack)
+                    }
                     is PaywallNode.Stack -> n.components.forEach(::walk)
                     is PaywallNode.Footer -> n.components.forEach(::walk)
                     is PaywallNode.PurchaseButton -> walk(n.stack)
@@ -210,8 +226,10 @@ class SeedTreeSuiteTest {
             val root = kotlinx.serialization.json.Json.parseToJsonElement(seed(name))
                 as kotlinx.serialization.json.JsonObject
             (root["steps"] as? kotlinx.serialization.json.JsonArray)?.forEach { step ->
-                ((step as? kotlinx.serialization.json.JsonObject)
-                    ?.get("components_config") as? kotlinx.serialization.json.JsonObject)?.let(::walk)
+                (
+                    (step as? kotlinx.serialization.json.JsonObject)
+                        ?.get("components_config") as? kotlinx.serialization.json.JsonObject
+                    )?.let(::walk)
             }
 
             assertTrue(used.isNotEmpty(), "$name: walked no components at all")
@@ -252,7 +270,8 @@ class SeedTreeSuiteTest {
             val fromSql = Json.parseToJsonElement(row.groupValues[1].replace("''", "'"))
             val fromFile = Json.parseToJsonElement(seed(file))
             assertEquals(
-                fromFile, fromSql,
+                fromFile,
+                fromSql,
                 "$slug: the gallery migration and the seed file have diverged — regenerate 102 " +
                     "rather than editing either by hand",
             )
@@ -263,7 +282,12 @@ class SeedTreeSuiteTest {
         /** Mirrors `treeTokenColorOrNull`; a token added there without a seed using it is fine, the
          *  reverse is a ring that never draws. */
         val PAYWALL_COLOR_TOKENS = setOf(
-            "accent", "accent_soft", "on_accent", "surface", "on_surface", "on_surface_variant",
+            "accent",
+            "accent_soft",
+            "on_accent",
+            "surface",
+            "on_surface",
+            "on_surface_variant",
         )
 
         const val DIR = "src/jvmTest/resources/screenshots"

@@ -49,8 +49,6 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
-import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
-import com.mobilebytelabs.paycraft.ui.components.EmptyProductsContent
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_disclosure_body
@@ -58,11 +56,13 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_disclosure
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_plan_terms
 import com.mobilebytelabs.paycraft.model.Money
 import com.mobilebytelabs.paycraft.model.Product
+import com.mobilebytelabs.paycraft.model.sessionDisplayPrice
+import com.mobilebytelabs.paycraft.model.sessionDisplayPriceFormatted
+import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
+import com.mobilebytelabs.paycraft.ui.components.EmptyProductsContent
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import org.jetbrains.compose.resources.stringResource
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags as Tag
-import com.mobilebytelabs.paycraft.model.sessionDisplayPrice
-import com.mobilebytelabs.paycraft.model.sessionDisplayPriceFormatted
 
 /**
  * First-class addressable plans surface — the paywall's product-list contract

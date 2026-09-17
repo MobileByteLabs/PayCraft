@@ -16,9 +16,4 @@ enum class PayCraftLogLevel { DEBUG, WARN, ERROR }
  * rather than pin around it. This keeps [PayCraftLogger]'s API and its Android tag filter
  * (`adb logcat -s "PayCraft:D"`) exactly as documented.
  */
-expect fun platformLog(
-    level: PayCraftLogLevel,
-    tag: String,
-    message: String,
-    throwable: Throwable? = null,
-)
+expect fun platformLog(level: PayCraftLogLevel, tag: String, message: String, throwable: Throwable? = null)

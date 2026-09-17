@@ -14,7 +14,10 @@ import kotlinx.serialization.json.Json
 class ConfigCache(private val settings: Settings, private val key: String = "paycraft.suite_config") {
     // `coerceInputValues` for the same reason as ConfigClient: a cached payload carries the same
     // explicit nulls the server sent, so without it a cache HIT decodes worse than a fresh fetch.
-    private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+    }
 
     fun read(): SuiteConfig? = runCatching {
         val raw = settings.getStringOrNull(key) ?: return null

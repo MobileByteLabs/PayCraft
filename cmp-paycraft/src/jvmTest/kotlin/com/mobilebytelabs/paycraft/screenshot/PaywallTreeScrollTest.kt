@@ -64,7 +64,8 @@ class PaywallTreeScrollTest {
           {"type":"purchase_button","text_lid":"cta"},
           {"type":"restore_purchases","text_lid":"restore"}
         ]}}],
-     "localizations":{"en_US":{"hero":"Cappy Plus","sub":"Unlimited check-ins, deeper reflections, and every breathing exercise.",
+     "localizations":{"en_US":{"hero":"Cappy Plus",
+         "sub":"Unlimited check-ins, deeper reflections, and every breathing exercise.",
         "annual":"Annual","annual_note":"Best value","monthly":"Monthly","monthly_note":"Billed monthly",
         "guardian":"Warm Springs Guardian","guardian_note":"Everything in Plus, plus a supporter badge",
         "cta":"Continue","restore":"Restore Purchases"}}}

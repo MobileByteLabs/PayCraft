@@ -23,9 +23,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.model.BillingState
@@ -159,7 +159,6 @@ class PaywallStateMatrixTest {
             "manage button did not dispatch ManageSubscription — got $dispatched",
         )
     }
-
 
     /**
      * A DARK tree rendering DeviceConflict through the FULL host stack.

@@ -39,7 +39,8 @@ class HumanBillingErrorTest {
         assertEquals(
             unavailable,
             humanBillingError(
-                "product id missing for c0fd8d93-6445-433d-8173-3e04538fe402 — refusing web fallback (store anti-steering)",
+                "product id missing for c0fd8d93-6445-433d-8173-3e04538fe402 " +
+                    "— refusing web fallback (store anti-steering)",
             ),
         )
         // And neither leaks the plan id at the customer.

@@ -51,16 +51,27 @@ class ResilienceChainTest {
 
     private fun failingHttpClient(status: HttpStatusCode = HttpStatusCode.InternalServerError) =
         HttpClient(MockEngine { respondError(status) }) {
-            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; isLenient = true }) }
+            install(ContentNegotiation) {
+                json(
+                    Json {
+                        ignoreUnknownKeys = true
+                        isLenient = true
+                    },
+                )
+            }
         }
 
     private fun cachedConfig(ttlSeconds: Int, fetchedAtMillis: Long) = SuiteConfig(
         tenantId = "tenant-under-test",
         products = listOf(
             ProductDto(
-                id = "p1", sku = "premium_monthly", type = "subscription",
-                displayName = "Premium", interval = "month",
-                basePriceCents = 499, baseCurrency = "USD",
+                id = "p1",
+                sku = "premium_monthly",
+                type = "subscription",
+                displayName = "Premium",
+                interval = "month",
+                basePriceCents = 499,
+                baseCurrency = "USD",
             ),
         ),
         cacheTtlSeconds = ttlSeconds,
