@@ -1,7 +1,6 @@
 package com.mobilebytelabs.paycraft.sample.fake
 
 import com.mobilebytelabs.paycraft.model.OAuthProvider
-import com.mobilebytelabs.paycraft.network.OtpGateResult
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.network.PremiumCheckResult
 import com.mobilebytelabs.paycraft.network.RegisterDeviceResult
@@ -21,8 +20,6 @@ class FakePayCraftService : PayCraftService {
     var checkPremiumResponse = PremiumCheckResult(isPremium = false, tokenValid = true)
     var transferResponse: Boolean = true
     var revokeResponse: Boolean = true
-    var otpGateResponse = OtpGateResult(available = true, sendsToday = 0, limit = 300)
-    var verifyOtpResponse: Boolean = true
     var verifyOAuthResponse: String? = null
     var shouldThrowOnCheckPremium: Exception? = null
     var shouldThrowOnRegister: Exception? = null
@@ -33,8 +30,6 @@ class FakePayCraftService : PayCraftService {
     var checkPremiumCallCount = 0
         private set
     var transferCallCount = 0
-        private set
-    var sendOtpCallCount = 0
         private set
 
     // Dynamic response swapping (for P10: first call returns tokenValid=false, second returns true)
@@ -75,21 +70,21 @@ class FakePayCraftService : PayCraftService {
 
     override suspend fun revokeDevice(serverToken: String, targetToken: String) = revokeResponse
 
-    override suspend fun checkOtpGate() = otpGateResponse
-
-    override suspend fun sendOtp(email: String) {
-        sendOtpCallCount++
-    }
-
-    override suspend fun verifyOtp(email: String, token: String) = verifyOtpResponse
-
     override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String) = verifyOAuthResponse
+
+    /**
+     * Trial-eligibility probe. Defaults to eligible so existing tests, which do not exercise
+     * trials, keep their previous behaviour; override [trialEligibleResponse] to test the
+     * ineligible path.
+     */
+    var trialEligibleResponse: Boolean = true
+
+    override suspend fun isTrialEligible(serverToken: String): Boolean = trialEligibleResponse
 
     fun reset() {
         registerDeviceCallCount = 0
         checkPremiumCallCount = 0
         transferCallCount = 0
-        sendOtpCallCount = 0
         checkPremiumCallIndex = 0
         checkPremiumResponses = null
     }

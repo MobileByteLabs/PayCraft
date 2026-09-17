@@ -16,9 +16,11 @@ import kotlinx.serialization.json.Json
  * The three methods are the ONLY entitlement write/read surface: the Store5 `SourceOfTruth.of`
  * reader/writer/delete lambdas are their sole call site (RULE-IMPLEMENT-STORE5-001 S5-1 — no
  * mutation bypasses the Store). Keeping this an interface lets the reconciled row be persisted
- * by the multiplatform-settings-backed [SettingsEntitlementDao] today and by
- * the SQLDelight-generated `PayCraftDb.entitlementQueries` (schema: `Entitlement.sq`) once the
- * SQLDelight driver + code-gen land alongside the native clients (Phase 3 / platform layer).
+ * by the multiplatform-settings-backed [SettingsEntitlementDao] today, and swapped for a different
+ * backing store without touching a caller if one is ever needed. A SQLDelight schema + commented-out
+ * code-gen wiring sat here unused for the whole of Phase 3 and was removed: it advertised a
+ * persistence layer this SDK does not have, and multiplatform-settings already satisfies the
+ * requirement (durable across process death on all six targets).
  */
 interface EntitlementDao {
     /** Reactive read of the single reconciled row for [appUserId] (null until first reconcile). */
@@ -38,8 +40,7 @@ interface EntitlementDao {
  * app-user-id; an in-memory [MutableStateFlow] per key makes reads reactive so the Store5
  * `SourceOfTruth` emits fresh values the instant the writer runs.
  *
- * Column semantics match `Entitlement.sq` 1:1, so the SQLDelight-backed DAO is a drop-in
- * replacement (same interface) once its driver is wired.
+ * The column semantics here ARE the schema of record — there is no second definition to drift from.
  */
 class SettingsEntitlementDao(
     private val settings: Settings = Settings(),
@@ -77,7 +78,7 @@ class SettingsEntitlementDao(
 }
 
 /**
- * JSON persistence row — column-for-column with `Entitlement.sq`. Kept distinct from the
+ * JSON persistence row — the schema of record for cached entitlement. Kept distinct from the
  * canonical [Entitlement] so the sealed [SubscriptionState] is stored as its stable canonical
  * token (via [canonicalStateOf]) rather than requiring a polymorphic serializer on the model.
  */

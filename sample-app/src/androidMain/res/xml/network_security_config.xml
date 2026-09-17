@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext is permitted ONLY for the loopback addresses a local backend lives on:
+  10.0.2.2 is the host machine as seen from the Android emulator, and localhost covers a device
+  reached through `adb reverse`. Everything else stays HTTPS-only, so pointing the sample at a
+  local Supabase does not quietly weaken it against the internet.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

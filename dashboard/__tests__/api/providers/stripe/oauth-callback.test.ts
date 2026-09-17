@@ -85,7 +85,7 @@ beforeEach(() => {
 describe("GET /api/providers/stripe/oauth/callback", () => {
   // ---------- Case 1: happy path ----------
   it("exchanges code, persists tokens, registers webhook, redirects to ?connected=1", async () => {
-    const state = makeState(TENANT_ID)
+    const state = await makeState(TENANT_ID)
     mockOauthToken.mockResolvedValue({
       access_token: "sk_acct_access",
       refresh_token: "rt_refresh",
@@ -163,7 +163,7 @@ describe("GET /api/providers/stripe/oauth/callback", () => {
 
   // ---------- Case 3: missing code param ----------
   it("returns ?error=missing_params when code is absent", async () => {
-    const state = makeState(TENANT_ID)
+    const state = await makeState(TENANT_ID)
     const res = await GET(buildReq({ state })) // no code
 
     expect(res.status).toBe(307)
@@ -173,7 +173,7 @@ describe("GET /api/providers/stripe/oauth/callback", () => {
 
   // ---------- Case 4: oauth.token rejects ----------
   it("redirects with ?error=token_exchange:... when Stripe rejects the auth code", async () => {
-    const state = makeState(TENANT_ID)
+    const state = await makeState(TENANT_ID)
     mockOauthToken.mockRejectedValue(new Error("invalid_grant: code expired"))
 
     const res = await GET(buildReq({ code: "ac_bad", state }))
@@ -189,7 +189,7 @@ describe("GET /api/providers/stripe/oauth/callback", () => {
 
   // ---------- Case 4b: "Connect not enabled" hint ----------
   it("redirects with ?error=connect_disabled:... when Stripe reports Connect is not enabled", async () => {
-    const state = makeState(TENANT_ID)
+    const state = await makeState(TENANT_ID)
     mockOauthToken.mockRejectedValue(
       new Error("Stripe Connect is not enabled on this account."),
     )
@@ -200,7 +200,7 @@ describe("GET /api/providers/stripe/oauth/callback", () => {
 
   // ---------- Case 5: webhook creation fails AFTER token persistence ----------
   it("persists tokens but skips set_webhook when webhookEndpoints.create throws — redirect still ?connected=1", async () => {
-    const state = makeState(TENANT_ID)
+    const state = await makeState(TENANT_ID)
     mockOauthToken.mockResolvedValue({
       access_token: "sk_acct_access",
       refresh_token: "rt_refresh",
@@ -239,7 +239,7 @@ describe("GET /api/providers/stripe/oauth/callback", () => {
 
   // ---------- Bonus: incomplete token response ----------
   it("redirects with ?error=incomplete_token when Stripe returns a partial token payload", async () => {
-    const state = makeState(TENANT_ID)
+    const state = await makeState(TENANT_ID)
     mockOauthToken.mockResolvedValue({
       access_token: "sk_acct_access",
       // refresh_token + stripe_user_id missing → incomplete
@@ -252,7 +252,7 @@ describe("GET /api/providers/stripe/oauth/callback", () => {
 
   // ---------- Bonus: persist RPC rejects ----------
   it("redirects with ?error=persist:... when the save RPC fails", async () => {
-    const state = makeState(TENANT_ID)
+    const state = await makeState(TENANT_ID)
     mockOauthToken.mockResolvedValue({
       access_token: "sk_acct_access",
       refresh_token: "rt_refresh",

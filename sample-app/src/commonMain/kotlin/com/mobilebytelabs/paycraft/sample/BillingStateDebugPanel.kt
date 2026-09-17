@@ -33,7 +33,6 @@ fun BillingStateDebugPanel(modifier: Modifier = Modifier, billingManager: Billin
     val userEmail by billingManager.userEmail.collectAsState()
     val scope = rememberCoroutineScope()
     var emailInput by remember { mutableStateOf("") }
-    var otpInput by remember { mutableStateOf("") }
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -84,9 +83,13 @@ fun BillingStateDebugPanel(modifier: Modifier = Modifier, billingManager: Billin
                         text = state.conflictingDeviceName ?: "",
                         modifier = Modifier.testTag("billing_conflict_device"),
                     )
+                    // `otpAvailable` is gone: the OTP ownership gate was removed from the SDK
+                    // (migration 098 dropped it server-side), leaving OAuth + explicit transfer as
+                    // the only ownership paths. Surfacing the token's presence instead, which is
+                    // what actually drives the transfer flow now.
                     Text(
-                        text = state.otpAvailable.toString(),
-                        modifier = Modifier.testTag("billing_otp_available"),
+                        text = state.pendingToken.isNotBlank().toString(),
+                        modifier = Modifier.testTag("billing_transfer_pending"),
                     )
                     Text(
                         text = state.email,
@@ -144,31 +147,10 @@ fun BillingStateDebugPanel(modifier: Modifier = Modifier, billingManager: Billin
                 }
             }
 
-            // OTP input + verify
-            OutlinedTextField(
-                value = otpInput,
-                onValueChange = { otpInput = it },
-                label = { Text("OTP Code") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("input_otp"),
-                singleLine = true,
-            )
-
+            // Device-ownership actions
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            billingManager.verifyOtpOwnership(emailInput, otpInput)
-                        }
-                    },
-                    modifier = Modifier.testTag("btn_verify_otp"),
-                ) {
-                    Text("Verify OTP")
-                }
-
                 Button(
                     onClick = {
                         scope.launch { billingManager.confirmDeviceTransfer() }
@@ -200,4 +182,5 @@ private fun BillingState.label(): String = when (this) {
     is BillingState.DeviceConflict -> "DeviceConflict"
     is BillingState.OwnershipVerified -> "OwnershipVerified"
     is BillingState.Error -> "Error"
+    is BillingState.PaymentPending -> "PaymentPending(${'$'}productId)"
 }

@@ -15,6 +15,7 @@
 package com.mobilebytelabs.paycraft.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertHasClickAction
@@ -29,7 +30,10 @@ import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Money
 import com.mobilebytelabs.paycraft.model.Product
+import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
 import com.mobilebytelabs.paycraft.presentation.PaywallTemplate
+import com.mobilebytelabs.paycraft.presentation.tree.BuiltInPaywallSeeds
+import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -314,14 +318,10 @@ class ProductListTest {
 
     @Test
     fun paywall_loading_branch_shows_skeleton_and_no_spinner() = runComposeUiTest {
+        val content = hostContent(BillingState.Loading)
         setContent {
             MaterialTheme {
-                PaywallTemplate.BRANDED_STACK.render(
-                    state = BillingState.Loading,
-                    products = sampleProducts,
-                    onPickProduct = {},
-                    onRetry = {},
-                )
+                content()
             }
         }
         onNodeWithTag(PayCraftTestTags.PAYWALL_SHIMMER).assertExists()
@@ -338,15 +338,11 @@ class ProductListTest {
 
     @Test
     fun paywall_content_branch_wires_product_list_on_live_path() = runComposeUiTest {
+        val content = hostContent(BillingState.Free)
         setContent {
             MaterialTheme {
                 CompositionLocalProvider(LocalPayCraftConfig provides config()) {
-                    PaywallTemplate.BRANDED_STACK.render(
-                        state = BillingState.Free,
-                        products = sampleProducts,
-                        onPickProduct = {},
-                        onRetry = {},
-                    )
+                    content()
                 }
             }
         }
@@ -360,15 +356,11 @@ class ProductListTest {
 
     @Test
     fun paywall_content_wires_exactly_one_recommended_from_popular_plan_sku() = runComposeUiTest {
+        val content = hostContent(BillingState.Free)
         setContent {
             MaterialTheme {
                 CompositionLocalProvider(LocalPayCraftConfig provides config(popularSku = "annual")) {
-                    PaywallTemplate.BRANDED_STACK.render(
-                        state = BillingState.Free,
-                        products = sampleProducts,
-                        onPickProduct = {},
-                        onRetry = {},
-                    )
+                    content()
                 }
             }
         }
@@ -481,5 +473,27 @@ class ProductListTest {
             monthlyBaselineOverrideCents = null,
         )
         assertEquals(1, oneRow.count { it.isRecommended })
+    }
+
+    /**
+     * The production host over the SHIPPED branded-stack seed — replaces `PaywallTemplate.render`,
+     * deleted with the four Kotlin templates (D3). What these tests assert (the Loading shell, the
+     * product list wiring, the single recommended ring) is the host's Free/Loading arm now.
+     */
+    private suspend fun hostContent(state: BillingState): @Composable () -> Unit {
+        val wf = BuiltInPaywallSeeds.workflow(PaywallTemplate.BRANDED_STACK)
+        return {
+            PaywallStateHost(
+                state = state,
+                workflow = wf,
+                context = RenderContext(),
+                priceFor = { null },
+                onSelectPackage = {},
+                onPurchase = {},
+                onRestore = {},
+                onRetry = {},
+                onAction = {},
+            )
+        }
     }
 }

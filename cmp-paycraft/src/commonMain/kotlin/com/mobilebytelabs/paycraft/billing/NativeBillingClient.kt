@@ -1,5 +1,8 @@
 package com.mobilebytelabs.paycraft.billing
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+
 /**
  * One native purchase as reported by StoreKit2 (`Transaction`) or Play Billing
  * (`Purchase`). Device-free value object so the reconciliation + restore code in
@@ -21,6 +24,25 @@ data class NativePurchase(
      * on stores where package is not part of the receipt (StoreKit2).
      */
     val packageName: String? = null,
+    /**
+     * The store accepted the order but payment has NOT cleared yet — Play `PurchaseState.PENDING`
+     * (cash / UPI-mandate / Ask-to-Buy family approval) or StoreKit `.pending` (Ask to Buy / SCA).
+     *
+     * A pending purchase is NOT an entitlement and NOT a failure. It can take days to clear, and
+     * when it does it arrives on [NativeBillingClient.purchaseUpdates] rather than as the return
+     * value of the original [NativeBillingClient.purchase] call. Treating it as a failure — which
+     * the SDK did before — tells a buyer their payment failed while their money is in flight.
+     */
+    val isPending: Boolean = false,
+    /**
+     * The purchase has been durably recorded with the store (Play `isAcknowledged`, StoreKit
+     * `finish()`ed). An UNACKNOWLEDGED Play purchase is auto-refunded after 72 hours, so this is
+     * the flag the reconcile loop uses to find purchases that still need
+     * [NativeBillingClient.finishPurchase] — including ones whose first attempt failed.
+     *
+     * Defaults to `true` so stores without the concept never look unfinished.
+     */
+    val isAcknowledged: Boolean = true,
 )
 
 /**
@@ -46,6 +68,13 @@ sealed interface NativePurchaseResult {
     /** User dismissed the store sheet before paying. */
     data object Cancelled : NativePurchaseResult
 
+    /**
+     * The store accepted the order but payment has not cleared — see [NativePurchase.isPending].
+     * The resolution arrives later on [NativeBillingClient.purchaseUpdates]; the caller should show
+     * a "payment pending" state rather than an error, and must NOT grant the entitlement yet.
+     */
+    data class Pending(val purchase: NativePurchase) : NativePurchaseResult
+
     data class Failed(val message: String) : NativePurchaseResult
 }
 
@@ -68,10 +97,52 @@ sealed interface NativePurchaseResult {
  * [WebCheckoutNativeBillingClient], whose native operations are correct no-ops.
  */
 interface NativeBillingClient {
-    /** Launch the store purchase flow for [productId]. */
-    suspend fun purchase(productId: String): NativePurchaseResult
+    /**
+     * Every purchase this client observes, whoever started it.
+     *
+     * The store reports purchases that no in-flight [purchase] call is awaiting: a renewal, a promo
+     * code redeemed in the store app, a deferred/pending payment clearing days later, an Ask-to-Buy
+     * approval, a purchase that completed while the app was backgrounded, a family-sharing grant, a
+     * refund or revocation. Before this stream existed those callbacks were dropped on the floor —
+     * the buyer paid and was never upgraded until some later manual refresh.
+     *
+     * The billing manager collects this for the SDK's lifetime and reconciles every emission
+     * through the same server path as a foreground purchase.
+     */
+    val purchaseUpdates: Flow<NativePurchase>
 
-    /** Current store-side purchases for the signed-in store account (no network re-link). */
+    /**
+     * Launch the store purchase flow for [productId].
+     *
+     * @param appUserId the SDK's stable buyer identity, handed to the store so the receipt carries
+     *   it (Play `obfuscatedAccountId`, StoreKit `appAccountToken`). Without it the server has no
+     *   way to bind a store receipt to an app user, which is what cross-device restore, multi-account
+     *   detection and fraud checks all rest on. Null only when no identity is resolvable yet.
+     */
+    suspend fun purchase(
+        productId: String,
+        appUserId: String? = null,
+        productType: NativeProductType = NativeProductType.SUBSCRIPTION,
+    ): NativePurchaseResult
+
+    /**
+     * Durably record [purchase] with the store — Play `acknowledgePurchase`, StoreKit
+     * `Transaction.finish()`.
+     *
+     * MUST be called only AFTER the entitlement is safely recorded server-side. Finishing first is
+     * a lost purchase: the store drops it from the unfinished queue, so if the server call then
+     * fails there is nothing left to retry against and the customer has paid for nothing.
+     *
+     * Idempotent — safe to call on an already-finished purchase.
+     */
+    suspend fun finishPurchase(purchase: NativePurchase)
+
+    /**
+     * Current store-side purchases for the signed-in store account (no network re-link).
+     *
+     * Covers BOTH product types. Every query used to hardcode Play's `SUBS`, so a one-time /
+     * lifetime purchase was invisible to restore and to the unfinished-purchase sweep.
+     */
     suspend fun queryPurchases(): List<NativePurchase>
 
     /**
@@ -106,7 +177,10 @@ interface NativeBillingClient {
      * so the paywall shows exactly what the store will charge (e.g. ₹799 from the IN storefront).
      * Null when the product/price is unavailable on this store.
      */
-    suspend fun nativeDisplayPrice(productId: String): NativeDisplayPrice?
+    suspend fun nativeDisplayPrice(
+        productId: String,
+        productType: NativeProductType = NativeProductType.SUBSCRIPTION,
+    ): NativeDisplayPrice?
 }
 
 /**
@@ -118,10 +192,19 @@ interface NativeBillingClient {
  * Android/iOS consumers override this Koin binding with the Phase-3 `actual` client.
  */
 class WebCheckoutNativeBillingClient : NativeBillingClient {
+    // intentional-noop: no native store → no store callbacks will ever arrive on this platform.
+    override val purchaseUpdates: Flow<NativePurchase> = emptyFlow()
+
     // intentional-noop: no native store exists on web-checkout platforms (D13); purchase is
     // impossible here, callers route to web checkout instead.
-    override suspend fun purchase(productId: String): NativePurchaseResult =
-        NativePurchaseResult.Failed("No native store on this platform — use web checkout")
+    override suspend fun purchase(
+        productId: String,
+        appUserId: String?,
+        productType: NativeProductType,
+    ): NativePurchaseResult = NativePurchaseResult.Failed("No native store on this platform — use web checkout")
+
+    // intentional-noop: no native store → nothing to acknowledge or finish.
+    override suspend fun finishPurchase(purchase: NativePurchase) = Unit
 
     // intentional-noop: no native store → no native purchases to enumerate.
     override suspend fun queryPurchases(): List<NativePurchase> = emptyList()
@@ -140,5 +223,6 @@ class WebCheckoutNativeBillingClient : NativeBillingClient {
     override suspend fun storefrontCountry(): String? = null
 
     // intentional-noop: no native store → no store-localized price; the cloud /config price is used.
-    override suspend fun nativeDisplayPrice(productId: String): NativeDisplayPrice? = null
+    override suspend fun nativeDisplayPrice(productId: String, productType: NativeProductType): NativeDisplayPrice? =
+        null
 }

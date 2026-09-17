@@ -255,8 +255,7 @@ if (isPremium) PremiumContent() else FreeContent()
 | Platform | Targets |
 |----------|---------|
 | Android | `android` |
-| iOS | `iosX64`, `iosArm64`, `iosSimulatorArm64` |
-| macOS | `macosX64`, `macosArm64` |
+| iOS | `iosArm64`, `iosSimulatorArm64` |
 | JVM | `jvm` |
 | JavaScript | `js` (Browser, Node.js) |
 | WebAssembly | `wasmJs` (Browser) |

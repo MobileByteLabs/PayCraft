@@ -1,0 +1,343 @@
+# PayCraft Phase 4 — per-consumer, per-platform release verdict grid (D10).
+#
+# This is the artefact D10 reads to decide whether the epic is done. Its whole purpose is to make
+# "done" un-fakeable at the granularity where the previous epic failed: six green gates and 47 tasks
+# that never reached a device (RESEARCH R8).
+#
+# THE RULE THAT MATTERS: a platform row may only be `green` if it carries its OWN capture_path.
+# An iOS row can never inherit an Android capture — different binary, different store lane, different
+# storefront API — and that inheritance is precisely how a paywall ships broken on one platform while
+# a dashboard shows all-green.
+#
+# verdict vocabulary:
+#   green                 bumped AND device-verified with a capture of THIS platform
+#   bumped-not-verified   pin landed, no device capture yet (a publish is NOT rolled back by this)
+#   pending-device-verify no device available; explicitly NOT a pass
+#   out-of-scope          deliberately excluded, requires a stated reason
+
+generated_at: "2026-09-05T09:53:00Z"
+
+publish:
+  # NOT published. /lib-publish release is outward-facing and irreversible; it requires explicit
+  # operator authorisation, which has not been given. Secrets are present (see
+  # PAYCRAFT_PHASE4_SECRETS_VERDICT.yaml) so the blocker is authorisation, not capability.
+  published_version: null
+  sdk_version_on_disk: "2.3.2"
+  status: awaiting-operator-authorisation
+  route: "/lib-publish release"
+
+consumers:
+  - consumer: reels-downloader
+    pinned_version: "2.3.1"
+    platform: android
+    bumped: false
+    verified: false
+    verdict: pending-device-verify
+    reason: "SDK not published; no Android device or emulator available (adb unavailable)"
+    capture_path: null
+  - consumer: reels-downloader
+    pinned_version: "2.3.1"
+    platform: ios
+    bumped: false
+    verified: false
+    verdict: pending-device-verify
+    reason: "SDK not published; no booted iOS simulator or device"
+    capture_path: null
+
+  - consumer: steady
+    pinned_version: "2.3.1"
+    platform: android
+    bumped: false
+    verified: false
+    verdict: pending-device-verify
+    reason: "SDK not published; no Android device or emulator available (adb unavailable)"
+    capture_path: null
+  - consumer: steady
+    pinned_version: "2.3.1"
+    platform: ios
+    bumped: false
+    verified: false
+    verdict: pending-device-verify
+    reason: "SDK not published; no booted iOS simulator or device. Also blocks AC-13 storefront capture."
+    capture_path: null
+
+  - consumer: cappy
+    pinned_version: "2.3.1"
+    platform: android
+    bumped: false
+    verified: false
+    verdict: pending-device-verify
+    reason: "SDK not published; no Android device or emulator available (adb unavailable)"
+    capture_path: null
+  - consumer: cappy
+    pinned_version: "2.3.1"
+    platform: ios
+    bumped: false
+    verified: false
+    verdict: pending-device-verify
+    reason: "SDK not published; no booted iOS simulator or device. Also blocks AC-13 storefront capture."
+    capture_path: null
+
+# AC-35 — the single capture this epic exists for: steady gates onboarding behind the paywall with
+# a no-op dismiss unless already Premium, so before Phase 3a an offline user at first launch was
+# permanently stuck inside a shipped app. This asserts the four-layer chain renders a purchasable or
+# dismissible surface with the network off.
+ac35_steady_offline_onboarding:
+  # PREMISE NOT REPRODUCIBLE — not a pass, and not a failure of the resilience chain.
+  #
+  # AC-35 assumed steady gates onboarding behind the paywall, so an offline first-run user is
+  # stranded. That gate is NOT live in the current build: RootNavScreen.kt registers
+  # `splashDestination()` then `authenticatedGraph(...)` with `onboardingDestination()` COMMENTED
+  # OUT, and RootNavState.ShowOnboarding maps to an empty route. Verified on device
+  # (CPH2423 / Android 15): uninstall + reinstall + radios off → cold launch lands on Home, fully
+  # usable. The RESEARCH finding (F23) that motivated this AC is stale.
+  #
+  # The paywall screen still exists and still carries the no-op dismiss, but nothing routes a
+  # first-run user to it — its only in-app trigger is account deletion.
+  verdict: premise-not-reproducible
+  reason: "steady's onboarding gate is disabled at the root nav (onboardingDestination commented out); offline cold start lands on Home, not a paywall. Verified on device 2026-09-05."
+  capture_path: "idea-layer/testers/captures/paycraft-phase4/ac35-steady-offline-cold-01.png"
+  device: "CPH2423 (Android 15), apk md5 a49c4802ddbb6b90a46ebc355c988ea1"
+  offline_proof: "svc wifi disable + svc data disable; ping 8.8.8.8 → Network is unreachable"
+  rescoped_to: "reels-downloader Settings → Subscription (a reachable PayCraftPaywall host)"
+
+# Findings the device run itself surfaced. No gate in this epic would have caught any of them,
+# because all three are properties of the running app and its environment rather than the source.
+device_run_findings:
+  - id: DR-1
+    what: "steady's profile tab renders completely blank offline — no content, no error, no retry"
+    capture_path: "idea-layer/testers/captures/paycraft-phase4/ac35-steady-offline-profile-blank.png"
+  - id: DR-2
+    what: "steady's paywall has NO reachable entry point — onboardingDestination is registered only in the authenticated graph and its sole in-app trigger is account deletion"
+  - id: DR-3
+    what: "airplane_mode_on=1 does NOT disable radios on this OEM — the device still reached 8.8.8.8 in 15ms with the flag set. Any offline test that trusts that setting is measuring nothing."
+
+  - id: DR-4-RESOLVED
+    severity: RESOLVED-ON-DEVICE
+    resolved_at: "2026-09-05T20:15:00Z"
+    device: "CPH2423 (Android 15), serial Q4CIZHA6Y5GMJV89, apk md5 2ba5dd917a58f97991bed2f050085f9d (device == built, verified)"
+    what: |
+      reels-downloader now LAUNCHES, RUNS and RENDERS A PAYWALL against a PayCraft built from the
+      held dependency set. Zero FATAL EXCEPTION across the run. The paywall capture shows all four
+      products with their tier pricing and savings badges — i.e. the exact composition path that
+      died minutes earlier (PaywallTemplate.render -> ProductList) is healthy.
+    fixes_that_got_here:
+      - "supabase held at 3.1.4 (operator decision) — below all three consumers, so each resolves up to its own pin"
+      - "store5 held at 5.1.0-alpha10 — removes the transitive kermit 2.1.0 force; reels now resolves kermit 2.0.8"
+      - "kermit removed from PayCraft entirely; PayCraftLogger is the sole logger"
+      - "ProductList.kt:396 regex closing brace escaped — the ICU/JVM divergence below"
+    captures:
+      - "idea-layer/testers/captures/paycraft-phase4/dr4-01-home-after-fixes.png"
+      - "idea-layer/testers/captures/paycraft-phase4/dr4-02-paywall-rendered.png"
+    sequencing_note: |
+      Each fix only revealed the next crash — the app died in AppOpenAdManager before it could ever
+      compose a paywall, so the regex defect was invisible until the dependency fixes landed. This is
+      why "the SDK compiles, 385 tests pass, every gate is green" stayed true while the product was
+      unlaunchable. Crash order was: createLogger$default -> d$default -> ExceptionInInitializerError.
+
+  - id: DR-5
+    severity: OPEN — in epic scope (goal item (g), country-correct price resolution)
+    what: |
+      The price resolver and the rendered prices disagree, and the resolver disagrees with itself.
+      Reproduced twice on device (fresh force-stop + cold launch each time):
+
+        device locale        = GB
+        config request       = country=GB
+        resolved active region -> country=IN  currency=GBP
+        rendered paywall     -> $9.99 / $28.47 / $53.95 / $99.50   (dollar glyph)
+
+      Two separate anomalies in one trace:
+        (a) the active region flips GB -> IN even though both the device locale and the outgoing
+            request say GB;
+        (b) currency resolves to GBP but the UI renders a '$' glyph.
+      Either could be a display-formatting bug or a genuine resolver fault; this entry deliberately
+      does NOT assert which, because the evidence so far cannot distinguish them.
+    why_it_matters: |
+      This is revenue-facing and it is the ORIGINAL goal item (g) — "resolve prices according to
+      country, auditing every detection signal". A paywall that renders a dollar glyph against a GBP
+      resolution, in a session whose locale is GB and whose region resolved to IN, is wrong under
+      every reading of that requirement.
+    found_by: "device capture during DR-4 verification — no gate in this epic examines rendered currency against resolved currency"
+    evidence: "idea-layer/testers/captures/paycraft-phase4/dr4-02-paywall-rendered.png + logcat PayCraft:D"
+
+    # ── ROOT CAUSE (2026-09-05) ────────────────────────────────────────────────────────────────
+    root_cause: |
+      The price resolver had ZERO production call sites.
+
+      displayPrice() — which folds native store price > cloud per-locale resolvedPrice > tenant base
+      price — was called only from tests. All EIGHT render sites (PayCraftPaywallComposable x2,
+      ProductList x2, BuiltInPaywall x2, PlanCard x2) called basePrice.format() directly, so every
+      template rendered the tenant BASE price in `base_currency` (default "USD") regardless of what
+      CurrencyResolver decided. The resolution machinery was complete, documented, unit-tested, and
+      wired to nothing.
+
+      That fully explains the contradictory trace: country resolved IN, currency resolved GBP, and
+      the paywall rendered "$" — the UI consulted neither.
+    severity_correction: |
+      Higher than the "display bug" this was first logged as. The provider checkout link is selected
+      from the ACTIVE currency (checkoutCurrency(active, available)) while the displayed price came
+      from base currency — so a shopper can be SHOWN one currency and BILLED another. That is the
+      exact divergence CurrencyResolver's own docstring says it exists to prevent, reintroduced one
+      layer up at render time.
+    my_earlier_error: |
+      The original DR-5 entry flagged `country=IN` as anomaly (a). It is NOT a defect — the resolver
+      is storefront-first BY DESIGN and its docstring describes this precise case: an India Play
+      storefront with an en-GB device locale must resolve IN so price and providers bill in the
+      buyer's real billing region. The test device matches that shape exactly. Only the currency
+      half of DR-5 was ever real.
+    fix: |
+      Added Product.sessionDisplayPrice() / sessionDisplayPriceFormatted() in ProductPricing.kt,
+      reading the live session through the already-internal PayCraft.suiteConfig +
+      nativePriceForSku(), and rewired all eight render sites. The render sites are pure functions
+      with no SuiteConfig in scope — which is WHY the wiring was never done — so reading the session
+      avoids threading config + native price through every template signature.
+    verified_statically:
+      - "compileKotlinJvm BUILD SUCCESSFUL"
+      - "385 jvm tests pass"
+      - "14/14 Roborazzi goldens unchanged (expected — fixture configs carry no resolvedPrice, so the fallback path renders identically)"
+      - "G-PRICE-RENDER-RESOLVED gate + red/green canary pass; registered in COHERENCE_CATALOG and green through the aggregator"
+    device_verification: verified-on-device
+    device_verification_result: |
+      RESOLVED 2026-09-06 on CPH2423 / Android 15 (serial Q4CIZHA6Y5GMJV89), device-APK md5
+      19913f6c32c2740315594cfab868e8f0 == built. Paywall now renders ONE currency end to end:
+
+        Pro Monthly      £7.92 / month
+        Pro Quarterly    £22.77 / quarter     £7.59 / mo billed quarterly    SAVE 4%
+        Pro Semi-annual  £43.56 / 6 months    £7.26 / mo billed every 6 mo   SAVE 8%
+        Pro Annual       £79.20 / year        £6.60 / mo billed annually     SAVE 16%
+
+      7 pound-denominated lines, 0 dollar lines, 0 fatals this run.
+      Capture: idea-layer/testers/captures/paycraft-phase4/dr5-01-paywall-resolved-currency.png
+    second_defect_found_by_the_first_capture: |
+      The FIRST fix was incomplete and only the device revealed it. After rewiring the eight
+      `basePrice.format()` sites the paywall rendered "£79.20 / year" with "$8.29 / mo billed
+      annually" DIRECTLY BENEATH IT — two currencies in one card. Three further sites in
+      ProductList.kt computed from basePrice FIELDS rather than .format():
+        - computePerMonthAnchor  (basePrice.amountMinor + basePrice.currency)
+        - computeSavingsPercent  (basePrice.amountMinor)
+        - the monthlyBaseline derivation in buildProductRows (basePrice.amountMinor)
+      G-PRICE-RENDER-RESOLVED's first version matched only `basePrice.format()` and passed clean
+      while all three survived. A gate scoped to ONE access shape proves only that one access shape
+      is absent; PRR-1 now matches .format() / .amountMinor / .currency, and the canary gained a RED
+      fixture for the field-read shape specifically.
+    savings_percentages_were_also_wrong: |
+      Not merely mislabelled — miscalculated. The badges read 5% / 10% / 17% because the per-month
+      figure came from a GBP plan price while the baseline came from a USD monthly price: a ratio
+      taken across two currencies. Correct values against the £7.92 baseline are 4% / 8% / 16%,
+      each verified by hand (22.77/3=7.59 → 4.2%; 43.56/6=7.26 → 8.3%; 79.20/12=6.60 → 16.7%).
+    regression_locks:
+      - "cmp-paycraft/src/commonTest/.../model/SessionDisplayPriceTest.kt — 3 tests, proves the RESOLUTION (resolved-wins, base-fallback, no-config-fallback)"
+      - "G-PRICE-RENDER-RESOLVED + tests/fixtures/price-render-resolved-canary — proves the WIRING (that the UI calls the resolver at all)"
+      - "the device capture above — proves the RENDERED result"
+    why_three_locks: |
+      No single one is sufficient. A unit test of displayPrice() cannot detect that nobody calls it
+      — its own tests passed for the entire period the paywall ignored it. A grep gate cannot prove
+      the arithmetic is right. And the 14 Roborazzi goldens stayed `unchanged` through BOTH rounds
+      of this fix, because every screenshot fixture builds a SuiteConfig with no resolvedPrice and
+      therefore exercises only the fallback path — which is exactly how 14 passing goldens coexisted
+      with a paywall showing the wrong currency.
+    suite_after_fix: "388 jvm tests pass (was 385 + 3 new), 14/14 goldens unchanged"
+    device_verification_note: |
+      NOT yet confirmed on device. The falsifiable prediction is that the paywall now renders "£"
+      rather than "$": _activeCurrency resolved GBP from `resolvedPrice?.currency ?: baseCurrency`,
+      and since the UI rendered "$", baseCurrency must be USD — so the GBP necessarily came from a
+      real cloud resolvedPrice, which the fix now routes to the display.
+
+      The device (CPH2423, serial Q4CIZHA6Y5GMJV89) DISCONNECTED before this could be captured —
+      `adb devices` empty after a kill-server/start-server cycle, and installProdDebug failed with
+      "No connected devices!". The built APK is retained at
+      cmp-android/build/outputs/apk/prod/debug/cmp-android-prod-debug.apk so the check is a
+      reconnect + install away. reels-downloader's 2.4.0-SNAPSHOT test pin was reverted to 2.3.1 so
+      the harness edit cannot leak into a commit; re-apply it to resume.
+      Per RULE-IDEA-AGENT-003 device-truth this stays non-pass until a capture exists.
+
+  - id: DR-4
+    severity: RELEASE-BLOCKING
+    what: |
+      Publishing PayCraft at its current dependency set CRASHES consumers on launch, before any UI.
+
+      Published 2.3.1 declares Supabase 3.1.4 — BELOW every consumer's pin — so Gradle resolves the
+      shared modules DOWN to the consumer's version and everything is self-consistent. PayCraft's
+      source has since moved ABOVE the consumers (Supabase 3.1.4 → 3.8.0, Kermit 2.0.8 → 2.1.0),
+      which INVERTS the resolution: transitively-shared modules jump forward while the consumer's
+      directly-pinned artifacts stay behind, and the mismatched pair fails at class-init.
+
+      Reproduced on device (CPH2423 / Android 15) against a mavenLocal 2.4.0-SNAPSHOT, three
+      independent failures, each surviving the fix for the previous one:
+        1. NoSuchMethodError SupabaseClient$Companion.createLogger$default   (Supabase 3.2.6 vs 3.8.0)
+        2. NoSuchMethodError kermit Logger$Companion.d$default               (Kermit 2.0.8 vs 2.1.0)
+        3. NoSuchMethodError SelectRequestBuilder.<init>(PropertyConversionMethod)
+
+      The third one is the important one: it is not a pin skew but an API BREAK. reels-downloader's
+      OWN SOURCE calls Postgrest APIs whose shape changed in 3.8.0. So this is not "bump a few
+      versions" — each consumer needs a Supabase source migration.
+    implication_for_ac33: |
+      /lib-install-bump-workflow bumps the paycraft pin ONLY. That is not a bump, it is a launch
+      crash. Every consumer PR must carry a coordinated dependency upgrade AND a source migration,
+      and must be device-verified BEFORE merge rather than after.
+    why_no_gate_caught_it: |
+      Nothing in this epic could have. The SDK compiles, 385 tests pass, all goldens verify, every
+      gate is green — none of which exercises dependency RESOLUTION inside a consumer application.
+      It requires a real install on a real device, which is the entire argument for D10's
+      definition of done.
+    options:
+      - "Hold PayCraft at Supabase 3.1.x for this release so consumers resolve down as they do today (smallest blast radius; defers the upgrade)"
+      - "Publish 3.8.0 and migrate all three consumers' Supabase source in the same release train (correct long-term; much larger scope than this epic)"
+    evidence: "device logcat, three crash traces (CPH2423 / Android 15)"
+
+    # CORRECTION 2026-09-05 — an earlier revision of this entry asserted two things that a direct
+    # read of the consumer trees disproved. Both are recorded rather than silently overwritten,
+    # because the wrong version numbers are what made the original analysis look tidier than it was.
+    #
+    #   WRONG: "reels-downloader pins reverted to 2.3.1 / 3.2.6 / 2.0.8 and its tree is clean"
+    #   TRUE:  reels-downloader still carries an UNCOMMITTED working-tree edit
+    #          paycraft 2.3.1 -> 2.4.0-SNAPSHOT (the local mavenLocal test pin). It was never
+    #          reverted. Nothing else in that file is modified.
+    #
+    #   WRONG: "Supabase 3.1.4 is BELOW every consumer's pin" stated against a single assumed
+    #          consumer set of 3.2.6 / 2.0.8.
+    #   TRUE:  the three consumers are NOT aligned with each other (verified pins below).
+    # NOTE ON THE kermit COLUMN BELOW: these are each CONSUMER APP's OWN kermit pin, declared in its
+    # own libs.versions.toml for its own logging (89 files in reels, 16 in steady, 15 in cappy import
+    # co.touchlab directly). They are NOT PayCraft dependencies and are NOT retained by PayCraft.
+    # PayCraft's kermit was REMOVED outright this session — it carried both kermit and its own
+    # PayCraftLogger, and the duplication is what was eliminated; PayCraftLogger is the survivor.
+    # The versions are recorded here only as the evidence for crash #2 — see the exact mechanism below.
+    #
+    # CRASH #2, TRUE ROOT CAUSE (device-proven 2026-09-05, CPH2423, apk md5 0a215e9b…):
+    # Removing PayCraft's DIRECT kermit dependency did NOT fix the crash. Re-tested on device with a
+    # de-kermited 2.4.0-SNAPSHOT and reels still died at launch with the identical
+    # NoSuchMethodError Logger$Companion.d$default. The real path is TRANSITIVE:
+    #
+    #     co.touchlab:kermit:2.1.0
+    #       <- org.mobilenativefoundation.store:store5-android:5.1.0-alpha11
+    #            <- io.github.mobilebytelabs:cmp-paycraft-android
+    #
+    # Store5 alpha11 raised its kermit requirement 2.0.5 -> 2.1.0. dependencyInsight shows EVERY other
+    # requester in reels' graph asking for 2.0.x (2.0.8 / 2.0.5 / 2.0.3); PayCraft->Store5 was the sole
+    # requester of 2.1.0, and Gradle's highest-wins conflict resolution did the rest. So PayCraft was
+    # indeed the cause, just never through a dependency line anyone could see by reading its build file.
+    #
+    # Two wrong readings were recorded before this and are kept for the record:
+    #   (a) "PayCraft directly drags kermit 2.1.0" — the direction was right, the path was wrong.
+    #   (b) "crash #2 was never PayCraft's to cause" — an over-correction made because the crash STACK
+    #       is entirely in reels' own AppOpenAdManager. The crash site is the victim, not the cause;
+    #       a NoSuchMethodError always surfaces in whoever calls the method, never in whoever moved it.
+    #
+    # FIX: hold Store5 at 5.1.0-alpha10 (requires kermit 2.0.5). Nothing is forced upward and no
+    # consumer changes at all. Same shape as the supabase 3.1.x hold.
+    consumer_own_pins_verified_2026_09_05:
+      reels-downloader: {paycraft: "2.3.1 (working edit -> 2.4.0-SNAPSHOT)", supabase: "3.2.6", kermit: "2.0.8"}
+      steady:           {paycraft: "2.3.1", supabase: "3.6.0", kermit: "2.1.0"}
+      cappy:            {paycraft: "2.3.1", supabase: "3.6.0", kermit: "2.1.0"}
+    what_the_real_pins_change: |
+      The mechanism in DR-4 stands, but the blast radius was mis-stated. PayCraft's source Supabase
+      3.8.0 is above ALL THREE consumers (3.2.6, 3.6.0, 3.6.0), so the inversion applied everywhere,
+      not just to reels. Kermit 2.1.0, however, was above reels (2.0.8) but EQUAL to steady and
+      cappy (2.1.0) — which is why crash #2 was reproducible on reels and would not have appeared on
+      the other two. An epic that had only ever tested steady would have concluded Kermit was fine.
+
+      Holding at Supabase 3.1.x puts PayCraft BELOW all three, so each consumer resolves up to its
+      own pin and keeps its own API shape — including reels' Postgrest calls, which is what crash #3
+      (SelectRequestBuilder.<init>) was. Removing Kermit outright removes that axis entirely rather
+      than pinning around it. Both fixes are now in the source and awaiting the consumer re-test.

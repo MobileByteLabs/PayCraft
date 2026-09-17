@@ -26,7 +26,7 @@ data class EntitlementKey(val appUserId: String)
  *        │
  *   StoreBuilder.from(fetcher, sourceOfTruth)
  *        │
- *   SourceOfTruth.of  ──── EntitlementDao (SQLDelight-shaped, settings-backed today)
+ *   SourceOfTruth.of  ──── EntitlementDao (settings-backed)
  *        └── the OFFLINE last-known-good — served when the fetcher fails (network loss)
  * ```
  *

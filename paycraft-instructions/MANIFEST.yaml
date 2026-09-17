@@ -1,0 +1,17 @@
+# PayCraft AI SoT corpus manifest — enumerated set (D14, AC-13).
+# Authored ONLY through /paycraft-dev fold; hand-edits refused by paycraft-corpus-guard.sh
+# (RULE-PAYCRAFT-CORPUS-AUTHORSHIP-001 PCA-1).
+schema_version: 1
+corpus_root: workspaces/mbs/PayCraft/source/PayCraft/paycraft-instructions
+sdk_repo_path: workspaces/mbs/PayCraft/source/PayCraft
+sdk_version: 2.3.2                    # bumped by /paycraft-dev fold; consumed by the D12 corpus-vs-artifact gate
+sdk_head_commit: 518e84790cc2794f1cd4007182d72005ae07fe56   # populated by fold; every doc's example-provenance must equal this or an ancestor
+documents:
+  - PUBLIC_API.md
+  - WIRING_CONTRACTS.md
+  - PAYWALL_CUSTOMIZATION.md
+  - BILLING_STATE_SEMANTICS.md
+  - PROVIDERS_AND_STORES.md
+  - WEBHOOKS.md
+  - KEY_TIERING.md
+  - FAILURE_MODES.md

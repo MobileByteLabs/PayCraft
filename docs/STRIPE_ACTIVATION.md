@@ -61,7 +61,7 @@ Once activation is approved:
 3. Set the OAuth redirect URI:
    `https://paycraft.mobilebytesensei.com/api/oauth/stripe/callback`
 4. Note the `Client ID` (CA_*) — this goes into the vault as
-   `mbs-paycraft-stripe-connect-client-id`.
+   `mbs-stripe-connect-client-id`.
 
 ### Step 4 — Pull live secrets into the vault
 
@@ -86,7 +86,7 @@ security find-generic-password -s paycraft-stripe -a paycraft-live -w \
 echo "$STRIPE_CONNECT_CLIENT_ID" \
   | bash core/scripts/secrets-push.sh \
         --vault mbs-vault \
-        --id mbs-paycraft-stripe-connect-client-id \
+        --id mbs-stripe-connect-client-id \
         --stdin
 ```
 

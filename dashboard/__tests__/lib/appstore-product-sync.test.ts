@@ -66,7 +66,7 @@ test("subscription create keys the group relationship as `group` (not `subscript
   expect(result.subscriptionResourceId).toBe("SUB1")
 })
 
-test("provisions a global FREE_TRIAL introductory offer when trialDays > 0", async () => {
+test("provisions a FREE_TRIAL introductory offer when trialDays > 0 (USA fallback ladder)", async () => {
   const fetchMock = installFetch() // introductoryOffers GET → default {data:[]}; POST → default ok
 
   const result = await syncProductToAppStore(
@@ -88,9 +88,13 @@ test("provisions a global FREE_TRIAL introductory offer when trialDays > 0", asy
   expect(body.data.attributes.offerMode).toBe("FREE_TRIAL")
   expect(body.data.attributes.duration).toBe("TWO_WEEKS") // 14 days → nearest enum
   expect(body.data.attributes.numberOfPeriods).toBe(1)
-  // Global free trial → subscription only; territory + price point OMITTED.
+  // A FREE_TRIAL carries no price, so subscriptionPricePoint stays OMITTED. `territory`
+  // is NOT optional though: Apple rejects the create with 409
+  // ENTITY_ERROR.RELATIONSHIP.REQUIRED unless one is present. This fixture's price ladder
+  // is empty, so territory resolution falls back to USA — the fallback path. The
+  // multi-territory behaviour is covered separately below.
   expect(body.data.relationships.subscription).toEqual({ data: { type: "subscriptions", id: "SUB1" } })
-  expect(body.data.relationships.territory).toBeUndefined()
+  expect(body.data.relationships.territory).toEqual({ data: { type: "territories", id: "USA" } })
   expect(body.data.relationships.subscriptionPricePoint).toBeUndefined()
   expect(result.introductoryOfferActive).toBe(true)
 })
@@ -119,5 +123,116 @@ test("maps 30-day trial to ONE_MONTH and skips offer creation when one already e
     ([u, init]) => String(u).endsWith("/v1/subscriptionIntroductoryOffers") && (init as any)?.method === "POST",
   )
   expect(createOffer).toBeUndefined()
+  expect(result.introductoryOfferActive).toBe(true)
+})
+
+/**
+ * An App Store introductory offer covers exactly ONE territory. Creating a single USA
+ * offer therefore made an advertised free trial USA-only: every other storefront showed
+ * the paywall's "14 days free" and then charged immediately. The trial must be created
+ * once per territory the subscription is priced in.
+ */
+function installFetchWithTerritories(territories: string[], failFor: string[] = []) {
+  const fetchMock = jest.fn(async (url: unknown, init: any) => {
+    const u = String(url)
+    const method = init?.method ?? "GET"
+    if (u.includes("/v1/apps?filter[bundleId]")) return res({ data: [{ id: "APP1" }] })
+    if (u.includes("/subscriptionGroups?limit=200")) return res({ data: [] })
+    if (u.includes("/v1/subscriptionGroups") && method === "POST") return res({ data: { id: "GROUP1" } })
+    if (u.includes("/subscriptions?filter[productId]")) return res({ data: [] })
+    if (u.endsWith("/v1/subscriptions") && method === "POST") return res({ data: { id: "SUB1" } })
+    // Apple derives the whole ladder from the USA base point — this is that ladder.
+    if (u.includes("/prices?include=territory")) {
+      return res({
+        data: territories.map((t, i) => ({
+          id: `PRICE${i}`,
+          relationships: { territory: { data: { type: "territories", id: t } } },
+        })),
+        included: territories.map((t) => ({ type: "territories", id: t })),
+      })
+    }
+    if (u.includes("/pricePoints")) return res({ data: [{ id: "PP1", attributes: { customerPrice: "9.99" } }] })
+    if (u.includes("/v1/subscriptionPrices") && method === "POST") return res({ data: { id: "PRICE1" } })
+    if (u.includes("/introductoryOffers")) return res({ data: [] }) // none exist yet
+    if (u.includes("/v1/subscriptionIntroductoryOffers") && method === "POST") {
+      const territory = JSON.parse(init.body).data.relationships.territory.data.id
+      if (failFor.includes(territory)) return res({ errors: [{ detail: "nope" }] }, false, 409)
+      return res({ data: { id: `OFFER-${territory}` } })
+    }
+    return res({ data: [] })
+  })
+  ;(global as unknown as { fetch: unknown }).fetch = fetchMock
+  return fetchMock
+}
+
+/** Territory ids of every introductory-offer POST. */
+function offerTerritories(fetchMock: jest.Mock): string[] {
+  return fetchMock.mock.calls
+    .filter(
+      ([u, init]) =>
+        String(u).includes("/v1/subscriptionIntroductoryOffers") && (init as any)?.method === "POST",
+    )
+    .map(([, init]) => JSON.parse((init as any).body).data.relationships.territory.data.id)
+}
+
+test("free trial is created in EVERY priced territory, not just USA", async () => {
+  const fetchMock = installFetchWithTerritories(["USA", "GBR", "DEU", "IND", "JPN"])
+
+  const result = await syncProductToAppStore(
+    CREDS, "prod-mt", "pro-monthly", "Pro Monthly", "month",
+    [{ currency: "USD", amountCents: 999 }], undefined, 14,
+  )
+
+  expect(offerTerritories(fetchMock).sort()).toEqual(["DEU", "GBR", "IND", "JPN", "USA"])
+  expect(result.introductoryOfferActive).toBe(true)
+  expect(result.introductoryOfferWarning).toBeUndefined()
+  expect(result.introductoryOfferError).toBeUndefined()
+})
+
+test("partial territory coverage is a WARNING, not a silent success and not a hard failure", async () => {
+  const fetchMock = installFetchWithTerritories(["USA", "GBR", "DEU"], ["DEU"])
+
+  const result = await syncProductToAppStore(
+    CREDS, "prod-mt2", "pro-monthly", "Pro Monthly", "month",
+    [{ currency: "USD", amountCents: 999 }], undefined, 14,
+  )
+
+  expect(offerTerritories(fetchMock).sort()).toEqual(["DEU", "GBR", "USA"])
+  // The trial IS live for most customers, so this is not a failure...
+  expect(result.introductoryOfferActive).toBe(true)
+  expect(result.introductoryOfferError).toBeUndefined()
+  // ...but the gap must be visible, naming the territory that missed out.
+  expect(result.introductoryOfferWarning).toMatch(/2\/3 territories/)
+  expect(result.introductoryOfferWarning).toMatch(/DEU/)
+})
+
+test("only the MISSING territories are created on a re-sync (idempotent)", async () => {
+  const fetchMock = jest.fn(async (url: unknown, init: any) => {
+    const u = String(url)
+    const method = init?.method ?? "GET"
+    if (u.includes("/v1/apps?filter[bundleId]")) return res({ data: [{ id: "APP1" }] })
+    if (u.includes("/subscriptionGroups?limit=200")) return res({ data: [{ id: "GROUP1", attributes: { referenceName: "PayCraft Subscriptions" } }] })
+    if (u.includes("/subscriptions?filter[productId]")) return res({ data: [{ id: "SUB1" }] })
+    if (u.includes("/prices?include=territory")) {
+      return res({ included: [{ type: "territories", id: "USA" }, { type: "territories", id: "GBR" }] })
+    }
+    if (u.includes("/subscriptions/SUB1/prices")) return res({ data: [{ id: "P" }] })
+    if (u.includes("/introductoryOffers")) {
+      // USA already has one; GBR does not.
+      return res({
+        data: [{ id: "O1", attributes: { offerMode: "FREE_TRIAL" }, relationships: { territory: { data: { id: "USA" } } } }],
+      })
+    }
+    if (u.includes("/v1/subscriptionIntroductoryOffers") && method === "POST") return res({ data: { id: "O2" } })
+    return res({ data: [] })
+  })
+  ;(global as unknown as { fetch: unknown }).fetch = fetchMock
+
+  const result = await syncProductToAppStore(
+    CREDS, "prod-mt3", "pro-monthly", "Pro Monthly", "month",
+    [{ currency: "USD", amountCents: 999 }], undefined, 14,
+  )
+
+  expect(offerTerritories(fetchMock)).toEqual(["GBR"]) // USA NOT recreated
   expect(result.introductoryOfferActive).toBe(true)
 })

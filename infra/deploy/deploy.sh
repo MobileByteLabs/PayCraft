@@ -2,16 +2,32 @@
 #
 # deploy.sh — PayCraft v2.0 unified run/deploy orchestrator.
 #
-# Two modes, one command:
+# Four modes, one command:
 #
 #   --local   Run PayCraft on http://localhost:3000
 #             L1 LOCAL PRE-FLIGHT  Docker, supabase CLI, node_modules, supabase/.env
-#             L2 SUPABASE RESTART  supabase stop ; supabase start
+#             L2 SUPABASE RESTART  supabase stop ; supabase start (retries once on a health timeout)
+#             L2.5 MIGRATIONS      supabase migration up --local, then ASSERT the local schema is
+#                                  not behind the files on disk (supabase start restores a volume
+#                                  backup and does NOT apply pending migrations)
 #             L3 DEV SERVER START  cd dashboard && nohup npm run dev &
 #             L4 LOCAL READY WAIT  poll localhost:3000 until 200
 #             L5 LOCAL SMOKE       curl /api/health (expects env=local)
 #
-#   --prod    Promote dev → main, then DIRECTLY deploy the dashboard to Cloudflare Workers
+#   --staging Deploy WHATEVER IS CHECKED OUT — the current branch, including commits not yet on dev.
+#             Same phases, staging targets, no PROMOTE: staging is a rehearsal, not a decision.
+#             1 PRE-FLIGHT     as prod
+#             2 STAGING TARGET resolve the staging Supabase project from SUPABASE_ACCOUNTS_REGISTRY.
+#                              None declared → WARN and SKIP phases 3/3.5; the target is never
+#                              redirected to the prod database.
+#             3 / 3.5          migrations + Edge Functions, against the STAGING project
+#             5 DEPLOY CLOUDFLARE  same Pages project, --branch=staging → staging.paycraft.pages.dev
+#             6 SMOKE          on success writes .state/last-staging.json (the promote precondition)
+#
+#   --promote-to-prod  the prod chain, gated on: staging was deployed AND smoked AND HEAD has not
+#             moved since. Promoting an un-rehearsed commit is the one thing staging exists to stop.
+#
+#   --prod    Build + DIRECTLY deploy the dashboard from `dev` to Cloudflare
 #             1 PRE-FLIGHT     verify CLIs/vault/cloudflare/gh; warn on un-pushed dev commits;
 #                              TYPECHECK the dashboard (tsc --noEmit) so a broken build never
 #                              reaches main (--skip-build to bypass)
@@ -20,7 +36,6 @@
 #                              --allow-destructive) → pre-push schema BACKUP → supabase db push →
 #                              POST-PUSH VERIFY (0 pending). Aborts the chain on any failure.
 #             3.5 FUNCTIONS DEPLOY  vault-mediated supabase functions deploy (Edge Functions)
-#             4 PROMOTE        open PR dev → main, merge it (fast-forward) — source-of-truth replica
 #             5 DEPLOY CLOUDFLARE  build + `npm run cf:deploy` → dashboard on Cloudflare Workers (OpenNext)
 #             6 SMOKE          curl /api/health + /auth/login + root + Edge Function /config reachability
 #
@@ -33,9 +48,13 @@
 #   deploy.sh ship       alias for --prod --apply --confirm-production (full prod chain)
 #   deploy.sh run        alias for --local
 #   deploy.sh verify     alias for --prod --only-phase 1 (preflight + typecheck, read-only)
+#   deploy.sh stage      alias for --staging --apply
+#   deploy.sh promote    alias for --promote-to-prod --apply --confirm-production
 #
 # Stability flags:
 #   --allow-destructive  permit pending migrations containing DROP/TRUNCATE (audited; default refuse)
+#   --allow-no-backup    proceed when the pre-migration schema snapshot fails (prod only; never
+#                        available when the pending set is destructive — that case has no override)
 #   --skip-build         skip the PRE-FLIGHT dashboard typecheck (not recommended)
 #
 set -eo pipefail
@@ -54,13 +73,40 @@ CF_PAGES_PROJECT="paycraft"   # Cloudflare Pages project (next-on-pages, edge ru
 GITHUB_REPO="MobileByteLabs/PayCraft"
 SUPABASE_REF="mlwfgytjxlqyfxcgpysm"
 
+# ── Staging ────────────────────────────────────────────────────────────────────────────────────
+# Staging deploys WHATEVER IS CHECKED OUT — the branch you are on, including commits not yet on
+# dev. That is the point: you see the change running before deciding it deserves production. So the
+# staging chain has no PROMOTE phase; promotion is the separate, deliberate act.
+#
+# The dashboard rides the same Cloudflare Pages project on a different BRANCH, which gives a stable
+# preview host with no new infrastructure. The DATABASE does not get that luxury: a staging deploy
+# must never apply migrations to the production project, so the Supabase target is resolved from the
+# registry and the run HALTS if no staging project is declared — rather than falling back to prod,
+# which is the one failure mode that would make staging worse than useless.
+STAGING_BRANCH="staging"
+STAGING_URL="https://${STAGING_BRANCH}.${CF_PAGES_PROJECT}.pages.dev"
+STAGING_SUPABASE_REF=""       # resolved by resolve_staging_target(); empty = not configured
+STAGING_DB_READY=false        # true only when a staging project + db_url alias both resolve
+
+# The Supabase target the migration + function phases act on. Defaults to production; the staging
+# chain reassigns all three from the registry BEFORE those phases run, so one set of phases serves
+# both environments and neither can drift from the other.
+TARGET_DB_URL_ALIAS="framework-supabase-db-url"
+TARGET_PAT_ALIAS="framework-supabase-access-token"
+TARGET_PROJECT_REF="mlwfgytjxlqyfxcgpysm"
+TARGET_URL_ALIAS="framework-supabase-url"
+TARGET_ANON_ALIAS="framework-supabase-anon-key"
+
 # ═══════════════════════════════════════════════════════════
 # Parse args
 # ═══════════════════════════════════════════════════════════
-MODE=""                         # "local" | "prod" | "" (default: matrix view via SKILL.md)
+MODE=""                         # "local" | "staging" | "prod" | "" (default: matrix view via SKILL.md)
+REQUIRE_STAGED=false            # --promote-to-prod: refuse unless staging was deployed + smoked
+SYNC_PROD=true                  # --local: mirror production into the local DB (--no-sync-prod skips)
 APPLY=false
 CONFIRM_PROD=false
-FROM_PHASE=1
+FROM_PHASE=0   # 0, not 1: --promote-to-prod's STAGED CHECK is phase 0, and a default of 1 made
+               # the range check silently skip the one gate that guards production.
 TO_PHASE=6
 ONLY_PHASE=""
 KEEP_GOING=false
@@ -68,6 +114,8 @@ VERBOSE=false
 SILENT=false
 SUB_COMMAND=""
 ALLOW_DESTRUCTIVE=false          # gate: pending migrations with DROP/TRUNCATE abort unless set
+ALLOW_NO_BACKUP=false            # gate: a failed pre-migration snapshot aborts prod unless set
+BACKUP_PATH=""                   # set by take_schema_backup on success
 SKIP_BUILD=false                 # escape hatch: skip the local typecheck in PRE-FLIGHT
 
 # Sub-command detection (shorthand aliases)
@@ -78,6 +126,12 @@ case "${1:-}" in
         SUB_COMMAND="ship"; MODE="prod"; APPLY=true; CONFIRM_PROD=true; shift ;;
     run)
         SUB_COMMAND="run"; MODE="local"; shift ;;
+    stage)
+        # No --confirm-production twin: staging exists to be run freely, and a ceremony on the
+        # rehearsal only teaches people to type the ceremony.
+        SUB_COMMAND="stage"; MODE="staging"; APPLY=true; shift ;;
+    promote)
+        SUB_COMMAND="promote"; MODE="prod"; REQUIRE_STAGED=true; APPLY=true; CONFIRM_PROD=true; shift ;;
     verify)
         SUB_COMMAND="verify"; MODE="prod"; ONLY_PHASE=1; FROM_PHASE=1; TO_PHASE=1; shift ;;
 esac
@@ -86,6 +140,14 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --local)                MODE="local"; shift ;;
         --prod)                 MODE="prod"; shift ;;
+        # `--stagging` is accepted because it is the spelling people reach for; silently, because
+        # correcting someone mid-deploy helps nobody.
+        --staging|--stagging)   MODE="staging"; shift ;;
+        --no-sync-prod)         SYNC_PROD=false; shift ;;
+        --sync-prod)            SYNC_PROD=true; shift ;;
+        # Promotion is the prod chain with one extra precondition: staging must have actually been
+        # deployed and smoke-tested. You cannot promote what you have not staged.
+        --promote-to-prod)      MODE="prod"; REQUIRE_STAGED=true; shift ;;
         --apply)                APPLY=true; shift ;;
         --dry-run)              APPLY=false; shift ;;
         --confirm-production)   CONFIRM_PROD=true; shift ;;
@@ -94,11 +156,13 @@ while [[ $# -gt 0 ]]; do
         --only-phase)           ONLY_PHASE="$2"; FROM_PHASE="$2"; TO_PHASE="$2"; shift 2 ;;
         --keep-going)           KEEP_GOING=true; shift ;;
         --allow-destructive)    ALLOW_DESTRUCTIVE=true; shift ;;
+        --allow-no-backup)      ALLOW_NO_BACKUP=true; shift ;;
         --skip-build)           SKIP_BUILD=true; shift ;;
         --verbose)              VERBOSE=true; shift ;;
         --silent)               SILENT=true; shift ;;
         -h|--help)
-            sed -n '/^# Two modes/,/^# Sub-commands/p' "${BASH_SOURCE[0]}" | head -30
+            sed -n '/^# Four modes/,/^set -eo pipefail/p' "${BASH_SOURCE[0]}"
+
             exit 0 ;;
         *) echo "Unknown flag: $1 — see --help" >&2; exit 1 ;;
     esac
@@ -115,6 +179,7 @@ fi
 # ═══════════════════════════════════════════════════════════
 PHASE_RESULTS=()
 START_TS=$(date -u +%s)
+PHASE_NS=""; [[ "$MODE" = "staging" ]] && PHASE_NS="staging-"
 
 banner() { [[ "$SILENT" = "true" ]] && return; echo "═══════════════════════════════════════════════════════════════"; printf "  %s\n" "$1"; echo "═══════════════════════════════════════════════════════════════"; }
 phase_start() { [[ "$SILENT" = "true" ]] && return; echo ""; echo "▶ Phase $1: $2"; echo "──────────────────────────────────────────────────────"; }
@@ -143,7 +208,9 @@ run_phase() {
     if eval "$body"; then
         local dur=$(($(date -u +%s) - ts))
         phase_end "$n" "$name" "PASS" "$dur"
-        echo "$n" > "$STATE_DIR/phase-$n.done"
+        # Namespaced by environment: a staging run must not leave a marker that `verify` reads back
+        # as "production phase 3 passed". Prod keeps the bare name so existing markers still count.
+        echo "$n" > "$STATE_DIR/phase-${PHASE_NS}$n.done"
         return 0
     else
         local rc=$? dur=$(($(date -u +%s) - ts))
@@ -170,7 +237,7 @@ phase_1_preflight() {
 
     cd "$PAYCRAFT_SRC"
 
-    # Warn on un-pushed local dev commits — prod promotes origin/dev, so any
+    # Warn on un-pushed local dev commits — prod deploys origin/dev, so any
     # commit not pushed there will NOT deploy. (Warning only; you may be deploying intentionally.)
     git fetch origin dev 2>/dev/null || true
     local unpushed
@@ -180,9 +247,9 @@ phase_1_preflight() {
         echo "    Push them first (/git-session-commit) if you intend to ship them."
     fi
 
-    # Build verification — typecheck the dashboard BEFORE any mutation so a broken build never
-    # reaches main (Vercel would fail the deploy AFTER promote, polluting main). Fast, deterministic,
-    # no env needed. The authoritative Next.js build still runs on Vercel (Phase 5 aborts on ERROR).
+    # Build verification — typecheck the dashboard BEFORE any mutation, so a broken build is caught
+    # here rather than after migrations have already been applied. Fast, deterministic, no env
+    # needed; the authoritative Next.js build runs in phase 5, which aborts on error.
     if [[ "$SKIP_BUILD" = "true" ]]; then
         echo "  ↷ build verify skipped (--skip-build)"
         return 0
@@ -251,13 +318,78 @@ phase_2_secrets_sync() {
     return 0
 }
 
+# ── Pre-migration schema snapshot ────────────────────────────────────────────────────────────────
+# There is no auto-rollback in this pipeline, so this dump is the ONLY route back from a bad
+# migration. It used to warn-and-continue on failure — which meant that on any machine without
+# pg_dump the safety net was absent for EVERY migration ever applied, silently, because the warning
+# blocked nothing and nobody reads a warning that costs nothing. Measured 2026-09-16: pg_dump was not
+# on PATH here, so migrations 117 and 118 (tables, triggers, RLS) went to production with no snapshot.
+#
+# `supabase db dump` shells out to pg_dump, so its absence is the failure worth naming explicitly —
+# rc=1 alone sends you looking at credentials or the network instead.
+#
+# Sets BACKUP_PATH on success. Returns non-zero on failure.
+take_schema_backup() {   # $1 = db_url
+    local db_url="$1"
+    local backup="$STATE_DIR/pre-deploy-schema-$(date -u +%Y%m%dT%H%M%SZ).sql"
+    BACKUP_PATH=""
+
+    echo "  Backing up remote schema → $backup"
+    # The dump's own stderr is the diagnosis. It used to go to /dev/null, leaving only "rc=1" — which
+    # is indistinguishable between a missing pg_dump, a version mismatch, and a credential problem,
+    # and sends you to the wrong one. RULE-SYSTEMATIC-DEBUG-001: never discard the real error.
+    local dump_log
+    dump_log=$(mktemp -t paycraft-dbdump-XXXXXX)
+    local dump_rc
+
+    # `supabase db dump` runs pg_dump INSIDE A DOCKER CONTAINER — it never uses the local binary. So
+    # on a machine with no Docker daemon it fails with "failed to inspect docker image", which reads
+    # like a local-dev problem and has nothing to do with the remote database. That is why this
+    # backup had never once succeeded here (measured 2026-09-16), and why installing pg_dump alone
+    # did not fix it.
+    #
+    # A schema dump needs no container. Prefer the local client and keep Docker as the fallback, so
+    # the recovery artifact does not depend on a daemon being up. --schema-only is deliberate: this
+    # is a structural snapshot for reversing a migration, not a data backup (Supabase PITR covers
+    # data), and dumping production data to a local file would be a far larger exposure than the
+    # rollback is worth.
+    set +o pipefail
+    if command -v pg_dump >/dev/null 2>&1; then
+        pg_dump --schema-only --no-owner --no-privileges --dbname="$db_url" -f "$backup" > "$dump_log" 2>&1
+        dump_rc=$?
+        if [[ $dump_rc -ne 0 ]]; then
+            echo "  … local pg_dump failed (rc=$dump_rc) — retrying via supabase db dump (needs Docker)" >> "$dump_log"
+            supabase db dump --db-url "$db_url" -f "$backup" >> "$dump_log" 2>&1
+            dump_rc=$?
+        fi
+    else
+        echo "  (pg_dump not on PATH — falling back to supabase db dump, which requires Docker)"
+        echo "   install the local client to remove that dependency: brew install libpq && brew link --force libpq"
+        supabase db dump --db-url "$db_url" -f "$backup" > "$dump_log" 2>&1
+        dump_rc=$?
+    fi
+    set -o pipefail
+
+    if [[ $dump_rc -eq 0 && -s "$backup" ]]; then
+        echo "  ✓ schema backup saved ($(wc -l < "$backup" | tr -d ' ') lines) — restore with: psql <db-url> -f $backup"
+        BACKUP_PATH="$backup"
+        rm -f "$dump_log"
+        return 0
+    fi
+    echo "  ✗ schema backup FAILED (rc=$dump_rc) — no pre-migration snapshot exists."
+    sed -e 's|postgres://[^ ]*|<redacted-db-url>|g' -e 's|postgresql://[^ ]*|<redacted-db-url>|g' \
+        "$dump_log" | tail -12 | sed 's/^/      /'
+    rm -f "$dump_log" "$backup"
+    return 1
+}
+
 phase_3_migrations() {
     cd "$PAYCRAFT_SRC"
     local db_url_file db_url
     db_url_file=$(mktemp -t paycraft-dburl-XXXXXX)
     trap "rm -f $db_url_file" RETURN
-    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-db-url --to-file "$db_url_file" 2>/dev/null; then
-        echo "  ✗ framework-supabase-db-url not resolvable from vault"; return 1
+    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" "$TARGET_DB_URL_ALIAS" --to-file "$db_url_file" 2>/dev/null; then
+        echo "  ✗ $TARGET_DB_URL_ALIAS not resolvable from vault"; return 1
     fi
     db_url=$(cat "$db_url_file")
 
@@ -284,6 +416,7 @@ phase_3_migrations() {
 
     # ── Destructive-change scan over PENDING files only (data-loss guard) ──
     local DESTRUCTIVE_RE='drop[[:space:]]+table|drop[[:space:]]+column|truncate[[:space:]]|alter[[:space:]]+table[[:space:]].*drop[[:space:]]+column|drop[[:space:]]+type|drop[[:space:]]+schema'
+    local destructive_count=0
     if [[ -n "$pending" ]]; then
         local destructive=() fname
         while IFS= read -r fname; do
@@ -291,13 +424,14 @@ phase_3_migrations() {
             [[ -f "supabase/migrations/$fname" ]] || continue
             if grep -iqE "$DESTRUCTIVE_RE" "supabase/migrations/$fname"; then destructive+=("$fname"); fi
         done <<< "$pending"
+        destructive_count=${#destructive[@]}
         if [[ ${#destructive[@]} -gt 0 ]]; then
             echo "  ⚠ DESTRUCTIVE operations detected in pending migrations:"
             for fname in "${destructive[@]}"; do
                 grep -inE "$DESTRUCTIVE_RE" "supabase/migrations/$fname" | head -4 | sed "s|^|      $fname:|"
             done
             if [[ "$APPLY" = "true" && "$ALLOW_DESTRUCTIVE" != "true" ]]; then
-                echo "  ✗ Refusing destructive migrations on production without --allow-destructive."
+                echo "  ✗ Refusing destructive migrations on ${MODE:-production} without --allow-destructive."
                 echo "    If intended, re-run: /paycraft-deploy ship --allow-destructive"
                 return 1
             fi
@@ -305,24 +439,36 @@ phase_3_migrations() {
         fi
     fi
 
+    # ── Pre-push schema backup, taken on DRY-RUN as well as APPLY ──────────────────────────────────
+    # A dump is read-only, so there is no cost to exercising it during a dry run — and every reason
+    # to. The alternative is discovering the recovery artifact cannot be produced at the exact moment
+    # it is needed, which is what happened here. `verify`/`--dry-run` now answers "is this deployable"
+    # honestly, snapshot included.
+    local backup_ok=true
+    take_schema_backup "$db_url" || backup_ok=false
+
+    if [[ "$backup_ok" != "true" ]]; then
+        # Destructive + no snapshot is unrecoverable by construction. No flag clears this one:
+        # --allow-destructive says "I accept dropping things", not "I accept dropping things with no
+        # way back", and conflating the two is how an irreversible deploy gets a routine approval.
+        if [[ $destructive_count -gt 0 ]]; then
+            echo "  ✗ HARD STOP — destructive migrations with no schema snapshot, and no auto-rollback."
+            echo "    Fix the snapshot failure above and re-run. There is deliberately no override for this case."
+            return 1
+        fi
+        if [[ "$MODE" = "prod" && "$ALLOW_NO_BACKUP" != "true" ]]; then
+            echo "  ✗ HARD STOP — production migration with no pre-migration snapshot."
+            echo "    Fix the snapshot failure above, or re-run with --allow-no-backup to accept no rollback path."
+            return 1
+        fi
+        echo "  ⚠ continuing without a snapshot (mode=$MODE, allow_no_backup=$ALLOW_NO_BACKUP)"
+    fi
+
     if [[ "$APPLY" != "true" ]]; then
         echo "  [DRY] $([[ -n "$pending" ]] && echo "would apply the pending migrations above" || echo "nothing parsed to apply")"
         return 0
     fi
-
-    # ── Pre-push schema backup (recovery artifact — there is no auto-rollback) ──
-    local backup="$STATE_DIR/pre-deploy-schema-$(date -u +%Y%m%dT%H%M%SZ).sql"
-    echo "  Backing up remote schema → $backup"
-    set +o pipefail
-    supabase db dump --db-url "$db_url" -f "$backup" > /dev/null 2>&1
-    local dump_rc=$?
-    set -o pipefail
-    if [[ $dump_rc -eq 0 && -s "$backup" ]]; then
-        echo "  ✓ schema backup saved ($(wc -l < "$backup" | tr -d ' ') lines) — restore with: psql <db-url> -f $backup"
-    else
-        echo "  ⚠ schema backup failed (rc=$dump_rc) — continuing, but no pre-migration snapshot exists."
-        rm -f "$backup"
-    fi
+    local backup="$BACKUP_PATH"
 
     # ── Apply (echo y, not yes — yes triggers SIGPIPE/141 under pipefail) ──
     echo "  Running: supabase db push --include-all --db-url <framework-supabase>"
@@ -369,19 +515,30 @@ phase_3_5_functions() {
     local pat_file pat
     pat_file=$(mktemp -t fw-supabase-pat-XXXXXX)
     trap "rm -f $pat_file" RETURN
-    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-personal-access-token --to-file "$pat_file" 2>/dev/null; then
-        echo "  ✗ framework-supabase-personal-access-token not resolvable from vault"
-        echo "    Add via: /secrets handoff paste --id framework-supabase-personal-access-token --kind env_var"
+    # `framework-supabase-access-token` is the REGISTERED alias (SECRETS_ALIAS_REGISTRY.yaml,
+    # env_var SUPABASE_ACCESS_TOKEN, provider https://supabase.com/dashboard/account/tokens).
+    # This asked for `framework-supabase-personal-access-token`, a name that appears ZERO times in
+    # the registry — so it could never resolve, and the failure message told the operator to add a
+    # secret they already had under its real name. RULE-SECRETS-NAMING-CONVENTION-001 NC2: every
+    # alias a consumer requests must be one the registry declares.
+    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" "$TARGET_PAT_ALIAS" --to-file "$pat_file" 2>/dev/null; then
+        echo "  ✗ $TARGET_PAT_ALIAS not resolvable from vault"
+        echo "    Add via: /secrets handoff paste --id framework-supabase-access-token --kind env_var"
         echo "    See: https://supabase.com/dashboard/account/tokens"
         return 1
     fi
     pat=$(cat "$pat_file")
     export SUPABASE_ACCESS_TOKEN="$pat"
-    local project_ref="mlwfgytjxlqyfxcgpysm"
+    local project_ref="$TARGET_PROJECT_REF"
     local functions=()
     for d in supabase/functions/*/; do
         local name=$(basename "$d")
         [[ "$name" = "_shared" ]] && continue
+        # A deployable function IS its `index.ts`. `__tests__/` holds canary subdirectories and no
+        # entrypoint, so every run reported it as a failed deploy — a permanent "2 function(s)
+        # failed" on an otherwise clean deploy, which is how a real failure gets ignored. Skipping
+        # by entrypoint rather than by name also covers the next test/helper directory someone adds.
+        [[ -f "${d}index.ts" ]] || { echo "  ↷ ${name}: no index.ts — not a function, skipped"; continue; }
         functions+=("$name")
     done
     echo "  Functions: ${functions[*]}"
@@ -407,7 +564,7 @@ phase_3_5_functions() {
             echo "  ✓ remaining ${#functions[@]} functions deployed successfully"
             # Don't abort the phase — partial deploy is acceptable; the failing
             # functions surface in the dashboard for follow-up. Returning 0
-            # lets the chain proceed to PROMOTE.
+            # lets the chain proceed.
         fi
     else
         echo "  [DRY] would deploy ${#functions[@]} function(s) to project $project_ref"
@@ -415,72 +572,16 @@ phase_3_5_functions() {
     unset SUPABASE_ACCESS_TOKEN
 }
 
-# Phase 4 — promote dev → main as exact fast-forward replica
+# Phase 4 PROMOTE — RETIRED (2026-09-14).
+#
+# `dev` is the deploy branch. There is no `main` replica any more, so there is nothing to promote:
+# a production deploy builds and ships whatever `dev` holds, exactly like staging ships whatever
+# branch you are on. The phase is kept as a visible SKIP rather than deleted from the chain so the
+# numbering stays stable — `--from-phase 5` and every ledger row written before this change still
+# mean what they meant — and so a reader wondering where PROMOTE went finds this instead of silence.
 phase_4_promote() {
-    cd "$PAYCRAFT_SRC"
-
-    # Ensure local main + dev are up to date
-    git fetch origin dev main 2>/dev/null
-
-    local dev_sha main_sha
-    dev_sha=$(git rev-parse origin/dev)
-    main_sha=$(git rev-parse origin/main)
-
-    if [[ "$dev_sha" = "$main_sha" ]]; then
-        echo "  ✓ main already at dev HEAD ($dev_sha) — nothing to promote"
-        return 0
-    fi
-
-    echo "  dev: $dev_sha"
-    echo "  main:        $main_sha"
-    echo "  Promoting dev → main..."
-
-    if [[ "$APPLY" != "true" ]]; then
-        local ahead
-        ahead=$(git rev-list --count origin/main..origin/dev)
-        echo "  [DRY] would open PR dev → main ($ahead commits ahead)"
-        echo "  [DRY] would auto-merge with --merge to keep main = dev"
-        return 0
-    fi
-
-    # Check for an existing open dev→main PR; reuse if present
-    local pr_num
-    pr_num=$(gh pr list --base main --head dev --state open --json number --jq '.[0].number // empty' 2>/dev/null)
-    if [[ -z "$pr_num" ]]; then
-        echo "  Opening PR dev → main..."
-        pr_num=$(gh pr create --base main --head dev \
-            --title "release: promote dev → main ($(date -u +%Y-%m-%dT%H:%M:%SZ))" \
-            --body "Auto-opened by /paycraft-deploy Phase 4 PROMOTE.
-
-Source: origin/dev @ ${dev_sha}
-Target: origin/main @ ${main_sha}
-Diff:   $(git rev-list --count origin/main..origin/dev) commits
-
-This PR is fast-forward-only — main is kept as an exact replica of dev at promote time. No manual edits should land on main." 2>&1 | grep -oE 'https://[^ ]+/[0-9]+' | grep -oE '[0-9]+$' | head -1)
-        if [[ -z "$pr_num" ]]; then
-            echo "  ✗ Failed to open PR"; return 1
-        fi
-        echo "  ✓ Opened PR #${pr_num}"
-    else
-        echo "  ✓ Reusing existing PR #${pr_num}"
-    fi
-
-    # Auto-merge: prefer --merge (preserves history); GitHub falls back to required strategy if --merge disabled
-    echo "  Merging PR #${pr_num}..."
-    if gh pr merge "$pr_num" --merge --delete-branch=false 2>&1 | head -3; then
-        echo "  ✓ PR #${pr_num} merged"
-    else
-        echo "  ⚠ --merge strategy unavailable; falling back to --squash"
-        gh pr merge "$pr_num" --squash --delete-branch=false 2>&1 | head -3 \
-            || { echo "  ✗ Merge failed"; return 1; }
-    fi
-
-    # Refresh local state and confirm
-    git fetch origin main 2>/dev/null
-    local new_main_sha
-    new_main_sha=$(git rev-parse origin/main)
-    echo "  main HEAD now: $new_main_sha"
-    echo "$new_main_sha" > "$STATE_DIR/last-promoted-sha"
+    echo "  ↷ retired — dev is the deploy branch; no dev→main replica to promote"
+    return 0
 }
 
 # Phase 5 — poll Vercel API until the deploy of the latest main commit is READY
@@ -492,8 +593,15 @@ This PR is fast-forward-only — main is kept as an exact replica of dev at prom
 # CLOUDFLARE_API_TOKEN, pulled SV32-safe from the vault).
 phase_5_deploy_cloudflare() {
     local dash="$PAYCRAFT_SRC/dashboard"
+    # One phase, two branches of the SAME Pages project. Staging used to have its own copy of this
+    # function, which is how it lost the vault creds and the NEXT_PUBLIC_* materialization below and
+    # would have shipped a bundle pointing at whatever .env.local the operator happened to have.
+    local deploy_branch="main" public_url="$PROD_URL" label="production"
+    if [[ "$MODE" = "staging" ]]; then
+        deploy_branch="$STAGING_BRANCH"; public_url="$STAGING_URL"; label="staging"
+    fi
     if [[ "$APPLY" != "true" ]]; then
-        echo "  [DRY] would build + deploy dashboard → Cloudflare Workers (npm run cf:deploy)"
+        echo "  [DRY] would build + deploy dashboard → Cloudflare Pages branch '$deploy_branch' ($public_url)"
         return 0
     fi
     command -v npx >/dev/null 2>&1 || { echo "  ✗ node/npx required for cf:deploy"; return 1; }
@@ -516,24 +624,32 @@ phase_5_deploy_cloudflare() {
     # right before the build. Gitignored via dashboard/.gitignore `.env*.local`.
     local ep="$dash/.env.production.local"
     : > "$ep"; chmod 600 "$ep"
-    bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-url      --to-file "$tmpd/sburl" 2>/dev/null || { echo "  ✗ vault pull: framework-supabase-url"; return 1; }
-    bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-anon-key --to-file "$tmpd/sbanon" 2>/dev/null || { echo "  ✗ vault pull: framework-supabase-anon-key"; return 1; }
+    bash "$FW_ROOT/core/scripts/secrets-get.sh" "$TARGET_URL_ALIAS"  --to-file "$tmpd/sburl" 2>/dev/null || { echo "  ✗ vault pull: $TARGET_URL_ALIAS"; return 1; }
+    bash "$FW_ROOT/core/scripts/secrets-get.sh" "$TARGET_ANON_ALIAS" --to-file "$tmpd/sbanon" 2>/dev/null || { echo "  ✗ vault pull: $TARGET_ANON_ALIAS"; return 1; }
     {
         printf 'NEXT_PUBLIC_SUPABASE_URL=%s\n'          "$(cat "$tmpd/sburl")"
         printf 'NEXT_PUBLIC_PAYCRAFT_SUPABASE_URL=%s\n' "$(cat "$tmpd/sburl")"
         printf 'NEXT_PUBLIC_SUPABASE_ANON_KEY=%s\n'     "$(cat "$tmpd/sbanon")"
-        printf 'NEXT_PUBLIC_PAYCRAFT_DASHBOARD_URL=%s\n' "https://paycraft.mobilebytesensei.com"
+        printf 'NEXT_PUBLIC_PAYCRAFT_DASHBOARD_URL=%s\n' "$public_url"
     } >> "$ep"
-    echo "  ✓ Prod build-time env materialized → .env.production.local (public NEXT_PUBLIC_* from vault)"
+    echo "  ✓ ${label} build-time env materialized → .env.production.local ($TARGET_URL_ALIAS, $TARGET_ANON_ALIAS)"
 
-    echo "  Building + deploying dashboard → Cloudflare Pages (next-on-pages, edge)…"
+    echo "  Building + deploying dashboard → Cloudflare Pages branch '$deploy_branch' (next-on-pages, edge)…"
     [[ -d "$dash/node_modules" ]] || ( cd "$dash" && npm install --no-audit --no-fund --legacy-peer-deps >/dev/null 2>&1 )
+    # `npm run pages:deploy` hardcodes --branch=main, so staging spells the two steps out rather
+    # than passing a branch the script would ignore. Same binaries, same artifact directory.
     if ( cd "$dash" \
-          && CLOUDFLARE_ACCOUNT_ID="$(cat "$tmpd/acct")" \
-             CLOUDFLARE_API_TOKEN="$(cat "$tmpd/tok")" \
-             npm run pages:deploy ); then
-        echo "  ✓ Dashboard deployed to Cloudflare Pages ($CF_PAGES_PROJECT → https://$CF_PAGES_PROJECT.pages.dev)"
-        echo "$PROD_URL" > "$STATE_DIR/last-deploy-url"
+          && export CLOUDFLARE_ACCOUNT_ID="$(cat "$tmpd/acct")" \
+                    CLOUDFLARE_API_TOKEN="$(cat "$tmpd/tok")" \
+          && if [[ "$deploy_branch" = "main" ]]; then
+                 npm run pages:deploy
+             else
+                 npx @cloudflare/next-on-pages@1 \
+                   && npx wrangler pages deploy .vercel/output/static \
+                        --project-name="$CF_PAGES_PROJECT" --branch="$deploy_branch"
+             fi ); then
+        echo "  ✓ Dashboard deployed to Cloudflare Pages ($CF_PAGES_PROJECT, branch $deploy_branch → $public_url)"
+        [[ "$MODE" = "staging" ]] || echo "$PROD_URL" > "$STATE_DIR/last-deploy-url"
         return 0
     fi
     echo "  ✗ pages:deploy failed — check next-on-pages/wrangler output above (edge-runtime on all routes? nodejs_compat set? token Pages-scope?)"
@@ -631,18 +747,19 @@ emit_status() {
 
     echo "─── branches ───────────────────────────────────────"
     cd "$PAYCRAFT_SRC"
-    git fetch -q origin dev main 2>/dev/null || true
-    local dev_sha main_sha ahead
+    git fetch -q origin dev 2>/dev/null || true
+    # dev IS the deploy branch — there is no main replica and so no promote_state to report.
+    # What matters instead is whether the checkout you would deploy from matches origin/dev.
+    local dev_sha head_sha head_ref
     dev_sha=$(git rev-parse --short origin/dev 2>/dev/null || echo "?")
-    main_sha=$(git rev-parse --short origin/main 2>/dev/null || echo "?")
-    ahead=$(git rev-list --count origin/main..origin/dev 2>/dev/null || echo "?")
-    printf "dev:   %s\n" "$dev_sha"
-    printf "main:          %s\n" "$main_sha"
-    printf "ahead:         %s commits (dev ahead of main)\n" "$ahead"
-    if [[ "$dev_sha" = "$main_sha" ]]; then
-        printf "promote_state: SYNCED\n"
+    head_sha=$(git rev-parse --short HEAD 2>/dev/null || echo "?")
+    head_ref=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
+    printf "origin/dev:  %s\n" "$dev_sha"
+    printf "checkout:    %s @ %s\n" "$head_ref" "$head_sha"
+    if [[ "$dev_sha" = "$head_sha" ]]; then
+        printf "deploy_state: AT-DEV\n"
     else
-        printf "promote_state: PENDING (run Phase 4 to promote)\n"
+        printf "deploy_state: DIVERGED (a --prod deploy ships origin/dev, not this checkout)\n"
     fi
     echo ""
 
@@ -652,7 +769,7 @@ emit_status() {
         case "$n" in
             1) name="PRE-FLIGHT" ;; 2) name="SECRETS SYNC" ;;
             3) name="MIGRATIONS" ;; 3.5) name="FUNCTIONS DEPLOY" ;;
-            4) name="PROMOTE" ;; 5) name="DEPLOY CLOUDFLARE" ;; 6) name="SMOKE" ;;
+            4) name="PROMOTE (retired)" ;; 5) name="DEPLOY CLOUDFLARE" ;; 6) name="SMOKE" ;;
         esac
         local marker="$STATE_DIR/phase-$n.done"
         if [[ -f "$marker" ]]; then
@@ -689,14 +806,24 @@ failure_banner() {
     echo "  Phases completed:"
     for r in "${PHASE_RESULTS[@]}"; do
         IFS='|' read -r rn rname rstatus rdur rdetails <<< "$r"
-        [[ "$rstatus" = "PASS" ]] && printf "    [%d] %-20s ✓ PASS  %ss\n" "$rn" "$rname" "$rdur"
+        # %s, not %d — phase 3.5 is not an integer, and printing the completed-phase list is the
+        # one moment an operator needs it exact: a failed run reported "[3] FUNCTIONS DEPLOY",
+        # naming a phase that had NOT just run and hiding which one actually had.
+        [[ "$rstatus" = "PASS" ]] && printf "    [%s] %-20s ✓ PASS  %ss\n" "$rn" "$rname" "$rdur"
     done
     echo ""
     echo "  Resume after fix:"
-    echo "    bash infra/deploy/deploy.sh --apply --confirm-production --from-phase $n"
+    if [[ "$MODE" = "staging" ]]; then
+        echo "    bash infra/deploy/deploy.sh --staging --apply --from-phase $n"
+    else
+        echo "    bash infra/deploy/deploy.sh --apply --confirm-production --from-phase $n"
+    fi
     echo "═══════════════════════════════════════════════════════════════"
 
-    printf '{"ts":"%s","env":"production","status":"aborted","duration_s":%d,"failed_phase":"%d","apply":%s}\n' \
+    # %s, not %d: phases are not all integers — 3.5 (FUNCTIONS DEPLOY) made printf fail with
+    # "invalid number" and write a malformed ledger line at the exact moment the ledger matters,
+    # i.e. when a production deploy has just aborted. The field is quoted in the JSON anyway.
+    printf '{"ts":"%s","env":"production","status":"aborted","duration_s":%d,"failed_phase":"%s","apply":%s}\n' \
         "$(date -u +%FT%TZ)" "$(($(date -u +%s) - START_TS))" "$n" "$APPLY" >> "$LEDGER"
 }
 
@@ -730,12 +857,190 @@ phase_local_1_preflight() {
     [[ $fails -eq 0 ]]
 }
 
+# Phase 2 — restart the local Supabase stack, with a retry.
+#
+# `supabase start` waits a fixed period for every container to report healthy and tears the whole
+# stack down if one misses it. That deadline is missed for reasons that have nothing to do with the
+# stack: Docker Desktop having just launched, or other Supabase projects booting at the same time and
+# competing for CPU. Observed 2026-09-14 — `supabase_storage_PayCraft` was declared "not ready:
+# unhealthy" while its OWN logs read `Server listening` + `Started Successfully`, and on the next
+# attempt it went healthy in ~6s with a zero failing-streak, with 33 containers from three other
+# projects booting alongside it.
+#
+# So a first failure is a hypothesis, not a verdict. The retry costs one minute; treating a timing
+# artifact as a broken environment costs an operator their afternoon — and, worse, teaches them to
+# work around this command by hand, which is how the local chain's real defects stayed hidden.
 phase_local_2_supabase_restart() {
     cd "$PAYCRAFT_SRC"
-    echo "  Stopping any running Supabase stack..."
-    supabase stop 2>&1 | tail -3 || true
-    echo "  Starting Supabase (this can take 30-60s on first run)..."
-    supabase start 2>&1 | tail -20
+    local attempt rc log
+    for attempt in 1 2; do
+        echo "  Stopping any running Supabase stack (attempt $attempt/2)..."
+        supabase stop >/dev/null 2>&1 || true
+        echo "  Starting Supabase (this can take 30-60s on first run)..."
+        log=$(mktemp -t pc-sbstart-XXXXXX)
+        supabase start > "$log" 2>&1
+        rc=$?
+        if [[ $rc -eq 0 ]]; then
+            tail -5 "$log"; rm -f "$log"
+            echo "  ✓ Supabase stack up"
+            return 0
+        fi
+        # Name the container that missed its deadline — "unhealthy" alone sends the reader hunting.
+        local stuck
+        stuck=$(grep -oE 'supabase_[a-z_]+_[A-Za-z-]+ container is not ready' "$log" | head -1 | awk '{print $1}')
+        tail -8 "$log"; rm -f "$log"
+        if [[ $attempt -eq 1 ]]; then
+            echo "  ⚠ ${stuck:-a container} missed its health deadline — retrying once."
+            echo "    (usually contention: Docker just started, or other Supabase projects are booting)"
+            [[ -n "$stuck" ]] && docker logs "$stuck" 2>&1 | tail -4 | sed 's/^/      /'
+        fi
+    done
+    echo "  ✗ Supabase failed to start twice — this is not a timing artifact."
+    echo "    Inspect: supabase start --debug   ·   docker ps -a --filter name=supabase"
+    echo "    Free contention: docker ps --format '{{.Names}}' | grep -v PayCraft | xargs docker stop"
+    return 1
+}
+
+# Phase 2.6 — make local an actual COPY of production.
+#
+# "Run it locally" is only useful if local is the same system. A local stack seeded from an old
+# docker volume plus test fixtures answers different questions than production does: your apps are
+# missing, so you cannot click through them; `tenant_admins` points at user ids that do not exist
+# here, so signing in creates a NEW local user who owns nothing. That is the state that made
+# mobilebytesensei@gmail.com see 1 app locally against 6 in production.
+#
+# Three things have to travel for the mirror to be real, and the first two are the ones a naive
+# "dump the public schema" misses:
+#
+#   • the `auth` schema — your identity. tenant_admins joins on auth.users.id, so without the same
+#     user rows (same UUIDs) the apps are present but unreachable.
+#   • `paycraft_secrets_config` — the pgcrypto passphrase `decrypt_provider_key` reads. Copy the
+#     encrypted credentials without it and every provider reads "connected" and fails to decrypt.
+#   • everything else in `public` — the apps, products, paywalls, providers, subscribers.
+#
+# This puts REAL subscriber records and a live encryption passphrase on the developer's machine, in
+# a Postgres whose Studio (:54323) has no authentication. That is a deliberate, operator-approved
+# trade for an exact mirror — not an accident. `--no-sync-prod` skips it.
+phase_local_2_6_sync_prod() {
+    cd "$PAYCRAFT_SRC"
+    local tmpd db_url_file dump_pub dump_auth
+    tmpd=$(mktemp -d); trap 'rm -rf "$tmpd" 2>/dev/null' RETURN
+    db_url_file="$tmpd/dburl"
+
+    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-db-url --to-file "$db_url_file" 2>/dev/null; then
+        echo "  ✗ framework-supabase-db-url not resolvable from vault — cannot mirror production"
+        return 1
+    fi
+    local prod; prod=$(cat "$db_url_file")
+
+    dump_auth="$tmpd/auth.sql"; dump_pub="$tmpd/public.sql"
+    echo "  Dumping production (data only)…"
+    if ! supabase db dump --db-url "$prod" --data-only -s auth   -f "$dump_auth" >/dev/null 2>&1; then
+        echo "  ✗ auth-schema dump failed"; return 1
+    fi
+    if ! supabase db dump --db-url "$prod" --data-only -s public -f "$dump_pub" >/dev/null 2>&1; then
+        echo "  ✗ public-schema dump failed"; return 1
+    fi
+    # Sizes only — the contents are real subscriber data and an encryption passphrase, and a
+    # transcript is forever.
+    echo "  ✓ dumped: auth $(wc -c < "$dump_auth" | tr -d " ") B · public $(wc -c < "$dump_pub" | tr -d " ") B"
+
+    local C="supabase_db_${PC_PROJECT_ID:-PayCraft}"
+    # Wipe first: a data-only restore onto existing rows collides on every primary key, and a
+    # half-restored local database is worse than an empty one because it still looks populated.
+    echo "  Clearing local data…"
+    # Two statements, not one block, and no RESTART IDENTITY on auth.
+    #
+    # `TRUNCATE auth.users RESTART IDENTITY CASCADE` fails with "must be owner of sequence
+    # refresh_tokens_id_seq" — that sequence belongs to supabase_auth_admin, not postgres. Inside a
+    # DO block that error rolls back the WHOLE transaction, silently undoing every public truncate
+    # that had already succeeded; the restore then collided on every primary key and the phase
+    # reported success over a database that had never been cleared. Keeping them separate means an
+    # auth failure cannot revert the public wipe, and dropping RESTART IDENTITY removes the only
+    # thing that needed ownership we do not have.
+    local wipe_log="$tmpd/wipe.log"
+    docker exec -i "$C" psql -q -U postgres -d postgres > "$wipe_log" 2>&1 <<'SQL'
+DO $$
+DECLARE t TEXT;
+BEGIN
+  FOR t IN SELECT quote_ident(schemaname)||'.'||quote_ident(tablename)
+           FROM pg_tables WHERE schemaname = 'public'
+  LOOP EXECUTE 'TRUNCATE TABLE '||t||' RESTART IDENTITY CASCADE'; END LOOP;
+END $$;
+TRUNCATE TABLE auth.users CASCADE;
+-- flow_state holds in-flight PKCE exchanges and has no FK to users, so the cascade above misses it
+-- and the restore then collides on its primary key. Clearing it costs nothing: a half-finished
+-- login from another database is meaningless here anyway.
+TRUNCATE TABLE auth.flow_state CASCADE;
+SQL
+    if grep -qi '^ERROR' "$wipe_log"; then
+        echo "  ✗ local wipe failed — a partial wipe makes the restore collide and the mirror a lie:"
+        grep -i '^ERROR' "$wipe_log" | head -3 | sed 's/^/      /'
+        return 1
+    fi
+
+    echo "  Restoring into local…"
+    local rc_a rc_p
+    docker exec -i "$C" psql -q -v ON_ERROR_STOP=0 -U postgres -d postgres < "$dump_auth" > "$tmpd/ra.log" 2>&1; rc_a=$?
+    docker exec -i "$C" psql -q -v ON_ERROR_STOP=0 -U postgres -d postgres < "$dump_pub" > "$tmpd/rp.log" 2>&1; rc_p=$?
+    local errs; errs=$(grep -ci '^ERROR' "$tmpd/ra.log" "$tmpd/rp.log" 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')
+    [[ "$errs" -gt 0 ]] && { echo "  ⚠ $errs restore error line(s):"; grep -h -i '^ERROR' "$tmpd/ra.log" "$tmpd/rp.log" | sort -u | head -5 | sed 's/^/      /'; }
+
+    # Verify by COUNT, not by exit code: psql without ON_ERROR_STOP reports success while skipping
+    # rows, which is exactly how a mirror ends up quietly partial.
+    local tn un pn
+    tn=$(docker exec -i "$C" psql -tA -U postgres -d postgres -c "select count(*) from tenants" 2>/dev/null | tr -d '[:space:]')
+    un=$(docker exec -i "$C" psql -tA -U postgres -d postgres -c "select count(*) from auth.users" 2>/dev/null | tr -d '[:space:]')
+    pn=$(docker exec -i "$C" psql -tA -U postgres -d postgres -c "select count(*) from paycraft_secrets_config" 2>/dev/null | tr -d '[:space:]')
+    echo "  ✓ local now holds: ${tn:-?} tenants · ${un:-?} auth users · ${pn:-?} secrets-config row(s)"
+    if [[ "${tn:-0}" -eq 0 || "${un:-0}" -eq 0 ]]; then
+        echo "  ✗ mirror is empty — local would look like a different product. Refusing to continue."
+        return 1
+    fi
+    if [[ "${pn:-0}" -eq 0 ]]; then
+        echo "  ⚠ no paycraft_secrets_config row — provider credentials will not decrypt locally"
+    fi
+    return 0
+}
+
+# Phase 2.5 — bring the LOCAL database up to the migrations on disk.
+#
+# The chain had no migrations step at all, and `supabase start` does not apply them: it restores the
+# database from a docker volume backup at whatever version that volume last held. Measured on the
+# same 2026-09-14 run — the restored volume was at 098 while the repo carried through 114, so
+# `--local` would have handed the operator a dashboard running a schema SIXTEEN migrations stale and
+# reported success. Local was the one environment nothing verified.
+#
+# Numbered 2.5 rather than renumbering 3-5, so `--from-phase 4` keeps meaning what it meant and old
+# ledger rows stay readable.
+phase_local_2_5_migrations() {
+    cd "$PAYCRAFT_SRC"
+    local out rc
+    out=$(supabase migration up --local 2>&1); rc=$?
+    if [[ $rc -ne 0 ]]; then
+        printf '%s\n' "$out" | tail -12
+        echo "  ✗ local migrations failed to apply"
+        return 1
+    fi
+    printf '%s\n' "$out" | grep -E '^Applying migration|up to date' | tail -12
+
+    # Assert, rather than trust the exit code: the failure this phase exists to prevent is a SILENT
+    # gap, and a command that prints "up to date" while the volume is behind would reproduce it.
+    local newest applied
+    newest=$(ls supabase/migrations/*.sql 2>/dev/null | sed -E 's|.*/([0-9]+)_.*|\1|' | sort -n | tail -1)
+    applied=$(docker exec -i "supabase_db_${PC_PROJECT_ID:-PayCraft}" psql -tA -U postgres -d postgres \
+        -c "select version from supabase_migrations.schema_migrations order by version desc limit 1" 2>/dev/null | tr -d '[:space:]')
+    if [[ -z "$applied" ]]; then
+        echo "  ⚠ could not read the local migration table — schema currency unverified"
+        return 0
+    fi
+    if [[ "$((10#$applied))" -lt "$((10#$newest))" ]]; then
+        echo "  ✗ local schema is BEHIND: applied=$applied, newest on disk=$newest"
+        echo "    A stale local database makes every local test meaningless. Reset with: supabase db reset"
+        return 1
+    fi
+    echo "  ✓ local schema current (applied $applied, newest on disk $newest)"
+    return 0
 }
 
 phase_local_3_dev_server() {
@@ -800,10 +1105,213 @@ if [[ -z "$MODE" ]]; then
     exit 1
 fi
 
+# ═══════════════════════════════════════════════════════════
+# Staging target resolution + staging-only phases
+# ═══════════════════════════════════════════════════════════
+
+# Resolve the STAGING Supabase project from the registry — never a fallback to prod.
+#
+# A staging deploy that silently ran its migrations against the production database would be worse
+# than having no staging at all: it would carry the confidence of a rehearsal with the blast radius
+# of the real thing. So an unconfigured staging project is a HARD stop with the exact remediation.
+resolve_staging_target() {
+    local fw="$FW_ROOT" reg acct
+    reg="$fw/core/registries/SUPABASE_ACCOUNTS_REGISTRY.yaml"
+    acct="$(yq -r '.supabase.account // ""' "$fw/workspaces/mbs/PayCraft/secrets-manifest.yaml" 2>/dev/null)"
+    local row
+    row="$(A="$acct" yq -r \
+        '.accounts[strenv(A)] as $a | $a.projects | to_entries[] | select(.value.environment == "staging")
+         | [.value.project_ref, (.value.secret_aliases.db_url // ""), ($a.access_token_alias // ""),
+            (.value.secret_aliases.url // ""), (.value.secret_aliases.anon // "")] | @tsv' \
+        "$reg" 2>/dev/null | head -1)"
+    STAGING_SUPABASE_REF="$(echo "$row" | cut -f1)"
+    local db_alias pat_alias
+    db_alias="$(echo "$row" | cut -f2)"; pat_alias="$(echo "$row" | cut -f3)"
+
+    # Missing staging DB disables the DB phases; it does not abort the deploy.
+    #
+    # The two halves of a staging run carry completely different risk. Publishing the dashboard to a
+    # preview branch is reversible and is the whole reason to stage at all — you want to click
+    # through the branch you are on. Running migrations is not reversible, and running them against
+    # the PRODUCTION billing database while the output says "staging" is the single worst thing this
+    # script could do. So the missing-project case skips phases 3 and 3.5 and still deploys the
+    # dashboard, rather than blocking the safe half to guard the dangerous one.
+    if [[ -z "$STAGING_SUPABASE_REF" || "$STAGING_SUPABASE_REF" = "null" || -z "$db_alias" ]]; then
+        STAGING_DB_READY=false
+        local why="no project with environment: staging"
+        [[ -n "$STAGING_SUPABASE_REF" && "$STAGING_SUPABASE_REF" != "null" && -z "$db_alias" ]] \
+            && why="project $STAGING_SUPABASE_REF declares no secret_aliases.db_url"
+        cat <<EOF
+  ⚠ NO STAGING DATABASE — $why for account '${acct:-<unresolved>}'.
+
+    → MIGRATIONS + FUNCTIONS phases are SKIPPED this run. They will NOT be redirected to the
+      production project; a run that migrated the live billing database while reporting "staging"
+      is the exact failure this refuses to commit.
+    → The dashboard still deploys to $STAGING_URL, reading the PRODUCTION Supabase.
+      Treat what you see there as live data: it is.
+
+    To get a real staging database, create a project in the same Supabase account, then add to
+    core/registries/SUPABASE_ACCOUNTS_REGISTRY.yaml under accounts.${acct:-<account>}.projects:
+
+        paycraft-staging:
+          project_ref: <ref>
+          environment: staging
+          consumers: [mbs/PayCraft]
+          secret_aliases: { url: …, anon: …, service_role: …, db_url: … }
+EOF
+        return 0
+    fi
+    STAGING_DB_READY=true
+    # Point the shared migration + function phases at staging. Assigned HERE, before either phase
+    # runs, so there is no window in which a staging chain could touch the production database.
+    TARGET_PROJECT_REF="$STAGING_SUPABASE_REF"
+    TARGET_DB_URL_ALIAS="$db_alias"
+    [[ -n "$pat_alias" ]] && TARGET_PAT_ALIAS="$pat_alias"
+    # The dashboard bundle must point at the same database the migrations went to, or the preview
+    # shows staging's schema over production's rows.
+    local url_alias anon_alias
+    url_alias="$(echo "$row" | cut -f4)"; anon_alias="$(echo "$row" | cut -f5)"
+    [[ -n "$url_alias"  ]] && TARGET_URL_ALIAS="$url_alias"
+    [[ -n "$anon_alias" ]] && TARGET_ANON_ALIAS="$anon_alias"
+    echo "  ✓ staging Supabase: $STAGING_SUPABASE_REF (db: $TARGET_DB_URL_ALIAS, pat: $TARGET_PAT_ALIAS)"
+    return 0
+}
+
+phase_s1_resolve() { resolve_staging_target; }
+
+# Phase 2.5 — make sure the staging origin is an allowed auth redirect.
+#
+# The decision logic lives in lib-auth-allowlist.sh (canary:
+# tests/auth-allowlist-canary/run.sh) so it is testable without a project, a PAT, or a network.
+# This function is only the I/O around it: read the config, PATCH it back.
+#
+# site_url is never touched — production stays the fallback for anything genuinely unrecognized.
+phase_s2_5_auth_allowlist() {
+    . "$PAYCRAFT_SRC/infra/deploy/lib-auth-allowlist.sh"
+    local ref="${TARGET_PROJECT_REF}" raw cur m
+    echo "  Auth project: $ref$([[ "$STAGING_DB_READY" = "true" ]] || echo "  (PRODUCTION — no staging DB)")"
+
+    raw="$(bash "$FW_ROOT/core/scripts/supabase-connect.sh" mgmt GET "projects/$ref/config/auth" \
+            --target mbs/PayCraft 2>/dev/null)"
+    cur="$(parse_uri_allow_list "$raw")"
+    if [[ -z "$cur" ]]; then
+        # Empty means "could not read", NOT "the list is empty" — PATCHing an empty list back would
+        # delete every existing redirect, including production's. Unverifiable, so say so and stop
+        # short of writing.
+        echo "  ⚠ could not read uri_allow_list for $ref — not writing."
+        echo "    Staging sign-in may bounce to production; verify in Supabase → Auth → URL Configuration."
+        return 0
+    fi
+
+    local missing=()
+    while IFS= read -r m; do [[ -n "$m" ]] && missing+=("$m"); done \
+        < <(auth_allowlist_missing "$cur" "$STAGING_URL" "$CF_PAGES_PROJECT")
+
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        echo "  ✓ staging origin already an allowed auth redirect"
+        return 0
+    fi
+    if [[ "$APPLY" != "true" ]]; then
+        echo "  [DRY] would add to uri_allow_list: ${missing[*]}"
+        return 0
+    fi
+
+    local next; next="$(allowlist_join "$cur" "${missing[@]}")"
+    if bash "$FW_ROOT/core/scripts/supabase-connect.sh" mgmt PATCH "projects/$ref/config/auth" \
+            --data "{\"uri_allow_list\":\"$next\"}" --target mbs/PayCraft >/dev/null 2>&1; then
+        echo "  ✓ added to uri_allow_list: ${missing[*]}"
+        return 0
+    fi
+
+    # Reaching here is PROOF that staging sign-in is broken — entries are missing AND the write
+    # failed. Failing the phase is right: the point of staging is clicking through the app, and the
+    # front door is sign-in. A green deploy the operator cannot log into wastes more time than a
+    # stopped one. (`--keep-going` deploys anyway if you only need the marketing pages.)
+    echo "  ✗ uri_allow_list PATCH failed — staging sign-in WILL bounce to production."
+    echo "    Add manually: Supabase → Auth → URL Configuration → Redirect URLs:"
+    for m in "${missing[@]}"; do echo "      $m"; done
+    echo "    Or deploy anyway without sign-in: re-run with --keep-going"
+    return 1
+}
+
+phase_s6_smoke_staging() {
+    echo "  Target: $STAGING_URL"
+    if [[ "$APPLY" != "true" ]]; then
+        echo "  [DRY] would curl $STAGING_URL/ + /api/health"; return 0
+    fi
+    local code
+    code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 20 "$STAGING_URL/" 2>&1) || true
+    [[ "$code" = "200" ]] && echo "  ✓ Root URL → HTTP 200" || { echo "  ✗ Root URL → HTTP $code"; return 1; }
+    # The marker --promote-to-prod reads. Written ONLY after a passing smoke, so "it deployed" and
+    # "it worked" cannot be confused with each other.
+    printf '{"ts":"%s","env":"staging","status":"success","url":"%s","sha":"%s","db":"%s"}\n' \
+        "$(date -u +%FT%TZ)" "$STAGING_URL" "$(git -C "$PAYCRAFT_SRC" rev-parse HEAD 2>/dev/null)" \
+        "$([[ "$STAGING_DB_READY" = "true" ]] && echo "$STAGING_SUPABASE_REF" || echo "none-prod-backed")" \
+        > "$STATE_DIR/last-staging.json"
+    return 0
+}
+
+# --promote-to-prod: refuse unless staging was deployed AND its smoke passed.
+assert_staged() {
+    local f="$STATE_DIR/last-staging.json"
+    if [[ ! -s "$f" ]]; then
+        echo "  ✗ nothing has been staged — run: bash infra/deploy/deploy.sh --staging --apply" >&2
+        return 1
+    fi
+    local staged_sha head_sha
+    staged_sha="$(yq -r '.sha // ""' "$f" 2>/dev/null || true)"
+    head_sha="$(git -C "$PAYCRAFT_SRC" rev-parse HEAD 2>/dev/null)"
+    echo "  staged: ${staged_sha:0:8}   HEAD: ${head_sha:0:8}"
+    if [[ -n "$staged_sha" && "$staged_sha" != "$head_sha" ]]; then
+        # Promoting a different commit than the one that was rehearsed is the failure this whole
+        # two-step exists to prevent.
+        echo "  ✗ HEAD has moved since staging — re-stage before promoting." >&2
+        return 1
+    fi
+    local staged_db; staged_db="$(yq -r '.db // "?"' "$f" 2>/dev/null || echo "?")"
+    if [[ "$staged_db" = "none-prod-backed" ]]; then
+        echo "  ⚠ that staging run had NO staging database — migrations were never rehearsed."
+        echo "    Phase 3 will apply them to production for the first time. Watch it."
+    fi
+    echo "  ✓ staging verified for this commit"
+    return 0
+}
+
+if [[ "$MODE" = "staging" ]]; then
+    banner "PayCraft Deploy — env=staging, mode=$([ "$APPLY" = true ] && echo APPLY || echo DRY-RUN)"
+    echo "  Deploying: $(git -C "$PAYCRAFT_SRC" rev-parse --abbrev-ref HEAD 2>/dev/null) @ $(git -C "$PAYCRAFT_SRC" rev-parse --short HEAD 2>/dev/null)"
+
+    run_phase 1   "PRE-FLIGHT"        "phase_1_preflight"                 || exit 1
+    run_phase 2   "STAGING TARGET"    "phase_s1_resolve"                  || exit 1
+    run_phase 2.5 "AUTH ALLOWLIST"    "phase_s2_5_auth_allowlist"         || exit 1
+    if [[ "$STAGING_DB_READY" = "true" ]]; then
+        run_phase 3   "MIGRATIONS"       "phase_3_migrations"             || exit 1
+        run_phase 3.5 "FUNCTIONS DEPLOY" "phase_3_5_functions"            || exit 1
+    else
+        phase_end 3   "MIGRATIONS"       "SKIP" "0" "no staging database"
+        phase_end 3.5 "FUNCTIONS DEPLOY" "SKIP" "0" "no staging database"
+    fi
+    run_phase 5   "DEPLOY CLOUDFLARE" "phase_5_deploy_cloudflare"        || exit 1
+    run_phase 6   "SMOKE"             "phase_s6_smoke_staging"            || exit 1
+
+    banner "PayCraft Staging — done in $(($(date -u +%s) - START_TS))s"
+    echo "  Staging: $STAGING_URL"
+    echo "  Promote: bash infra/deploy/deploy.sh --promote-to-prod --apply --confirm-production"
+    printf '{"ts":"%s","env":"staging","status":"success","duration_s":%d,"apply":%s}\n' \
+        "$(date -u +%FT%TZ)" "$(($(date -u +%s) - START_TS))" "$APPLY" >> "$LEDGER"
+    exit 0
+fi
+
 if [[ "$MODE" = "local" ]]; then
     banner "PayCraft Local — $LOCAL_URL"
     run_phase 1 "LOCAL PRE-FLIGHT"    "phase_local_1_preflight"      || exit 1
     run_phase 2 "SUPABASE RESTART"    "phase_local_2_supabase_restart" || exit 1
+    run_phase 2.5 "MIGRATIONS (local)" "phase_local_2_5_migrations"    || exit 1
+    if [[ "$SYNC_PROD" = "true" ]]; then
+        run_phase 2.6 "MIRROR PRODUCTION" "phase_local_2_6_sync_prod"   || exit 1
+    else
+        phase_end 2.6 "MIRROR PRODUCTION" "SKIP" "0" "--no-sync-prod"
+    fi
     run_phase 3 "DEV SERVER START"    "phase_local_3_dev_server"     || exit 1
     run_phase 4 "READY WAIT"          "phase_local_4_ready_wait"     || exit 1
     run_phase 5 "LOCAL SMOKE"         "phase_local_5_smoke"          || true   # smoke is informational
@@ -828,19 +1336,24 @@ fi
 # MODE = prod
 banner "PayCraft Deploy — env=production, mode=$([ "$APPLY" = true ] && echo APPLY || echo DRY-RUN)"
 
+# --promote-to-prod only: production takes the commit staging already proved, or nothing.
+if [[ "$REQUIRE_STAGED" = "true" ]]; then
+    run_phase 0 "STAGED CHECK" "assert_staged" || exit 1
+fi
+
 run_phase 1   "PRE-FLIGHT"       "phase_1_preflight"     || exit 1
 run_phase 2   "SECRETS SYNC"     "phase_2_secrets_sync"  || exit 1
 run_phase 3   "MIGRATIONS"       "phase_3_migrations"    || exit 1
 run_phase 3.5 "FUNCTIONS DEPLOY" "phase_3_5_functions"   || exit 1
-run_phase 4   "PROMOTE"          "phase_4_promote"       || exit 1
+phase_end 4   "PROMOTE"          "SKIP" "0" "retired — dev is the deploy branch"
 run_phase 5   "DEPLOY CLOUDFLARE" "phase_5_deploy_cloudflare" || exit 1
 run_phase 6   "SMOKE"            "phase_6_smoke"         || exit 1
 
 banner "PayCraft Deploy — done in $(($(date -u +%s) - START_TS))s"
 echo "  Live: $PROD_URL"
 
-printf '{"ts":"%s","env":"production","status":"success","duration_s":%d,"apply":%s,"main_sha":"%s"}\n' \
+printf '{"ts":"%s","env":"production","status":"success","duration_s":%d,"apply":%s,"dev_sha":"%s"}\n' \
     "$(date -u +%FT%TZ)" "$(($(date -u +%s) - START_TS))" "$APPLY" \
-    "$(git -C $PAYCRAFT_SRC rev-parse --short origin/main 2>/dev/null)" >> "$LEDGER"
+    "$(git -C $PAYCRAFT_SRC rev-parse --short origin/dev 2>/dev/null)" >> "$LEDGER"
 
 # cloudflare-deploy wired via /paycraft-deploy phase 5 (2026-08-23)

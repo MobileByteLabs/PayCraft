@@ -5,6 +5,7 @@ import { ArrowLeft, AlertCircle, Info, Key, ShieldCheck } from "lucide-react"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
 import { CashfreeKeysForm } from "@/components/providers/cashfree-keys-form"
+import { ProviderAccountPicker } from "@/components/providers/provider-account-picker"
 
 /**
  * Cashfree provider setup page.
@@ -84,6 +85,8 @@ export default async function CashfreeSetupPage() {
           body="T+1 settlement to your Indian bank account. Then transfer to your home currency via Wise / Payoneer at ~0.5% FX."
         />
       </div>
+
+      <ProviderAccountPicker provider="cashfree" />
 
       <CashfreeKeysForm
         tenantId={tenant.id}

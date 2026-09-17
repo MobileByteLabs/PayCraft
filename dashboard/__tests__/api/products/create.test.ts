@@ -63,10 +63,39 @@ const stripeSyncSpy = jest.fn(async (supabase: any, opts: any) => {
 const razorpaySyncSpy = jest.fn(async () => {})
 const cashfreeSyncSpy = jest.fn(async () => {})
 
+// The route no longer calls the per-provider helpers directly — it delegates to
+// `runProductSync`, which marks the product `syncing`, fans out to every provider,
+// and returns the per-provider summary the response body reports. Mirror that
+// dispatch here so the spies below still observe the exact opts the route passes.
+const runProductSyncSpy = jest.fn(async (supabase: any, opts: any) => {
+  await supabase.rpc("tenant_products_set_sync_state", {
+    p_id: opts.productId,
+    p_status: "syncing",
+    p_state: null,
+  })
+  const providers: Record<string, { status: string; message?: string }> = {}
+  for (const [name, run] of [
+    ["stripe", stripeSyncSpy],
+    ["razorpay", razorpaySyncSpy],
+    ["cashfree", cashfreeSyncSpy],
+  ] as const) {
+    try {
+      await run(supabase, opts)
+      providers[name] = { status: "ok" }
+    } catch (e) {
+      // Provider errors are captured, never rethrown — product create must survive.
+      providers[name] = { status: "failed", message: (e as Error).message }
+    }
+  }
+  const status = Object.values(providers).some((p) => p.status === "failed") ? "failed" : "synced"
+  return { status, providers }
+})
+
 jest.mock("@/lib/stripe-route-helper", () => ({
   stripeSyncProduct: stripeSyncSpy,
   razorpaySyncProduct: razorpaySyncSpy,
   cashfreeSyncProduct: cashfreeSyncSpy,
+  runProductSync: runProductSyncSpy,
 }))
 
 // Stripe SDK is imported transitively by the route — neutralize it.
@@ -131,7 +160,18 @@ describe("POST /api/products — happy path", () => {
 
     expect(res.status).toBe(200)
     const json = await res.json()
-    expect(json).toEqual({ id: "new-product-id" })
+    // The response carries the per-provider sync outcome alongside the id, so the
+    // dashboard can render success/failure per provider and offer a retry with the
+    // real server reason instead of a bare "saved".
+    expect(json).toEqual({
+      id: "new-product-id",
+      sync_status: "synced",
+      providers: {
+        stripe: { status: "ok" },
+        razorpay: { status: "ok" },
+        cashfree: { status: "ok" },
+      },
+    })
 
     // Upsert was called with tenant_id stamped + pricing_rows stripped.
     const upsertCall = supabaseRpcCalls.find((c) => c.fn === "tenant_products_upsert")

@@ -54,11 +54,29 @@ class PayCraftRealtime(private val supabase: SupabaseClient) {
     private var configTenant: String? = null
     private var entitlementKey: String? = null // "tenant:appUserId"
 
+    // Remembered so [resubscribe] can rebuild both channels after a socket drop without the
+    // caller having to re-supply them.
+    private var configOnChanged: (() -> Unit)? = null
+    private var entitlementOnChanged: (() -> Unit)? = null
+    private var entitlementIdentity: Pair<String, String>? = null // (tenantId, appUserId)
+
+    /**
+     * Is this channel still actually receiving?
+     *
+     * The short-circuit used to test `channel != null`, which stays true forever once a channel has
+     * been created — including after the socket drops on a network change or a long background.
+     * Every later `ensure*` call then no-opped against a dead channel, so realtime silently stopped
+     * and only the TTL fallback remained, with nothing surfacing that live sync was gone.
+     */
+    private val RealtimeChannel.isLive: Boolean
+        get() = status.value == RealtimeChannel.Status.SUBSCRIBED
+
     /** Subscribe to `config:{tenantId}`; invoke [onChanged] on every config ping. */
     fun ensureConfigChannel(tenantId: String, onChanged: () -> Unit) {
         scope.launch {
             mutex.withLock {
-                if (configTenant == tenantId && configChannel != null) return@withLock
+                configOnChanged = onChanged
+                if (configTenant == tenantId && configChannel?.isLive == true) return@withLock
                 runCatching {
                     configChannel?.let { supabase.realtime.removeChannel(it) }
                     val ch = supabase.channel("config:$tenantId")
@@ -84,7 +102,9 @@ class PayCraftRealtime(private val supabase: SupabaseClient) {
         val key = "$tenantId:$appUserId"
         scope.launch {
             mutex.withLock {
-                if (entitlementKey == key && entitlementChannel != null) return@withLock
+                entitlementOnChanged = onChanged
+                entitlementIdentity = tenantId to appUserId
+                if (entitlementKey == key && entitlementChannel?.isLive == true) return@withLock
                 runCatching {
                     entitlementChannel?.let { supabase.realtime.removeChannel(it) }
                     val ch = supabase.channel("entitlement:$tenantId:$appUserId")
@@ -108,6 +128,39 @@ class PayCraftRealtime(private val supabase: SupabaseClient) {
         }
     }
 
+    /**
+     * Force both channels to rebuild — call on app foreground.
+     *
+     * Foreground is the moment a socket dropped during background is most likely to be dead while
+     * still looking present. Clearing the keys makes the next `ensure*` call rebuild rather than
+     * short-circuit, and both are re-issued here from the remembered callbacks so the caller does
+     * not have to know they were lost.
+     */
+    fun resubscribe() {
+        scope.launch {
+            val cfgTenant: String?
+            val cfgCallback: (() -> Unit)?
+            val entIdentity: Pair<String, String>?
+            val entCallback: (() -> Unit)?
+            mutex.withLock {
+                cfgTenant = configTenant
+                cfgCallback = configOnChanged
+                entIdentity = entitlementIdentity
+                entCallback = entitlementOnChanged
+                configChannel?.let { runCatching { supabase.realtime.removeChannel(it) } }
+                entitlementChannel?.let { runCatching { supabase.realtime.removeChannel(it) } }
+                configChannel = null
+                entitlementChannel = null
+                configTenant = null
+                entitlementKey = null
+            }
+            if (cfgTenant != null && cfgCallback != null) ensureConfigChannel(cfgTenant, cfgCallback)
+            if (entIdentity != null && entCallback != null) {
+                ensureEntitlementChannel(entIdentity.first, entIdentity.second, entCallback)
+            }
+        }
+    }
+
     /** Tear down both channels (call on logout / SDK teardown). */
     fun stop() {
         scope.launch {
@@ -118,6 +171,9 @@ class PayCraftRealtime(private val supabase: SupabaseClient) {
                 entitlementChannel = null
                 configTenant = null
                 entitlementKey = null
+                configOnChanged = null
+                entitlementOnChanged = null
+                entitlementIdentity = null
             }
         }
     }

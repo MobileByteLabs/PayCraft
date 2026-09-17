@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { razorpayRest } from "@/lib/razorpay-rest"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
+import { savePspAccount } from "@/lib/psp-account-save"
 
 /**
  * Razorpay manual API keys flow — mirrors the Stripe Manual keys route.
@@ -29,6 +30,12 @@ interface SaveBody {
   live_key_secret: string
   live_webhook_secret: string
   account_label: string
+  /** Target a SPECIFIC connection; null/absent = the one this app already resolves to. */
+  account_id: string | null
+  /** Insert a NEW connection instead of resolving to an existing one. */
+  create_new: boolean
+  /** Permit replacing a credential more than one app bills through. */
+  confirm_shared_overwrite: boolean
 }
 
 /**
@@ -115,37 +122,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: errors.join("; ") }, { status: 400 })
   }
 
-  if (isUpdate) {
-    const { error } = await supabase.rpc("tenant_providers_update_keys", {
-      p_tenant_id: tenant.id,
-      p_provider: "razorpay",
-      p_test_key_id: test_pk || null,
-      p_test_secret: test_sk || null,
-      p_test_webhook_secret: test_wh || null,
-      p_live_key_id: liveProvided ? live_pk : null,
-      p_live_secret: liveProvided ? live_sk : null,
-      p_live_webhook_secret: liveProvided ? live_wh : null,
-      p_supported_locales: null,
-    })
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    await saveAccountLabel(supabase, tenant.id, "razorpay", body.account_label ?? "")
-    return NextResponse.json({ ok: true, mode: "update" })
-  }
 
   // Initial save — RPC needs all six fields. Echo test → live when the
   // operator hasn't filled in a separate live set yet.
-  const { error } = await supabase.rpc("tenant_providers_save_keys", {
-    p_tenant_id: tenant.id,
-    p_provider: "razorpay",
-    p_test_key_id: test_pk,
-    p_test_secret: test_sk,
-    p_test_webhook_secret: test_wh,
-    p_live_key_id: liveProvided ? live_pk : test_pk,
-    p_live_secret: liveProvided ? live_sk : test_sk,
-    p_live_webhook_secret: liveProvided ? live_wh : test_wh,
-    p_supported_locales: ["IN"],
-  })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  await saveAccountLabel(supabase, tenant.id, "razorpay", body.account_label ?? "")
-  return NextResponse.json({ ok: true, mode: "create" })
+  // ONE call: the account-tier RPC merges over the existing credential document, so a blank field
+  // means "unchanged" and the old create-vs-update branch is no longer needed. `liveProvided`
+  // still decides whether the live slots carry real values or echo the test ones.
+  return savePspAccount(
+    supabase,
+    tenant.id,
+    "razorpay",
+    {
+      test_key_id: test_pk,
+      test_secret: test_sk,
+      test_webhook_secret: test_wh,
+      live_key_id: liveProvided ? live_pk : test_pk,
+      live_secret: liveProvided ? live_sk : test_sk,
+      live_webhook_secret: liveProvided ? live_wh : test_wh,
+    },
+    {
+      label: body.account_label ?? "",
+      accountId: body.account_id ?? null,
+      createNew: body.create_new === true,
+      confirmShared: body.confirm_shared_overwrite === true,
+    },
+  )
 }

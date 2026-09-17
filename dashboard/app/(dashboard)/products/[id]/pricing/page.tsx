@@ -27,6 +27,10 @@ export default function PricingMatrixPage() {
     base_currency: string
   } | null>(null)
   const [rows, setRows] = useState<PricingMap>({})
+  // Distinguishing "failed to load" from "still loading" is what makes the stub unnecessary:
+  // previously the page had only a null-product state, so a fetch failure rendered the loading
+  // spinner forever and the placeholder row was the compensating hack.
+  const [loadError, setLoadError] = useState<{ status: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
 
@@ -41,27 +45,21 @@ export default function PricingMatrixPage() {
 
       if (cancelled) return
 
-      // The /api/products/[id] GET may not exist yet — fall back to a stub.
-      let p: typeof product = null
-      if (productRes?.ok) {
-        const json = await productRes.json()
-        p = {
-          id: json.id ?? productId,
-          display_name: json.display_name ?? "Product",
-          sku: json.sku ?? "",
-          base_price_cents: json.base_price_cents ?? 999,
-          base_currency: json.base_currency ?? "USD",
-        }
-      } else {
-        p = {
-          id: productId,
-          display_name: "Product",
-          sku: "",
-          base_price_cents: 999,
-          base_currency: "USD",
-        }
+      // GET /api/products/[id] exists now, so the placeholder row is gone. Showing a merchant
+      // a fabricated name and price is worse than showing an error: the numbers look real, so a
+      // pricing decision can be made against data that was never theirs.
+      if (!productRes?.ok) {
+        setLoadError({ status: productRes?.status ?? 0 })
+        return
       }
-      setProduct(p)
+      const json = await productRes.json()
+      setProduct({
+        id: json.id,
+        display_name: json.display_name,
+        sku: json.sku,
+        base_price_cents: json.base_price_cents,
+        base_currency: json.base_currency,
+      })
 
       const pricingJson = await pricingRes.json()
       const map: PricingMap = {}
@@ -111,6 +109,29 @@ export default function PricingMatrixPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  if (loadError) {
+    return (
+      <div
+        className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        data-testid="pricing-load-error"
+      >
+        <p className="font-medium">Could not load this product.</p>
+        <p className="mt-1">
+          The pricing matrix needs the product&rsquo;s real name and base price, so it will not
+          render with placeholder values.
+          {loadError.status ? ` (HTTP ${loadError.status})` : ""}
+        </p>
+        <button
+          type="button"
+          className="mt-2 underline"
+          onClick={() => window.location.reload()}
+        >
+          Retry
+        </button>
+      </div>
+    )
   }
 
   if (!product) {

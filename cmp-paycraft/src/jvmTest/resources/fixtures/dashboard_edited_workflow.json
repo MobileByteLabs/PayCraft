@@ -1,0 +1,173 @@
+{
+  "schema_version": 2,
+  "initial_step_id": "paywall",
+  "steps": [
+    {
+      "id": "paywall",
+      "name": "Paywall screen",
+      "is_last_step": true,
+      "components_config": {
+        "type": "stack",
+        "dimension": "vertical",
+        "spacing": 12,
+        "padding": {
+          "top": 16,
+          "leading": 16,
+          "bottom": 16,
+          "trailing": 16
+        },
+        "components": [
+          {
+            "type": "text",
+            "text_lid": "title",
+            "font_size": 30,
+            "font_weight_int": 400,
+            "horizontal_alignment": "center"
+          },
+          {
+            "type": "package",
+            "package_id": "$rc_monthly",
+            "is_selected_by_default": false,
+            "stack": {
+              "type": "stack",
+              "dimension": "vertical",
+              "spacing": 2,
+              "padding": {
+                "top": 12,
+                "leading": 16,
+                "bottom": 12,
+                "trailing": 16
+              },
+              "components": [
+                {
+                  "type": "stack",
+                  "dimension": "horizontal",
+                  "spacing": 8,
+                  "components": [
+                    {
+                      "type": "text",
+                      "text_lid": "monthly",
+                      "font_size": 16,
+                      "font_weight_int": 600
+                    },
+                    {
+                      "type": "spacer",
+                      "size": 0,
+                      "grow": true
+                    },
+                    {
+                      "type": "stack",
+                      "dimension": "horizontal",
+                      "spacing": 0,
+                      "shape": {
+                        "radius": 6
+                      },
+                      "background": {
+                        "value": {
+                          "light": {
+                            "type": "hex",
+                            "value": "#3A3A3Aff"
+                          }
+                        }
+                      },
+                      "padding": {
+                        "top": 3,
+                        "leading": 8,
+                        "bottom": 3,
+                        "trailing": 8
+                      },
+                      "components": [
+                        {
+                          "type": "text",
+                          "text_lid": "v_savings",
+                          "font_size": 11,
+                          "font_weight_int": 700,
+                          "color": {
+                            "light": {
+                              "type": "hex",
+                              "value": "#FFFFFFff"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "text_lid": "v_price",
+                      "font_size": 16,
+                      "font_weight_int": 700
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text_lid": "v_per_period",
+                  "font_size": 12
+                }
+              ],
+              "overrides": [
+                {
+                  "conditions": [
+                    {
+                      "type": "selected"
+                    }
+                  ],
+                  "properties": {
+                    "border": "#6C4FC7ff",
+                    "border_width": "2",
+                    "background": "#6C4FC714"
+                  }
+                }
+              ],
+              "shape": {
+                "radius": 14
+              }
+            }
+          },
+          {
+            "type": "spacer",
+            "size": 8
+          },
+          {
+            "type": "purchase_button",
+            "text_lid": "cta_continue"
+          },
+          {
+            "type": "restore_purchases",
+            "text_lid": "restore_label"
+          },
+          {
+            "type": "text",
+            "text_lid": "new_text",
+            "font_size": 14
+          },
+          {
+            "type": "spacer",
+            "size": 0,
+            "grow": true
+          }
+        ]
+      },
+      "node_position": {
+        "x": 40,
+        "y": 80
+      }
+    }
+  ],
+  "localizations": {
+    "en_US": {
+      "title": "Upgrade to Premium",
+      "annual": "Annual",
+      "monthly": "Monthly",
+      "cta_continue": "Continue",
+      "restore_label": "Restore Purchases",
+      "v_price": "{{ product.price }}",
+      "v_per_period": "{{ product.price_per_period }}",
+      "v_savings": "{{ product.offer_savings_label }}",
+      "new_text": "Cancel anytime"
+    },
+    "fr_FR": {
+      "title": "Passez au Pro"
+    }
+  }
+}

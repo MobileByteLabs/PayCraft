@@ -120,33 +120,65 @@ export async function stripeSyncProduct(
     const trialDays =
       resolvePlatformTrialDays(body, "web") || resolvePlatformTrialDays(body, "desktop")
 
-    const result = await syncProductToStripe(
-      tenantId,
-      productId,
-      body.display_name,
-      body.type,
-      toStripeInterval(body.interval),
-      prices,
-      { stripeProductId: existingStripeProductId, existingPrices },
-      trialDays,
-    )
+    // Sync into EVERY configured mode, not just the preferred one.
+    //
+    // This used to write links under `connect.livemode ? "live" : "test"` — one map, chosen for the
+    // tenant. With a live key present that is always "live", so `test_payment_links` stayed `{}`
+    // forever. `/config` then filters out any provider whose per-sku map is empty (correctly — a
+    // provider with no link is a dead checkout button), so every `pk_test_` build saw
+    // `Providers = 0` on a tenant with four connected providers. Observed on cappy.
+    //
+    // A Connect (OAuth) tenant still has exactly one account and one mode; only manual-key tenants
+    // can hold both slots, and for those both are now kept in step.
+    const { data: keyStatus } = await supabase
+      .rpc("tenant_providers_status", { p_tenant_id: tenantId, p_provider: "stripe" })
+      .single<{ test_key_id: string | null; live_key_id: string | null }>()
 
-    await Promise.all([
-      supabase.rpc("tenant_products_set_stripe_ids", {
-        p_id: productId,
-        p_stripe_product_id: result.stripeProductId,
-        p_stripe_price_id_by_currency: result.pricesByCurrency,
-      }),
-      // Nest under the product's SKU so multi-product tenants don't overwrite
-      // each other's currency entries. Migration 070 introduced this RPC.
-      supabase.rpc("tenant_providers_merge_payment_links", {
-        p_tenant_id: tenantId,
-        p_provider: "stripe",
-        p_mode: connect.livemode ? "live" : "test",
-        p_sku: body.sku,
-        p_payment_links: result.paymentLinksByCurrency,
-      }),
-    ])
+    const modes: ("live" | "test")[] = connect.source === "oauth"
+      ? [connect.livemode ? "live" : "test"]
+      : ([keyStatus?.live_key_id ? "live" : null, keyStatus?.test_key_id ? "test" : null]
+          .filter(Boolean) as ("live" | "test")[])
+    if (modes.length === 0) modes.push(connect.livemode ? "live" : "test")
+
+    let lastResult: Awaited<ReturnType<typeof syncProductToStripe>> | null = null
+    for (const mode of modes) {
+      // One mode failing must not abandon the other — a missing test account is not a reason to
+      // leave live unsynced, and vice versa.
+      try {
+        const result = await syncProductToStripe(
+          tenantId,
+          productId,
+          body.display_name,
+          body.type,
+          toStripeInterval(body.interval),
+          prices,
+          { stripeProductId: existingStripeProductId, existingPrices },
+          trialDays,
+          connect.source === "oauth" ? undefined : mode,
+        )
+        lastResult = result
+        // Nest under the product's SKU so multi-product tenants don't overwrite
+        // each other's currency entries. Migration 070 introduced this RPC.
+        await supabase.rpc("tenant_providers_merge_payment_links", {
+          p_tenant_id: tenantId,
+          p_provider: "stripe",
+          p_mode: mode,
+          p_sku: body.sku,
+          p_payment_links: result.paymentLinksByCurrency,
+        })
+      } catch (e: any) {
+        console.error(`[products] stripe ${mode} sync failed:`, e?.message ?? e)
+      }
+    }
+    if (!lastResult) return { error: "stripe sync failed for every configured mode" }
+
+    // Product/price ids are account-scoped; record the last successful sync's ids, preferring live
+    // because that is the account the shipped app bills through.
+    await supabase.rpc("tenant_products_set_stripe_ids", {
+      p_id: productId,
+      p_stripe_product_id: lastResult.stripeProductId,
+      p_stripe_price_id_by_currency: lastResult.pricesByCurrency,
+    })
     return { ok: true }
   } catch (e: any) {
     console.error("[products] stripe sync failed:", e.message)
@@ -169,45 +201,58 @@ export async function razorpaySyncProduct(
       .single<{ test_key_id: string | null; live_key_id: string | null; connected: boolean }>()
     if (!rpStatus?.connected) return { ok: false, error: "Razorpay is not connected for this tenant" }
 
-    const mode: "test" | "live" = rpStatus.live_key_id ? "live" : "test"
+    // Every configured mode, not just the preferred one — see the note in stripeSyncProduct. The
+    // old `live_key_id ? "live" : "test"` left `test_payment_links` empty on any tenant that had a
+    // live key, and `/config` drops providers whose per-sku map is empty.
     const prices = buildPriceInputs(body)
     if (!prices.length) return { ok: false, error: "no pricing rows for this product" }
 
-    const result = await syncProductToRazorpay(
-      tenantId,
-      productId,
-      body.display_name,
-      body.type,
-      body.interval ?? null,
-      prices,
-      mode,
-      existingRazorpayPlanIds,
-    )
+    const modes = ([rpStatus.live_key_id ? "live" : null, rpStatus.test_key_id ? "test" : null]
+      .filter(Boolean) as ("live" | "test")[])
+    if (modes.length === 0) modes.push("test")
 
-    await Promise.all([
-      supabase.rpc("tenant_products_set_razorpay_ids", {
-        p_id: productId,
-        p_razorpay_plan_id_by_currency: result.planIdsByCurrency,
-      }),
-      supabase.rpc("tenant_providers_merge_payment_links", {
-        p_tenant_id: tenantId,
-        p_provider: "razorpay",
-        p_mode: mode,
-        p_sku: body.sku,
-        p_payment_links: result.paymentLinksByCurrency,
-      }),
-    ])
+    let lastResult: Awaited<ReturnType<typeof syncProductToRazorpay>> | null = null
+    for (const mode of modes) {
+      try {
+        const result = await syncProductToRazorpay(
+          tenantId,
+          productId,
+          body.display_name,
+          body.type,
+          body.interval ?? null,
+          prices,
+          mode,
+          existingRazorpayPlanIds,
+        )
+        lastResult = result
+        await supabase.rpc("tenant_providers_merge_payment_links", {
+          p_tenant_id: tenantId,
+          p_provider: "razorpay",
+          p_mode: mode,
+          p_sku: body.sku,
+          p_payment_links: result.paymentLinksByCurrency,
+        })
+      } catch (e: any) {
+        console.error(`[products] razorpay ${mode} sync failed:`, e?.message ?? e)
+      }
+    }
+    if (!lastResult) return { ok: false, error: "razorpay sync failed for every configured mode" }
+
+    await supabase.rpc("tenant_products_set_razorpay_ids", {
+      p_id: productId,
+      p_razorpay_plan_id_by_currency: lastResult.planIdsByCurrency,
+    })
 
     // Nothing landed and every currency was rejected by Razorpay → tell the
     // operator exactly what to do (Razorpay is INR-first; USD-only products need
     // an INR price, or International payments enabled on the Razorpay account).
     const created =
-      Object.keys(result.planIdsByCurrency).length +
-      Object.keys(result.paymentLinksByCurrency).length
-    if (created === 0 && result.skippedCurrencies.length > 0) {
+      Object.keys(lastResult.planIdsByCurrency).length +
+      Object.keys(lastResult.paymentLinksByCurrency).length
+    if (created === 0 && lastResult.skippedCurrencies.length > 0) {
       return {
         ok: false,
-        error: `Razorpay does not accept ${result.skippedCurrencies.join(", ")} for this account. Add an INR price for this product (or enable International payments on Razorpay).`,
+        error: `Razorpay does not accept ${lastResult.skippedCurrencies.join(", ")} for this account. Add an INR price for this product (or enable International payments on Razorpay).`,
       }
     }
     return { ok: true }
@@ -244,55 +289,71 @@ export async function cashfreeSyncProduct(
       .single<{ test_key_id: string | null; live_key_id: string | null; connected: boolean }>()
     if (!status?.connected) return { skipped: true, reason: "Cashfree is not connected" }
 
-    const mode: "test" | "live" = status.live_key_id ? "live" : "test"
-
-    // Decrypt the key pair via the same RPC as Stripe — service_role can
-    // pull it directly. For dashboard-side calls the user's session also
-    // works via tenant_admins check.
-    const { data: decrypted } = await supabase
-      .rpc("tenant_providers_decrypt_key", {
-        p_tenant_id: tenantId,
-        p_provider: "cashfree",
-        p_mode: mode,
-      })
-      .single<{ secret_key: string; key_id: string }>()
-    if (!decrypted?.secret_key || !decrypted?.key_id) {
-      return { skipped: true, reason: "Cashfree credentials could not be read" }
-    }
-
     const prices = buildPriceInputs(body)
     if (!prices.length) return { skipped: true, reason: "no pricing configured for this product" }
 
-    const result = await syncProductToCashfree(
-      tenantId,
-      productId,
-      body.display_name,
-      body.type,
-      prices,
-      decrypted.key_id,
-      decrypted.secret_key,
-      mode,
-    )
+    // Every configured mode — see the note in stripeSyncProduct. Cashfree shared the same
+    // `live_key_id ? "live" : "test"` single-mode choice, so a live-keyed tenant never produced a
+    // test link and `/config` dropped the provider from every `pk_test_` build.
+    const modes = ([status.live_key_id ? "live" : null, status.test_key_id ? "test" : null]
+      .filter(Boolean) as ("live" | "test")[])
+    if (modes.length === 0) modes.push("test")
 
-    // Cashfree only supports one-time INR links today (subscriptions self-skip in
-    // syncProductToCashfree, returning no links) — that's a SKIP, not a failure.
-    if (Object.keys(result.paymentLinksByCurrency).length === 0) {
-      return {
-        skipped: true,
-        reason:
-          body.type === "subscription"
-            ? "Cashfree does not support subscriptions — use Razorpay/Stripe or UPI Autopay for recurring"
-            : "Cashfree returned no payment link (only one-time INR is supported)",
+    let synced = 0
+    let lastSkipReason: string | null = null
+    for (const mode of modes) {
+      try {
+        // Decrypt the key pair via the same RPC as Stripe — service_role can
+        // pull it directly. For dashboard-side calls the user's session also
+        // works via tenant_admins check.
+        const { data: decrypted } = await supabase
+          .rpc("tenant_providers_decrypt_key", {
+            p_tenant_id: tenantId,
+            p_provider: "cashfree",
+            p_mode: mode,
+          })
+          .single<{ secret_key: string; key_id: string }>()
+        if (!decrypted?.secret_key || !decrypted?.key_id) {
+          lastSkipReason = "Cashfree credentials could not be read"
+          continue
+        }
+
+        const result = await syncProductToCashfree(
+          tenantId,
+          productId,
+          body.display_name,
+          body.type,
+          prices,
+          decrypted.key_id,
+          decrypted.secret_key,
+          mode,
+        )
+
+        // Cashfree only supports one-time INR links today (subscriptions self-skip in
+        // syncProductToCashfree, returning no links) — that's a SKIP, not a failure.
+        if (Object.keys(result.paymentLinksByCurrency).length === 0) {
+          lastSkipReason =
+            body.type === "subscription"
+              ? "Cashfree does not support subscriptions — use Razorpay/Stripe or UPI Autopay for recurring"
+              : "Cashfree returned no payment link (only one-time INR is supported)"
+          continue
+        }
+
+        await supabase.rpc("tenant_providers_merge_payment_links", {
+          p_tenant_id: tenantId,
+          p_provider: "cashfree",
+          p_mode: mode,
+          p_sku: body.sku,
+          p_payment_links: result.paymentLinksByCurrency,
+        })
+        synced++
+      } catch (e: any) {
+        console.error(`[products] cashfree ${mode} sync failed:`, e?.message ?? e)
       }
     }
-
-    await supabase.rpc("tenant_providers_merge_payment_links", {
-      p_tenant_id: tenantId,
-      p_provider: "cashfree",
-      p_mode: mode,
-      p_sku: body.sku,
-      p_payment_links: result.paymentLinksByCurrency,
-    })
+    if (synced === 0) {
+      return { skipped: true, reason: lastSkipReason ?? "Cashfree sync produced no links" }
+    }
     return { ok: true }
   } catch (e: any) {
     console.error("[products] cashfree sync failed:", e.message)
@@ -398,7 +459,7 @@ export async function googlePlaySyncProduct(
 export async function appStoreSyncProduct(
   supabase: ReturnType<typeof createClient>,
   opts: SyncOptions,
-): Promise<{ error?: string; skipped?: boolean; reason?: string }> {
+): Promise<{ error?: string; warning?: string; skipped?: boolean; reason?: string }> {
   const { tenantId, productId, body, existingAppStoreProductId } = opts
   try {
     if (body.type !== "subscription") {
@@ -452,11 +513,19 @@ export async function appStoreSyncProduct(
     })
     // A trial was requested but the StoreKit intro offer didn't set — surface it.
     if (trialDays > 0 && result.introductoryOfferActive === false) {
-      return {
-        error:
-          result.introductoryOfferError ??
-          `App Store subscription synced but the ${trialDays}-day free-trial introductory offer was not set`,
-      }
+      const reason =
+        result.introductoryOfferError ??
+        `App Store subscription synced but the ${trialDays}-day free-trial introductory offer was not set`
+      // An unpublished app is a DRAFT state, not a failure: the subscription and its offer
+      // are configured correctly and go live with the app. Reporting it as `failed` sends
+      // the operator hunting a credential bug that isn't there — the same misdiagnosis the
+      // Play path already avoids by classifying a DRAFT base plan as a warning.
+      return result.appNotPublished === true ? { warning: reason } : { error: reason }
+    }
+    // Trial IS live but does not reach every priced territory — customers outside the
+    // covered storefronts see the paywall's trial promise and get charged immediately.
+    if (result.introductoryOfferWarning) {
+      return { warning: result.introductoryOfferWarning }
     }
     return {}
   } catch (e: any) {
@@ -526,6 +595,47 @@ export function classifyProvider(
  * Every helper now returns STRUCTURED status ({ok,skipped,error} or {error,warning}),
  * so each provider's result is classified precisely — no read-back id inference.
  */
+/**
+ * Load a product row plus its pricing rows in the shape `runProductSync` expects.
+ *
+ * Extracted so the single-product route and the bulk drain share ONE definition of "the product
+ * payload". Two copies of this select drift the moment a column is added — the new column lands in
+ * one path and silently vanishes from the other, which surfaces as a product that syncs correctly
+ * when you click it and incorrectly when the drain touches it.
+ */
+export async function loadProductSyncBody(
+  supabase: ReturnType<typeof createClient>,
+  tenantId: string,
+  productId: string,
+): Promise<{ product: any; body: Record<string, any> } | null> {
+  const { data: product, error } = await supabase
+    .from("tenant_products")
+    .select(
+      "id, sku, type, display_name, interval, base_price_cents, base_currency, trial_enabled, trial_duration_days, trial_per_platform, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency, play_product_id, app_store_product_id",
+    )
+    .eq("tenant_id", tenantId)
+    .eq("id", productId)
+    .single()
+  if (error || !product) return null
+
+  const { data: pricing } = await supabase
+    .from("tenant_pricing")
+    .select("currency, amount_cents")
+    .eq("tenant_id", tenantId)
+    .eq("product_id", productId)
+
+  return {
+    product,
+    body: {
+      ...product,
+      pricing_rows: (pricing ?? []).map((r: any) => ({
+        currency: r.currency,
+        amount_cents: r.amount_cents,
+      })),
+    },
+  }
+}
+
 export async function runProductSync(
   supabase: ReturnType<typeof createClient>,
   opts: SyncOptions,

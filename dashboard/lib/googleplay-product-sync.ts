@@ -1,4 +1,5 @@
 import { playAccessToken, type PlayServiceAccountJson } from "./store-jwt"
+import { checkPlayAppLive, playListingUrl } from "@/lib/store-liveness"
 // SINGLE SOURCE OF TRUTH for minor-unit semantics: prices in tenant_pricing are
 // generated/stored by pricing-template.ts using THIS set to decide whether an
 // amount is whole-units (zero-decimal, e.g. IDR/COP/JPY/VND) or ×100 minor
@@ -60,6 +61,17 @@ export interface GooglePlaySyncResult {
   activated: boolean
   /** Human-readable reason the base plan is not active (present iff !activated). */
   activationError?: string
+  /**
+   * Tri-state verdict from the PUBLIC Play listing, resolved only when activation was
+   * refused. `true` = the listing 404s, so the app really is unpublished and the operator
+   * must publish (or activate the plan manually in Console). `false` = the listing is live,
+   * so publishing is NOT the blocker and the real cause is package/permission/track.
+   * `undefined` = not probed, or the probe could not reach the store — never infer
+   * "unpublished" from undefined.
+   */
+  appNotPublished?: boolean
+  /** Public Play listing URL, so the operator can see exactly what we saw. */
+  storeListingUrl?: string
   /**
    * The Play free-trial OFFER id created on the base plan when the product has a
    * trial configured (trial_enabled + trial_duration_days). null when no trial.
@@ -170,7 +182,7 @@ async function activateBasePlan(
   pkg: string,
   productId: string,
   basePlanId: string,
-): Promise<{ activated: boolean; error?: string }> {
+): Promise<{ activated: boolean; error?: string; appNotPublished?: boolean; storeListingUrl?: string }> {
   const res = await playFetch(
     token,
     `/applications/${pkg}/subscriptions/${encodeURIComponent(productId)}/basePlans/${encodeURIComponent(basePlanId)}:activate`,
@@ -183,9 +195,37 @@ async function activateBasePlan(
   console.warn(
     `[googleplay-product-sync] base plan ${basePlanId} not activated for ${productId} (${res.status}): ${body}`,
   )
+
+  // Play's rejection is opaque: "The app is not published." arrives identically whether
+  // the app really is sitting in draft on the console, the package name is a typo, or the
+  // service account lacks subscription permission. Ask the PUBLIC storefront — the same
+  // page the user's device resolves — and turn the 400 into the operator's next action.
+  let guidance = ""
+  let appNotPublished: boolean | undefined
+  if (/not published|FAILED_PRECONDITION|app.*publish/i.test(body)) {
+    const liveness = await checkPlayAppLive(pkg)
+    if (liveness.status === "not-published") {
+      appNotPublished = true
+      guidance = ` ${liveness.message}`
+    } else if (liveness.status === "live") {
+      // The listing IS public, so publishing is not the blocker. Say so plainly rather
+      // than repeating Play's misleading wording and sending the operator to publish an
+      // app that is already published.
+      appNotPublished = false
+      guidance =
+        ` NOTE: the app IS live on Play Store (${liveness.url}), so this is not a publishing gap.` +
+        ` Play still refuses activation — most often the package name here does not match the live` +
+        ` listing, the service account lacks "Manage orders and subscriptions" permission, or no` +
+        ` release on a served track covers this subscription. You can activate the base plan` +
+        ` manually in Play Console (Monetize → Subscriptions → your plan → Activate).`
+    }
+  }
+
   return {
     activated: false,
-    error: `base plan not activated (${res.status}): ${shortPlayError(body)}`,
+    appNotPublished,
+    storeListingUrl: playListingUrl(pkg),
+    error: `base plan not activated (${res.status}): ${shortPlayError(body)}${guidance}`,
   }
 }
 
@@ -434,6 +474,8 @@ export async function syncProductToGooglePlay(
     // tenant has finally published the app on Play.
     const act = await activateBasePlan(token, pkg, productId, basePlanId)
     return withTrial({
+      appNotPublished: act.appNotPublished,
+      storeListingUrl: act.storeListingUrl,
       playProductId: productId,
       basePlanId,
       created: false,
@@ -511,6 +553,8 @@ export async function syncProductToGooglePlay(
   // blocked until the app is published, in which case a later re-sync activates.
   const act = await activateBasePlan(token, pkg, productId, basePlanId)
   return withTrial({
+    appNotPublished: act.appNotPublished,
+    storeListingUrl: act.storeListingUrl,
     playProductId: productId,
     basePlanId,
     created: true,

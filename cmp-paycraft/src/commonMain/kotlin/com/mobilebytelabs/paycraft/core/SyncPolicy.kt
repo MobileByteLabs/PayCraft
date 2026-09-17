@@ -11,22 +11,46 @@ object SyncPolicy {
 
     fun isSyncDue(cached: SubscriptionStatus?, lastSyncedAt: Long): Boolean {
         if (cached == null || lastSyncedAt == 0L) return true
+
+        // A cached premium whose expiry has already PASSED is confirmed with the server before the
+        // interval would otherwise allow, because the interval is a bet on when something might
+        // change and this is the case where it already has. Without this, a subscription that
+        // lapsed twenty minutes ago keeps rendering Premium until the next scheduled sync.
+        //
+        // Note what this deliberately does NOT do: demote locally. The server decides entitlement;
+        // this only forces the question to be asked. Optimistically revoking access on a clock the
+        // device controls would take premium away from someone whose renewal simply has not landed
+        // in the cache yet — a worse failure than briefly granting it.
+        if (cached.isPremium) {
+            val expiresAt = parseExpiryToMillis(cached.expiresAt)
+            if (expiresAt != null && expiresAt <= currentTimeMillis()) return true
+        }
+
         val elapsed = currentTimeMillis() - lastSyncedAt
         return elapsed >= syncInterval(cached)
     }
 
     fun syncInterval(status: SubscriptionStatus): Long {
         if (!status.isPremium) return ONE_DAY
-        if (!status.willRenew) return ONE_DAY
 
         val expiresAt = parseExpiryToMillis(status.expiresAt) ?: return ONE_DAY
         val timeUntilExpiry = expiresAt - currentTimeMillis()
 
-        return when {
+        val proximity = when {
             timeUntilExpiry <= ONE_DAY -> ONE_HOUR
             timeUntilExpiry <= ONE_WEEK -> ONE_DAY
             else -> ONE_WEEK
         }
+
+        // A cancelled subscription is CEILINGED at daily, but still free to go hourly near expiry.
+        //
+        // `willRenew == false` used to short-circuit to ONE_DAY before the ladder ran at all, which
+        // inverted the risk at the end: a sub cancelled and expiring in six hours was polled daily,
+        // leaving premium live for up to ~18 hours past what the customer paid for. Deleting the
+        // short-circuit outright is also wrong — it drops a cancelled sub 15 days out to WEEKLY, and
+        // a cancellation can be reversed in the store, which the app should notice sooner than that.
+        // So the ladder decides and cancellation caps it; s4 and s10 pin the two ends.
+        return if (status.willRenew) proximity else minOf(ONE_DAY, proximity)
     }
 
     /**

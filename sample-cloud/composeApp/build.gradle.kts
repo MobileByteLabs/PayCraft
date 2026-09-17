@@ -4,8 +4,8 @@ import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.android.application)
-    alias(libs.plugins.composeMultiplatform)
-    alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.jetbrainsCompose)
+    alias(libs.plugins.compose.compiler)
 }
 
 @OptIn(ExperimentalKotlinGradlePluginApi::class, ExperimentalWasmDsl::class)
@@ -13,7 +13,6 @@ kotlin {
     applyDefaultHierarchyTemplate()
     androidTarget()
     jvm("desktop")
-    iosX64()
     iosArm64()
     iosSimulatorArm64()
     wasmJs { browser() }

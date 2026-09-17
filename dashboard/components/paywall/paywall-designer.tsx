@@ -68,6 +68,29 @@ const STATES: PreviewState[] = [
 
 const FONT_OPTIONS = ["Inter (default)", "Public Sans", "Geist", "Outfit"]
 
+/**
+ * Fill NULL columns from [PAYWALL_CONFIG_DEFAULTS] before anything renders.
+ *
+ * `PaywallConfig` types every v2 field as non-nullable (`value_props: ValuePropTriple[]`), but
+ * `tenant_paywall_get` returns the ROW — and a tenant that has never opened this designer has SQL
+ * NULL in those columns. The type therefore lies about the runtime shape, and the editor controls
+ * trusted it: `ValuePropsRepeater` read `value.length` on a null and took the whole page down with
+ * "Cannot read properties of null (reading 'length')" — a client boundary trip that blanked the app
+ * shell, plus a 500 on the SSR pass.
+ *
+ * Normalising HERE rather than patching each control is deliberate: every sibling column
+ * (`theme_jsonb`, `hero_title`, `cta_*`, `trial_*`) can be NULL for exactly the same reason, so a
+ * per-control guard would just wait for the next one to be read. `??` (not `||`) so a legitimately
+ * empty string or `0` authored by the tenant is preserved.
+ */
+function withPaywallDefaults(row: PaywallConfig): PaywallConfig {
+  const merged = { ...row } as Record<string, unknown>
+  for (const [key, fallback] of Object.entries(PAYWALL_CONFIG_DEFAULTS)) {
+    merged[key] = merged[key] ?? fallback
+  }
+  return merged as unknown as PaywallConfig
+}
+
 export function PaywallDesigner({
   initial,
   products,
@@ -80,7 +103,7 @@ export function PaywallDesigner({
   plan: string
 }) {
   const router = useRouter()
-  const [cfg, setCfg] = useState<PaywallConfig>(initial)
+  const [cfg, setCfg] = useState<PaywallConfig>(() => withPaywallDefaults(initial))
   const [previewState, setPreviewState] = useState<PreviewState>("Free")
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<string | null>(null)
@@ -100,7 +123,7 @@ export function PaywallDesigner({
   }
 
   function reset() {
-    setCfg(initial)
+    setCfg(withPaywallDefaults(initial))
     setSavedAt(null)
   }
 

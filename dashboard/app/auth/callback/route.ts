@@ -3,6 +3,32 @@ export const runtime = "edge"
 import { createServerClient, type CookieOptions } from "@supabase/ssr"
 import { NextRequest, NextResponse } from "next/server"
 
+/**
+ * Expire every PKCE `code-verifier` cookie once the exchange has consumed it.
+ *
+ * `signInWithOAuth` writes a verifier cookie (`sb-<ref>-auth-token-flow-<hash>-code-verifier`,
+ * plus the index cookie `…-flows-code-verifier`) and `exchangeCodeForSession` spends it. Nothing
+ * deleted them afterwards, so they lingered with the token's ~400-day expiry — observed live on
+ * BOTH localhost and paycraft.mobilebytesensei.com after a successful sign-in.
+ *
+ * Why that matters beyond tidiness: a spent verifier is exactly the "stale artifact" the login
+ * page's own purge routine exists to defend against — supabase-js may treat a leftover as current
+ * on the NEXT flow and GoTrue answers `{"message":"Bad request"}`. That purge only runs when the
+ * user happens to LAND on /auth/login; a flow started anywhere else still inherits the garbage.
+ * Deleting at the point of consumption fixes it for every entry path.
+ *
+ * Every accumulated verifier is removed, not just this flow's: abandoned attempts (cancelled at
+ * Google, network blip mid-exchange) leave their own, and they are equally spent.
+ */
+function clearSpentPkceVerifiers(request: NextRequest, response: NextResponse) {
+  for (const { name } of request.cookies.getAll()) {
+    if (!name.startsWith("sb-") || !name.includes("code-verifier")) continue
+    // maxAge 0 + matching path is what actually removes it; `delete` alone can miss a cookie
+    // whose attributes differ from the default the framework assumes.
+    response.cookies.set({ name, value: "", path: "/", maxAge: 0 })
+  }
+}
+
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get("code")
@@ -38,10 +64,17 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     console.error("[auth/callback] exchangeCodeForSession failed:", error.message)
-    return NextResponse.redirect(
+    // A FAILED exchange leaves the verifier behind too, and that stale value is precisely what
+    // poisons the retry the user is about to make. Clear it on the way back to /auth/login.
+    const failed = NextResponse.redirect(
       new URL(`/auth/login?error=${encodeURIComponent(error.message)}`, origin)
     )
+    clearSpentPkceVerifiers(request, failed)
+    return failed
   }
+
+  // The code has been spent — drop its verifier cookies before any branch returns.
+  clearSpentPkceVerifiers(request, response)
 
   // Route first-time sign-ins to /onboarding so the user names the app.
   // Returning users with at least one tenant_admins row go to the dashboard

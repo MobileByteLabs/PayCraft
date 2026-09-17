@@ -23,6 +23,12 @@ interface Body {
   issuer_id: string
   bundle_id: string
   account_label: string
+  /** Update a SPECIFIC connection; null/absent = the one this app already resolves to. */
+  account_id: string | null
+  /** Insert a NEW connection instead of resolving to an existing one ("connect another account"). */
+  create_new: boolean
+  /** Permit replacing a credential that more than one app depends on. */
+  confirm_shared_overwrite: boolean
 }
 
 export async function POST(req: NextRequest) {
@@ -39,11 +45,13 @@ export async function POST(req: NextRequest) {
 
   const { data: existing } = await supabase
     .from("tenant_providers")
-    .select("store_credential_enc, store_config")
+    .select("store_credential_enc, store_config, provider_account_id")
     .eq("tenant_id", tenant.id)
     .eq("provider", "app_store")
     .maybeSingle()
-  const isUpdate = !!existing
+  // "Update" means this app already resolves to a credential — attached account OR legacy local
+  // blob. Otherwise an account-attached app would be asked for the .p8 again to edit a bundle id.
+  const isUpdate = !!existing && (!!existing.store_credential_enc || !!existing.provider_account_id)
 
   if (!keyId || !issuerId || !bundleId) {
     return NextResponse.json(
@@ -67,17 +75,56 @@ export async function POST(req: NextRequest) {
   }
 
   const existingCfg = (existing?.store_config as Record<string, unknown> | null) ?? {}
-  const config: Record<string, unknown> = { key_id: keyId, issuer_id: issuerId, bundle_id: bundleId }
-  // Preserve any prior label unless the operator typed a new one.
-  const label = accountLabel || (existingCfg.account_label as string) || ""
-  if (label) config.account_label = label
+  // Split by SCOPE. key_id + issuer_id identify the API KEY — one App Store Connect team serves
+  // every app under it — while bundle_id identifies THIS app. Putting bundle_id on the account
+  // would make every app sharing that team claim the same bundle.
+  const acctConfig: Record<string, unknown> = { key_id: keyId, issuer_id: issuerId }
+  const appConfig: Record<string, unknown> = { bundle_id: bundleId }
 
-  const { error } = await supabase.rpc("tenant_providers_save_store_keys", {
+  // Same value as the Android package name (111) — set the app identifier, which mirrors to both
+  // provider rows, instead of writing an iOS-only copy that can drift from the Android one.
+  const { error: idErr } = await supabase.rpc("tenant_app_identifier_set", {
+    p_tenant_id: tenant.id,
+    p_identifier: bundleId,
+  })
+  if (idErr) return NextResponse.json({ error: idErr.message }, { status: 500 })
+
+  // Preserve any prior label unless the operator typed a new one; else name the connection by its
+  // key id, which is what distinguishes two teams in a list.
+  const label = accountLabel || (existingCfg.account_label as string) || `App Store key ${keyId}`
+
+  // Writes to the ACCOUNT, then attaches this app — the save side of the precedence migration 104
+  // installed on the read side.
+  const { data: accountId, error } = await supabase.rpc("tenant_store_account_save", {
     p_tenant_id: tenant.id,
     p_provider: "app_store",
     p_credential: p8 || "", // "" → keep existing blob on update
-    p_config: config,
+    p_label: label,
+    p_acct_cfg: acctConfig,
+    p_app_cfg: appConfig,
+    p_account_id: body.account_id ?? null,
+    p_create_new: body.create_new === true,
+    p_confirm_shared: body.confirm_shared_overwrite === true,
   })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true, mode: isUpdate ? "update" : "create" })
+  if (error) {
+    // `shared_credential_in_use:<n>` is not a failure — it is the RPC asking a question that only
+    // the operator can answer, so it becomes a 409 carrying the count rather than a 500. Replacing
+    // a key that N apps bill through is a legitimate rotation and a catastrophic accident, and the
+    // payload looks identical either way.
+    const m = /shared_credential_in_use:(\d+)/.exec(error.message)
+    if (m) {
+      return NextResponse.json(
+        { error: "shared_credential_in_use", appsUsing: Number(m[1]), requiresConfirmation: true },
+        { status: 409 },
+      )
+    }
+    if (error.message.includes("credential_required_for_new_connection")) {
+      return NextResponse.json({ error: "A new connection needs its own credential." }, { status: 400 })
+    }
+    if (error.message.includes("forbidden_connection") || error.message.includes("unknown_connection")) {
+      return NextResponse.json({ error: "That connection is not yours to edit." }, { status: 403 })
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+  return NextResponse.json({ ok: true, mode: body.create_new ? "create-new" : isUpdate ? "update" : "create", accountId })
 }

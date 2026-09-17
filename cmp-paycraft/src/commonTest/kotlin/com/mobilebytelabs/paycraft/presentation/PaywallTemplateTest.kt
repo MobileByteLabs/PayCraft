@@ -1,5 +1,6 @@
 package com.mobilebytelabs.paycraft.presentation
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -16,6 +17,9 @@ import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.model.TrialInfo
 import com.mobilebytelabs.paycraft.model.VerificationMethod
+import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
+import com.mobilebytelabs.paycraft.presentation.tree.BuiltInPaywallSeeds
+import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import kotlin.test.Test
 
@@ -66,8 +70,6 @@ class PaywallTemplateTest {
         pendingToken = "tok",
         conflictingDeviceName = "iPhone 14",
         conflictingLastSeen = "2026-06-01",
-        otpAvailable = true,
-        otpDailyLimit = 5,
         supportEmail = "support@example.com",
     )
 
@@ -93,10 +95,14 @@ class PaywallTemplateTest {
     @Test fun minimal_device_conflict() = renderAndAssert(
         PaywallTemplate.MINIMAL,
         conflictState,
-        "bound to another device",
+        "Verify ownership here to transfer it",
     )
 
-    @Test fun minimal_ownership_verified() = renderAndAssert(PaywallTemplate.MINIMAL, verifiedState, "Verified via")
+    @Test fun minimal_ownership_verified() = renderAndAssert(
+        PaywallTemplate.MINIMAL,
+        verifiedState,
+        "Transfer subscription",
+    )
 
     // PREMIUM — 6 states
 
@@ -115,10 +121,14 @@ class PaywallTemplateTest {
     @Test fun premium_device_conflict() = renderAndAssert(
         PaywallTemplate.PREMIUM,
         conflictState,
-        "bound to another device",
+        "Verify ownership here to transfer it",
     )
 
-    @Test fun premium_ownership_verified() = renderAndAssert(PaywallTemplate.PREMIUM, verifiedState, "Verified via")
+    @Test fun premium_ownership_verified() = renderAndAssert(
+        PaywallTemplate.PREMIUM,
+        verifiedState,
+        "Transfer subscription",
+    )
 
     // DARK — 6 states
 
@@ -130,9 +140,10 @@ class PaywallTemplateTest {
 
     @Test fun dark_error() = renderAndAssert(PaywallTemplate.DARK, BillingState.Error("offline"), "Retry")
 
-    @Test fun dark_device_conflict() = renderAndAssert(PaywallTemplate.DARK, conflictState, "bound to another device")
+    @Test fun dark_device_conflict() =
+        renderAndAssert(PaywallTemplate.DARK, conflictState, "Verify ownership here to transfer it")
 
-    @Test fun dark_ownership_verified() = renderAndAssert(PaywallTemplate.DARK, verifiedState, "Verified via")
+    @Test fun dark_ownership_verified() = renderAndAssert(PaywallTemplate.DARK, verifiedState, "Transfer subscription")
 
     // BRANDED_STACK — 6 billing states (AC-5 parity with legacy templates)
 
@@ -167,7 +178,7 @@ class PaywallTemplateTest {
 
     /**
      * BrandedStackDeviceConflict renders "Device limit reached" — distinct from the
-     * legacy templates which render "bound to another device". Asserting the
+     * legacy templates which render "Verify ownership here to transfer it". Asserting the
      * BrandedStack-specific heading string guards against accidental template bleed.
      */
     @Test fun branded_stack_device_conflict() =
@@ -178,7 +189,7 @@ class PaywallTemplateTest {
      * is now active on this device." body — no "via" suffix in this template.
      */
     @Test fun branded_stack_ownership_verified() =
-        renderAndAssert(PaywallTemplate.BRANDED_STACK, verifiedState, "Your subscription is now active")
+        renderAndAssert(PaywallTemplate.BRANDED_STACK, verifiedState, "Transfer subscription")
 
     // BRANDED_STACK — content-field assertions (v2 PaywallDto fields)
 
@@ -187,14 +198,8 @@ class PaywallTemplateTest {
      * the hero title, confirming both hero copy slots render.
      */
     @Test fun branded_stack_free_hero_subtitle_renders() = runComposeUiTest {
-        setContent {
-            PaywallTemplate.BRANDED_STACK.render(
-                state = BillingState.Free,
-                products = sampleProducts,
-                onPickProduct = {},
-                onRetry = {},
-            )
-        }
+        val content = hostContent(BillingState.Free)
+        setContent { content() }
         // Default heroSubtitle is "Enjoy ad-free experience, HD downloads, and exclusive features"
         onNodeWithText("Enjoy ad-free experience", substring = true).assertExists()
     }
@@ -205,14 +210,8 @@ class PaywallTemplateTest {
      * BrandedStackTemplate's CTA row.
      */
     @Test fun branded_stack_free_cta_button_renders() = runComposeUiTest {
-        setContent {
-            PaywallTemplate.BRANDED_STACK.render(
-                state = BillingState.Free,
-                products = sampleProducts,
-                onPickProduct = {},
-                onRetry = {},
-            )
-        }
+        val content = hostContent(BillingState.Free)
+        setContent { content() }
         onNodeWithText("Continue", substring = false).assertExists()
     }
 
@@ -221,14 +220,8 @@ class PaywallTemplateTest {
      * Default is "Restore Your Premium" → uppercased to "RESTORE YOUR PREMIUM".
      */
     @Test fun branded_stack_free_restore_footer_renders() = runComposeUiTest {
-        setContent {
-            PaywallTemplate.BRANDED_STACK.render(
-                state = BillingState.Free,
-                products = sampleProducts,
-                onPickProduct = {},
-                onRetry = {},
-            )
-        }
+        val content = hostContent(BillingState.Free)
+        setContent { content() }
         onNodeWithText("RESTORE YOUR PREMIUM", substring = true).assertExists()
     }
 
@@ -247,15 +240,9 @@ class PaywallTemplateTest {
                 ),
             ),
         )
+        val content = hostContent(BillingState.Free)
         setContent {
-            CompositionLocalProvider(LocalPayCraftConfig provides customConfig) {
-                PaywallTemplate.BRANDED_STACK.render(
-                    state = BillingState.Free,
-                    products = sampleProducts,
-                    onPickProduct = {},
-                    onRetry = {},
-                )
-            }
+            CompositionLocalProvider(LocalPayCraftConfig provides customConfig) { content() }
         }
         onNodeWithText("Unlimited Downloads", substring = false).assertExists()
         onNodeWithText("No daily cap", substring = false).assertExists()
@@ -274,15 +261,9 @@ class PaywallTemplateTest {
             tenantId = "test-tenant",
             paywall = PaywallDto(popularPlanSku = "monthly"),
         )
+        val content = hostContent(BillingState.Free)
         setContent {
-            CompositionLocalProvider(LocalPayCraftConfig provides configWithPopular) {
-                PaywallTemplate.BRANDED_STACK.render(
-                    state = BillingState.Free,
-                    products = sampleProducts,
-                    onPickProduct = {},
-                    onRetry = {},
-                )
-            }
+            CompositionLocalProvider(LocalPayCraftConfig provides configWithPopular) { content() }
         }
         val recommended = onAllNodesWithTag(PayCraftTestTags.PRODUCT_LIST_RECOMMENDED)
             .fetchSemanticsNodes()
@@ -299,14 +280,8 @@ class PaywallTemplateTest {
      * BrandedStackTemplate — not present in MINIMAL/PREMIUM/DARK.
      */
     @Test fun branded_stack_free_attribution_branding_renders() = runComposeUiTest {
-        setContent {
-            PaywallTemplate.BRANDED_STACK.render(
-                state = BillingState.Free,
-                products = sampleProducts,
-                onPickProduct = {},
-                onRetry = {},
-            )
-        }
+        val content = hostContent(BillingState.Free)
+        setContent { content() }
         onNodeWithText("Powered by PayCraft by MobileByteSensei", substring = true).assertExists()
     }
 
@@ -315,14 +290,8 @@ class PaywallTemplateTest {
      * Asserts the plan label ("Plan: monthly") and renewal ("Renews 2027-01-01") are visible.
      */
     @Test fun branded_stack_premium_shows_plan_and_renewal() = runComposeUiTest {
-        setContent {
-            PaywallTemplate.BRANDED_STACK.render(
-                state = premiumState,
-                products = sampleProducts,
-                onPickProduct = {},
-                onRetry = {},
-            )
-        }
+        val content = hostContent(premiumState)
+        setContent { content() }
         onNodeWithText("Plan: monthly", substring = false).assertExists()
         onNodeWithText("Renews 2027-01-01", substring = false).assertExists()
     }
@@ -331,14 +300,8 @@ class PaywallTemplateTest {
      * Premium state with a live trial shows the remaining days from [TrialInfo].
      */
     @Test fun branded_stack_premium_shows_trial_days_remaining() = runComposeUiTest {
-        setContent {
-            PaywallTemplate.BRANDED_STACK.render(
-                state = premiumState,
-                products = sampleProducts,
-                onPickProduct = {},
-                onRetry = {},
-            )
-        }
+        val content = hostContent(premiumState)
+        setContent { content() }
         onNodeWithText("Trial: 5 days remaining", substring = false).assertExists()
     }
 
@@ -346,14 +309,8 @@ class PaywallTemplateTest {
 
     private fun renderAndAssert(template: PaywallTemplate, state: BillingState, markerText: String) {
         runComposeUiTest {
-            setContent {
-                template.render(
-                    state = state,
-                    products = sampleProducts,
-                    onPickProduct = {},
-                    onRetry = {},
-                )
-            }
+            val content = hostContentFor(template, state)
+            setContent { content() }
             onNodeWithText(markerText, substring = true).assertExists()
         }
     }
@@ -367,14 +324,8 @@ class PaywallTemplateTest {
      */
     private fun renderAndAssertLoadingSkeleton(template: PaywallTemplate) {
         runComposeUiTest {
-            setContent {
-                template.render(
-                    state = BillingState.Loading,
-                    products = sampleProducts,
-                    onPickProduct = {},
-                    onRetry = {},
-                )
-            }
+            val content = hostContentFor(template, BillingState.Loading)
+            setContent { content() }
             onNodeWithTag(PayCraftTestTags.PAYWALL_SHIMMER).assertExists()
             // At least one plan-item shimmer must render (count parity with product list — AC-6).
             val itemCount = onAllNodesWithTag(PayCraftTestTags.PRODUCT_LIST_ITEM_SHIMMER)
@@ -383,6 +334,33 @@ class PaywallTemplateTest {
             check(itemCount >= 1) {
                 "Expected at least one product_list_item_shimmer placeholder, got $itemCount"
             }
+        }
+    }
+
+    /**
+     * Render a state through the production host over the SHIPPED branded-stack seed.
+     *
+     * Replaces `PaywallTemplate.render`, which D3 deleted along with the four Kotlin templates.
+     * The seed is loaded rather than inlined so these assertions keep testing the artifact a
+     * tenant actually receives — copy asserted here lives in that seed's localizations now.
+     */
+    private suspend fun hostContent(state: BillingState): @Composable () -> Unit =
+        hostContentFor(PaywallTemplate.BRANDED_STACK, state)
+
+    private suspend fun hostContentFor(template: PaywallTemplate, state: BillingState): @Composable () -> Unit {
+        val wf = BuiltInPaywallSeeds.workflow(template)
+        return {
+            PaywallStateHost(
+                state = state,
+                workflow = wf,
+                context = RenderContext(),
+                priceFor = { null },
+                onSelectPackage = {},
+                onPurchase = {},
+                onRestore = {},
+                onRetry = {},
+                onAction = {},
+            )
         }
     }
 }

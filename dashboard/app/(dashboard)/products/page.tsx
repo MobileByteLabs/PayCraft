@@ -9,6 +9,7 @@ import { ButtonLink } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { UnsyncedProductsBanner } from "@/components/products/unsynced-products-banner"
+import { StoreLivenessBanner } from "@/components/products/store-liveness-banner"
 import { ProductRowActions } from "@/components/products/product-row-actions"
 import {
   verifyStripeProductSync,
@@ -163,6 +164,7 @@ export default async function ProductsPage() {
         }
       />
 
+      <StoreLivenessBanner />
       <UnsyncedProductsBanner />
 
       {/* Bento-Style Stats */}
@@ -329,12 +331,14 @@ export default async function ProductsPage() {
                         name="Play"
                         connected={playConnected}
                         synced={!!r.play_product_id}
+                        state={r.sync_state?.google_play}
                         settingsUrl="/providers/google-play"
                       />
                       <StoreChip
                         name="App Store"
                         connected={appStoreConnected}
                         synced={!!r.app_store_product_id}
+                        state={r.sync_state?.app_store}
                         settingsUrl="/providers/app-store"
                       />
                     </div>
@@ -545,23 +549,35 @@ function RazorpayChip({
 }
 
 /**
- * Native store chip (Google Play / App Store) — same 3-state treatment as
- * RazorpayChip (the stores don't expose a browser deep-link for a product the
- * way Stripe does, so there's no verified-with-external-link variant):
+ * Native store chip (Google Play / App Store) — same treatment as RazorpayChip
+ * (the stores don't expose a browser deep-link for a product the way Stripe does,
+ * so there's no verified-with-external-link variant):
  *
  *   not-connected — gray pill linking to the store's credential form
  *   pending       — amber pill (connected but play/app_store_product_id null)
- *   synced        — green "✓" pill (the store product id is populated)
+ *   draft         — amber "not sellable" pill (the store has the product but will
+ *                   not SELL it: a Play base plan awaiting activation, an App Store
+ *                   subscription waiting on app publication)
+ *   synced        — green "✓" pill
+ *
+ * `state` (the durable per-provider sync_state) OUTRANKS `synced`, because a store
+ * product id is written BEFORE the store agrees to sell the product — on Play the id
+ * lands while the base plan is still DRAFT, and on the App Store it lands even when
+ * the app is unpublished. Deriving the chip from the id alone therefore paints a green
+ * "✓" on a product the store refuses to sell, which is exactly the contradiction of a
+ * row reading "App Store ✓" beneath a banner saying the app is not published.
  */
 function StoreChip({
   name,
   connected,
   synced,
+  state,
   settingsUrl,
 }: {
   name: string
   connected: boolean
   synced: boolean
+  state?: { status: string; error?: string; warning?: string; reason?: string }
   settingsUrl: string
 }) {
   if (!connected) {
@@ -582,6 +598,41 @@ function StoreChip({
         className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-tighter bg-warning-50 text-warning-700 border border-warning-200 px-1.5 py-0.5 rounded"
       >
         <span className="w-1.5 h-1.5 rounded-full bg-warning-500" /> {name} · pending
+      </span>
+    )
+  }
+  if (state?.status === "skipped") {
+    // The provider never ran for this product, so the store does NOT have it — even though a
+    // store product id may be sitting on the row. That id is derived locally and written
+    // optimistically, so it is not evidence the store accepted anything: cappy carries
+    // `com.mobilebytesensei.cappy.sub.year` with App Store `skipped: not connected`, and the
+    // id alone painted a green ✓ on a subscription that exists nowhere.
+    return (
+      <span
+        title={`${name}: ${state.reason ?? "not synced"}`}
+        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-tighter bg-ink-100 text-ink-500 border border-ink-200 px-1.5 py-0.5 rounded"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-ink-300" /> {name} · not synced
+      </span>
+    )
+  }
+  if (state?.status === "draft") {
+    return (
+      <span
+        title={`${name}: ${state.reason ?? state.warning ?? "created but not purchasable yet"}`}
+        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-tighter bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> {name} · draft
+      </span>
+    )
+  }
+  if (state?.status === "failed") {
+    return (
+      <span
+        title={`${name}: ${state.reason ?? state.error ?? "sync failed"}`}
+        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-tighter bg-warning-50 text-warning-700 border border-warning-200 px-1.5 py-0.5 rounded"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-warning-500" /> {name} · failed
       </span>
     )
   }

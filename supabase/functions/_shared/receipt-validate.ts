@@ -92,6 +92,30 @@ export async function verifyStoreKit2Jws(signedTransaction: string): Promise<Rec
 }
 
 /**
+ * Reject an Apple originalTransactionId already bound to a DIFFERENT app_user_id.
+ *
+ * Apple's `originalTransactionId` is stable for the whole renewal chain (and survives restore on a
+ * new device), so the same id surfacing under a new app user is a replay / receipt-sharing attempt
+ * — the StoreKit twin of [assertPlayTokenNotReused]. Same-user re-presentation is allowed, which is
+ * exactly what a legitimate restore looks like.
+ */
+export async function assertAppleTransactionNotReused(
+  originalTransactionId: string,
+  appUserId: string,
+): Promise<void> {
+  const { data, error } = await supabaseAdmin
+    .from("entitlement_records")
+    .select("app_user_id")
+    .eq("provider", "app_store")
+    .eq("stable_txn_id", originalTransactionId)
+    .maybeSingle();
+  if (error) throw new Error(`apple transaction lookup failed: ${error.message}`);
+  if (data && data.app_user_id !== appUserId) {
+    throw new Error("Apple originalTransactionId reuse rejected");
+  }
+}
+
+/**
  * Reject a Play purchaseToken already bound to a DIFFERENT app_user_id. A subscription's
  * purchaseToken is stable across renewals, so a token surfacing under a new user is a replay /
  * theft attempt. Same-user re-presentation is allowed (idempotent restore).

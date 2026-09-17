@@ -47,4 +47,31 @@ class CountryDetectorTest {
         assertEquals("IN", d.country)
         assertEquals(CountryProvenance.DEVICE_SIM, d.provenance)
     }
+
+    // ── StoreKit alpha-3 pass-through ───────────────────────────────────────────────────────
+    //
+    // Measured on an iOS 26 simulator: `Storefront.current` reports `countryCode = "USA"`, not "US".
+    // The SDK forwards it VERBATIM and the server normalizes
+    // (`supabase/functions/_shared/country-code.ts`), because an ISO table inside the SDK could only
+    // be corrected by a Maven release plus a bump in every consumer — so a storefront Apple adds
+    // tomorrow would stay wrong until three apps shipped.
+    //
+    // These tests pin the pass-through, so a future "helpful" normalization here is caught: it would
+    // silently split the mapping across two places that release on different schedules.
+
+    @Test fun storeKitAlpha3StorefrontIsForwardedVerbatim() {
+        val d = CountryDetector.resolve(storefront = "IND", serverGeo = null, deviceSim = null, configLocale = null)
+        assertEquals("IND", d.country)
+        assertEquals(CountryProvenance.AUTHORITATIVE_STORE, d.provenance)
+    }
+
+    @Test fun playAlpha2StorefrontIsAlsoForwardedVerbatim() {
+        assertEquals("IN", CountryDetector.resolve("IN", null, null, null).country)
+        assertEquals("US", CountryDetector.resolve("US", null, null, null).country)
+    }
+
+    @Test fun storefrontCasingAndWhitespaceAreNormalized() {
+        // Casing/trim IS the SDK's business — it costs no table and keeps the wire value canonical.
+        assertEquals("IND", CountryDetector.resolve(" ind ", null, null, null).country)
+    }
 }

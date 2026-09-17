@@ -310,6 +310,19 @@ export function ProductForm({
           />
           Show in paywall
         </label>
+        {/*
+          D6 disclosure, placed immediately under the control rather than in a help page.
+          "Disable" and "revoke" are different operations and a merchant who confuses them is
+          performing a refund by accident — so the guarantee is stated where the decision is made.
+          Migration 090 is what makes this true rather than aspirational: the entitlement read
+          path never joins tenant_products.active, so there is no code path by which this
+          checkbox can withdraw access someone paid for.
+        */}
+        <p className="mt-2 text-sm text-ink-500" data-testid="product-active-d6-copy">
+          Disabling hides this product from the paywall. Anyone who already purchased keeps their
+          entitlement — <strong>disabling never revokes access</strong>. Lifetime purchases are
+          honoured indefinitely.
+        </p>
       </Field>
 
       {error && (

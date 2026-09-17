@@ -220,11 +220,11 @@ sub_0_4_accounts() {
 # ═══════════════════════════════════════════════════════════
 # Map: ALIAS:HUMAN_DESCRIPTION:PROVIDER_URL
 SECRETS_TO_COLLECT=(
-    "mbs-paycraft-stripe-platform-secret-key:Stripe Secret Key (sk_live_*):https://dashboard.stripe.com/apikeys"
-    "mbs-paycraft-stripe-platform-publishable-key:Stripe Publishable Key (pk_live_*):https://dashboard.stripe.com/apikeys"
-    "mbs-paycraft-stripe-platform-webhook-secret:Stripe Webhook Signing Secret (whsec_*):https://dashboard.stripe.com/webhooks"
-    "mbs-paycraft-razorpay-key-id:Razorpay Key ID (rzp_live_*):https://dashboard.razorpay.com/app/keys"
-    "mbs-paycraft-razorpay-key-secret:Razorpay Key Secret:https://dashboard.razorpay.com/app/keys"
+    "mbs-stripe-platform-secret-key:Stripe Secret Key (sk_live_*):https://dashboard.stripe.com/apikeys"
+    "mbs-stripe-platform-publishable-key:Stripe Publishable Key (pk_live_*):https://dashboard.stripe.com/apikeys"
+    "mbs-stripe-platform-webhook-secret:Stripe Webhook Signing Secret (whsec_*):https://dashboard.stripe.com/webhooks"
+    "mbs-razorpay-key-id:Razorpay Key ID (rzp_live_*):https://dashboard.razorpay.com/app/keys"
+    "mbs-razorpay-key-secret:Razorpay Key Secret:https://dashboard.razorpay.com/app/keys"
     "mbs-paycraft-resend-api-key:Resend API Key (re_*):https://resend.com/api-keys"
     "mbs-paycraft-vercel-token:Vercel Token (Account Settings → Tokens):https://vercel.com/account/tokens"
     "mbs-paycraft-vercel-org-id:Vercel Org ID (Account Settings):https://vercel.com/account"

@@ -1,5 +1,6 @@
 package com.mobilebytelabs.paycraft
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -10,7 +11,10 @@ import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.model.TrialInfo
 import com.mobilebytelabs.paycraft.model.VerificationMethod
+import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
 import com.mobilebytelabs.paycraft.presentation.PaywallTemplate
+import com.mobilebytelabs.paycraft.presentation.tree.BuiltInPaywallSeeds
+import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import kotlin.test.Test
 
@@ -71,8 +75,6 @@ class SinglePaywallPathTest {
         pendingToken = "tok",
         conflictingDeviceName = "iPhone 14",
         conflictingLastSeen = "2026-06-01",
-        otpAvailable = true,
-        otpDailyLimit = 5,
         supportEmail = "support@example.com",
     )
 
@@ -104,14 +106,8 @@ class SinglePaywallPathTest {
      */
     @Test
     fun single_path_loading_renders_branded_stack_shell() = runComposeUiTest {
-        setContent {
-            PaywallTemplate.BRANDED_STACK.render(
-                state = BillingState.Loading,
-                products = sampleProducts,
-                onPickProduct = {},
-                onRetry = {},
-            )
-        }
+        val content = hostContent(BillingState.Loading)
+        setContent { content() }
         onNodeWithTag(PayCraftTestTags.PAYWALL_SHIMMER).assertExists()
     }
 
@@ -153,7 +149,7 @@ class SinglePaywallPathTest {
     @Test
     fun single_path_ownership_verified_renders_migrated_branch() = renderAndAssert(
         verifiedState,
-        "Your subscription is now active",
+        "Transfer subscription",
     )
 
     /**
@@ -172,20 +168,14 @@ class SinglePaywallPathTest {
             premiumState to "You're Premium",
             BillingState.Error("offline") to "Retry",
             conflictState to "Device limit reached",
-            verifiedState to "Your subscription is now active",
+            verifiedState to "Transfer subscription",
         ).forEach { (state, marker) -> renderAndAssert(state, marker) }
         // Phase 3 Loading branch has no distinctive text marker — the layout-matched
         // PaywallSkeleton is asserted via testTag (AC-5, AC-14). Kept as a separate
         // runComposeUiTest so the branch coverage stays exhaustive.
         runComposeUiTest {
-            setContent {
-                PaywallTemplate.BRANDED_STACK.render(
-                    state = BillingState.Loading,
-                    products = sampleProducts,
-                    onPickProduct = {},
-                    onRetry = {},
-                )
-            }
+            val content = hostContent(BillingState.Loading)
+            setContent { content() }
             onNodeWithTag(PayCraftTestTags.PAYWALL_SHIMMER).assertExists()
         }
     }
@@ -194,15 +184,33 @@ class SinglePaywallPathTest {
 
     private fun renderAndAssert(state: BillingState, markerText: String) {
         runComposeUiTest {
-            setContent {
-                PaywallTemplate.BRANDED_STACK.render(
-                    state = state,
-                    products = sampleProducts,
-                    onPickProduct = {},
-                    onRetry = {},
-                )
-            }
+            val content = hostContent(state)
+            setContent { content() }
             onNodeWithText(markerText, substring = true).assertExists()
+        }
+    }
+
+    /**
+     * Render a state through the production host over the SHIPPED branded-stack seed.
+     *
+     * Replaces `PaywallTemplate.render`, which D3 deleted along with the four Kotlin templates.
+     * The seed is loaded rather than inlined so these assertions keep testing the artifact a
+     * tenant actually receives — copy asserted here lives in that seed's localizations now.
+     */
+    private suspend fun hostContent(state: BillingState): @Composable () -> Unit {
+        val wf = BuiltInPaywallSeeds.workflow(PaywallTemplate.BRANDED_STACK)
+        return {
+            PaywallStateHost(
+                state = state,
+                workflow = wf,
+                context = RenderContext(),
+                priceFor = { null },
+                onSelectPackage = {},
+                onPurchase = {},
+                onRestore = {},
+                onRetry = {},
+                onAction = {},
+            )
         }
     }
 }

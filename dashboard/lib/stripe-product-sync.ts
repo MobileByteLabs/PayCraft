@@ -78,9 +78,11 @@ export async function syncProductToStripe(
    * honours the advertised trial (Play/Store parity). 0/undefined → no trial.
    */
   trialDays?: number,
+  /** Which Stripe account to sync into. Omit for the historical live-then-test preference. */
+  mode?: "live" | "test",
 ): Promise<SyncResult> {
   const wantsTrial = productType === "subscription" && typeof trialDays === "number" && trialDays > 0
-  const stripe = await getConnectedStripeClient(tenantId)
+  const stripe = await getConnectedStripeClient(tenantId, mode)
 
   // Idempotency keys are tenant+product scoped. When we self-heal a stale
   // product (account swap, key rotation), we MUST bump a generation suffix —

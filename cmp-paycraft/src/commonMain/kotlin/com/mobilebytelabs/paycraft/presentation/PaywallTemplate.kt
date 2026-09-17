@@ -1,12 +1,6 @@
 package com.mobilebytelabs.paycraft.presentation
 
-import androidx.compose.runtime.Composable
 import com.mobilebytelabs.paycraft.model.BillingState
-import com.mobilebytelabs.paycraft.model.Product
-import com.mobilebytelabs.paycraft.presentation.templates.BrandedStackTemplate
-import com.mobilebytelabs.paycraft.presentation.templates.DarkTemplate
-import com.mobilebytelabs.paycraft.presentation.templates.MinimalTemplate
-import com.mobilebytelabs.paycraft.presentation.templates.PremiumTemplate
 
 /**
  * One of the pre-built paywall surfaces shipped with PayCraft.
@@ -35,33 +29,30 @@ enum class PaywallTemplate {
 
     @Deprecated(
         message = "Use BRANDED_STACK — minimal will be removed in cmp-paycraft 3.0.0",
+        replaceWith = ReplaceWith("BRANDED_STACK"),
         level = DeprecationLevel.WARNING,
     )
     MINIMAL,
 
     @Deprecated(
         message = "Use BRANDED_STACK — premium will be removed in cmp-paycraft 3.0.0",
+        replaceWith = ReplaceWith("BRANDED_STACK"),
         level = DeprecationLevel.WARNING,
     )
     PREMIUM,
 
     @Deprecated(
         message = "Use BRANDED_STACK — dark will be removed in cmp-paycraft 3.0.0",
+        replaceWith = ReplaceWith("BRANDED_STACK"),
         level = DeprecationLevel.WARNING,
     )
     DARK,
     ;
 
-    @Composable
-    @Suppress("DEPRECATION") // MINIMAL/PREMIUM/DARK are deprecated but still routed during the 90-day grace
-    fun render(state: BillingState, products: List<Product>, onPickProduct: (Product) -> Unit, onRetry: () -> Unit) {
-        when (this) {
-            BRANDED_STACK -> BrandedStackTemplate(state, products, onPickProduct, onRetry)
-            MINIMAL -> MinimalTemplate(state, products, onPickProduct, onRetry)
-            PREMIUM -> PremiumTemplate(state, products, onPickProduct, onRetry)
-            DARK -> DarkTemplate(state, products, onPickProduct, onRetry)
-        }
-    }
+    // `render()` lived here and dispatched to four Kotlin templates. It is gone: those templates
+    // were one state machine (now PaywallStateHost) plus four layouts (now seed trees, resolved by
+    // BuiltInPaywallSeeds). The enum remains because it still answers a real question — WHICH seed a
+    // tenant starts from — which is the "seed selection" role the plan reserved for it.
 
     companion object {
         /**

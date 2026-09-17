@@ -7,7 +7,8 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import co.touchlab.kermit.Logger
+import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
+import com.mobilebytelabs.paycraft.debug.platformLog
 import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.russhwolf.settings.Settings
 import com.russhwolf.settings.SharedPreferencesSettings
@@ -87,7 +88,7 @@ actual object PayCraftPlatform {
 
     actual fun openUrl(url: String) {
         val context = appContext ?: run {
-            Logger.e("PayCraftPlatform") {
+            logE("PayCraftPlatform") {
                 "Android context not initialized. Call PayCraftPlatform.init(context) first."
             }
             return
@@ -98,3 +99,18 @@ actual object PayCraftPlatform {
         context.startActivity(intent)
     }
 }
+
+// ── Logging shim ─────────────────────────────────────────────────────────────
+// Kermit was removed from PayCraft: it was a published transitive dependency doing nothing this
+// SDK does not already do itself, and its version skewed against consumers (PayCraft 2.1.0 vs
+// reels-downloader 2.0.8 crashed at launch on Logger$Companion.d$default; holding at the
+// consumer's 2.0.5 broke this file with overload ambiguity). A dependency the SDK does not need
+// cannot skew, so it is gone rather than pinned.
+//
+// These keep Kermit's exact call SHAPE — `logD(TAG) { "..." }` — so every existing trailing lambda
+// is untouched and the message is still built lazily, only when logging is on.
+private inline fun logD(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.DEBUG, tag, message())
+
+private inline fun logW(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.WARN, tag, message())
+
+private inline fun logE(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.ERROR, tag, message())

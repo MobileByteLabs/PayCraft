@@ -71,6 +71,7 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_failed_t
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_hint
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_oauth_description
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_or_email
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_privacy
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_sign_in_apple
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_sign_in_google
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_success_message
@@ -201,6 +202,10 @@ fun PayCraftRestoreContent(
         if (!hasAttemptedRestore) return@LaunchedEffect
         when (billingState) {
             is BillingState.Loading -> { /* spinner already shown via isRestoring */ }
+            // A restore never produces a pending payment (nothing is being bought), but the state
+            // is reachable if a purchase was mid-flight when the sheet opened. Hold the spinner
+            // rather than reporting a restore failure.
+            is BillingState.PaymentPending -> { /* purchase still clearing — leave the sheet as-is */ }
             is BillingState.Premium -> {
                 restoreResult = RestoreResult.Success
             }
@@ -499,7 +504,10 @@ fun PayCraftRestoreContent(
                 modifier = Modifier.size(14.dp),
             )
             Text(
-                text = stringResource(Res.string.paycraft_restore_hint),
+                // The FIELD already carries paycraft_restore_hint as its supporting text. Repeating
+                // it beside a padlock told the user nothing twice; the padlock's job is to say what
+                // happens to the address they just typed.
+                text = stringResource(Res.string.paycraft_restore_privacy),
                 style = MaterialTheme.typography.labelSmall,
                 color = paycraftColors.onSurfaceVariant,
                 textAlign = TextAlign.Center,

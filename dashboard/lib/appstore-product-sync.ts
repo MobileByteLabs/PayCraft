@@ -1,4 +1,5 @@
 import { appStoreConnectToken, type AppStoreConnectCreds } from "./store-jwt"
+import { checkAppStoreAppLive } from "@/lib/store-liveness"
 
 /**
  * Create / update an App Store Connect subscription (+ subscription group,
@@ -57,6 +58,21 @@ export interface AppStoreSyncResult {
   /** Human-readable reason the intro offer isn't active (present iff a trial was requested but not set). */
   introductoryOfferError?: string
   /**
+   * Set when the trial IS live but does not cover every priced territory. Not an error —
+   * customers in the covered storefronts get the trial — but the gap must stay visible,
+   * because the paywall advertises the trial everywhere.
+   */
+  introductoryOfferWarning?: string
+  /**
+   * Tri-state verdict from the PUBLIC App Store listing, resolved only when something
+   * about this sync is not purchasable. `true` = no public listing (the app is unpublished,
+   * so the subscription cannot go live); `false` = the app IS live, so publishing is not the
+   * blocker; `undefined` = not probed or unreachable — never infer "unpublished" from it.
+   */
+  appNotPublished?: boolean
+  /** Public App Store lookup URL, so the operator can see exactly what we saw. */
+  storeListingUrl?: string
+  /**
    * Whether a previously-existing FREE_TRIAL introductory offer was REMOVED (or was
    * already absent) on a DISABLE-trial sync. Set only in the no-trial branch — the
    * mirror of introductoryOfferActive. Without this cleanup a stale intro offer
@@ -93,64 +109,136 @@ function ascIntroDuration(days: number): string {
 }
 
 /**
+ * Resolve every territory the subscription is actually priced in.
+ *
+ * Apple derives the full territory ladder from the USA base price point, so a priced
+ * subscription is sellable in ~175 territories — and an introductory offer is
+ * PER-TERRITORY. Enumerating them is what keeps the free trial from being USA-only.
+ * Falls back to ["USA"] when the ladder cannot be read, which preserves the previous
+ * behaviour rather than dropping the trial entirely.
+ */
+async function resolveOfferTerritories(
+  token: string,
+  subscriptionId: string,
+): Promise<string[]> {
+  const res = await ascFetch(
+    token,
+    `/v1/subscriptions/${subscriptionId}/prices?include=territory&limit=200`,
+  )
+  if (!res.ok) {
+    console.warn(
+      `[appstore-product-sync] price-territory lookup failed (${res.status}); scoping the free trial to USA`,
+    )
+    return ["USA"]
+  }
+  const body = await res.json()
+  const ids = new Set<string>()
+  // The territory may arrive either as an `included` resource or as a relationship id.
+  for (const inc of body?.included ?? []) {
+    if (inc?.type === "territories" && typeof inc?.id === "string") ids.add(inc.id)
+  }
+  for (const row of body?.data ?? []) {
+    const id = row?.relationships?.territory?.data?.id
+    if (typeof id === "string") ids.add(id)
+  }
+  return ids.size > 0 ? [...ids] : ["USA"]
+}
+
+/**
  * Ensure a FREE_TRIAL introductory offer exists on the subscription so StoreKit
  * actually grants the trial the paywall advertises. Idempotent: lists existing
- * introductory offers first and skips when a FREE_TRIAL is already present
- * (offers are effectively immutable once live). A free trial is GLOBAL — Apple
- * rejects a per-territory price computation for FREE_TRIAL, so territory +
- * subscriptionPricePoint are intentionally OMITTED. Best-effort: never throws;
- * returns a reason string on failure so the caller can surface a warning.
+ * introductory offers first and creates only the territories still missing one
+ * (offers are effectively immutable once live).
+ *
+ * Apple REQUIRES a `territory` relationship (409 ENTITY_ERROR.RELATIONSHIP.REQUIRED
+ * without it) and an introductory offer covers exactly ONE territory, so a trial that
+ * should reach every customer needs one offer per priced territory. This previously
+ * created a single USA offer, which silently made the advertised free trial
+ * USA-only — every other storefront showed the paywall's "14 days free" and then
+ * charged immediately. `subscriptionPricePoint` stays omitted: a FREE_TRIAL has no price.
+ *
+ * Best-effort and never throws. Full coverage → active. Partial coverage → active with a
+ * `warning` (the trial works for most customers; the gap must still be visible). No
+ * coverage at all → a hard `error`.
  */
 async function ensureIntroductoryOffer(
   token: string,
   subscriptionId: string,
   trialDays: number,
-): Promise<{ active: boolean; error?: string }> {
-  // Probe — already has an introductory offer? (idempotent re-sync)
+): Promise<{ active: boolean; error?: string; warning?: string }> {
+  const territories = await resolveOfferTerritories(token, subscriptionId)
+
+  // Probe — which territories ALREADY carry a FREE_TRIAL? (idempotent re-sync)
+  const covered = new Set<string>()
   const listRes = await ascFetch(
     token,
-    `/v1/subscriptions/${subscriptionId}/introductoryOffers?limit=10`,
+    `/v1/subscriptions/${subscriptionId}/introductoryOffers?include=territory&limit=200`,
   )
   if (listRes.ok) {
     const list = await listRes.json()
-    const hasFreeTrial = (list.data ?? []).some(
-      (o: any) => o?.attributes?.offerMode === "FREE_TRIAL",
-    )
-    if (hasFreeTrial) return { active: true }
+    for (const o of list.data ?? []) {
+      if (o?.attributes?.offerMode !== "FREE_TRIAL") continue
+      const t = o?.relationships?.territory?.data?.id
+      // An offer with no readable territory means we cannot tell WHICH storefront it
+      // covers; treat the whole set as satisfied rather than duplicating offers, which
+      // Apple rejects and which would be worse than an incomplete rollout.
+      if (typeof t !== "string") return { active: true }
+      covered.add(t)
+    }
   }
 
-  const createRes = await ascFetch(token, `/v1/subscriptionIntroductoryOffers`, {
-    method: "POST",
-    body: JSON.stringify({
-      data: {
-        type: "subscriptionIntroductoryOffers",
-        attributes: {
-          offerMode: "FREE_TRIAL",
-          duration: ascIntroDuration(trialDays),
-          numberOfPeriods: 1,
-          // null start = the always-on baseline intro offer for new subscribers.
-          startDate: null,
+  const missing = territories.filter((t) => !covered.has(t))
+  if (missing.length === 0) return { active: true }
+
+  const failures: string[] = []
+  let created = 0
+  for (const territory of missing) {
+    const createRes = await ascFetch(token, `/v1/subscriptionIntroductoryOffers`, {
+      method: "POST",
+      body: JSON.stringify({
+        data: {
+          type: "subscriptionIntroductoryOffers",
+          attributes: {
+            offerMode: "FREE_TRIAL",
+            duration: ascIntroDuration(trialDays),
+            numberOfPeriods: 1,
+            // null start = the always-on baseline intro offer for new subscribers.
+            startDate: null,
+          },
+          relationships: {
+            subscription: { data: { type: "subscriptions", id: subscriptionId } },
+            territory: { data: { type: "territories", id: territory } },
+          },
         },
-        relationships: {
-          // subscriptionPricePoint is omitted (FREE_TRIAL has no price), but Apple
-          // REQUIRES a `territory` relationship (409 ENTITY_ERROR.RELATIONSHIP.REQUIRED
-          // without it). The rest of the ASC integration is USA-centric, so scope the
-          // trial to USA to match (multi-territory is a broader follow-up).
-          subscription: { data: { type: "subscriptions", id: subscriptionId } },
-          territory: { data: { type: "territories", id: "USA" } },
-        },
-      },
-    }),
-  })
-  if (createRes.ok) return { active: true }
-  const body = await createRes.text()
-  console.warn(
-    `[appstore-product-sync] introductoryOffers.create failed for ${subscriptionId} (${createRes.status}): ${body}`,
-  )
-  return {
-    active: false,
-    error: `free-trial introductory offer not set (${createRes.status}): ${body.slice(0, 200)}`,
+      }),
+    })
+    if (createRes.ok) {
+      created++
+      continue
+    }
+    const body = await createRes.text()
+    console.warn(
+      `[appstore-product-sync] introductoryOffers.create failed for ${subscriptionId} in ${territory} (${createRes.status}): ${body}`,
+    )
+    failures.push(`${territory} (${createRes.status})`)
   }
+
+  const totalCovered = covered.size + created
+  if (totalCovered === 0) {
+    return {
+      active: false,
+      error: `free-trial introductory offer not set in any territory: ${failures.slice(0, 5).join(", ")}`,
+    }
+  }
+  if (failures.length > 0) {
+    return {
+      active: true,
+      warning:
+        `free-trial introductory offer set in ${totalCovered}/${territories.length} territories; ` +
+        `not set in ${failures.length} (${failures.slice(0, 5).join(", ")}${failures.length > 5 ? ", …" : ""})`,
+    }
+  }
+  return { active: true }
 }
 
 /**
@@ -422,7 +510,30 @@ export async function syncProductToAppStore(
       return { ...base, introductoryOfferActive: false, introductoryOfferRemoved: r.removed, introductoryOfferError: r.error }
     }
     const t = await ensureIntroductoryOffer(token, base.subscriptionResourceId, trialDays as number)
-    return { ...base, introductoryOfferActive: t.active, introductoryOfferError: t.error }
+    const withOffer: AppStoreSyncResult = {
+      ...base,
+      introductoryOfferActive: t.active,
+      introductoryOfferError: t.error,
+      introductoryOfferWarning: t.warning,
+    }
+    if (t.active) return withOffer
+    // The offer could not be set anywhere. Apple holds subscriptions and their offers
+    // until the APP itself is live, so ask the public storefront and turn the opaque
+    // failure into the operator's actual next action.
+    const liveness = await checkAppStoreAppLive(creds.bundleId)
+    if (liveness.status === "not-published") {
+      return {
+        ...withOffer,
+        appNotPublished: true,
+        storeListingUrl: liveness.url,
+        introductoryOfferError: `${t.error} — ${liveness.message}`,
+      }
+    }
+    return {
+      ...withOffer,
+      appNotPublished: liveness.status === "live" ? false : undefined,
+      storeListingUrl: liveness.url,
+    }
   }
 
   if (existingId) {

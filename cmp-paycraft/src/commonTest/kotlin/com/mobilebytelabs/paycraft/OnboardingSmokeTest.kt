@@ -5,7 +5,6 @@ import com.mobilebytelabs.paycraft.core.PayCraftBillingManager
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
-import com.mobilebytelabs.paycraft.network.OtpGateResult
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.network.PremiumCheckResult
 import com.mobilebytelabs.paycraft.network.RegisterDeviceResult
@@ -93,9 +92,6 @@ class OnboardingSmokeTest {
         override suspend fun checkPremiumWithDevice(serverToken: String) = PremiumCheckResult(true, true)
         override suspend fun transferToDevice(serverToken: String, newDeviceToken: String) = true
         override suspend fun revokeDevice(serverToken: String, targetToken: String) = true
-        override suspend fun checkOtpGate() = OtpGateResult(true, 0, 300)
-        override suspend fun sendOtp(email: String) {}
-        override suspend fun verifyOtp(email: String, token: String) = true
         override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String? = null
     }
 }

@@ -2,8 +2,6 @@ package com.mobilebytelabs.paycraft.sample
 
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
-import com.mobilebytelabs.paycraft.network.OtpGateResult
 import com.mobilebytelabs.paycraft.network.PremiumCheckResult
 import com.mobilebytelabs.paycraft.network.RegisterDeviceResult
 import com.mobilebytelabs.paycraft.network.SubscriptionDto
@@ -121,46 +119,6 @@ class PayCraftE2ETest : BasePayCraftUiTest() {
         assertEquals(1, fakeService.registerDeviceCallCount)
     }
 
-    // ─── P6: Conflict + OTP verification ────────────────────────────────────
-
-    @Test
-    fun p6_conflictWithOtp() {
-        fakeService.registerDeviceResponse = RegisterDeviceResult(
-            deviceToken = "srv_pending_p6",
-            conflict = true,
-            conflictingDeviceName = "Google Pixel 9 Pro",
-            conflictingLastSeen = "2026-04-27T10:00:00Z",
-        )
-        fakeService.otpGateResponse = OtpGateResult(available = true, sendsToday = 1, limit = 300)
-        fakeService.verifyOtpResponse = true
-        fakeService.transferResponse = true
-        fakeService.checkPremiumResponse = PremiumCheckResult(isPremium = true, tokenValid = true)
-        fakeService.subscriptionResponse = SubscriptionDto(
-            email = "user@test.com",
-            plan = "monthly",
-            status = "active",
-            currentPeriodEnd = "2027-04-26T00:00:00Z",
-            cancelAtPeriodEnd = false,
-        )
-
-        launchApp()
-        loginWith("user@test.com")
-        assertBillingState("DeviceConflict")
-        assertTextWithTag("billing_conflict_device", "Google Pixel 9 Pro")
-        assertTextWithTag("billing_otp_available", "true")
-
-        // Enter OTP and verify
-        composeTestRule.onNodeWithTag("input_otp").performTextInput("123456")
-        composeTestRule.onNodeWithTag("btn_verify_otp").performClick()
-        assertBillingState("OwnershipVerified")
-        assertTextWithTag("billing_verified_via", "OTP")
-
-        // Confirm transfer
-        composeTestRule.onNodeWithTag("btn_confirm_transfer").performClick()
-        assertBillingState("Premium")
-        assertEquals(1, fakeService.transferCallCount)
-    }
-
     // ─── P7: Conflict + Google OAuth ────────────────────────────────────────
 
     @Test
@@ -171,7 +129,6 @@ class PayCraftE2ETest : BasePayCraftUiTest() {
             conflictingDeviceName = "Samsung Galaxy S25",
             conflictingLastSeen = "2026-04-27T10:00:00Z",
         )
-        fakeService.otpGateResponse = OtpGateResult(available = true, sendsToday = 0, limit = 300)
         fakeService.verifyOAuthResponse = "user@test.com"
         fakeService.transferResponse = true
         fakeService.checkPremiumResponse = PremiumCheckResult(isPremium = true, tokenValid = true)
@@ -207,7 +164,6 @@ class PayCraftE2ETest : BasePayCraftUiTest() {
             conflictingDeviceName = "iPhone 16 Pro",
             conflictingLastSeen = "2026-04-27T10:00:00Z",
         )
-        fakeService.otpGateResponse = OtpGateResult(available = true, sendsToday = 0, limit = 300)
         fakeService.verifyOAuthResponse = "user@test.com"
         fakeService.transferResponse = true
         fakeService.checkPremiumResponse = PremiumCheckResult(isPremium = true, tokenValid = true)
@@ -308,24 +264,6 @@ class PayCraftE2ETest : BasePayCraftUiTest() {
         // willRenew = !cancelAtPeriodEnd = false
         assertTextWithTag("billing_will_renew", "false")
         assertTextWithTag("billing_expires_at", "2027-04-26T00:00:00Z")
-    }
-
-    // ─── P12: OTP rate limit (gate blocked) ─────────────────────────────────
-
-    @Test
-    fun p12_otpRateLimit() {
-        fakeService.registerDeviceResponse = RegisterDeviceResult(
-            deviceToken = "srv_ratelimit_p12",
-            conflict = true,
-            conflictingDeviceName = "iPhone 16 Pro",
-            conflictingLastSeen = "2026-04-27T10:00:00Z",
-        )
-        fakeService.otpGateResponse = OtpGateResult(available = false, sendsToday = 300, limit = 300)
-
-        launchApp()
-        loginWith("user@test.com")
-        assertBillingState("DeviceConflict")
-        assertTextWithTag("billing_otp_available", "false")
     }
 
     // ─── P13: device_id backfill (no re-register needed) ────────────────────

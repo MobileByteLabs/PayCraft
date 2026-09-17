@@ -1,0 +1,2 @@
+exit_code: 0
+stdout_tail: AC-30 PASS

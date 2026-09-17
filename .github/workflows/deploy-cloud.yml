@@ -58,17 +58,21 @@ jobs:
         with:
           node-version: 20
 
-      # The dashboard is a STANDALONE Next.js app under dashboard/ (no root
-      # workspace). Migrated off Vercel → Cloudflare Workers via
-      # @opennextjs/cloudflare (2026-08-23): full Next 14 App Router with
-      # nodejs_compat, so the Node stripe/razorpay/@supabase SDKs run unchanged.
-      # cf:deploy = `opennextjs-cloudflare build && … deploy` (reads
-      # CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN below).
+      # The dashboard is a STANDALONE Next.js app under dashboard/ (no root workspace).
+      # Deploy target moved twice on 2026-08-23: Vercel → Workers/OpenNext → Pages/next-on-pages.
+      # The second move deleted the cf:build/cf:preview/cf:deploy scripts and @opennextjs/cloudflare,
+      # but this workflow kept invoking the deleted cf:deploy script — so every CI deploy since
+      # has failed with `Missing script`, which also skipped the smoke job that depends on it.
+      # Only the local infra/deploy/deploy.sh path (which calls pages:deploy) has been shipping.
+      #
+      # pages:deploy = `npx @cloudflare/next-on-pages@1 && wrangler pages deploy .vercel/output/static
+      #                 --project-name=paycraft --branch=main`
+      # (reads CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN below).
       - name: Install deps
         run: npm install
 
-      - name: Build + deploy to Cloudflare Workers
-        run: npm run cf:deploy
+      - name: Build + deploy to Cloudflare Pages
+        run: npm run pages:deploy
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # The org token materializes as CLOUDFLARE_PAGES_API_TOKEN (alias
@@ -87,23 +91,40 @@ jobs:
         with:
           version: latest
 
-      - name: Deploy core functions
+      # The function list IS the directory listing under supabase/functions/, minus _shared
+      # (shared utility modules) and __tests__ (canary fixtures). Deriving it from disk rather
+      # than hardcoding fixes three separate defects at once and prevents their recurrence:
+      #
+      #   1. Name drift — the old list named `v2-config`, `v2-billing` and `lemon-squeezy-webhook`;
+      #      the real directories are `config`, `billing` and `lemonsqueezy-webhook`. Each was a
+      #      hard `supabase functions deploy` failure on every run.
+      #   2. Coverage gap — 15 of 24 functions were absent from the list entirely, including
+      #      `config` and `billing` (the SDK's two core endpoints) and both client-facing grant
+      #      endpoints, `register-play-purchase` and `register-appstore`.
+      #   3. Recurrence — a new function directory now reaches production on its first CI run
+      #      instead of waiting for someone to remember to add it here.
+      #
+      # This matches infra/deploy/deploy.sh:381-386, which already globs the real directories and
+      # is the only internally consistent deploy path in the repo.
+      #
+      # Failures accumulate rather than short-circuit: one broken function should not hide the
+      # status of the other 23. The job still exits non-zero if any failed.
+      - name: Deploy edge functions (derived from disk)
         run: |
-          supabase functions deploy v2-config \
-            --project-ref ${{ secrets.SUPABASE_PROD_REF }}
-          supabase functions deploy v2-billing \
-            --project-ref ${{ secrets.SUPABASE_PROD_REF }}
-          supabase functions deploy stripe-connect-oauth \
-            --project-ref ${{ secrets.SUPABASE_PROD_REF }}
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-
-      - name: Deploy webhook handlers
-        run: |
-          for fn in stripe razorpay paddle paypal lemon-squeezy flutterwave paystack midtrans btcpay; do
-            supabase functions deploy "${fn}-webhook" \
-              --project-ref ${{ secrets.SUPABASE_PROD_REF }}
+          set -uo pipefail
+          fail=0
+          for d in supabase/functions/*/; do
+            name="$(basename "$d")"
+            case "$name" in _shared|__tests__) continue ;; esac
+            echo "Deploying $name"
+            supabase functions deploy "$name" \
+              --project-ref ${{ secrets.SUPABASE_PROD_REF }} \
+              || { echo "::error::edge function $name failed to deploy"; fail=$((fail+1)); }
           done
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::$fail edge function(s) failed to deploy"
+            exit 1
+          fi
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 

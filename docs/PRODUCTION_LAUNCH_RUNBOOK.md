@@ -299,11 +299,11 @@ https://dashboard.razorpay.com/app/keys → **Generate Live Key**. Two values:
 ```bash
 bash core/scripts/secrets-keychain-load.sh --init paycraft-razorpay live-key:RAZORPAY_LIVE_KEY
 security find-generic-password -s paycraft-razorpay -a live-key -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --id mbs-paycraft-razorpay-live-key --stdin
+  bash core/scripts/secrets-push.sh --vault mbs --id mbs-razorpay-key-id --stdin
 
 bash core/scripts/secrets-keychain-load.sh --init paycraft-razorpay live-secret:RAZORPAY_LIVE_SECRET
 security find-generic-password -s paycraft-razorpay -a live-secret -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --id mbs-paycraft-razorpay-live-secret --stdin
+  bash core/scripts/secrets-push.sh --vault mbs --id mbs-razorpay-key-secret --stdin
 ```
 
 ### 4.3 Configure the webhook
@@ -318,15 +318,15 @@ Push the secret you just generated:
 
 ```bash
 echo "<the-openssl-secret>" | \
-  bash core/scripts/secrets-push.sh --vault mbs --id mbs-paycraft-razorpay-live-webhook-secret --stdin
+  bash core/scripts/secrets-push.sh --vault mbs --id mbs-razorpay-webhook-secret --stdin
 ```
 
 ### 4.4 Add aliases
 
 ```bash
-/secrets alias-add mbs-paycraft-razorpay-live-key --vault mbs --scope project --consumer mbs/PayCraft --env RAZORPAY_KEY_ID
-/secrets alias-add mbs-paycraft-razorpay-live-secret --vault mbs --scope project --consumer mbs/PayCraft --env RAZORPAY_KEY_SECRET
-/secrets alias-add mbs-paycraft-razorpay-live-webhook-secret --vault mbs --scope project --consumer mbs/PayCraft --env RAZORPAY_WEBHOOK_SECRET
+/secrets alias-add mbs-razorpay-key-id --vault mbs --scope project --consumer mbs/PayCraft --env RAZORPAY_KEY_ID
+/secrets alias-add mbs-razorpay-key-secret --vault mbs --scope project --consumer mbs/PayCraft --env RAZORPAY_KEY_SECRET
+/secrets alias-add mbs-razorpay-webhook-secret --vault mbs --scope project --consumer mbs/PayCraft --env RAZORPAY_WEBHOOK_SECRET
 ```
 
 ---
@@ -605,9 +605,9 @@ done
 supabase secrets set \
   STRIPE_SECRET_KEY="$(bash ../../../core/scripts/secrets-get.sh mbs-paycraft-stripe-live-sk --allow-claude-stdout)" \
   STRIPE_WEBHOOK_SECRET="$(bash ../../../core/scripts/secrets-get.sh mbs-paycraft-stripe-live-webhook-secret --allow-claude-stdout)" \
-  RAZORPAY_KEY_ID="$(bash ../../../core/scripts/secrets-get.sh mbs-paycraft-razorpay-live-key --allow-claude-stdout)" \
-  RAZORPAY_KEY_SECRET="$(bash ../../../core/scripts/secrets-get.sh mbs-paycraft-razorpay-live-secret --allow-claude-stdout)" \
-  RAZORPAY_WEBHOOK_SECRET="$(bash ../../../core/scripts/secrets-get.sh mbs-paycraft-razorpay-live-webhook-secret --allow-claude-stdout)" \
+  RAZORPAY_KEY_ID="$(bash ../../../core/scripts/secrets-get.sh mbs-razorpay-key-id --allow-claude-stdout)" \
+  RAZORPAY_KEY_SECRET="$(bash ../../../core/scripts/secrets-get.sh mbs-razorpay-key-secret --allow-claude-stdout)" \
+  RAZORPAY_WEBHOOK_SECRET="$(bash ../../../core/scripts/secrets-get.sh mbs-razorpay-webhook-secret --allow-claude-stdout)" \
   --project-ref <REF>
 # Expected: "Finished supabase secrets set."
 ```
@@ -667,7 +667,7 @@ gh run watch --repo MobileByteLabs/PayCraft \
 ```
 
 The workflow:
-1. Builds all targets (`androidRelease`, `iosArm64`, `iosX64`, `iosSimulatorArm64`, `jvm`, `js`, `wasmJs`, `linuxX64`, `macosArm64`, `macosX64`, `mingwX64`).
+1. Builds all targets (`androidRelease`, `iosArm64`, `iosSimulatorArm64`, `jvm`, `js`, `wasmJs`).
 2. Signs every artifact with the in-vault GPG key.
 3. Uploads to Sonatype OSSRH staging.
 4. Closes + releases the staging repository (auto-promotes to Central).

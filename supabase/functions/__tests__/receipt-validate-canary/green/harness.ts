@@ -46,6 +46,12 @@ globalThis.fetch = (async (input: Request | URL | string, init?: RequestInit): P
   return originalFetch(input as Request, init);
 }) as typeof fetch;
 
+/** Seed an Apple entitlement row so assertAppleTransactionNotReused runs a REAL query. */
+export function seedAppleTransaction(originalTransactionId: string, appUserId: string): Promise<void> {
+  table.push({ provider: "app_store", stable_txn_id: originalTransactionId, app_user_id: appUserId });
+  return Promise.resolve();
+}
+
 export function seedToken(token: string, appUserId: string): Promise<void> {
   table.push({ provider: "google_play", stable_txn_id: token, app_user_id: appUserId });
   return Promise.resolve();
