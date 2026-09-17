@@ -601,6 +601,21 @@ function StoreChip({
       </span>
     )
   }
+  if (state?.status === "skipped") {
+    // The provider never ran for this product, so the store does NOT have it — even though a
+    // store product id may be sitting on the row. That id is derived locally and written
+    // optimistically, so it is not evidence the store accepted anything: cappy carries
+    // `com.mobilebytesensei.cappy.sub.year` with App Store `skipped: not connected`, and the
+    // id alone painted a green ✓ on a subscription that exists nowhere.
+    return (
+      <span
+        title={`${name}: ${state.reason ?? "not synced"}`}
+        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-tighter bg-ink-100 text-ink-500 border border-ink-200 px-1.5 py-0.5 rounded"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-ink-300" /> {name} · not synced
+      </span>
+    )
+  }
   if (state?.status === "draft") {
     return (
       <span
