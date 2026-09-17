@@ -459,7 +459,7 @@ export async function googlePlaySyncProduct(
 export async function appStoreSyncProduct(
   supabase: ReturnType<typeof createClient>,
   opts: SyncOptions,
-): Promise<{ error?: string; skipped?: boolean; reason?: string }> {
+): Promise<{ error?: string; warning?: string; skipped?: boolean; reason?: string }> {
   const { tenantId, productId, body, existingAppStoreProductId } = opts
   try {
     if (body.type !== "subscription") {
@@ -513,11 +513,19 @@ export async function appStoreSyncProduct(
     })
     // A trial was requested but the StoreKit intro offer didn't set — surface it.
     if (trialDays > 0 && result.introductoryOfferActive === false) {
-      return {
-        error:
-          result.introductoryOfferError ??
-          `App Store subscription synced but the ${trialDays}-day free-trial introductory offer was not set`,
-      }
+      const reason =
+        result.introductoryOfferError ??
+        `App Store subscription synced but the ${trialDays}-day free-trial introductory offer was not set`
+      // An unpublished app is a DRAFT state, not a failure: the subscription and its offer
+      // are configured correctly and go live with the app. Reporting it as `failed` sends
+      // the operator hunting a credential bug that isn't there — the same misdiagnosis the
+      // Play path already avoids by classifying a DRAFT base plan as a warning.
+      return result.appNotPublished === true ? { warning: reason } : { error: reason }
+    }
+    // Trial IS live but does not reach every priced territory — customers outside the
+    // covered storefronts see the paywall's trial promise and get charged immediately.
+    if (result.introductoryOfferWarning) {
+      return { warning: result.introductoryOfferWarning }
     }
     return {}
   } catch (e: any) {

@@ -46,43 +46,41 @@ sealed interface CheckoutLane {
 }
 
 /**
- * Decide the checkout lane for [plan] on [platform].
+ * Decide the checkout lane for [plan] from the SERVER-RESOLVED [BillingPlan.storeBinding].
  *
- * - `platform == "android"` + [isDigital] + non-blank [BillingPlan.playProductId] → [CheckoutLane.NativePlay].
- * - `platform == "android"` + [isDigital] + blank/null play product id → [CheckoutLane.Misconfigured]
- *   (BLOCKS — no web fallback).
- * - `platform == "ios"` or `"macos"` + [isDigital] + non-blank [BillingPlan.appStoreProductId] →
- *   [CheckoutLane.NativeStoreKit] (Apple Guideline 3.1.1 — digital subs transact via StoreKit IAP).
- * - `platform == "ios"` or `"macos"` + [isDigital] + blank/null App Store product id →
- *   [CheckoutLane.Misconfigured] (BLOCKS — no web fallback, the iOS anti-steering keystone).
- * - `platform == "web"` or `"desktop"` + [isDigital] → [CheckoutLane.Web] (no native store).
- * - any physical product (any platform) → [CheckoutLane.Web].
+ * The platform no longer picks the store. `/config` reads `tenant_routing_rules` for the requesting
+ * platform (via the `x-paycraft-platform` header) and returns the provider that platform's
+ * Platform-providers setting names as PRIMARY, together with the id to transact against. This
+ * function only honours that decision:
  *
- * @param platform one of `PlatformInfo.platform` values: `android | ios | macos | desktop | web`.
+ * - binding provider `google_play` -> [CheckoutLane.NativePlay]
+ * - binding provider `app_store` -> [CheckoutLane.NativeStoreKit]
+ * - any other provider (`stripe_card`, other PSPs) -> [CheckoutLane.Web]
+ * - digital good with NO binding -> [CheckoutLane.Misconfigured] (BLOCKS; never a web fallback,
+ *   the anti-steering keystone — a misconfigured product is not a licence to open the browser)
+ * - any physical product -> [CheckoutLane.Web]
+ *
+ * This replaced a hardcoded `platform == "android" -> Play` / `ios -> StoreKit` mapping, which made
+ * the dashboard's Platform-providers page decorative: a tenant whose iOS primary was set to Stripe
+ * still went to StoreKit, and one whose Android primary was Stripe still went to Play. Routing is
+ * now a tenant decision, made once on the server, rather than a client assumption.
+ *
+ * [platform] is retained for the physical-goods short-circuit and for diagnostics only.
  */
 fun resolveCheckoutLane(platform: String, plan: BillingPlan, isDigital: Boolean = plan.isDigital): CheckoutLane {
     if (!isDigital) return CheckoutLane.Web
 
-    return when {
-        platform.equals("android", ignoreCase = true) -> {
-            val productId = plan.playProductId
-            if (productId.isNullOrBlank()) {
-                CheckoutLane.Misconfigured("Google Play product not configured")
-            } else {
-                CheckoutLane.NativePlay(productId)
-            }
-        }
+    val binding = plan.storeBinding
+        ?: return CheckoutLane.Misconfigured(
+            "no provider configured for platform '$platform' — set a primary provider for this " +
+                "platform on the dashboard's Platform providers page, and give the product an id for it",
+        )
 
-        platform.equals("ios", ignoreCase = true) || platform.equals("macos", ignoreCase = true) -> {
-            val productId = plan.appStoreProductId
-            if (productId.isNullOrBlank()) {
-                CheckoutLane.Misconfigured("App Store product not configured")
-            } else {
-                CheckoutLane.NativeStoreKit(productId)
-            }
-        }
-
-        // web / desktop (or any other) digital → no native store, keep the web checkout URL.
+    return when (binding.provider.lowercase()) {
+        "google_play" -> CheckoutLane.NativePlay(binding.productId)
+        "app_store" -> CheckoutLane.NativeStoreKit(binding.productId)
+        // Every other provider is a web PSP (stripe_card, razorpay, cashfree…). The binding's
+        // product id is that PSP's price/plan id; the web lane resolves the checkout URL from it.
         else -> CheckoutLane.Web
     }
 }

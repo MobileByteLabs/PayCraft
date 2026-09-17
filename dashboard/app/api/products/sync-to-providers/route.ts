@@ -8,6 +8,7 @@ import {
   razorpaySyncProduct,
   googlePlaySyncProduct,
   appStoreSyncProduct,
+  classifyProvider,
 } from "@/lib/stripe-route-helper"
 
 /**
@@ -119,7 +120,12 @@ interface SyncReport {
   product_id: string
   sku: string
   display_name: string
-  status: "ok" | "failed" | "skipped"
+  /**
+   * `draft` = the provider accepted the product but it is NOT purchasable yet (a Play base plan
+   * awaiting activation, which Play blocks until the app is published). Collapsing that into `ok`
+   * is what let a product report "synced" while the store refused to sell it.
+   */
+  status: "ok" | "draft" | "failed" | "skipped"
   message?: string
 }
 
@@ -212,26 +218,39 @@ export async function POST() {
       continue
     }
     try {
-      await stripeSyncProduct(supabase, {
+      const res = await stripeSyncProduct(supabase, {
         tenantId: tenant.id,
         productId: row.id,
         body,
         existingStripeProductId: body.stripe_product_id ?? undefined,
         existingPrices: body.stripe_price_id_by_currency ?? undefined,
       })
-      // Re-check whether the row got stripe_product_id populated — that's the
-      // only way to know whether the best-effort sync actually landed.
+      // `stripeSyncProduct` returns structured status ({ok,skipped,error,reason}); the
+      // return value used to be DISCARDED here and the outcome inferred from whether
+      // stripe_product_id came back populated. That inference mislabels the commonest
+      // case: a tenant who simply has not connected Stripe returns {skipped, reason} and
+      // was reported as a red `failed` blaming "missing/invalid Stripe credentials".
+      const entry = classifyProvider(res)
       const { data: after } = await supabase
         .from("tenant_products")
         .select("stripe_product_id")
         .eq("id", row.id)
         .single()
-      if (after?.stripe_product_id) {
+      if (entry.status === "skipped") {
         stripeReports.push({
           product_id: row.id,
           sku: row.sku,
           display_name: row.display_name,
-          status: "ok",
+          status: "skipped",
+          message: entry.reason,
+        })
+      } else if (after?.stripe_product_id) {
+        stripeReports.push({
+          product_id: row.id,
+          sku: row.sku,
+          display_name: row.display_name,
+          status: entry.status === "synced" ? "ok" : entry.status === "draft" ? "draft" : "failed",
+          message: entry.reason ?? entry.warning,
         })
       } else {
         stripeReports.push({
@@ -334,14 +353,24 @@ export async function POST() {
         .eq("id", row.id)
         .single()
       if (after?.play_product_id) {
+        // Classify with the SHARED classifier, not an id-presence heuristic.
+        //
+        // This branch used to report `status: "ok"` whenever play_product_id was written and file
+        // the DRAFT warning as a cosmetic `message`. A base plan that Play refused to activate is
+        // NOT purchasable, so the durable sync_state recorded `synced` for a product that could not
+        // be sold — measured on mbs/cappy 2026-09-17, where the device got "Product not found on
+        // Play" for a row whose sync_state read {"status":"synced"} with no reason.
+        //
+        // `runProductSync` already maps !activated -> warning -> classifyProvider -> "draft" with a
+        // reason. Duplicating the decision here is what let the two paths disagree; this defers to
+        // the one that is right.
+        const entry = classifyProvider(res)
         googlePlayReports.push({
           product_id: row.id,
           sku: row.sku,
           display_name: row.display_name,
-          status: "ok",
-          // Synced, but the base plan may still be DRAFT (activation blocked
-          // until the app is published) — carry that note even on success.
-          message: res.warning,
+          status: entry.status === "synced" ? "ok" : entry.status === "draft" ? "draft" : "failed",
+          message: entry.reason ?? entry.warning,
         })
       } else {
         googlePlayReports.push({
@@ -391,11 +420,26 @@ export async function POST() {
         .eq("id", row.id)
         .single()
       if (after?.app_store_product_id) {
+        // Same shared classifier as the Play branch above — and the App Store case is the
+        // sharper one: `appStoreSyncProduct` writes app_store_product_id via
+        // tenant_products_set_store_ids BEFORE it returns `{error}` for a free-trial offer
+        // that failed to provision. So an id-presence check reports a HARD ERROR as "ok",
+        // discarding the reason entirely. Deferring to classifyProvider makes this drain
+        // agree with the single-product path instead of contradicting it.
+        const entry = classifyProvider(res)
         appStoreReports.push({
           product_id: row.id,
           sku: row.sku,
           display_name: row.display_name,
-          status: "ok",
+          status:
+            entry.status === "synced"
+              ? "ok"
+              : entry.status === "draft"
+                ? "draft"
+                : entry.status === "skipped"
+                  ? "skipped"
+                  : "failed",
+          message: entry.reason ?? entry.warning,
         })
       } else {
         appStoreReports.push({

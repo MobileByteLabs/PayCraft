@@ -14,7 +14,16 @@ import {
 } from "lucide-react"
 import { SyncStatusDialog } from "./sync-status-dialog"
 
-type SyncReport = { status: "ok" | "failed" | "skipped"; message?: string }
+type SyncReport = {
+  /**
+   * `draft` = the provider accepted the product but it is NOT purchasable yet (a Play base
+   * plan awaiting activation, an App Store subscription waiting on app publication). It is
+   * neither success nor failure, and rendering it as either misleads: "synced" hides that
+   * the store will not sell it, "failed" sends the operator hunting a bug that isn't there.
+   */
+  status: "ok" | "draft" | "failed" | "skipped"
+  message?: string
+}
 
 type StripeVerification = "verified" | "stale" | "unsynced" | "unknown"
 
@@ -372,6 +381,22 @@ function ResultLine({ name, report }: { name: string; report: SyncReport }) {
         <div>
           {name} synced
           {report.message && <div className="text-[10px] text-amber-600 mt-0.5">{report.message}</div>}
+        </div>
+      </div>
+    )
+  }
+  if (report.status === "draft") {
+    // Created but not sellable. The message carries the operator's next action (publish the
+    // app / activate the plan manually), so it is shown at full weight rather than as a
+    // muted footnote.
+    return (
+      <div className="flex items-start gap-1.5 text-[11px] text-amber-700">
+        <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+        <div>
+          {name} created — not purchasable yet
+          {report.message && (
+            <div className="text-[10px] text-amber-600 mt-0.5">{report.message}</div>
+          )}
         </div>
       </div>
     )

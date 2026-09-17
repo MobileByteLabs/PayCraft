@@ -5,6 +5,7 @@ import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.HttpResponse
@@ -57,6 +58,16 @@ class ConfigClient(
             val response: HttpResponse = http.get(backend.configUrl) {
                 parameter("apiKey", apiKey)
                 header("Accept-Language", "en-$localeCountry")
+                // REQUIRED: `/config` resolves each product's store binding from
+                // `tenant_routing_rules` for THIS platform — which provider the dashboard's
+                // Platform-providers page names as primary, and the product id to use with it.
+                // Without this header the server sees platform=null, matches no platform-scoped
+                // rule, and returns no binding, so every native checkout fails "no provider
+                // configured". That is precisely the bug this header's absence caused on
+                // mbs/cappy (2026-09-17): routing rules said android -> google_play, the product
+                // had a synced play id, and checkout still refused because the server was never
+                // told which platform was asking.
+                header("x-paycraft-platform", PlatformInfo.platform)
             }
             if (!response.status.isSuccess()) {
                 return cache.read()

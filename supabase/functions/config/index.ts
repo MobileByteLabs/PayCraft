@@ -29,6 +29,90 @@ function methodToProvider(method: string): string {
 }
 
 /**
+ * Drop the raw per-store ids from a product row before it reaches the SDK.
+ *
+ * Only `store_binding` — the id for the provider THIS platform is configured to use — is sent.
+ * Shipping every store's id is what let the client route by hardcoded platform and ignore the
+ * tenant's Platform-providers setting; removing them makes that impossible by construction rather
+ * than by convention.
+ */
+function stripRawStoreIds(p: Record<string, unknown>): Record<string, unknown> {
+  const { play_product_id: _a, app_store_product_id: _b, ...rest } = p
+  return rest
+}
+
+/**
+ * Resolve the PRIMARY payment method this tenant has configured for [platform].
+ *
+ * Reads `tenant_routing_rules` — the table the dashboard's Platform-providers page writes — and
+ * returns the first entry of `priority_methods` for the highest-priority rule matching [platform]
+ * (or the `any` wildcard). That is the provider the tenant intends this platform to transact with:
+ * `google_play`, `app_store`, `stripe_card`, …
+ */
+async function primaryMethodForPlatform(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  tenantId: string,
+  platform: string | null,
+): Promise<string | null> {
+  const { data: rules } = await supabase
+    .from("tenant_routing_rules")
+    .select("platform, priority_methods, priority")
+    .eq("tenant_id", tenantId)
+    .order("priority", { ascending: true })
+  // deno-lint-ignore no-explicit-any
+  const match = (rules ?? []).find((r: any) => {
+    const rp = r.platform ?? "any"
+    return rp === "any" || rp === platform
+  })
+  const methods = match?.priority_methods
+  return Array.isArray(methods) && methods.length > 0 ? String(methods[0]) : null
+}
+
+/**
+ * The store binding for one product on the resolved [method] — the provider the SDK should
+ * transact with, plus the id to use with it.
+ *
+ * This is the ONLY place the provider→id choice is made. The SDK used to receive every store's id
+ * and pick by hardcoded platform, which made the Platform-providers setting decorative: an iOS
+ * tenant who chose Stripe still went to StoreKit. Returning one resolved pair makes the dashboard
+ * authoritative, and a missing id yields `null` so the client BLOCKS rather than guessing.
+ */
+function storeBindingFor(
+  // deno-lint-ignore no-explicit-any
+  p: Record<string, unknown>,
+  method: string | null,
+  currency: string | null,
+): { provider: string; product_id: string } | null {
+  if (!method) return null
+  const nonBlank = (v: unknown): string | null => {
+    const s = typeof v === "string" ? v.trim() : ""
+    return s.length > 0 ? s : null
+  }
+  if (method === "google_play") {
+    const id = nonBlank(p.play_product_id)
+    return id ? { provider: "google_play", product_id: id } : null
+  }
+  if (method === "app_store") {
+    const id = nonBlank(p.app_store_product_id)
+    return id ? { provider: "app_store", product_id: id } : null
+  }
+  // Web PSPs: the transactable id is the per-currency price/plan id for the served currency.
+  if (method.startsWith("stripe")) {
+    const byCur = (p.stripe_price_id_by_currency ?? {}) as Record<string, string>
+    const id = nonBlank(currency ? byCur[currency] ?? byCur[currency.toUpperCase()] : null) ??
+      nonBlank(p.stripe_product_id)
+    return id ? { provider: method, product_id: id } : null
+  }
+  if (method.startsWith("razorpay")) {
+    const byCur = (p.razorpay_plan_id_by_currency ?? {}) as Record<string, string>
+    const id = nonBlank(currency ? byCur[currency] ?? byCur[currency.toUpperCase()] : null)
+    return id ? { provider: method, product_id: id } : null
+  }
+  return null
+}
+
+/**
  * Order [providers] by the tenant's PLATFORM routing preference (migration 075) so the SDK's
  * first provider is the tenant's intended primary for THIS caller platform (e.g. Stripe on
  * desktop, Razorpay on Android) instead of an arbitrary DB order. Uses the highest-priority
@@ -317,7 +401,13 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     )
   }
 
+  const primaryMethod = await primaryMethodForPlatform(supabase, tenantId, callerPlatform)
+
   const pricedProducts = await Promise.all(
+    // The tenant's primary method for THIS caller platform — resolved once, applied per product.
+    // callerPlatform comes from the x-paycraft-platform header; null (header absent) means no
+    // platform-scoped rule matches and no binding is emitted, which the SDK treats as BLOCKED
+    // rather than silently routing to a store the tenant did not choose.
     (productsRes.data ?? []).map(async (p: Record<string, unknown>) => {
       const trialEnabled = p.trial_enabled === undefined || p.trial_enabled === null
         ? true
@@ -343,11 +433,12 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
       // Global mode: single price worldwide — skip tenant_pricing lookup.
       if (p.pricing_mode === "global" && p.global_price_cents && p.global_currency) {
         return {
-          ...p,
+          ...stripRawStoreIds(p),
           trial_enabled: trialEnabled,
           trial_duration_days: trialDurationDays,
           discount_percent: discountActive ? discountPercent : null,
           discount_ends_at: discountActive ? discountEndsAt : null,
+          store_binding: storeBindingFor(p, primaryMethod, String(p.global_currency ?? "")),
           resolved_price: {
             amount_cents: p.global_price_cents,
             currency: p.global_currency,
@@ -378,11 +469,12 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
             source: "fallback",
           }
       return {
-        ...p,
+        ...stripRawStoreIds(p),
         trial_enabled: trialEnabled,
         trial_duration_days: trialDurationDays,
         discount_percent: discountActive ? discountPercent : null,
         discount_ends_at: discountActive ? discountEndsAt : null,
+        store_binding: storeBindingFor(p, primaryMethod, String(resolved_price.currency ?? "")),
         resolved_price,
         // AC-16 — both chains travel on EVERY product row, always. A client that only ever sees
         // the served value cannot tell a correct price from a lucky one; carrying the shadow makes

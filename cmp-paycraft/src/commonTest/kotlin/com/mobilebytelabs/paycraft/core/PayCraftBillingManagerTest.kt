@@ -4,6 +4,7 @@ import com.mobilebytelabs.paycraft.billing.NativeBillingClient
 import com.mobilebytelabs.paycraft.billing.NativeDisplayPrice
 import com.mobilebytelabs.paycraft.billing.NativePurchase
 import com.mobilebytelabs.paycraft.billing.NativePurchaseResult
+import com.mobilebytelabs.paycraft.config.StoreBinding
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
@@ -189,17 +190,18 @@ class PayCraftBillingManagerTest {
         ): NativeDisplayPrice? = null
     }
 
+    // Store ids now arrive as ONE server-resolved binding (provider + id) rather than a per-store
+    // pair the client picks from. A null/blank id is still the anti-steering case: BLOCK, never web.
     private fun digitalPlan(
-        playProductId: String? = "paycraft_monthly",
-        appStoreProductId: String? = "com.paycraft.monthly",
+        provider: String = "google_play",
+        productId: String? = "paycraft_monthly",
     ) = BillingPlan(
         id = "monthly",
         name = "Monthly",
         price = "$9.99",
         interval = "month",
         rank = 0,
-        playProductId = playProductId,
-        appStoreProductId = appStoreProductId,
+        storeBinding = productId?.let { StoreBinding(provider, it) },
         isDigital = true,
     )
 
@@ -216,7 +218,7 @@ class PayCraftBillingManagerTest {
 
         // A digital product with NO play_product_id must be BLOCKED — not routed to the store, and
         // (by the caller contract) not to the browser either.
-        manager.purchaseViaPlayBilling(digitalPlan(playProductId = null), email = "user@example.com")
+        manager.purchaseViaPlayBilling(digitalPlan(provider = "google_play", productId = null), email = "user@example.com")
 
         val state = assertIs<BillingState.Error>(manager.billingState.value)
         assertEquals("Google Play product not configured", state.message)
@@ -232,7 +234,7 @@ class PayCraftBillingManagerTest {
             nativeBillingClient = native,
         )
 
-        manager.purchaseViaPlayBilling(digitalPlan(playProductId = "   "), email = null)
+        manager.purchaseViaPlayBilling(digitalPlan(provider = "google_play", productId = "   "), email = null)
 
         assertIs<BillingState.Error>(manager.billingState.value)
         assertFalse(native.purchaseCalled)
@@ -248,7 +250,7 @@ class PayCraftBillingManagerTest {
             nativeBillingClient = null,
         )
 
-        manager.purchaseViaPlayBilling(digitalPlan(playProductId = "paycraft_monthly"), email = null)
+        manager.purchaseViaPlayBilling(digitalPlan(provider = "google_play", productId = "paycraft_monthly"), email = null)
 
         assertIs<BillingState.Error>(manager.billingState.value)
     }
@@ -266,7 +268,7 @@ class PayCraftBillingManagerTest {
 
         // A digital product with NO app_store_product_id must be BLOCKED — not routed to the store,
         // and (by the caller contract) not to the browser either (Apple 3.1.1 anti-steering).
-        manager.purchaseViaStoreKit(digitalPlan(appStoreProductId = null), email = "user@example.com")
+        manager.purchaseViaStoreKit(digitalPlan(provider = "app_store", productId = null), email = "user@example.com")
 
         val state = assertIs<BillingState.Error>(manager.billingState.value)
         assertEquals("App Store product not configured", state.message)
@@ -282,7 +284,7 @@ class PayCraftBillingManagerTest {
             nativeBillingClient = native,
         )
 
-        manager.purchaseViaStoreKit(digitalPlan(appStoreProductId = "   "), email = null)
+        manager.purchaseViaStoreKit(digitalPlan(provider = "app_store", productId = "   "), email = null)
 
         assertIs<BillingState.Error>(manager.billingState.value)
         assertFalse(native.purchaseCalled)
@@ -298,7 +300,7 @@ class PayCraftBillingManagerTest {
             nativeBillingClient = null,
         )
 
-        manager.purchaseViaStoreKit(digitalPlan(appStoreProductId = "com.paycraft.monthly"), email = null)
+        manager.purchaseViaStoreKit(digitalPlan(provider = "app_store", productId = "com.paycraft.monthly"), email = null)
 
         assertIs<BillingState.Error>(manager.billingState.value)
     }

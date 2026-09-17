@@ -694,11 +694,13 @@ object PayCraft {
      * Android, App Store `app_store_product_id` on iOS. Null on web-checkout platforms or when the
      * dashboard did not configure a native id (→ no native price, cloud price is used).
      */
-    private fun storeProductIdFor(product: ProductDto): String? = when (PlatformInfo.platform.lowercase()) {
-        "android" -> product.playProductId
-        "ios" -> product.appStoreProductId
-        else -> null
-    }?.takeIf { it.isNotBlank() }
+    private fun storeProductIdFor(product: ProductDto): String? =
+        // The server already resolved which provider this platform uses; a native store price is
+        // only meaningful when that provider IS a native store.
+        product.storeBinding
+            ?.takeIf { it.provider == "google_play" || it.provider == "app_store" }
+            ?.productId
+            ?.takeIf { it.isNotBlank() }
 
     /**
      * Ask the native store for each product's OWN localized price (Play `formattedPrice` /
@@ -1295,8 +1297,8 @@ private fun List<ProductDto>.toBillingPlans(
             // Carry the native store product ids so the Android/iOS billing lanes can transact
             // against them (Google Play Billing / StoreKit2). All current PayCraft products are
             // digital subscriptions/lifetime unlocks → isDigital stays true (default).
-            playProductId = dto.playProductId,
-            appStoreProductId = dto.appStoreProductId,
+            // Server-resolved: which provider this platform transacts with, and the id to use.
+            storeBinding = dto.storeBinding,
         )
     }
 }

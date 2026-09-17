@@ -80,14 +80,32 @@ data class ProductDto(
     /** ISO 8601 timestamp when the auto-discount expires. NULL = no expiry. */
     @SerialName("discount_ends_at") val discountEndsAt: String? = null,
     /**
-     * Google Play in-app-product / base-plan id (Google Play Billing v8). REQUIRED for this
-     * product to be purchasable on Android — the SDK routes Android digital checkout through
-     * Google Play Billing against this id (Payments-policy compliance). Configure it per product
-     * in the PayCraft dashboard alongside the web payment links. NULL blocks Android checkout.
+     * The store binding THIS platform should transact against, resolved SERVER-SIDE.
+     *
+     * The client does not choose. `/config` reads `tenant_routing_rules` for the platform in the
+     * `x-paycraft-platform` request header and emits the id belonging to that platform's PRIMARY
+     * provider — `google_play` -> the Play product id, `app_store` -> the App Store product id,
+     * `stripe_card` -> the Stripe price id. Changing the primary provider on the dashboard's
+     * Platform-providers page therefore changes what the SDK transacts against, with no app release.
+     *
+     * This REPLACES the previous `play_product_id` / `app_store_product_id` pair. Shipping every
+     * store's id and letting the client pick by platform meant the dashboard setting was decorative:
+     * an app whose iOS primary was set to Stripe still went to StoreKit, because the choice was
+     * hardcoded in `resolveCheckoutLane`. Null when the platform has no usable provider.
      */
-    @SerialName("play_product_id") val playProductId: String? = null,
-    /** Apple App Store product id (StoreKit2) — the iOS native lane counterpart of [playProductId]. */
-    @SerialName("app_store_product_id") val appStoreProductId: String? = null,
+    @SerialName("store_binding") val storeBinding: StoreBinding? = null,
+)
+
+/**
+ * A resolved provider + the product id to use with it, for one platform. Produced by `/config`;
+ * never assembled client-side.
+ */
+@Serializable
+data class StoreBinding(
+    /** `google_play` | `app_store` | `stripe_card` | another PSP method id. */
+    @SerialName("provider") val provider: String,
+    /** The id to transact with at [provider] — Play product id, App Store product id, price id. */
+    @SerialName("product_id") val productId: String,
 )
 
 /**

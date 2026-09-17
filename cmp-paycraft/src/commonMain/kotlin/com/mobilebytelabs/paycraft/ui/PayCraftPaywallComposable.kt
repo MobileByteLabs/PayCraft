@@ -586,6 +586,10 @@ private fun Product.toBillingPlan(config: SuiteConfig?): BillingPlan {
         interval = intervalLabel,
         rank = displayOrder,
         trialDays = trialDays,
+        // The CTA transacts on THIS plan, so the binding must travel with it. Omitting it here is
+        // what made every native purchase impossible while the server, RPC, /config and DTO all
+        // carried the data correctly — `dtoMatch` is already resolved above for pricing.
+        storeBinding = dtoMatch?.storeBinding,
     )
 }
 

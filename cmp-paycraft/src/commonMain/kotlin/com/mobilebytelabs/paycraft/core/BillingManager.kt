@@ -62,7 +62,7 @@ interface BillingManager {
      * cancelled) / Error (failure OR a missing `play_product_id` — which is BLOCKED, never a browser
      * fallback). No-op-with-error on platforms/builds where no native billing client is wired.
      *
-     * @param plan the plan to purchase; its [com.mobilebytelabs.paycraft.model.BillingPlan.playProductId]
+     * @param plan the plan to purchase; its [com.mobilebytelabs.paycraft.model.BillingPlan.storeBinding]
      *   is the Play product id. Blank/null → [BillingState.Error], never a web fallback (anti-steering).
      * @param email the buyer email (already logged-in by the paywall), used as the stable app-user-id.
      */
@@ -82,7 +82,7 @@ interface BillingManager {
      * webhook, so on success this reconciles through the normal server refresh path rather than an
      * immediate client-side register call.
      *
-     * @param plan the plan to purchase; its [com.mobilebytelabs.paycraft.model.BillingPlan.appStoreProductId]
+     * @param plan the plan to purchase; its [com.mobilebytelabs.paycraft.model.BillingPlan.storeBinding]
      *   is the App Store product id. Blank/null → [BillingState.Error], never a web fallback (anti-steering).
      * @param email the buyer email (already logged-in by the paywall), used as the stable app-user-id.
      */

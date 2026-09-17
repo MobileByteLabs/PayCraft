@@ -26,10 +26,22 @@ const SA_JSON = JSON.stringify({
   token_uri: "https://oauth2.googleapis.com/token",
 })
 
-/** GET probe → 404 (absent), POST create → 200. Returns the fetch mock. */
-function mockCreatePath(opts: { activateOk?: boolean } = {}) {
+/**
+ * GET probe → 404 (absent), POST create → 200. Returns the fetch mock.
+ *
+ * The Play API calls are served from an ordered queue, but the public store-liveness
+ * probe (play.google.com) is matched BY URL and served out-of-band. It has to be: the
+ * probe only fires when activation is refused, so a queue position for it would be
+ * present in some tests and absent in others — the blind queue would then hand the
+ * wrong response to whichever call came next, which is exactly how this suite broke.
+ *
+ * `appLive` controls what the storefront says: false (default for a refused activation)
+ * means the listing 404s, i.e. the app really is unpublished.
+ */
+function mockCreatePath(opts: { activateOk?: boolean; appLive?: boolean } = {}) {
   const activateOk = opts.activateOk ?? true
-  const fetchMock = jest
+  const appLive = opts.appLive ?? false
+  const queue = jest
     .fn()
     // 1) GET subscriptions.get → 404 (not found → create branch)
     .mockResolvedValueOnce({ ok: false, status: 404, text: async () => "not found" })
@@ -46,13 +58,43 @@ function mockCreatePath(opts: { activateOk?: boolean } = {}) {
               JSON.stringify({ error: { code: 400, message: "The app is not published.", status: "FAILED_PRECONDITION" } }),
           },
     )
+    // 4) GET offers.get (stale-free-trial cleanup probe) → 404 (no stale offer to
+    //    deactivate). `ensureNoFreeTrialOffer` runs on EVERY no-trial sync so a
+    //    product that drops its trial stops selling one; omitting this response is
+    //    what made the whole no-trial path throw on an undefined `getRes`.
+    .mockResolvedValueOnce({ ok: false, status: 404, text: async () => "not found" })
+
+  // URL-aware front door: the storefront probe never draws from the Play API queue.
+  const fetchMock = jest.fn(async (url: unknown, init?: unknown) => {
+    if (String(url).includes("play.google.com/store/apps/details")) {
+      return appLive
+        ? { ok: true, status: 200, text: async () => "<html>live listing</html>" }
+        : { ok: false, status: 404, text: async () => "<html>not found</html>" }
+    }
+    return queue(url, init)
+  })
   ;(global as unknown as { fetch: unknown }).fetch = fetchMock
   return fetchMock
 }
 
+/** Play API calls only — excludes the public storefront probe. */
+function playApiCalls(fetchMock: jest.Mock): unknown[][] {
+  return fetchMock.mock.calls.filter(
+    ([u]) => !String(u).includes("play.google.com/store/apps/details"),
+  )
+}
+
+/** Every offer-mutating call (create / activate) — the no-trial path must make none. */
+function offerMutationCalls(fetchMock: jest.Mock): string[] {
+  return fetchMock.mock.calls
+    .filter(([, init]) => (init?.method ?? "GET").toUpperCase() !== "GET")
+    .map(([url]) => String(url))
+    .filter((url) => url.includes("/offers"))
+}
+
 /** Pull the JSON body of the POST create call (the 2nd fetch invocation). */
 function createBodyFrom(fetchMock: jest.Mock): any {
-  const [, init] = fetchMock.mock.calls[1]
+  const [, init] = playApiCalls(fetchMock)[1] as any[]
   return JSON.parse(init.body as string)
 }
 
@@ -173,8 +215,8 @@ test("activates the base plan after create → result.activated = true", async (
     [{ currency: "USD", amountCents: 999 }],
   )
 
-  // 3rd fetch is the activate POST to the correct :activate endpoint.
-  const [activateUrl, activateInit] = fetchMock.mock.calls[2]
+  // 3rd Play API call is the activate POST to the correct :activate endpoint.
+  const [activateUrl, activateInit] = playApiCalls(fetchMock)[2] as [string, any]
   expect(activateUrl).toContain("/subscriptions/pro_monthly/basePlans/pro-monthly-autorenew:activate")
   expect(activateInit.method).toBe("POST")
   expect(result.activated).toBe(true)
@@ -251,8 +293,8 @@ test("provisions a FREE_TRIAL offer on the base plan when trialDays > 0", async 
   expect(result.trialOfferActivated).toBe(true)
 })
 
-test("no trial → no offer calls and freeTrialOfferId is null", async () => {
-  const fetchMock = mockCreatePath() // only 3 responses (no offer path)
+test("no trial → no offer is created and freeTrialOfferId is null", async () => {
+  const fetchMock = mockCreatePath()
 
   const result = await syncProductToGooglePlay(
     { serviceAccountJson: SA_JSON, packageName: "com.example.app" },
@@ -265,7 +307,10 @@ test("no trial → no offer calls and freeTrialOfferId is null", async () => {
     0, // no trial
   )
 
-  expect(fetchMock).toHaveBeenCalledTimes(3) // get + create + activate only
+  // get + create + activate + the read-only stale-offer cleanup probe. The probe is
+  // expected; what must NOT happen is any offer being created or activated.
+  expect(playApiCalls(fetchMock)).toHaveLength(4)
+  expect(offerMutationCalls(fetchMock)).toEqual([])
   expect(result.freeTrialOfferId).toBeNull()
 })
 
@@ -307,5 +352,62 @@ test("activation is best-effort: an app-not-published 400 does NOT fail the sync
   expect(result.activated).toBe(false)
   expect(result.activationError).toMatch(/not activated/i)
   expect(result.activationError).toMatch(/not published/i)
-  expect(fetchMock).toHaveBeenCalledTimes(3) // get + create + activate (no throw)
+  expect(playApiCalls(fetchMock)).toHaveLength(4) // get + create + activate + cleanup probe (no throw)
+})
+
+/**
+ * The activation-refused path must tell the operator WHICH problem they have. Play sends
+ * the same opaque 400 "The app is not published." whether the app is genuinely in draft,
+ * the package name is a typo, or the service account lacks permission — so the public
+ * storefront is consulted to disambiguate, and the two verdicts must read differently.
+ */
+test("activation refused + listing 404 → 'not published', with the manual-activation next step", async () => {
+  jest.resetModules()
+  const { __clearLivenessCache } = require("@/lib/store-liveness")
+  __clearLivenessCache()
+
+  mockCreatePath({ activateOk: false, appLive: false })
+
+  const result = await syncProductToGooglePlay(
+    { serviceAccountJson: SA_JSON, packageName: "com.example.notlive" },
+    "prod-nl",
+    "pro-annual",
+    "Pro Annual",
+    "year",
+    [{ currency: "USD", amountCents: 9950 }],
+  )
+
+  expect(result.activated).toBe(false)
+  expect(result.appNotPublished).toBe(true)
+  expect(result.storeListingUrl).toBe(
+    "https://play.google.com/store/apps/details?id=com.example.notlive",
+  )
+  // The operator's actual next action, not a restatement of Play's error.
+  expect(result.activationError).toMatch(/not published on Play Store/i)
+  expect(result.activationError).toMatch(/activate the base plan manually in Play Console/i)
+})
+
+test("activation refused but the listing IS live → says publishing is NOT the blocker", async () => {
+  jest.resetModules()
+  const { __clearLivenessCache } = require("@/lib/store-liveness")
+  __clearLivenessCache()
+
+  mockCreatePath({ activateOk: false, appLive: true })
+
+  const result = await syncProductToGooglePlay(
+    { serviceAccountJson: SA_JSON, packageName: "com.example.live" },
+    "prod-l",
+    "pro-annual",
+    "Pro Annual",
+    "year",
+    [{ currency: "USD", amountCents: 9950 }],
+  )
+
+  expect(result.activated).toBe(false)
+  // Critically NOT true — telling an operator to publish an already-published app is the
+  // misdiagnosis this probe exists to prevent.
+  expect(result.appNotPublished).toBe(false)
+  expect(result.activationError).toMatch(/app IS live on Play Store/i)
+  expect(result.activationError).not.toMatch(/App is not published on Play Store/i)
+  expect(result.activationError).toMatch(/package name|permission|track/i)
 })
