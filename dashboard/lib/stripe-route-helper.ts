@@ -192,7 +192,7 @@ export async function stripeSyncProduct(
 export async function razorpaySyncProduct(
   supabase: ReturnType<typeof createClient>,
   opts: SyncOptions,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; warning?: string; reason?: string }> {
   const { tenantId, productId, body, existingRazorpayPlanIds } = opts
   try {
     // Check Razorpay connection status (live keys preferred; fall back to test).
@@ -255,6 +255,43 @@ export async function razorpaySyncProduct(
         error: `Razorpay does not accept ${lastResult.skippedCurrencies.join(", ")} for this account. Add an INR price for this product (or enable International payments on Razorpay).`,
       }
     }
+    // A PLAN is not a CHECKOUT. Razorpay issues no reusable link for a Plan, so a subscription that
+    // synced its plan but produced no auth-link has nothing the paywall CTA can open — and this used
+    // to return ok:true regardless, which is why "razorpay: ok" sat next to a Continue button that
+    // threw "no checkout URL for currency INR" on a device.
+    //
+    // Still ok:true — the plan landed and that is real progress — but the reason the checkout half
+    // failed now travels with it instead of dying in a bare `catch {}`.
+    // Local state claimed a plan that Razorpay does not have. Recreating it silently would hide the
+    // fact that this tenant's stored ids had drifted from the provider — usually a swapped key mode
+    // or a re-connected merchant account, both of which an operator needs to know about.
+    const recreated = lastResult.recreatedPlanIds ?? []
+    const linkFailures = Object.entries(lastResult.linkFailuresByCurrency ?? {})
+    const recreatedNote = recreated.length
+      ? ` Recreated ${recreated.length} plan(s) missing at Razorpay (${recreated.join(", ")}).`
+      : ""
+    if (Object.keys(lastResult.paymentLinksByCurrency).length === 0 && linkFailures.length > 0) {
+      // `reason`, NOT `warning`. A warning classifies the provider as DRAFT, which the UI renders
+      // next to "synced" peers and reads as unfinished work an operator should go finish. For a
+      // recurring plan there is nothing to finish: Razorpay cannot issue a reusable link for a
+      // subscription, so a plan with no link IS the complete, correct end state. Checkout is served
+      // per customer by functions/v1/checkout-initiate, which the SDK calls on Continue.
+      //
+      // Reporting it as draft was my own regression: the message was written before that lane
+      // existed, when "no link" genuinely did mean a dead CTA.
+      return {
+        ok: true,
+        reason:
+          recreatedNote.trim() +
+          (recreatedNote ? " " : "") +
+          `Synced as plan(s); no reusable checkout link by design — ` +
+          linkFailures.map(([ccy, why]) => `${ccy}: ${why}`).join("; ") +
+          `. Checkout is created per customer at functions/v1/checkout-initiate.`,
+      }
+    }
+    // A recreated plan is worth SAYING, not worth downgrading the status for — the catalogue is
+    // correct once it is recreated.
+    if (recreatedNote) return { ok: true, reason: recreatedNote.trim() }
     return { ok: true }
   } catch (e: any) {
     // The Razorpay SDK rejects with a PLAIN OBJECT { statusCode, error: { code,
@@ -577,7 +614,10 @@ export function classifyProvider(
   if (r.error && NOT_CONNECTED_RE.test(r.error)) return { status: "skipped", reason: r.error }
   if (r.error) return { status: "failed", error: r.error, reason: r.error }
   if (r.warning) return { status: "draft", warning: r.warning, reason: r.warning }
-  return { status: "synced" }
+  // Carry an informational reason through on SUCCESS too. Dropping it here forced any provider with
+  // something to say to declare itself `draft` just to be heard — which is how a correctly-synced
+  // Razorpay plan ended up displayed as draft beside its synced peers.
+  return { status: "synced", reason: r.reason }
 }
 
 /**

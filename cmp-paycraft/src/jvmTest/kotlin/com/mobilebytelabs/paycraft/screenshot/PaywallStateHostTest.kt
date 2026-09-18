@@ -104,8 +104,10 @@ class PaywallStateHostTest {
         setContent {
             Frame { Host(BillingState.Error("Product not found on Play: com.x.sub.year"), seed("branded_stack")) }
         }
-        // The failure is reported…
-        onNodeWithText("This plan isn't available right now. Try another plan, or check back soon.")
+        // The failure is reported… (copy revised 2026-09-17: Play's "not found" is a BUILD
+        // mismatch far more often than a missing SKU, so it no longer says "try another plan" —
+        // see HumanBillingErrorTest. This test's subject is the ERROR ARM LAYOUT, not the wording.)
+        onNodeWithText("Purchases aren't available in this build. Install the app from the store to subscribe.")
             .assertIsDisplayed()
         // …and the paywall is still there to buy from.
         onNodeWithText("Upgrade to Premium").assertIsDisplayed()

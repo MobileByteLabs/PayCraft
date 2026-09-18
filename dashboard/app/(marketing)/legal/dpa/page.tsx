@@ -76,10 +76,10 @@ export default function DpaPage() {
                   url: "https://supabase.com/security",
                 },
                 {
-                  name: "Vercel",
-                  purpose: "Dashboard hosting + global edge CDN",
+                  name: "Cloudflare, Inc.",
+                  purpose: "Dashboard hosting (Pages) + global edge CDN/WAF",
                   region: "Global edge",
-                  url: "https://vercel.com/security",
+                  url: "https://www.cloudflare.com/trust-hub/",
                 },
                 {
                   name: "Stripe, Inc.",

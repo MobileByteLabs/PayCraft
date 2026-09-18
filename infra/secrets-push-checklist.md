@@ -12,7 +12,7 @@
 bash core/scripts/secrets-doctor.sh
 
 # Verify alias registry has the 13 new aliases
-grep -c "paycraft-stripe\|paycraft-razorpay\|paycraft-resend\|paycraft-sentry\|paycraft-encryption\|paycraft-vercel" \
+grep -c "paycraft-stripe\|paycraft-razorpay\|paycraft-resend\|paycraft-sentry\|paycraft-encryption\|cloudflare-pages" \
   core/registries/SECRETS_ALIAS_REGISTRY.yaml
 # expect: 13
 ```
@@ -102,26 +102,27 @@ openssl rand -base64 32 | \
   bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-encryption-key --stdin --account-email mobilebytesensei@gmail.com
 ```
 
-## Step 6 — Vercel (3 secrets)
+## Step 6 — Cloudflare Pages (2 secrets)
 
-Sign up at https://vercel.com → connect GitHub → import MobileByteLabs/PayCraft repo → set root directory to `dashboard/`. Then:
+The dashboard is Cloudflare Pages project `paycraft` (it left Vercel on 2026-08-23).
+Create the token at https://dash.cloudflare.com/profile/api-tokens with the
+**Cloudflare Pages: Edit** permission on the MobileByteLabs account. Then:
 
 ```bash
-# 6.1 — Vercel token (Account Settings → Tokens → Create, scope: PayCraft project, no expiry)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-vercel-token:VERCEL_TOKEN
-security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-vercel-token:VERCEL_TOKEN -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-vercel-token --stdin --account-email mobilebytesensei@gmail.com
+# 6.1 — Cloudflare API token (My Profile → API Tokens → Create, Pages:Edit scope)
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com mbs-cloudflare-pages-api-token:CLOUDFLARE_API_TOKEN
+security find-generic-password -s paycraft.mobilebytesensei.com -a mbs-cloudflare-pages-api-token:CLOUDFLARE_API_TOKEN -w | \
+  bash core/scripts/secrets-push.sh --vault mbs --secret-id mbs-cloudflare-pages-api-token --stdin --account-email mobilebytesensei@gmail.com
 
-# 6.2 — Vercel org ID (Account Settings → ID — this is NOT secret but is vaulted for completeness)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-vercel-org-id:VERCEL_ORG_ID
-security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-vercel-org-id:VERCEL_ORG_ID -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-vercel-org-id --stdin --account-email mobilebytesensei@gmail.com
-
-# 6.3 — Vercel project ID (Project Settings → General → ID)
-bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com paycraft-vercel-project-id:VERCEL_PROJECT_ID
-security find-generic-password -s paycraft.mobilebytesensei.com -a paycraft-vercel-project-id:VERCEL_PROJECT_ID -w | \
-  bash core/scripts/secrets-push.sh --vault mbs --secret-id paycraft-vercel-project-id --stdin --account-email mobilebytesensei@gmail.com
+# 6.2 — Cloudflare account ID (right sidebar of any zone overview — not secret, vaulted for completeness)
+bash core/scripts/secrets-keychain-load.sh --init paycraft.mobilebytesensei.com mbs-cloudflare-account-id:CLOUDFLARE_ACCOUNT_ID
+security find-generic-password -s paycraft.mobilebytesensei.com -a mbs-cloudflare-account-id:CLOUDFLARE_ACCOUNT_ID -w | \
+  bash core/scripts/secrets-push.sh --vault mbs --secret-id mbs-cloudflare-account-id --stdin --account-email mobilebytesensei@gmail.com
 ```
+
+> The three `paycraft-vercel-*` secrets this step used to collect are obsolete. If they
+> are still in the vault, retire them with `/secrets rotate` or drop the rows — nothing
+> reads them.
 
 ## Step 7 — Verify all 13 secrets exist in vault
 
@@ -132,9 +133,9 @@ bash core/scripts/secrets-verify.sh --required-for mbs/PayCraft
 
 ## Step 8 — Materialize to runtimes
 
-After all 13 are vaulted, run the materialize scripts to write them to dashboard `.env.local`, Vercel, and Supabase Edge Functions in one shot. See:
+After all are vaulted, materialize them to dashboard `.env.local`, Cloudflare Pages, and Supabase Edge Functions. See:
 
-- `infra/sync-to-vercel.sh` — pulls each Vercel-bound alias → `vercel env add NAME production`
+- `infra/deploy/deploy.sh --prod --only-phase 2` — walks `dashboard/cloudflare-secrets.map`, pushing each alias with `wrangler pages secret put NAME --project-name paycraft`. (Replaces the deleted `infra/sync-to-vercel.sh`.)
 - `infra/sync-to-supabase.sh` — pulls webhook + encryption secrets → `supabase secrets set NAME -`
 - `bash core/scripts/secrets-pull.sh --manifest workspaces/mbs/PayCraft/secrets-manifest.yaml` — local dev `.env.local`
 

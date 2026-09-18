@@ -429,7 +429,7 @@ DISPLAY:
   "    Health check:     {SUPABASE_URL}/functions/v1/webhook-health"
   ""
   "  Next Steps:"
-  "    1. Deploy dashboard:  cd dashboard && vercel"
+  "    1. Deploy dashboard:  cd dashboard && npm run pages:deploy"
   "    2. Deploy docs:       Push to GitHub → auto-deploys to Pages"
   "    3. Publish CLI:       cd cli && npm publish"
   "    4. Set GitHub secrets: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_DB_URL"

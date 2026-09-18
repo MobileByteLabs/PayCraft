@@ -1,5 +1,7 @@
 "use client"
 
+import { useRouter } from "next/navigation"
+
 import { useCallback, useEffect, useState } from "react"
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
 
@@ -34,6 +36,7 @@ const KIND_LABEL: Record<string, string> = {
 }
 
 export function NeedsAttention({ tenantId }: { tenantId: string }) {
+  const router = useRouter()
   const [findings, setFindings] = useState<Finding[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -72,11 +75,22 @@ export function NeedsAttention({ tenantId }: { tenantId: string }) {
         return
       }
       if (!res.ok) throw new Error(json?.error ?? `failed (${res.status})`)
-      setNote(
-        `Synced ${json.synced} item(s).` +
-          (json.needs_human?.length ? ` ${json.needs_human.length} need a decision you have to make.` : ""),
-      )
+      // A per-provider SKIP is not a sync. The drain used to count every product it walked as
+      // synced, so a run where every product recorded `razorpay: skipped — not connected` still
+      // reported "Synced 3 item(s)" and the finding it was meant to clear survived every retry.
+      // Report the three outcomes separately; a number the operator cannot act on is worse than none.
+      const parts = [`Synced ${json.synced} item(s).`]
+      if (json.priced_locales) parts.push(`Priced ${json.priced_locales} served locale(s).`)
+      if (json.skipped?.length) parts.push(`${json.skipped.length} skipped — ${json.skipped[0].detail}.`)
+      if (json.failed?.length) parts.push(`${json.failed.length} failed — ${json.failed[0].detail}.`)
+      if (json.needs_human?.length) parts.push(`${json.needs_human.length} need a decision you have to make.`)
+      setNote(parts.join(" "))
       await load(true)
+      // The banner refetches its own findings above, but the PAGE is server-rendered: product rows,
+      // provider chips and the store-liveness panel all come from the server component and would
+      // keep showing pre-sync state until a manual reload. Refresh so the whole surface reflects the
+      // write that just happened.
+      router.refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {

@@ -30,7 +30,7 @@ the published SLA in `docs/SLA_DASHBOARD.md`.
 - Status page (manual update) goes to "Partial outage".
 
 **Expected mitigation (target ≤ 15 min):**
-- Identify offending code path (last deploy SHA in Vercel dashboard).
+- Identify offending code path (last deploy SHA in Cloudflare dashboard → Pages → `paycraft` → Deployments).
 - Rollback via `/paycraft-deploy ship` from the previous good SHA, OR
   hotfix the bug and redeploy.
 - Verify upptime probe returns GREEN.
@@ -58,7 +58,7 @@ the published SLA in `docs/SLA_DASHBOARD.md`.
 - Follow `docs/DR_RUNBOOK.md` Step 2-4.
 - Pull latest dump from R2.
 - Restore into a fresh Supabase project.
-- Repoint Vercel env to new project.
+- Repoint the Cloudflare Pages env to the new project (`wrangler pages secret put` per `dashboard/cloudflare-secrets.map`).
 
 **Expected post-mortem:**
 - Verify the daily backup that was restored from.

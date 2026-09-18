@@ -9,6 +9,21 @@ export interface RazorpaySyncResult {
   planIdsByCurrency: Record<string, string>          // currency → plan_id (subscriptions)
   paymentLinksByCurrency: Record<string, string>     // currency → short_url (one-time / trial)
   skippedCurrencies: string[]                        // currencies Razorpay rejected (e.g. USD on an INR-only account)
+  /**
+   * `currency:plan_id` entries that were stored locally but did NOT exist at Razorpay, and were
+   * recreated. A non-empty list means local state had drifted from the provider — worth telling the
+   * operator, because it usually means the account or the key mode changed underneath them.
+   */
+  recreatedPlanIds: string[]
+  /**
+   * currency → why the subscription CHECKOUT link could not be created, when the plan itself was.
+   *
+   * A plan is the artifact that proves the sync ran; a registration link is the artifact the paywall
+   * CTA actually opens. Losing the second while keeping the first is invisible in every downstream
+   * check — /config still serves a razorpay binding, the drift report sees plan ids and calls the
+   * provider served — and it surfaces only as "Continue does nothing" on a device.
+   */
+  linkFailuresByCurrency: Record<string, string>
 }
 
 // PayCraft billing intervals as stored on tenant_products.interval.
@@ -66,6 +81,9 @@ export async function syncProductToRazorpay(
   const planIdsByCurrency: Record<string, string> = { ...existingPlanIds }
   const paymentLinksByCurrency: Record<string, string> = {}
   const skippedCurrencies: string[] = []
+  const linkFailuresByCurrency: Record<string, string> = {}
+  /** Plan ids this tenant had stored that no longer exist at Razorpay — recreated this run. */
+  const verifiedMissing: string[] = []
 
   // Razorpay rejects currencies the account isn't enabled for (e.g. USD on an
   // INR-only account) with a 400 "Currency provided is not supported". We skip
@@ -79,43 +97,75 @@ export async function syncProductToRazorpay(
 
     try {
       if (productType === "subscription" && interval) {
-        // Skip if plan already exists for this currency.
-        if (planIdsByCurrency[ccyKey]) continue
-
-        const { period, multiplier } = razorpayPlanCadence(interval)
-        const plan = await (client as any).plans.create({
-          period,
-          interval: multiplier,
-          item: {
-            name: productName,
-            amount: amountCents,
-            currency: ccyKey,
-            description: productName,
-          },
-          notes: {
-            paycraft_tenant_id: tenantId,
-            paycraft_product_id: productId,
-          },
-        })
-        planIdsByCurrency[ccyKey] = plan.id
-
-        // Create a subscription link (Razorpay's equivalent of a payment link for subscriptions)
-        try {
-          const link = await (client as any).subscriptionRegistration.createRegistrationLink({
-            type: "link",
-            amount: amountCents,
-            currency: ccyKey,
-            description: productName,
-            subscription_registration: {
-              method: "emandate",
-              auth_type: "netbanking",
-            },
-            notify: { sms: true, email: true },
-          })
-          paymentLinksByCurrency[ccyKey] = link.short_url
-        } catch {
-          // Subscription links are optional — don't fail the whole sync
+        // Skip the PLAN when one already exists — but NOT the rest of this block.
+        //
+        // This used to be `if (planIdsByCurrency[ccyKey]) continue`, which skipped the whole
+        // iteration including the auth-link creation below. The consequence was a product that
+        // could never be repaired: once the plan existed, every re-sync jumped straight past the
+        // link step and reported "razorpay: ok", while `live_payment_links` stayed `{sku: {}}` and
+        // the paywall CTA had nothing to open. Re-syncing is the operator's only lever, and it was
+        // a no-op for the exact state that needed fixing.
+        // VERIFY, don't assume. A stored plan id is a claim about the PROVIDER's state, and this
+        // code previously trusted it absolutely: `if (planIdsByCurrency[ccyKey]) continue`. That is
+        // wrong in both directions — a plan deleted at Razorpay, or written by a sync against a
+        // DIFFERENT account (test keys swapped for live, a re-connected merchant), leaves an id here
+        // that resolves to nothing there. Every later sync then reports "ok" while the catalogue is
+        // broken, and the failure only appears at checkout.
+        //
+        // One GET per currency confirms the id is real before it is reused. On a 404 the id is
+        // discarded and recreated; any other error (auth, network) is left to the outer handler
+        // rather than silently recreating a plan that may well exist.
+        let planId = planIdsByCurrency[ccyKey]
+        if (planId) {
+          try {
+            const existing = await (client as any).plans.fetch(planId)
+            if (!existing?.id) planId = ""
+          } catch (e: any) {
+            if (e?.statusCode === 400 || e?.statusCode === 404) {
+              verifiedMissing.push(`${ccyKey}:${planId}`)
+              planId = ""
+              delete planIdsByCurrency[ccyKey]
+            } else {
+              throw e
+            }
+          }
         }
+        if (!planId) {
+          const { period, multiplier } = razorpayPlanCadence(interval)
+          const plan = await (client as any).plans.create({
+            period,
+            interval: multiplier,
+            item: {
+              name: productName,
+              amount: amountCents,
+              currency: ccyKey,
+              description: productName,
+            },
+            notes: {
+              paycraft_tenant_id: tenantId,
+              paycraft_product_id: productId,
+            },
+          })
+          planId = plan.id
+          planIdsByCurrency[ccyKey] = planId
+        }
+
+        // A RECURRING AUTH LINK CANNOT BE CREATED HERE, AND THAT IS NOT A BUG TO RETRY.
+        //
+        // Razorpay answers this call with "The contact field is required for recurring links",
+        // because an auth link authorises ONE customer's mandate — it carries their contact, email
+        // and name. At catalogue-sync time there is no customer, so no payload can satisfy it. A
+        // reusable product-level link for a subscription does not exist in Razorpay's model.
+        //
+        // The correct lane is per-customer at checkout: razorpay-subscription-initiator.ts creates
+        // a Subscription for the chosen plan and returns its short_url, which is what the buyer
+        // opens. Recording that plainly is worth more than another failed attempt — it used to be a
+        // bare `catch {}`, so the sync reported "ok" and the paywall CTA silently had nothing to
+        // open, with nothing anywhere connecting the two facts.
+        // States the Razorpay fact only. WHERE checkout comes from is the caller's sentence, so the
+        // two do not repeat each other in one message.
+        linkFailuresByCurrency[ccyKey] =
+          "Razorpay binds an auth link to one customer, so a recurring plan has no reusable link"
       } else {
         // One-time payment link for lifetime / trial products
         const link = await (client as any).paymentLink.create({
@@ -139,5 +189,11 @@ export async function syncProductToRazorpay(
     }
   }
 
-  return { planIdsByCurrency, paymentLinksByCurrency, skippedCurrencies }
+  return {
+    planIdsByCurrency,
+    paymentLinksByCurrency,
+    skippedCurrencies,
+    linkFailuresByCurrency,
+    recreatedPlanIds: verifiedMissing,
+  }
 }

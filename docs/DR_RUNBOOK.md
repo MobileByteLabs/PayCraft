@@ -136,7 +136,11 @@ psql "${TARGET_DB_URL}" -t -A -c "
 
 **Real DR:**
 1. Update `framework-supabase-db-url` vault alias to point at the new project.
-2. `bash infra/sync-to-vercel.sh --apply --env production` to push new env.
+2. Push the new env to Cloudflare Pages. `infra/sync-to-vercel.sh` no longer
+   exists (Vercel era); the secrets phase of `infra/deploy/deploy.sh` is the
+   replacement — it reads each alias from the vault and pipes it to
+   `wrangler pages secret put <ENV> --project-name paycraft`, driven by
+   `dashboard/cloudflare-secrets.map`.
 3. Trigger redeploy via `/paycraft-deploy ship`.
 4. Verify `/api/health` returns `status: ok`.
 5. Update DNS if changed (rare — Supabase projects keep same FQDN unless reprovisioned).

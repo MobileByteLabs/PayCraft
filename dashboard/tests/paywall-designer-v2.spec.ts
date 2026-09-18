@@ -14,7 +14,10 @@
  * All assertions operate on page DOM directly.
  */
 
-import { test, expect, Page } from "@playwright/test"
+import type { Page } from "@playwright/test"
+// test/expect come from the guard, not @playwright/test: a signed-out run must FAIL rather than
+// pass against the login page (RULE-SERVER-E2E-001 E2E-3).
+import { expect, test } from "./authed"
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 // Real path: app/(dashboard)/paywall/page.tsx → served at /paywall
@@ -127,18 +130,35 @@ test.describe("Paywall designer v2 — Content tab", () => {
     await expect(svgTextarea).toBeVisible({ timeout: 4_000 })
     await svgTextarea.fill("<svg><script>alert(1)</script></svg>")
 
-    // The server RPC sanitize_paywall_svg() raises check_violation, so the API
-    // route returns 500 with { error: "…forbidden" }. The designer does not
-    // surface a toast, so assert the server rejection on the network response
-    // directly — this verifies the server-side sanitization (AC-13).
+    // The server RPC sanitize_paywall_svg() raises check_violation, so PATCH /api/paywall answers
+    // 500 with {error: "hero_icon_svg contains <script> — forbidden"}.
+    //
+    // Asserted in two parts on purpose. Reading the body off the intercepted response hung forever
+    // (`response.text()` timed out at 30s): the page's own fetch consumes the stream first, so
+    // Playwright has nothing left to hand back. That made a CORRECT server look broken for as long
+    // as anyone ran this suite. So: intercept to prove the UI's save path really reaches the server
+    // and is rejected, then read the message from a request we own end to end.
     const [resp] = await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes("/api/paywall") && r.request().method() === "PATCH",
       ),
       page.getByRole("button", { name: /save paywall/i }).click(),
     ])
-    expect(resp.status()).toBe(500)
-    expect(await resp.text()).toMatch(/forbidden|sanitiz|script/i)
+    expect(resp.status(), "the UI's save must be rejected by the server, not silently accepted").toBe(500)
+
+    const direct = await page.evaluate(async () => {
+      const r = await fetch("/api/paywall", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hero_icon_svg: "<svg><script>alert(1)</script></svg>" }),
+      })
+      return { status: r.status, text: await r.text() }
+    })
+    expect(direct.status).toBe(500)
+    expect(
+      direct.text,
+      "a 500 with no reason is undebuggable — the sanitizer's message must reach the caller",
+    ).toMatch(/forbidden|sanitiz|script/i)
   })
 
   // ── Test 5: template selector shows BrandedStack ─────────────────────────────

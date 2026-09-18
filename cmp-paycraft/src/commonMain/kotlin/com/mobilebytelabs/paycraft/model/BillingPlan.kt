@@ -19,6 +19,20 @@ import com.mobilebytelabs.paycraft.billing.NativeProductType
  */
 data class BillingPlan(
     val id: String,
+    /**
+     * The merchant-facing SKU (`cappy_plus_annual`), which is the key every per-product provider
+     * map is stored under — payment links included (`livePaymentLinksBySku`).
+     *
+     * It exists because [id] means different things on different paths: the cloud-config builder
+     * set `id = dto.sku`, while the paywall's own builder set `id` to the product UUID. Checkout
+     * looked up `bySku[plan.id]`, so a plan built by the paywall missed EVERY payment link and the
+     * error told the merchant to add a link that was already there. Keying on a field that can only
+     * ever hold a sku removes the ambiguity rather than relying on both builders agreeing.
+     *
+     * Defaults to [id] so existing callers — including the builder where `id` genuinely is the sku —
+     * keep working unchanged.
+     */
+    val sku: String = id,
     val name: String,
     val price: String,
     val interval: String,

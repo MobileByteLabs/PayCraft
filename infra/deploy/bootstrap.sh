@@ -6,9 +6,9 @@
 # each step skips if already satisfied.
 #
 # Sub-phases (each step is an autonomous check + auto-fix):
-#   0.1 CLI INSTALL          — vercel, supabase, gh, jq
-#   0.2 AUTH                 — vercel login, supabase login, gh auth login (prompts)
-#   0.3 PROJECT LINK         — vercel link (dashboard), supabase link (project ref)
+#   0.1 CLI INSTALL          — wrangler (npx, not global), supabase, gh, jq
+#   0.2 AUTH                 — wrangler login, supabase (vault-mediated), gh auth login (prompts)
+#   0.3 PROJECT LINK         — Cloudflare Pages project check, supabase link (project ref)
 #   0.4 ACCOUNTS             — Resend (open browser + prompt for API key)
 #   0.5 SECRETS COLLECT      — interactive Pattern 5 walk per MISSING vault secret
 #   0.6 DASHBOARD NPM        — npm install (creates dashboard/node_modules)
@@ -60,19 +60,21 @@ prompt() { printf "    ? %s " "$*"; }
 # Sub-step 0.1 — CLI INSTALL
 # ═══════════════════════════════════════════════════════════
 sub_0_1_cli_install() {
-    substep "0.1" "CLI INSTALL (vercel, supabase, gh, jq)" || return 0
+    substep "0.1" "CLI INSTALL (wrangler, supabase, gh, jq)" || return 0
 
-    # vercel
-    if command -v vercel >/dev/null 2>&1; then
-        ok "vercel CLI installed ($(vercel --version 2>/dev/null | head -1))"
+    # wrangler — deliberately NOT installed globally. It is a devDependency of
+    # dashboard/, so `npx wrangler` resolves the pinned version and local matches CI.
+    # A global install is how you end up deploying with a different wrangler than CI.
+    if (cd "$PAYCRAFT_SRC/dashboard" && npx --no-install wrangler --version >/dev/null 2>&1); then
+        ok "wrangler available ($(cd "$PAYCRAFT_SRC/dashboard" && npx --no-install wrangler --version 2>/dev/null | head -1))"
     else
         if [[ "$CHECK_ONLY" = "true" ]]; then
-            fail "vercel CLI missing — install: npm i -g vercel"
+            fail "wrangler missing — run: cd dashboard && npm install"
             return 1
         fi
-        info "Installing vercel CLI globally via npm..."
-        npm i -g vercel 2>&1 | tail -3 || { fail "vercel install failed"; return 1; }
-        ok "vercel CLI installed"
+        info "Installing dashboard dependencies (provides wrangler)..."
+        (cd "$PAYCRAFT_SRC/dashboard" && npm install 2>&1 | tail -3) || { fail "npm install failed"; return 1; }
+        ok "wrangler available via dashboard devDependencies"
     fi
 
     # supabase
@@ -117,19 +119,22 @@ sub_0_1_cli_install() {
 # Sub-step 0.2 — AUTHENTICATE
 # ═══════════════════════════════════════════════════════════
 sub_0_2_auth() {
-    substep "0.2" "AUTHENTICATE (vercel, supabase)" || return 0
+    substep "0.2" "AUTHENTICATE (cloudflare, supabase)" || return 0
 
-    # vercel whoami
-    if vercel whoami >/dev/null 2>&1; then
-        ok "vercel logged in as $(vercel whoami 2>/dev/null)"
+    # cloudflare — an API token in the environment beats an interactive login and is
+    # what CI uses; only fall back to `wrangler login` for a human at a terminal.
+    if [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+        ok "cloudflare authenticated via CLOUDFLARE_API_TOKEN"
+    elif (cd "$PAYCRAFT_SRC/dashboard" && npx --no-install wrangler whoami >/dev/null 2>&1); then
+        ok "cloudflare logged in (wrangler session)"
     else
         if [[ "$NON_INTERACTIVE" = "true" || "$CHECK_ONLY" = "true" ]]; then
-            fail "vercel not logged in — run: vercel login"
+            fail "cloudflare not authenticated — export CLOUDFLARE_API_TOKEN or run: cd dashboard && npx wrangler login"
             return 1
         fi
-        info "Opening vercel login (browser-based OAuth)..."
-        vercel login 2>&1 | tail -10 || { fail "vercel login failed"; return 1; }
-        ok "vercel logged in"
+        info "Opening wrangler login (browser-based OAuth)..."
+        (cd "$PAYCRAFT_SRC/dashboard" && npx --no-install wrangler login 2>&1 | tail -10) || { fail "wrangler login failed"; return 1; }
+        ok "cloudflare logged in"
     fi
 
     # supabase — framework-canonical: vault-mediated db-url, no `supabase login` needed
@@ -153,24 +158,25 @@ sub_0_2_auth() {
 FRAMEWORK_SUPABASE_PROJECT_REF="mlwfgytjxlqyfxcgpysm"
 
 sub_0_3_link() {
-    substep "0.3" "PROJECT LINK (vercel + supabase)" || return 0
+    substep "0.3" "PROJECT LINK (cloudflare pages + supabase)" || return 0
 
-    # vercel link (dashboard)
-    if [[ -f "$PAYCRAFT_SRC/dashboard/.vercel/project.json" ]]; then
-        local proj
-        proj=$(jq -r '.projectId // "unknown"' "$PAYCRAFT_SRC/dashboard/.vercel/project.json" 2>/dev/null || echo "unknown")
-        ok "vercel project linked (projectId: $proj)"
+    # Cloudflare Pages needs no local "link" file — the project is named on every
+    # deploy (--project-name=paycraft). Just confirm it exists on the account, so a
+    # typo or a wrong-account token fails here rather than mid-deploy.
+    # NOTE: dashboard/.vercel/ is next-on-pages BUILD OUTPUT, not a Vercel link.
+    if (cd "$PAYCRAFT_SRC/dashboard" && npx --no-install wrangler pages project list 2>/dev/null | grep -q "\b${CF_PAGES_PROJECT:-paycraft}\b"); then
+        ok "cloudflare pages project present (${CF_PAGES_PROJECT:-paycraft})"
     else
         if [[ "$NON_INTERACTIVE" = "true" || "$CHECK_ONLY" = "true" ]]; then
-            fail "vercel project not linked — run: cd dashboard && vercel link"
+            fail "pages project '${CF_PAGES_PROJECT:-paycraft}' not found — check the token account, or create it: npx wrangler pages project create ${CF_PAGES_PROJECT:-paycraft}"
             return 1
         fi
-        info "Linking dashboard to Vercel project..."
-        cd "$PAYCRAFT_SRC/dashboard" && vercel link --yes 2>&1 | tail -5 || {
-            fail "vercel link failed — try manually: cd dashboard && vercel link"
+        info "Creating Cloudflare Pages project ${CF_PAGES_PROJECT:-paycraft}..."
+        (cd "$PAYCRAFT_SRC/dashboard" && npx --no-install wrangler pages project create "${CF_PAGES_PROJECT:-paycraft}" --production-branch=main 2>&1 | tail -5) || {
+            fail "pages project create failed — try manually: npx wrangler pages project create ${CF_PAGES_PROJECT:-paycraft}"
             return 1
         }
-        ok "vercel project linked"
+        ok "cloudflare pages project created"
     fi
 
     # supabase link (project ref is fixed for framework-supabase)
@@ -226,9 +232,8 @@ SECRETS_TO_COLLECT=(
     "mbs-razorpay-key-id:Razorpay Key ID (rzp_live_*):https://dashboard.razorpay.com/app/keys"
     "mbs-razorpay-key-secret:Razorpay Key Secret:https://dashboard.razorpay.com/app/keys"
     "mbs-paycraft-resend-api-key:Resend API Key (re_*):https://resend.com/api-keys"
-    "mbs-paycraft-vercel-token:Vercel Token (Account Settings → Tokens):https://vercel.com/account/tokens"
-    "mbs-paycraft-vercel-org-id:Vercel Org ID (Account Settings):https://vercel.com/account"
-    "mbs-paycraft-vercel-project-id:Vercel Project ID (Project Settings → General):https://vercel.com/dashboard"
+    "mbs-cloudflare-pages-api-token:Cloudflare API Token with Pages-Edit scope (My Profile → API Tokens):https://dash.cloudflare.com/profile/api-tokens"
+    "mbs-cloudflare-account-id:Cloudflare Account ID (right sidebar of any zone overview):https://dash.cloudflare.com"
 )
 
 push_secret_via_stdin() {

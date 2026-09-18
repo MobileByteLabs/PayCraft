@@ -19,7 +19,7 @@ verbatim.
 | Dashboard (`paycraft.mobilebytesensei.com`) | **99.5%** monthly uptime | upptime probe every 5 min, HTTP 200 from `/api/health` |
 | Webhook ingress (`/api/webhooks/{provider}`) | **99.9%** monthly | upptime probe + signed-HMAC PING every 5 min |
 | Stripe → SDK propagation | **median ≤ 5 s** / **p95 ≤ 30 s** | end-to-end fixture: test charge → `subscriptions.status = active` |
-| Dashboard p95 page latency | **≤ 1500 ms** at the edge | Vercel Analytics; rolling 30-day p95 |
+| Dashboard p95 page latency | **≤ 1500 ms** at the edge | Cloudflare Web Analytics; rolling 30-day p95 |
 
 We **do not** publish SLAs for Stripe / Razorpay themselves — those are the
 providers' own SLA documents and the dashboard links to them.

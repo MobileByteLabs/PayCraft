@@ -22,6 +22,7 @@ import com.mobilebytelabs.paycraft.core.TrialSnapshot
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
+import com.mobilebytelabs.paycraft.network.CheckoutInitiateClient
 import com.mobilebytelabs.paycraft.network.CouponClient
 import com.mobilebytelabs.paycraft.network.PayCraftRealtime
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
@@ -869,6 +870,66 @@ object PayCraft {
         if (coupon == null) appliedCoupons.remove(planId) else appliedCoupons[planId] = coupon
     }
 
+    /**
+     * Does this plan's checkout URL have to be minted by the SERVER?
+     *
+     * True when the web lane has no static link to open: the binding names a PSP whose artifact is a
+     * plan rather than a link (a Razorpay subscription), so only a per-customer call can produce a
+     * URL. False for native store lanes (Play/StoreKit own the purchase) and for any product that
+     * already has a payment link for the active currency.
+     *
+     * Asked BEFORE attempting checkout rather than inferred from a thrown exception — control flow
+     * driven by a failure is how the old path ended up reporting "configure payment links" for a
+     * product where no link can ever exist.
+     */
+    internal fun requiresServerCheckout(plan: BillingPlan): Boolean {
+        if (resolveCheckoutLane(PlatformInfo.platform, plan) !is CheckoutLane.Web) return false
+        val binding = plan.storeBinding ?: return false
+        if (binding.provider in setOf("google_play", "app_store")) return false
+        val dto = suiteConfig?.providers?.firstOrNull { it.provider == binding.provider }
+        val bySku = if (mode == Mode.Test) dto?.testPaymentLinksBySku else dto?.livePaymentLinksBySku
+        val links = bySku?.get(plan.sku).orEmpty()
+        return links.isEmpty()
+    }
+
+    /**
+     * Ask the server for a customer-specific checkout URL.
+     *
+     * [email] is required by the providers this serves — Razorpay binds an auth link to a contact —
+     * so a blank one is refused here rather than sent on to fail at the PSP.
+     */
+    internal suspend fun serverCheckoutUrl(plan: BillingPlan, email: String?): CheckoutInitiateClient.Result {
+        val key = apiKey
+            ?: return CheckoutInitiateClient.Result.Error("PayCraft is not initialized with an API key")
+        if (email.isNullOrBlank()) {
+            return CheckoutInitiateClient.Result.Rejected(
+                "An email address is needed to start this subscription.",
+            )
+        }
+        return checkoutInitiateClient.initiate(
+            apiKey = key,
+            sku = plan.sku,
+            email = email,
+            currency = plan.currency.takeIf { it.isNotBlank() },
+        )
+    }
+
+    private val checkoutInitiateClient: CheckoutInitiateClient by lazy {
+        CheckoutInitiateClient(
+            httpClient = HttpClient {
+                install(ContentNegotiation) {
+                    json(
+                        Json {
+                            ignoreUnknownKeys = true
+                            explicitNulls = false
+                        },
+                    )
+                }
+            },
+            backend = backend,
+        )
+    }
+
     private val couponClient: CouponClient by lazy {
         CouponClient(
             httpClient = HttpClient {
@@ -1284,6 +1345,7 @@ private fun List<ProductDto>.toBillingPlans(
 
         BillingPlan(
             id = dto.sku,
+            sku = dto.sku,
             name = dto.displayName,
             price = nativePrice?.formatted ?: formatMoney(effectiveCents, originalCurrency),
             originalPrice = if (discountPercent != null && nativePrice == null) {
@@ -1322,7 +1384,7 @@ private fun formatMoney(amountCents: Int, currency: String): String = when (curr
  * `livePaymentLinksBySku`. No cross-mode fallback: using a test key with no test link
  * should fail loudly, not silently route through live.
  *
- * The lookup walks `bySku[plan.id]?[plan.currency]` first, then falls back to USD
+ * The lookup walks `bySku[plan.sku]?[plan.currency]` first, then falls back to USD
  * within the same plan so locales without a dedicated link still route somewhere
  * Stripe can render. A missing plan entry throws with a clear remediation hint.
  */
@@ -1337,29 +1399,57 @@ private class SuiteProviderAdapter(private val dto: ProviderDto?) : PaymentProvi
             // never reached through the live flow.
             PayCraft.Mode.Live, PayCraft.Mode.Unknown -> dto?.livePaymentLinksBySku ?: emptyMap()
         }
-        val perCurrency = bySku[plan.id]
-            ?: error(
-                "No ${PayCraft.mode.name.lowercase()}-mode checkout URL for plan ${plan.id} — " +
-                    "open the PayCraft dashboard, switch to ${PayCraft.mode.name} mode, " +
-                    "and add a payment link for this product.",
-            )
+        val perCurrency = bySku[plan.sku] ?: error(noLinkMessage(plan, PayCraft.activeCurrency))
         // Single deciding point: EVERY provider keys off PayCraft.activeCurrency (the one
         // currency the displayed price uses) with the SAME shared fallback resolved in
         // CurrencyResolver — so two providers can never route different currencies, and the
         // checkout currency can't silently diverge from the price shown on the paywall.
         val currency = CurrencyResolver.checkoutCurrency(PayCraft.activeCurrency, perCurrency.keys)
-        val url = perCurrency[currency]
-            ?: error(
-                "Plan ${plan.id} has no ${PayCraft.mode.name.lowercase()}-mode checkout URL for " +
-                    "currency $currency (active=${PayCraft.activeCurrency}) — configure payment " +
-                    "links for this product in the PayCraft dashboard.",
-            )
+        val url = perCurrency[currency] ?: error(noLinkMessage(plan, currency))
         return if (email != null) "$url?prefilled_email=$email" else url
     }
 
     override fun getManageUrl(email: String): String? = null
 
     override val webhookFunctionName: String = "${dto?.provider}-webhook"
+
+    /**
+     * Say what is actually wrong, and name a remedy that can actually work.
+     *
+     * "Add a payment link for this product" is sound advice for a one-time product and DEAD WRONG
+     * for a subscription: Razorpay does not issue a reusable link for a Plan. A subscription is
+     * bound to one customer's mandate, so its checkout URL can only be minted per customer, server
+     * side (dashboard/lib/razorpay-subscription-initiator.ts does exactly this and returns a
+     * short_url). Sending an operator to the dashboard to create a link that cannot exist is worse
+     * than saying nothing — they will look, find no such control, and conclude the SDK is broken.
+     *
+     * Observed on device 2026-09-18: a plan carrying
+     * `storeBinding(provider=razorpay, productId=plan_TdDLIDmBCIuVOg)` failed with the old message
+     * while the binding named the very plan a subscription could have been created from.
+     */
+    private fun noLinkMessage(plan: BillingPlan, currency: String): String {
+        val binding = plan.storeBinding
+        val mode = PayCraft.mode.name.lowercase()
+        val isPlanBinding = binding != null &&
+            binding.provider !in setOf("google_play", "app_store") &&
+            binding.productId.startsWith("plan_")
+        return if (isPlanBinding) {
+            // Written when no api-key-authenticated checkout endpoint existed; one does now
+            // (functions/v1/checkout-initiate), and `requiresServerCheckout` routes this case there
+            // before checkout ever reaches this adapter. Reaching this message therefore means the
+            // server lane was NOT taken when it should have been — so it says that, rather than the
+            // old "this cannot work today", which would send an operator chasing a solved problem.
+            "Plan ${plan.sku} is bound to ${binding!!.provider} plan ${binding.productId}, which has " +
+                "no reusable checkout link by design — a ${binding.provider} subscription is created " +
+                "per customer at functions/v1/checkout-initiate. Reaching this path means the server " +
+                "checkout lane was skipped; check that the SDK is initialized with an API key and " +
+                "that /config reports this provider."
+        } else {
+            "Plan ${plan.sku} has no $mode-mode checkout URL for currency $currency " +
+                "(active=${PayCraft.activeCurrency}) — add a $mode-mode payment link for this " +
+                "product in the PayCraft dashboard, in that currency."
+        }
+    }
 
     companion object {
         fun empty(): SuiteProviderAdapter = SuiteProviderAdapter(null)

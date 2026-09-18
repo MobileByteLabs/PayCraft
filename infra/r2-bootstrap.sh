@@ -110,8 +110,10 @@ Use the macOS Keychain pattern:
                  --stdin
     done
 
-    # Materialize into Vercel + GitHub Actions
-    bash infra/sync-to-vercel.sh --apply --env production
+    # Materialize into Cloudflare Pages + GitHub Actions.
+    # (infra/sync-to-vercel.sh was deleted with the Vercel migration; the secrets
+    #  phase of infra/deploy/deploy.sh is the replacement.)
+    bash infra/deploy/deploy.sh --prod --apply --confirm-production --only-phase 2
 
 ═══════════════════════════════════════════════════════════════
   Verify end-to-end

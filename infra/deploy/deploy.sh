@@ -36,7 +36,7 @@
 #                              --allow-destructive) → pre-push schema BACKUP → supabase db push →
 #                              POST-PUSH VERIFY (0 pending). Aborts the chain on any failure.
 #             3.5 FUNCTIONS DEPLOY  vault-mediated supabase functions deploy (Edge Functions)
-#             5 DEPLOY CLOUDFLARE  build + `npm run cf:deploy` → dashboard on Cloudflare Workers (OpenNext)
+#             5 DEPLOY CLOUDFLARE  build + `npm run pages:deploy` → dashboard on Cloudflare Pages (next-on-pages)
 #             6 SMOKE          curl /api/health + /auth/login + root + Edge Function /config reachability
 #
 # Dry-run by default — pass --apply --confirm-production for mutating prod phases. Dry-run still
@@ -222,7 +222,7 @@ run_phase() {
     fi
 }
 
-# (Vercel removed 2026-08-23 — dashboard deploys to Cloudflare Workers; the old
+# (Vercel removed 2026-08-23 — dashboard deploys to Cloudflare Pages; the old
 #  vercel_api helper + VERCEL_* project vars are gone.)
 
 # ═══════════════════════════════════════════════════════════
@@ -269,7 +269,7 @@ phase_1_preflight() {
         echo "  ✓ dashboard typecheck clean"
         rm -f "$tc_log"
     else
-        echo "  ✗ dashboard typecheck FAILED — fix before deploying (a broken build would fail the Vercel deploy):"
+        echo "  ✗ dashboard typecheck FAILED — fix before deploying (a broken build would fail the Pages deploy):"
         grep -E "error TS" "$tc_log" | head -20 || tail -20 "$tc_log"
         rm -f "$tc_log"
         return 1
@@ -584,13 +584,15 @@ phase_4_promote() {
     return 0
 }
 
-# Phase 5 — poll Vercel API until the deploy of the latest main commit is READY
-# Phase 5 — DIRECT deploy the dashboard to Cloudflare Workers (OpenNext).
-# Migrated off Vercel auto-deploy (2026-08-23): the dashboard runs on Cloudflare
-# Workers via @opennextjs/cloudflare, so prod deploy is a direct build+push we own
-# — no waiting on an external CI/Vercel webhook. `npm run cf:deploy` =
-# `opennextjs-cloudflare build && … deploy` (reads CLOUDFLARE_ACCOUNT_ID +
-# CLOUDFLARE_API_TOKEN, pulled SV32-safe from the vault).
+# Phase 5 — DIRECT deploy the dashboard to Cloudflare Pages (next-on-pages).
+# Migrated off Vercel auto-deploy (2026-08-23), then off Workers/OpenNext to
+# Pages/next-on-pages later the same day — prod deploy is a direct build+push we
+# own, with no external CI webhook to wait on. `npm run pages:deploy` =
+# `@cloudflare/next-on-pages` (emits the Build Output API tree at .vercel/output/,
+# which is NOT a Vercel deployment) then `wrangler pages deploy
+# .vercel/output/static --project-name=paycraft --branch=main` — where --branch is
+# the Pages PRODUCTION-BRANCH ALIAS, not a git branch (reads CLOUDFLARE_ACCOUNT_ID
+# + CLOUDFLARE_API_TOKEN, pulled SV32-safe from the vault).
 phase_5_deploy_cloudflare() {
     local dash="$PAYCRAFT_SRC/dashboard"
     # One phase, two branches of the SAME Pages project. Staging used to have its own copy of this
@@ -604,7 +606,7 @@ phase_5_deploy_cloudflare() {
         echo "  [DRY] would build + deploy dashboard → Cloudflare Pages branch '$deploy_branch' ($public_url)"
         return 0
     fi
-    command -v npx >/dev/null 2>&1 || { echo "  ✗ node/npx required for cf:deploy"; return 1; }
+    command -v npx >/dev/null 2>&1 || { echo "  ✗ node/npx required for pages:deploy"; return 1; }
     # next-on-pages Pages deploys don't require a repo wrangler.jsonc — the
     # `nodejs_compat` compatibility flag lives in the Cloudflare Pages project
     # settings (the migration off OpenNext/Workers removed the Workers-format

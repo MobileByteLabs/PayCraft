@@ -22,7 +22,7 @@ Last reviewed: 2026-06-06
 
 ## Sub-Processors
 - [x] Sub-processor list at /legal/subprocessors
-- Key sub-processors: Supabase (Postgres), Vercel (hosting), Postmark (email), Sentry (error tracking), Cloudflare (CDN/WAF), Stripe (payments), BetterStack (uptime)
+- Key sub-processors: Supabase (Postgres), Cloudflare (hosting via Pages + CDN/WAF), Postmark (email), Sentry (error tracking), Stripe (payments), BetterStack (uptime)
 
 ## Data Retention
 - Subscription records: retained for 7 years (legal/tax obligation)

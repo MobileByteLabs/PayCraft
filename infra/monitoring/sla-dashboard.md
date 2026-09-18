@@ -22,10 +22,10 @@
 3. Check CloudFlare WAF logs — may be rate-limit false positive
 4. Rollback: `supabase functions deploy v2-config --project-ref $PROD_REF --import-map false`
 
-### Dashboard Vercel deploy failed
-1. `vercel logs --app paycraft-cloud --last 100`
+### Dashboard Cloudflare Pages deploy failed
+1. `npx wrangler pages deployment tail --project-name=paycraft`
 2. Check `.github/workflows/deploy-cloud.yml` run for error
-3. Rollback: `vercel rollback --app paycraft-cloud`
+3. Rollback: Cloudflare dashboard → Pages → `paycraft` → Deployments → Rollback
 
 ### Stripe webhook failures spike
 1. Check `tenant_audit_log WHERE event_type = 'webhook_delivery_failed'` — identify tenant(s)

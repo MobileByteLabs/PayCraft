@@ -471,8 +471,16 @@ function Step3({
   const [name, setName] = useState("Monthly Premium")
   const [price, setPrice] = useState(199)
 
+  const [saveError, setSaveError] = useState<string | null>(null)
+
   async function save() {
-    await fetch("/api/products", {
+    setSaveError(null)
+    // The response was previously discarded and onContinue() ran unconditionally. /api/products
+    // returns {error, status:500} when tenant_products_upsert fails, so a failed creation still
+    // advanced the wizard AND recorded step A4 with evidence `action: "product-created"` — a
+    // success marker for a product that was never created. The operator then landed on an empty
+    // products page with no error anywhere in the chain.
+    const res = await fetch("/api/products", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -486,6 +494,11 @@ function Step3({
         active: true,
       }),
     })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}) as { error?: string })
+      setSaveError(body.error ?? `Could not create the product (HTTP ${res.status}).`)
+      return // do NOT advance: no product exists, so nothing downstream should claim one does
+    }
     onContinue()
   }
 
@@ -563,6 +576,11 @@ function Step3({
               className="w-full px-4 py-2.5 rounded-lg border border-ink-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all text-ink-900 text-sm"
             />
           </div>
+        )}
+        {saveError && (
+          <p role="alert" className="text-sm text-red-600">
+            {saveError}
+          </p>
         )}
       </form>
     </div>

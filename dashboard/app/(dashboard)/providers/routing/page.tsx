@@ -4,6 +4,7 @@ import Link from "next/link"
 import { ArrowLeft, Info } from "lucide-react"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
+import { PROVIDER_CONNECTED_COLUMNS, connectedProviderIds } from "@/lib/provider-connected"
 import { RoutingRulesEditor } from "@/components/providers/routing-rules-editor"
 
 /**
@@ -35,7 +36,7 @@ export default async function RoutingRulesPage() {
     supabase.rpc("tenant_payment_methods_list", { p_tenant_id: tenant.id }),
     supabase
       .from("tenant_providers")
-      .select("provider")
+      .select(PROVIDER_CONNECTED_COLUMNS)
       .eq("tenant_id", tenant.id),
   ])
 
@@ -46,9 +47,9 @@ export default async function RoutingRulesPage() {
       .filter((m: any) => m.enabled)
       .map((m: any) => m.method as string),
   )
-  const tenantProviders = new Set<string>(
-    (providersRes.data ?? []).map((r: any) => r.provider as string),
-  )
+  // Same rule as the Platform providers page: a row is not a connection. A routing rule pointed at
+  // a credential-less provider would route real customers at a provider that cannot charge them.
+  const tenantProviders = new Set<string>(connectedProviderIds(providersRes.data as any))
 
   return (
     <div className="space-y-6">

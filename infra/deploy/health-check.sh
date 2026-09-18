@@ -6,7 +6,8 @@
 #
 # Usage:
 #   health-check.sh [URL]              # default: https://paycraft.mobilebytesensei.com
-#   health-check.sh --vercel-only      # use .last-deploy-url instead (pre-DNS)
+#   health-check.sh --direct-url-only   # use .last-deploy-url instead (pre-DNS)
+#                                      (--vercel-only still accepted; Vercel-era alias)
 #
 set -eo pipefail
 
@@ -14,9 +15,9 @@ DEFAULT_URL="https://paycraft.mobilebytesensei.com"
 LAST_DEPLOY_URL=$(cat "$(dirname "${BASH_SOURCE[0]}")/.last-deploy-url" 2>/dev/null || echo "")
 
 URL="${1:-$DEFAULT_URL}"
-if [[ "$1" = "--vercel-only" ]]; then
+if [[ "$1" = "--direct-url-only" || "$1" = "--vercel-only" ]]; then
     URL="$LAST_DEPLOY_URL"
-    [[ -z "$URL" ]] && { echo "ERROR: --vercel-only requires .last-deploy-url"; exit 1; }
+    [[ -z "$URL" ]] && { echo "ERROR: --direct-url-only requires .last-deploy-url"; exit 1; }
 fi
 
 echo "─── Phase 8: HEALTH CHECK ─────────────────────────────"

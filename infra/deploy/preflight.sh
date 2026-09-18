@@ -38,7 +38,7 @@ echo "─── Phase 1: PRE-FLIGHT ──────────────�
 check "Active project = mbs/PayCraft" \
     "[ \"\$(bash ${FW_ROOT}/core/scripts/session-resolve.sh)\" = mbs/PayCraft ]"
 
-# 2. CLIs — dashboard deploys to Cloudflare Workers (wrangler via npx), not Vercel.
+# 2. CLIs — dashboard deploys to Cloudflare Pages (wrangler via npx), not Vercel.
 # wrangler auth uses the CLOUDFLARE_API_TOKEN pulled from the vault at deploy time,
 # so there's no separate "logged in" hard-fail here.
 check "npx available (for wrangler)" "command -v npx"

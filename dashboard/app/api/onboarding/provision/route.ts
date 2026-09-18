@@ -77,6 +77,12 @@ export async function POST(req: NextRequest) {
     p_tenant_id: tenant.id,
   })
 
+  // Seed default platform routing: a primary AND a fallback per platform. This path inserts the
+  // tenant directly instead of calling provision_app, so it does not inherit the defaults that RPC
+  // now seeds — without this line an app onboarded here would have no fallback, and the first buyer
+  // its primary cannot serve would resolve no provider at all.
+  await admin.rpc("tenant_routing_apply_defaults", { p_tenant_id: tenant.id })
+
   await admin.rpc("audit_log_emit", {
     p_tenant_id: tenant.id,
     p_actor_user_id: userId,

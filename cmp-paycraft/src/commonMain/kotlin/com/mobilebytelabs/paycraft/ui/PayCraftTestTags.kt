@@ -98,6 +98,15 @@ object PayCraftTestTags {
     /** Tag on the single dominant paywall CTA button (ProductList.Continue). */
     const val PAYWALL_CTA = "paywall_cta"
 
+    /**
+     * Tag on the buyer-facing checkout failure line.
+     *
+     * Exists so a failed Continue is ASSERTABLE. Without it the tree paywall swallowed every
+     * checkout error — the VM recorded the reason, the screen never changed, and a test could not
+     * tell a working button from a dead one.
+     */
+    const val CHECKOUT_ERROR = "paywall_checkout_error"
+
     /** Tag on the "recommended" ring highlight — asserts exactly one recommended plan (AC-7). */
     const val PRODUCT_LIST_RECOMMENDED = "product_list_recommended"
 

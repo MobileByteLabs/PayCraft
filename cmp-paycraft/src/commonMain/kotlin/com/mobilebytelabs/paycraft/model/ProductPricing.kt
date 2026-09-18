@@ -85,8 +85,45 @@ private fun Product.fallbackPrice(): Money? = when (this) {
  */
 fun Product.sessionDisplayPrice(): Money? {
     val suite = PayCraft.suiteConfig ?: return fallbackPrice()
-    return displayPrice(suite, PayCraft.nativePriceForSku(id))
+    return laneAwareDisplayPrice(suite)
 }
+
+/**
+ * The display price for the lane this product will ACTUALLY transact on.
+ *
+ * WHY THE LANE MATTERS (device-proven 2026-09-18)
+ * A paywall rendered "₹1259" as the headline and "$3.49 / mo billed annually" directly beneath it —
+ * two currencies on one card. The cause was two price paths with OPPOSITE precedence:
+ * `toBillingPlan` took the cloud-resolved price first, while `displayPrice` took the native store
+ * price first. Whichever a render site happened to call decided the currency.
+ *
+ * Neither precedence is right on its own, because "the price the buyer will be charged" depends on
+ * WHERE they will be charged. This product's store_binding is razorpay (INR) — a Play Billing price
+ * is not what the buyer pays and must not appear. Conversely, on a google_play binding the Play
+ * price IS the truth and outranks the cloud figure.
+ *
+ * So the native price is consulted only when the binding is a native store. That keeps the
+ * India-buyer fix intact (a Play lane still shows the store's ₹799 over a cloud GBP figure) while
+ * making the mixed-currency card impossible by construction rather than by convention.
+ *
+ * Also note the lookup key: native prices are keyed by SKU. This used to pass `id` — the product
+ * UUID — so it silently missed on every product, the same id/sku confusion that once cost every
+ * checkout URL on the toBillingPlan path.
+ */
+fun Product.laneAwareDisplayPrice(config: SuiteConfig?): Money? {
+    if (this is Product.Trial) return null
+    if (config == null) return fallbackPrice()
+    val dto = config.products.firstOrNull { it.id == this.id } ?: return fallbackPrice()
+    val native = if (dto.storeBinding?.provider in NATIVE_STORE_PROVIDERS) {
+        PayCraft.nativePriceForSku(sku)
+    } else {
+        null
+    }
+    return displayPrice(config, native)
+}
+
+/** Lanes whose store owns the price the buyer is charged. */
+private val NATIVE_STORE_PROVIDERS = setOf("google_play", "app_store")
 
 /**
  * [sessionDisplayPrice] formatted, with the base price as a last resort so a render site can never

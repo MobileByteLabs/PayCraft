@@ -69,12 +69,35 @@ fun PaywallInlineError(message: String, onRetry: () -> Unit) {
  * an HTTP code tells the user nothing and reads as a broken app.
  */
 internal fun humanBillingError(raw: String): String = when {
-    // The exact strings a real device produced, not guesses: cappy's Play catalogue is unset, and
-    // the SDK reports "Google Play product not configured for plan <uuid> (native digital)" /
-    // "product id missing for <uuid>". Both name an internal id and neither says what to do.
+    // ── Store could not match THIS BUILD, so no plan will work ────────────────────────────────
+    // Play answers "Product not found on Play: <sku>" for two very different situations, and the
+    // common one is NOT a missing product. Play serves in-app products only to a build whose
+    // package AND signing certificate match something distributed through Play, at a versionCode
+    // the track knows. A debug-signed / sideloaded APK therefore gets "not found" while the SKU is
+    // sitting right there in the Console — measured on cappy 2026-09-17: storeBinding resolved
+    // `com.mobilebytesensei.cappy.sub.year` correctly, Play still refused, and the APK was
+    // `CN=Android Debug`, versionCode 1.
+    //
+    // "Try another plan" was the old copy here and it is actively wrong for this class: every plan
+    // fails identically, so it walks the user in a circle.
+    raw.contains("not found on play", ignoreCase = true) ||
+        raw.contains("item_unavailable", ignoreCase = true) ||
+        raw.contains("billing_unavailable", ignoreCase = true) ->
+        "Purchases aren't available in this build. Install the app from the store to subscribe."
+
+    // ── This ONE plan is misconfigured — a different plan genuinely may work ───────────────────
+    // "Google Play product not configured for plan <uuid> (native digital)" / "product id missing
+    // for <uuid>": the plan exists in PayCraft but carries no store binding.
+    raw.contains("not configured", ignoreCase = true) ||
+        raw.contains("product id missing", ignoreCase = true) ->
+        "This plan isn't available right now. Try another plan, or check back soon."
+
+    // ── The host app never loaded a billing module — a developer error, not a user one ─────────
+    raw.contains("no nativebillingclient", ignoreCase = true) ||
+        raw.contains("billing module", ignoreCase = true) ->
+        "Purchases aren't set up in this app yet."
+
     raw.contains("not found", ignoreCase = true) ||
-        raw.contains("not configured", ignoreCase = true) ||
-        raw.contains("product id missing", ignoreCase = true) ||
         raw.contains("unavailable", ignoreCase = true) ->
         "This plan isn't available right now. Try another plan, or check back soon."
 

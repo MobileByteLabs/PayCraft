@@ -113,6 +113,14 @@ export default async function ProductsPage() {
       })
       .single<{ connected: boolean }>(),
   ])
+  // A failing tenant_products_list used to render as an EMPTY STATE: data comes back null, `?? []`
+  // turns that into zero rows, and the page says "no products yet" for what is actually an RPC
+  // failure (missing grant, RLS denial, renamed function). That is indistinguishable from a healthy
+  // empty tenant, so a broken read looked like a normal first-run. Fail loudly instead — the same
+  // discipline sub-plan 02 applied to the /config fetches.
+  if (productsRes.error) {
+    throw new Error(`tenant_products_list failed: ${productsRes.error.message}`)
+  }
   const rows = (productsRes.data as Product[] | null) ?? []
   const stripeConnected = !!stripeStatusRes.data?.source
   const stripeLivemode = !!stripeStatusRes.data?.livemode

@@ -65,8 +65,10 @@ const SERVICE_ROLE_KEY =
 // ── Config ─────────────────────────────────────────────────────────────────────
 export default defineConfig({
   testDir: "./tests",
-  // Matches only the v2 spec (avoids picking up __tests__/jest specs)
-  testMatch: ["**/paywall-designer-v2.spec.ts"],
+  // Every *.spec.ts under tests/ — the jest suites live in __tests__/ and are excluded by testDir,
+  // so there is no need to name specs one at a time. Pinning a single filename meant a new e2e file
+  // was silently never run: the harness existed and covered exactly one feature.
+  testMatch: ["**/*.spec.ts"],
 
   // Global timeout per test
   timeout: 30_000,

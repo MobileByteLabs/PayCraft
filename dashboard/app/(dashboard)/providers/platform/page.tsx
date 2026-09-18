@@ -2,6 +2,7 @@ export const runtime = "edge"
 
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
+import { PROVIDER_CONNECTED_COLUMNS, connectedProviderIds } from "@/lib/provider-connected"
 import { PageHeader } from "@/components/ui/page-header"
 import { PlatformProvidersPanel } from "@/components/providers/platform-providers-panel"
 
@@ -16,7 +17,19 @@ export default async function PlatformProvidersPage() {
   const supabase = createClient()
 
   const [providersRes, registryRes, routingRes] = await Promise.all([
-    supabase.from("tenant_providers").select("provider").eq("tenant_id", tenant.id),
+    // A ROW IS NOT A CONNECTION. This used to select only `provider` with no filter, so any row in
+    // tenant_providers rendered as "Connected" — including rows written with is_active = true and no
+    // credential at all, which is what an interrupted or preview-mode onboarding leaves behind. The
+    // Products page reads the credential and greys the same provider, so the two pages disagreed and
+    // this one was the optimistic liar.
+    //
+    // Only non-secret columns are selected: key_id is a public identifier (rzp_live_…, pk_live_…)
+    // and store_config holds package_name / bundle_id. The encrypted secret columns are never
+    // pulled — their presence is implied by the key_id the same save writes.
+    supabase
+      .from("tenant_providers")
+      .select(PROVIDER_CONNECTED_COLUMNS)
+      .eq("tenant_id", tenant.id),
     supabase
       .from("provider_method_registry")
       .select("method, provider, display_name, fee_percent")
@@ -24,9 +37,7 @@ export default async function PlatformProvidersPage() {
     supabase.rpc("tenant_routing_rules_list", { p_tenant_id: tenant.id }),
   ])
 
-  const connectedProviders = [
-    ...new Set((providersRes.data ?? []).map((r: any) => r.provider as string)),
-  ]
+  const connectedProviders = connectedProviderIds(providersRes.data as any)
 
   return (
     <div>
