@@ -1,10 +1,21 @@
 name: Deploy docs site → Cloudflare Pages
 
 # Phase 2 T8 of paycraft-v2-production-readiness — builds Docusaurus on push
-# to dev, uploads to Cloudflare Pages project `paycraft-docs`. PR previews
-# are handled by Cloudflare's GitHub integration; this workflow owns the
-# canonical production deploy. Replaces the prior `docusaurus/`-targeted +
-# GitHub-Pages-targeted variant.
+# to dev, uploads to Cloudflare Pages project `paycraft-docs`. Replaces the prior
+# `docusaurus/`-targeted + GitHub-Pages-targeted variant.
+#
+# TWO SYSTEMS BUILD THIS SITE, and the earlier note here ("PR previews are handled
+# by Cloudflare's GitHub integration") understated the second one:
+#
+#   1. THIS workflow  → `wrangler pages deploy` → Pages project `paycraft-docs`.
+#      This is what SERVES production: docs.paycraft.mobilebytesensei.com is a
+#      CNAME to paycraft-docs.pages.dev (infra/dns-records.md).
+#   2. Cloudflare WORKERS BUILDS → builds docs-site/wrangler.toml on every push
+#      to dev, not just PRs. It is not preview-only.
+#
+# Both are kept deliberately. Keep the distinction in mind before changing either:
+# they share the name `paycraft-docs`, so a change that makes one authoritative
+# silently demotes the other, and only this path is wired to DNS today.
 #
 # Trigger moved main → dev alongside deploy-cloud.yml: `dev` is the default
 # branch and `main` stopped being promoted on 2026-08-03, leaving this dormant.
@@ -35,9 +46,13 @@ jobs:
         with:
           node-version: '20'
 
+      # `npm ci`, matching docs-site/wrangler.toml#build.command. Two systems build this
+      # same site; `npm install` may resolve a tree the lockfile does not describe, so the
+      # two builders could ship different dependency sets from one commit — and only one of
+      # them is wired to DNS, which is the hard kind of difference to notice.
       - name: Install deps
         working-directory: docs-site
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Build site
         working-directory: docs-site
