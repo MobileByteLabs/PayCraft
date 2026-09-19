@@ -48,7 +48,6 @@ import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.config.productForRole
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
-import com.mobilebytelabs.paycraft.model.Money
 import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.model.ProductMapper
 import com.mobilebytelabs.paycraft.model.laneAwareDisplayPrice
@@ -572,7 +571,6 @@ private fun PayCraftPaywallSurface(
                         // A tenant who authored a tree already said what their paywall contains.
                         enrichFromConfig = treeWorkflow == null,
                     )
-
                 }
             }
         }

@@ -1,4 +1,4 @@
-example-provenance: 518e84790cc2794f1cd4007182d72005ae07fe56
+example-provenance: 9cb5162c248fb9426d460f2328ffda6882c29462
 
 # WIRING_CONTRACTS.md — DI, initialization order, and the repository seam
 
@@ -9,17 +9,26 @@ example-provenance: 518e84790cc2794f1cd4007182d72005ae07fe56
 ```
 1. PayCraft.initialize(apiKey, backend, options, mode)     // synchronous; captures apiKey + backend
 2. startKoin { modules(PayCraftModule, …app modules) }     // or add PayCraftModule to an existing startKoin
-3. (Android only, optional) loadKoinModules(paycraftPlayBillingModule)
-   (iOS only,     optional) loadKoinModules(paycraftStoreKit2BillingModule)
+3. (Android only, optional) loadKoinModules(paycraftPlayBillingModule(context, activityProvider))
 4. app UI composes; BillingManager resolves lazily
 ```
 
-**Why this order is not negotiable.** `PayCraftModule`'s `SupabaseClient` singleton reads
-`PayCraft.backend`, and its `PayCraftService` singleton reads `PayCraft.apiKey` — both with an
-`error(...)` if unset. Both are set synchronously inside `initialize`. They deliberately do **not**
-call `requireConfig()`, because `config` is only fully populated after the async `/config` fetch
-resolves, which happens later than Koin's lazy singleton materialization. So: `initialize` before
-`startKoin`, and never gate Koin startup on the config arriving.
+**Why this order is preferred.** `PayCraftModule`'s `SupabaseClient` singleton reads
+`PayCraft.backend`, and its `PayCraftService` singleton reads `PayCraft.apiKey` — both set
+synchronously inside `initialize`. Neither calls `requireConfig()`, because `config` is only fully
+populated after the async `/config` fetch resolves, which happens later than Koin's lazy singleton
+materialization. So: `initialize` before `startKoin`, and never gate Koin startup on the config
+arriving.
+
+**Why it is no longer fatal to get it wrong.** `PayCraftServiceImpl.apiKey` is now **nullable** where
+it used to `error(...)`. That `error` made the SDK's initialization order the *host's* problem: any
+DI graph materializing `BillingManager` before `PayCraft.initialize()` crashed the app at start-up
+with *"PayCraft.initialize(apiKey) must be called before resolving PayCraftService"*. Hosts do not
+control when their container resolves a singleton — a generated logout registry that eagerly touches
+every store is enough to lose that race, which is exactly how it was hit on device (cappy, CPH2423).
+An unconfigured service now omits the key, the RPCs resolve no tenant, and the answer is a **Free
+entitlement** — the correct answer for an app with no key. Ask `PayCraft.isConfigured` when a caller
+genuinely needs to know; **do not** re-implement that predicate by reading your own build config.
 
 ## commonMain-first (hard)
 
@@ -35,10 +44,10 @@ Platform-specific pieces are additive Koin modules layered on top, never a secon
 | Binding | Implementation | Notes |
 |---|---|---|
 | `SupabaseClient` (qualifier `named("paycraft")`) | `createSupabaseClient` with `Postgrest`, `Auth`, `Realtime` | Qualified — it will not collide with the app's own `SupabaseClient` |
-| `PayCraftService` | `PayCraftServiceImpl(client, apiKey)` | RPC seam; see below |
+| `PayCraftService` | `PayCraftServiceImpl(client, apiKey = PayCraft.apiKey)` | RPC seam; `apiKey` nullable by design (above) |
 | `PayCraftStore` | `PayCraftSettingsStore()` | Email + subscription cache (multiplatform-settings) |
 | `PayCraftRealtime` | wraps the qualified `SupabaseClient` | Broadcast invalidation pings |
-| `NativeBillingClient` | `platformDefaultNativeBillingClient() ?: WebCheckoutNativeBillingClient()` | Android resolves real Play Billing automatically |
+| `NativeBillingClient` | `platformDefaultNativeBillingClient() ?: WebCheckoutNativeBillingClient()` | Android **and iOS** resolve a real client automatically |
 | `EntitlementCache` | `EntitlementCache(service, SettingsEntitlementDao())` | Store5 read-through + offline last-known-good |
 | `EntitlementRepository` | `EntitlementRepository(cache, native, service)` | The repository seam |
 | `BillingManager` | `PayCraftBillingManager(service, store, repo, nativeBillingClient)` | The headless surface |
@@ -54,21 +63,30 @@ project (or vice versa).
 
 ## `NativeBillingClient` — the platform seam
 
-`platformDefaultNativeBillingClient()` is an `expect`/`actual`:
+`platformDefaultNativeBillingClient()` is an `expect`/`actual`, and **both native stores now resolve
+a real client with zero platform wiring**:
 
-- **Android** → real Google Play Billing. Context and Activity are captured automatically by
-  `PayCraftInitializer` (androidx-startup), so a `commonMain`-only consumer needs no androidMain code.
-- **iOS / desktop / web / js** → returns null, and the module falls back to
-  `WebCheckoutNativeBillingClient` (a no-op that reports `Web`).
+- **Android** → real Google Play Billing (library **9.1.0**). Context and Activity are captured
+  automatically by `PayCraftInitializer` (androidx-startup), so a `commonMain`-only consumer needs no
+  androidMain code.
+- **iOS** → real StoreKit 2 (`StoreKit2NativeBillingClient`), **always**. This previously returned
+  null (later an `UnconfiguredStoreKitClient`) because the Swift bridge could only come from the
+  consuming app, so iOS integrators had to copy `PayCraftStoreKit2.swift` into their Xcode target and
+  load `paycraftStoreKit2BillingModule` by hand. **The shim is now SDK-internal** — compiled to a
+  static archive and reached via cinterop — so there is nothing to inject and no way to be
+  "unconfigured". `PayCraft.initialize(apiKey)` in commonMain is the whole iOS integration, exactly
+  as it already was on Android. **`paycraftStoreKit2BillingModule` no longer exists; a wiring that
+  still loads it will not compile.**
+- **desktop / web / js** → returns null, and the module falls back to `WebCheckoutNativeBillingClient`
+  (a no-op that reports `Web`), which is correct: those platforms have no native store.
 
-Opt-in overrides, loaded **after** `PayCraftModule`:
+The one remaining opt-in override, loaded **after** `PayCraftModule`:
 
-- `paycraftStoreKit2BillingModule` (iOS) — binds the StoreKit 2 client backed by the Swift shim
-  `PayCraftStoreKit2.swift` (`startTransactionUpdates`, `finish`, `introOffer`).
-- `paycraftPlayBillingModule` (Android) — for a custom `activityProvider`.
+- `paycraftPlayBillingModule(context, activityProvider)` (Android) — only when the app needs a custom
+  `activityProvider`. The default path does not need it.
 
-If neither native lane is wired on a native-store platform, every digital checkout resolves to
-`CheckoutLane.Misconfigured` and is **blocked**, not silently redirected to a browser.
+If a native-store platform somehow resolves `WebCheckoutNativeBillingClient`, every digital checkout
+resolves to `CheckoutLane.Misconfigured` and is **blocked**, not silently redirected to a browser.
 
 ## `tenantId` lifecycle
 
@@ -93,8 +111,11 @@ gating should read `BillingManager.isPremium` / `billingState`, not reach past i
 
 ## Verification an integrator can run
 
-- `PayCraft.apiKey` non-null immediately after `initialize` (synchronous capture).
-- `getKoin().get<BillingManager>()` resolves without throwing.
+- `PayCraft.apiKey` non-null immediately after `initialize` (synchronous capture), and
+  `PayCraft.isConfigured == true`.
+- `getKoin().get<BillingManager>()` resolves without throwing — **including before `initialize`**,
+  where it must answer Free rather than crash.
 - `getKoin().get<NativeBillingClient>()` is NOT `WebCheckoutNativeBillingClient` on Android/iOS when
   the app ships digital subscriptions.
-- `PayCraft.suiteConfigFlow.value?.tenantId` non-null after the first successful `/config`.
+- `PayCraft.suiteConfigFlow.value?.tenantId` non-null after the first successful `/config`, and
+  `PayCraft.configResultFlow.value` is `Fresh`/`Cached` rather than `Failed`.

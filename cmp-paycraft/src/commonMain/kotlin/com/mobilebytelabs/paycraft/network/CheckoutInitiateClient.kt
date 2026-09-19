@@ -26,24 +26,13 @@ import kotlinx.serialization.json.Json
  * bound to a PSP plan, and the paywall's Continue button failed with "no checkout URL for currency
  * INR" while the plan id sat right there in the config.
  */
-class CheckoutInitiateClient(
-    private val httpClient: HttpClient,
-    private val backend: PayCraftBackend,
-) {
+class CheckoutInitiateClient(private val httpClient: HttpClient, private val backend: PayCraftBackend) {
 
     @Serializable
-    private data class CustomerBody(
-        val email: String,
-        val name: String? = null,
-        val phone: String? = null,
-    )
+    private data class CustomerBody(val email: String, val name: String? = null, val phone: String? = null)
 
     @Serializable
-    private data class InitiateRequest(
-        val sku: String,
-        val customer: CustomerBody,
-        val currency: String? = null,
-    )
+    private data class InitiateRequest(val sku: String, val customer: CustomerBody, val currency: String? = null)
 
     @Serializable
     private data class InitiateResponse(

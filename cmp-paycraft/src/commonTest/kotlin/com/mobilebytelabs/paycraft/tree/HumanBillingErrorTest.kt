@@ -28,7 +28,8 @@ class HumanBillingErrorTest {
      */
     @Test
     fun a_store_that_cannot_match_this_build_does_not_tell_the_user_to_try_another_plan() {
-        val shown = humanBillingError("Play purchase failed: Product not found on Play: com.mobilebytesensei.cappy.sub.year")
+        val shown =
+            humanBillingError("Play purchase failed: Product not found on Play: com.mobilebytesensei.cappy.sub.year")
         assertEquals(
             "Purchases aren't available in this build. Install the app from the store to subscribe.",
             shown,

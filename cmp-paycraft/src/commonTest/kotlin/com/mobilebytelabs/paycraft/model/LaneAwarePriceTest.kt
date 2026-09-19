@@ -40,15 +40,14 @@ class LaneAwarePriceTest {
         storeBinding = binding,
     )
 
-    private fun subscription(id: String, sku: String, baseCents: Int, currency: String) =
-        Product.Subscription(
-            id = id,
-            sku = sku,
-            displayName = "Plus (Annual)",
-            displayOrder = 1,
-            interval = Product.Subscription.Interval.YEAR,
-            basePrice = Money(baseCents, currency),
-        )
+    private fun subscription(id: String, sku: String, baseCents: Int, currency: String) = Product.Subscription(
+        id = id,
+        sku = sku,
+        displayName = "Plus (Annual)",
+        displayOrder = 1,
+        interval = Product.Subscription.Interval.YEAR,
+        basePrice = Money(baseCents, currency),
+    )
 
     /**
      * The razorpay lane: the cloud figure is what the buyer pays. A Play price, even if the SDK has
