@@ -12,3 +12,14 @@ compatibility_date = "2026-06-17"
 [assets]
 directory = "./build"
 not_found_handling = "404-page"
+
+# `./build` is a Docusaurus ARTIFACT — gitignored, absent at checkout. Declaring the assets
+# directory without declaring how to PRODUCE it left Workers Builds uploading a directory that
+# does not exist, so the build kept failing after the entry-point fix above appeared to settle it.
+#
+# The command lives here rather than only in the Cloudflare dashboard so it is version-controlled
+# and reviewable: a dashboard-only build command is invisible to everyone reading this repo, which
+# is how the previous mismatch survived. `npm ci` is deliberate — it honours package-lock.json,
+# so CI cannot silently resolve a different dependency tree than the one committed.
+[build]
+command = "npm ci --no-audit --no-fund && npm run build"
