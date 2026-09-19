@@ -14,8 +14,10 @@ import {
   dropTenant,
   getConfig,
   providerIds,
+  psql,
   requireLocalStack,
   seedTenant,
+  sqlLit,
 } from "./harness.ts";
 
 Deno.test("e2e: local stack is up", requireLocalStack);
@@ -278,6 +280,55 @@ Deno.test("config: a provider with no link AND no artifact is correctly excluded
       !providerIds(body).includes("razorpay"),
       "razorpay has no link and no plan id here — offering it would be a dead option",
     );
+  } finally {
+    await dropTenant(t.id);
+  }
+});
+
+/**
+ * THE TTL IS A SETTING, AND IT IS THE PROPAGATION DELAY.
+ *
+ * The SDK is fully server-driven, so this number decides how long a dashboard change stays invisible
+ * on a device — it was hardcoded to 3600, which is why every support answer began with "wait up to
+ * an hour". A new tenant now defaults to 5 minutes and an operator can change it.
+ */
+Deno.test("config: serves the tenant's cache TTL, defaulting to 5 minutes", async () => {
+  const t = await seedTenant({
+    name: "ttl_default",
+    products: [{ sku: "plus_monthly", stripeProductId: "prod_E2E", stripePriceIds: { USD: "price_E2E" } }],
+    providers: [{ provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { plus_monthly: { USD: "https://buy.stripe.com/e2e" } } }],
+  });
+  try {
+    const a = await getConfig(t.apiKeyLive, { platform: "web", locale: "en-US" });
+    assertEquals(a.body.cache_ttl_seconds, 300, "a new app must default to 5 minutes, not an hour");
+
+    await psql(
+      `UPDATE tenants SET config_cache_ttl_seconds = 60 WHERE id = ${sqlLit(t.id)}::uuid`,
+    );
+    const b = await getConfig(t.apiKeyLive, { platform: "web", locale: "en-US" });
+    assertEquals(b.body.cache_ttl_seconds, 60, "the operator's choice must reach the device");
+  } finally {
+    await dropTenant(t.id);
+  }
+});
+
+/**
+ * 0 IS THE SDK'S STALE SENTINEL, NOT "never cache".
+ *
+ * `ConfigCache.read()` returns a copy with `cacheTtlSeconds = 0` to mean expired, and PayCraft tests
+ * that field to decide staleness. A tenant who set 0 hoping for "always fresh" would make every
+ * cached read look permanently expired, so the database must refuse it outright.
+ */
+Deno.test("config: a TTL of 0 cannot be stored", async () => {
+  const t = await seedTenant({ name: "ttl_zero_forbidden" });
+  try {
+    let rejected = false;
+    try {
+      await psql(`UPDATE tenants SET config_cache_ttl_seconds = 0 WHERE id = ${sqlLit(t.id)}::uuid`);
+    } catch (e) {
+      rejected = String(e).includes("tenants_config_cache_ttl_seconds_range");
+    }
+    assert(rejected, "0 must be refused by CHECK — it is the SDK's stale sentinel");
   } finally {
     await dropTenant(t.id);
   }

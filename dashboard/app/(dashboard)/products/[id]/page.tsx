@@ -116,7 +116,7 @@ export default async function ProductViewPage({
           </div>
           <p className="text-sm text-ink-500 mt-1">
             Read-only view. Changes propagate to the SDK on the next config
-            fetch (max 1h cached client-side).
+            fetch (cached up to 5 min client-side).
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">

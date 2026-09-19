@@ -111,6 +111,9 @@ class PayCraftBillingManagerTest {
     ) : PayCraftStore {
         var clearCacheCalled = false
 
+        /** What the manager actually persisted — a refused identity must leave this untouched. */
+        val savedEmail: String? get() = email
+
         override suspend fun saveEmail(email: String) {
             this.email = email
         }
@@ -198,6 +201,41 @@ class PayCraftBillingManagerTest {
         storeBinding = productId?.let { StoreBinding(provider, it) },
         isDigital = true,
     )
+
+    // ─── Entitlement identity (the address a purchase is bound to) ─────────────
+
+    /**
+     * The address passed to `logIn` is not a display field: it is persisted, sent to the PSP as the
+     * mandate's notify address, and echoed back on every webhook, where the purchase is routed by
+     * it. Binding a value that cannot be an address attaches a paying customer's subscription to
+     * something that reaches nobody, permanently and silently.
+     */
+    @Test
+    fun logIn_malformedAddress_isRefusedAndNeverPersisted() {
+        val store = FakePayCraftStore(cached = null, lastSynced = 0L, email = null)
+        val manager = PayCraftBillingManager(service = FakePayCraftService(), store = store)
+
+        for (bad in listOf("", "   ", "not-an-email", "@example.com", "user@", "user@example", "a b@c.com")) {
+            manager.logIn(bad)
+        }
+
+        assertNull(store.savedEmail, "a malformed identity must never be persisted")
+        assertNull(manager.userEmail.value, "and must never become the live identity")
+    }
+
+    /**
+     * Deliberately permissive on the accept side: plus-tags, long TLDs and subdomains all deliver,
+     * and refusing a paying customer's real address is worse than accepting an odd-looking one.
+     */
+    @Test
+    fun logIn_realWorldAddresses_areAccepted() {
+        for (good in listOf("user@example.com", "user+tag@example.co.uk", "first.last@mail.example.io")) {
+            val store = FakePayCraftStore(cached = null, lastSynced = 0L, email = null)
+            val manager = PayCraftBillingManager(service = FakePayCraftService(), store = store)
+            manager.logIn(good)
+            assertEquals(good, manager.userEmail.value, "'$good' is a deliverable address")
+        }
+    }
 
     // ─── Google Play Billing anti-steering guard (Payments-policy keystone) ────
 

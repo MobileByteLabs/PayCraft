@@ -375,7 +375,7 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
       .eq("is_active", true),
     supabase
       .from("tenants")
-      .select("plan,entitlements")
+      .select("plan,entitlements,config_cache_ttl_seconds")
       .eq("id", tenantId)
       .single(),
     // D8/AC-11 — offerings→packages→skus. 088 created these tables and nothing ever surfaced them,
@@ -712,7 +712,18 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     shadow_provenance: shadowCountryResolved.provenance,
     // Phase-4 config-wins MonetizationMode passthrough — see comment above.
     mode: monetizationMode,
-    cache_ttl_seconds: 3600,
+    // PER-TENANT, defaulting to 5 minutes (migration 129).
+    //
+    // The SDK is fully server-driven — prices, paywall copy, provider routing and store bindings all
+    // arrive in this payload — so this number is how long a dashboard change stays INVISIBLE on a
+    // device, not a caching detail. At the old hardcoded 3600 every support answer began with "wait
+    // up to an hour", and an operator who fixed a wrong price could not tell a failed fix from an
+    // unpropagated one.
+    //
+    // The `?? 300` is a floor for a row written before 129 added the column, never a silent override
+    // of an operator's choice. 0 is impossible by CHECK: the SDK uses cacheTtlSeconds=0 as its STALE
+    // sentinel, so serving 0 would make every cached read look permanently expired.
+    cache_ttl_seconds: tenantRes.data?.config_cache_ttl_seconds ?? 300,
   }
 
   return new Response(JSON.stringify(body), {

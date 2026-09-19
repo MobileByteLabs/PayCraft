@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { ConfigTtlCard } from "@/components/settings/config-ttl-card"
 import { Eye, EyeOff, AlertTriangle, Globe, Bell, Webhook, Building2 } from "lucide-react"
 
 // Toggle switch component
@@ -150,6 +151,11 @@ export default function SettingsPage() {
             </div>
           </div>
         </section>
+
+        {/* Change propagation — the one control on this page that is REALLY persisted. Everything
+            else here is still local state; this reads and writes tenants.config_cache_ttl_seconds
+            through /api/settings/config-ttl. */}
+        <ConfigTtlCard />
 
         {/* Webhooks Card */}
         <section className="bg-white rounded-xl border border-ink-200 shadow-sm overflow-hidden">

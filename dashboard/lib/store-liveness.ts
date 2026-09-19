@@ -60,9 +60,13 @@ export function notPublishedGuidance(store: "google_play" | "app_store", id: str
         `base-plan activation until the app is published on at least one track. Go ahead and ` +
         `activate the base plan manually in Play Console once the app is published ` +
         `(Monetize → Subscriptions → your plan → Activate), or re-run this sync after publishing.`
-    : `App is not live on the App Store (${id}). The subscription was created, but it stays in ` +
-        `"Waiting for Review"/"Missing Metadata" until the app itself is published. Go ahead and ` +
-        `submit/activate it manually in App Store Connect, or re-run this sync after the app is live.`
+    : `Not on the public App Store yet (${id}). This checks the public storefront, which CANNOT ` +
+        `see an app that exists in App Store Connect but has not been released — TestFlight builds ` +
+        `and "Waiting for Review" are both invisible to it, and look identical here to a wrong ` +
+        `bundle id. So this is not evidence your app is missing. StoreKit purchases still work in ` +
+        `TestFlight against the sandbox, so subscriptions are testable now; the subscription itself ` +
+        `stays "Waiting for Review"/"Missing Metadata" until the app is released. Re-check after ` +
+        `release, or confirm the bundle id in App Store Connect if you expected it to be live.`
 }
 
 /**

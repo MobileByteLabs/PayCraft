@@ -22,6 +22,8 @@ interface Body {
   key_id: string
   issuer_id: string
   bundle_id: string
+  /** URL of the operator's review screenshot — App Store requires one per subscription. */
+  review_screenshot_url?: string
   account_label: string
   /** Update a SPECIFIC connection; null/absent = the one this app already resolves to. */
   account_id: string | null
@@ -42,6 +44,7 @@ export async function POST(req: NextRequest) {
   const bundleId = (body.bundle_id ?? "").trim()
   // A non-secret "which Apple account is this?" label (e.g. the team's email).
   const accountLabel = (body.account_label ?? "").trim()
+  const reviewShotUrl = (body.review_screenshot_url ?? "").trim()
 
   const { data: existing } = await supabase
     .from("tenant_providers")
@@ -79,7 +82,13 @@ export async function POST(req: NextRequest) {
   // every app under it — while bundle_id identifies THIS app. Putting bundle_id on the account
   // would make every app sharing that team claim the same bundle.
   const acctConfig: Record<string, unknown> = { key_id: keyId, issuer_id: issuerId }
-  const appConfig: Record<string, unknown> = { bundle_id: bundleId }
+  // App-scoped, like bundle_id: the screenshot pictures THIS app's paywall, not the team's.
+  // An empty submission preserves whatever was already stored rather than clearing it, so saving
+  // keys does not silently drop a configured screenshot.
+  const appConfig: Record<string, unknown> = {
+    bundle_id: bundleId,
+    review_screenshot_url: reviewShotUrl || (existingCfg.review_screenshot_url as string | undefined) || undefined,
+  }
 
   // Same value as the Android package name (111) — set the app identifier, which mirrors to both
   // provider rows, instead of writing an iOS-only copy that can drift from the Android one.

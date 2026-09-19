@@ -91,6 +91,21 @@ export interface GooglePlaySyncResult {
    * so the Play cart keeps granting a trial the paywall no longer advertises.
    */
   trialOfferDeactivated?: boolean
+
+  /**
+   * True when the store listing description was DERIVED from the product name rather than written
+   * by an operator. Mirrors the App Store's `derivedDescription`: machine-written copy that ships
+   * to customers must announce itself, or nobody ever learns it is there.
+   */
+  derivedDescription?: boolean
+
+  /** How many regions the base plan is priced in after this sync. */
+  regionsPriced?: number
+  /**
+   * Why region coverage is narrower than configured, when it is. Reported rather than swallowed:
+   * a plan priced in one country sells in one country, and every surface called that a clean sync.
+   */
+  regionWarning?: string
 }
 
 // Minimal ISO-4217 currency → CLDR region map for the common PayCraft set.
@@ -102,6 +117,39 @@ export const CURRENCY_REGION: Record<string, string> = {
 }
 
 /** PayCraft billing interval → ISO-8601 duration for a Play base plan. */
+/** Play's listing description ceiling. Longer copy is truncated by the store without warning. */
+const PLAY_DESCRIPTION_MAX = 80
+
+/**
+ * The one line shown under the subscription name on Play.
+ *
+ * Play was previously sent `listings: [{ languageCode, title }]` on both create and re-sync, so a
+ * listing could never carry a description — there was no field to send and no source to send from.
+ */
+function playListing(productName: string, interval: string | null, storeDescription?: string | null) {
+  const authored = (storeDescription ?? "").trim()
+  const derived = authored.length === 0
+  const description = (authored || `${productName} — ${playCadenceWords(interval)}`).slice(
+    0,
+    PLAY_DESCRIPTION_MAX,
+  )
+  return {
+    listing: { languageCode: "en-US", title: productName.slice(0, 55), description },
+    derived,
+  }
+}
+
+/** Plain-English cadence for the derived fallback, mirroring the App Store wording. */
+function playCadenceWords(interval: string | null): string {
+  switch ((interval ?? "").toLowerCase()) {
+    case "year": return "Billed yearly"
+    case "semiannual": return "Billed every 6 months"
+    case "quarter": return "Billed quarterly"
+    case "month": return "Billed monthly"
+    default: return "One-time purchase"
+  }
+}
+
 export function playBillingPeriod(interval: string | null | undefined): string {
   switch (interval) {
     case "month": return "P1M"
@@ -177,6 +225,80 @@ export function shortPlayError(body: string): string {
  * re-sync (after the APK lands) flips the plan ACTIVE. Idempotent: an
  * already-active base plan counts as success.
  */
+/**
+ * Price a base plan in every CONFIGURED region it does not already cover. ADDITIVE ONLY.
+ *
+ * WHY THIS EXISTS
+ * Regions were previously set once, at base-plan CREATE, and never revisited — the re-sync path
+ * refreshed the listing title and stopped, on the stated reasoning that "base-plan pricing on Play
+ * is immutable once active". That is true of CHANGING an existing region's price on an active plan
+ * (which needs Play's price-change flow); it is NOT true of ADDING a region, which is an ordinary
+ * `subscriptions.patch`. Verified against the live API: a plan went 1 → 7 regions and stayed ACTIVE.
+ *
+ * The consequence of the old behaviour was silent and permanent. The cappy subscriptions were
+ * created when only USD was configured, so they were pinned to a single region (US) forever; the
+ * operator later configured seven currencies and Play kept selling in one country, with every sync
+ * reporting success. It is the same self-perpetuating shape as the App Store pricing bug: the state
+ * created by the first run is what convinces every later run there is nothing to do.
+ *
+ * Existing regionalConfigs are copied through untouched, so no price is ever rewritten and the
+ * constrained operation is never attempted.
+ */
+async function ensureBasePlanRegions(
+  token: string,
+  pkg: string,
+  productId: string,
+  basePlanId: string,
+  prices: GooglePlayPriceInput[],
+): Promise<{ added: number; total: number; error?: string }> {
+  const getRes = await playFetch(token, `/applications/${pkg}/subscriptions/${encodeURIComponent(productId)}`)
+  if (!getRes.ok) {
+    return { added: 0, total: 0, error: `subscriptions.get failed (${getRes.status})` }
+  }
+  const sub = await getRes.json().catch(() => null)
+  const basePlans: any[] = sub?.basePlans ?? []
+  const plan = basePlans.find((b) => b?.basePlanId === basePlanId)
+  if (!plan) return { added: 0, total: 0, error: `base plan ${basePlanId} not found` }
+
+  const existing: any[] = plan.regionalConfigs ?? []
+  const have = new Set<string>(existing.map((r) => r.regionCode))
+
+  // Same currency→region collapse as the create path: many-to-one, first price for a region wins.
+  const additions: Array<Record<string, unknown>> = []
+  for (const { currency, amountCents } of prices) {
+    const region = CURRENCY_REGION[currency.toUpperCase()]
+    if (!region || have.has(region)) continue
+    have.add(region)
+    additions.push({
+      regionCode: region,
+      newSubscriberAvailability: true,
+      price: toPlayMoney(currency, amountCents),
+    })
+  }
+  if (additions.length === 0) return { added: 0, total: existing.length }
+
+  // Send every base plan back, with only the target's regionalConfigs extended. `state` is
+  // output-only and is rejected on write.
+  const merged = basePlans.map((b) => {
+    const copy: Record<string, unknown> = { ...b }
+    delete copy.state
+    if (b.basePlanId === basePlanId) copy.regionalConfigs = [...existing, ...additions]
+    return copy
+  })
+
+  const res = await playFetch(
+    token,
+    `/applications/${pkg}/subscriptions/${encodeURIComponent(productId)}?updateMask=basePlans&regionsVersion.version=${REGIONS_VERSION}`,
+    { method: "PATCH", body: JSON.stringify({ packageName: pkg, productId, basePlans: merged }) },
+  )
+  if (!res.ok) {
+    const body = await res.text()
+    console.warn(`[googleplay-product-sync] region patch failed for ${productId} (${res.status}): ${body}`)
+    return { added: 0, total: existing.length, error: `${res.status}: ${shortPlayError(body)}` }
+  }
+  return { added: additions.length, total: existing.length + additions.length }
+}
+
 async function activateBasePlan(
   token: string,
   pkg: string,
@@ -324,6 +446,52 @@ async function ensureFreeTrialOffer(
       }
     }
     exists = true
+  } else {
+    // The offer already exists. Extend it to any region the base plan has gained since it was
+    // created — WITHOUT this, a trial created while the plan sold in one country stays a one-country
+    // trial after the plan expands, so the paywall advertises a trial most buyers cannot get.
+    // Additive, exactly like the base-plan region fix: existing entries are copied through untouched.
+    const cur = await getRes.json().catch(() => null)
+    if (cur) {
+      const haveAvail = new Set<string>((cur.regionalConfigs ?? []).map((r: any) => r.regionCode))
+      const missing = regions.filter((r) => !haveAvail.has(r))
+      if (missing.length > 0) {
+        const phases: any[] = Array.isArray(cur.phases) && cur.phases.length > 0 ? cur.phases : []
+        const phase0 = phases[0] ?? {}
+        const havePhase = new Set<string>((phase0.regionalConfigs ?? []).map((r: any) => r.regionCode))
+        const patchBody = {
+          packageName: pkg,
+          productId,
+          basePlanId,
+          offerId,
+          regionalConfigs: [
+            ...(cur.regionalConfigs ?? []),
+            ...missing.map((regionCode) => ({ regionCode, newSubscriberAvailability: true })),
+          ],
+          phases: [
+            {
+              ...phase0,
+              regionalConfigs: [
+                ...(phase0.regionalConfigs ?? []),
+                ...missing.filter((r) => !havePhase.has(r)).map((regionCode) => ({ regionCode, free: {} })),
+              ],
+            },
+            ...phases.slice(1),
+          ],
+        }
+        const patchRes = await playFetch(
+          token,
+          `${offersBase}/${encodeURIComponent(offerId)}?updateMask=regionalConfigs,phases&regionsVersion.version=${REGIONS_VERSION}`,
+          { method: "PATCH", body: JSON.stringify(patchBody) },
+        )
+        if (!patchRes.ok) {
+          // Reported, not thrown: the trial still works where it already applied.
+          console.warn(
+            `[googleplay-product-sync] offer region extension failed for ${offerId} (${patchRes.status}): ${await patchRes.text()}`,
+          )
+        }
+      }
+    }
   }
 
   // Activate (best-effort) so the trial is actually purchasable. Blocked until the
@@ -408,6 +576,8 @@ export async function syncProductToGooglePlay(
   existingPlayProductId?: string,
   /** Free-trial length in days (from the subscription's trial_enabled + trial_duration_days). 0/undefined → no trial offer. */
   trialDays?: number | null,
+  /** Operator-authored store listing description; derived from the name + cadence when absent. */
+  storeDescription?: string | null,
 ): Promise<GooglePlaySyncResult> {
   const sa = JSON.parse(creds.serviceAccountJson) as PlayServiceAccountJson
   const token = await playAccessToken(sa)
@@ -457,7 +627,7 @@ export async function syncProductToGooglePlay(
     const patchBody = {
       packageName: pkg,
       productId,
-      listings: [{ languageCode: "en-US", title: productName.slice(0, 55) }],
+      listings: [playListing(productName, interval, storeDescription).listing],
     }
     const patchRes = await playFetch(
       token,
@@ -469,6 +639,10 @@ export async function syncProductToGooglePlay(
         `[googleplay-product-sync] listing patch failed for ${productId} (${patchRes.status}): ${await patchRes.text()}`,
       )
     }
+    // Extend region coverage BEFORE activation/offers: a newly-configured currency must reach the
+    // store on a re-sync, and the free-trial offer is attached to the regions the plan actually has.
+    const regionOutcome = await ensureBasePlanRegions(token, pkg, productId, basePlanId, prices)
+
     // Re-sync of an existing subscription: attempt to activate the base plan
     // (a no-op if already active) — this is how a DRAFT plan goes live once the
     // tenant has finally published the app on Play.
@@ -476,6 +650,11 @@ export async function syncProductToGooglePlay(
     return withTrial({
       appNotPublished: act.appNotPublished,
       storeListingUrl: act.storeListingUrl,
+      regionsPriced: regionOutcome.total || undefined,
+      derivedDescription: playListing(productName, interval, storeDescription).derived,
+      ...(regionOutcome.error
+        ? { regionWarning: `region coverage not extended — ${regionOutcome.error}` }
+        : {}),
       playProductId: productId,
       basePlanId,
       created: false,
@@ -525,7 +704,7 @@ export async function syncProductToGooglePlay(
   const createBody = {
     packageName: pkg,
     productId,
-    listings: [{ languageCode: "en-US", title: productName.slice(0, 55) }],
+    listings: [playListing(productName, interval, storeDescription).listing],
     basePlans: [
       {
         basePlanId,

@@ -452,6 +452,8 @@ export async function googlePlaySyncProduct(
       prices,
       existingPlayProductId,
       trialDays,
+      // Store listing copy the operator wrote; each store truncates to its own ceiling.
+      body.store_description ?? null,
     )
 
     await supabase.rpc("tenant_products_set_store_ids", {
@@ -478,6 +480,18 @@ export async function googlePlaySyncProduct(
           result.trialOfferError ??
           `base plan is live but the ${trialDays}-day free-trial offer is still DRAFT — re-sync after the app is published to activate it`,
       }
+    }
+    // Sellable, but narrower than configured. `reason`, not `warning`: the sync genuinely succeeded
+    // and the product IS purchasable — calling it unfinished would misdescribe a correct end state,
+    // while staying silent is how a plan sold in one country for months read as fully synced.
+    const notes = [
+      result.regionWarning,
+      result.derivedDescription
+        ? "Play store description was auto-generated from the product name — write one in the product form"
+        : undefined,
+    ].filter(Boolean)
+    if (notes.length > 0) {
+      return { reason: notes.join(" · ") }
     }
     return {}
   } catch (e: any) {
@@ -532,6 +546,13 @@ export async function appStoreSyncProduct(
         keyId: cfg.key_id,
         issuerId: cfg.issuer_id,
         bundleId: cfg.bundle_id,
+        // The operator's own paywall screenshot, set on the App Store provider page. Threaded
+        // through rather than fetched inside the sync so the credential resolution stays in one
+        // place.
+        reviewScreenshotUrl: (cfg.review_screenshot_url as string | undefined) ?? null,
+        // Rendered from the tenant's live paywall when no capture is supplied, so the App Store
+        // requirement is satisfied with no operator action and cannot go stale.
+        reviewScreenshotPng: await renderTenantReviewScreenshot(supabase, tenantId),
         privateKeyP8: decrypted.credential,
       },
       productId,
@@ -541,6 +562,8 @@ export async function appStoreSyncProduct(
       prices,
       existingAppStoreProductId,
       trialDays,
+      // Store listing copy the operator wrote; each store truncates to its own ceiling.
+      body.store_description ?? null,
     )
 
     await supabase.rpc("tenant_products_set_store_ids", {
@@ -564,6 +587,28 @@ export async function appStoreSyncProduct(
     if (result.introductoryOfferWarning) {
       return { warning: result.introductoryOfferWarning }
     }
+    // Incomplete territory pricing is a WARNING, not a note: App Store Connect holds such a
+    // subscription in MISSING_METADATA, so it cannot be submitted or sold at all. Reporting it
+    // alongside the informational notes would let a product that is unsellable read as `synced`.
+    if (result.pricingWarning) {
+      return { warning: `pricing incomplete — ${result.pricingWarning}` }
+    }
+    // The SUBSCRIPTION is fully configured, but the APP's own availability is not — reported rather
+    // than swallowed, because the two are separate ASC resources and a perfectly-synced subscription
+    // still cannot be sold where the app does not ship. `reason`, not `warning`: the subscription
+    // half genuinely succeeded, and downgrading it to "draft" would misdescribe what happened (the
+    // same mistake the Razorpay path made when a correct end state was reported as unfinished work).
+    // Both are informational: the subscription itself synced. `reason` keeps the status `synced`
+    // while still telling the operator what needs their attention — derived store copy especially,
+    // since that is customer-facing text a machine wrote.
+    const notes = [
+      result.localizationWarning,
+      result.reviewScreenshotWarning,
+      result.appAvailabilityWarning,
+    ].filter(Boolean)
+    if (notes.length > 0) {
+      return { reason: notes.join(" · ") }
+    }
     return {}
   } catch (e: any) {
     const msg = e?.message ?? String(e)
@@ -575,6 +620,28 @@ export async function appStoreSyncProduct(
 // ─── Durable multi-provider sync orchestrator ────────────────────────────────
 
 /** Per-provider sync outcome recorded to tenant_products.sync_state. */
+/**
+ * Render this tenant's paywall to a PNG for App Store review, or null when it cannot be rendered.
+ *
+ * Never throws: a screenshot that cannot be produced must not fail a sync that is otherwise
+ * configuring subscriptions correctly — the caller reports the gap instead.
+ */
+async function renderTenantReviewScreenshot(
+  supabase: ReturnType<typeof createClient>,
+  tenantId: string,
+): Promise<Uint8Array | null> {
+  try {
+    const { buildReviewScreenshotInput } = await import("@/lib/paywall-review-input")
+    const input = await buildReviewScreenshotInput(supabase, tenantId)
+    if ("error" in input) return null
+    const { renderPaywallReviewScreenshot } = await import("@/lib/paywall-review-screenshot")
+    return await renderPaywallReviewScreenshot(input)
+  } catch (e) {
+    console.warn("[products] paywall review screenshot render failed:", (e as Error)?.message ?? e)
+    return null
+  }
+}
+
 export interface ProviderSyncEntry {
   status: "synced" | "draft" | "failed" | "skipped"
   error?: string
@@ -651,7 +718,7 @@ export async function loadProductSyncBody(
   const { data: product, error } = await supabase
     .from("tenant_products")
     .select(
-      "id, sku, type, display_name, interval, base_price_cents, base_currency, trial_enabled, trial_duration_days, trial_per_platform, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency, play_product_id, app_store_product_id",
+      "id, sku, type, display_name, store_description, interval, base_price_cents, base_currency, trial_enabled, trial_duration_days, trial_per_platform, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency, play_product_id, app_store_product_id",
     )
     .eq("tenant_id", tenantId)
     .eq("id", productId)

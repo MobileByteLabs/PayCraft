@@ -20,7 +20,7 @@ export async function GET(
   const { data, error } = await supabase
     .from("tenant_products")
     .select(
-      "id, sku, type, display_name, base_price_cents, base_currency, " +
+      "id, sku, type, display_name, store_description, base_price_cents, base_currency, " +
         "interval, active, package_id, trial_enabled, trial_duration_days, " +
         "pricing_mode, global_price_cents, global_currency, " +
         "display_order, play_product_id, app_store_product_id, updated_at",

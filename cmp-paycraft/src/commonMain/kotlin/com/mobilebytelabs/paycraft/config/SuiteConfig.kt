@@ -48,7 +48,14 @@ data class SuiteConfig(
     @SerialName("geo_country") val geoCountry: String? = null,
     /** Provenance of [geoCountry]: `"SERVER_IP_GEO"` when resolved, `"ABSENT"` when no header. */
     @SerialName("geo_source") val geoSource: String? = null,
-    @SerialName("cache_ttl_seconds") val cacheTtlSeconds: Int = 3600,
+    /**
+     * How long a cached config stays fresh, in seconds. 5 minutes.
+     *
+     * The SERVER's value wins — this default only applies to a payload that omits the field, which
+     * means a very old backend or a Mock. It matches the server's 300 so the two cannot drift into
+     * disagreeing about how stale a device may be.
+     */
+    @SerialName("cache_ttl_seconds") val cacheTtlSeconds: Int = 300,
     // Set by the client on receipt; not returned by the server.
     @SerialName("fetched_at_epoch_millis") val fetchedAtEpochMillis: Long = 0L,
 )

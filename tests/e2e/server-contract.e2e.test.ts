@@ -238,3 +238,72 @@ Deno.test("log_request stores what it is given without inventing columns", async
     await dropTenant(t.id);
   }
 });
+
+/**
+ * A NEW APP ARRIVES WITH ITS LANES WIRED.
+ *
+ * Migration 126 gave every new app its routing, but routing NAMES providers — and `tenant_providers`
+ * was empty until an operator added each by hand, so the rules pointed at lanes that did not exist:
+ * no providers in the dashboard, none in /config, a paywall with nothing behind it.
+ */
+Deno.test("provision_app seeds the default provider lanes, active but NOT connected", async () => {
+  const userId = await psql(`SELECT user_id FROM tenant_admins LIMIT 1`);
+  assert(userId, "needs an existing admin user to impersonate");
+
+  const rows = await psqlRows(`
+    BEGIN;
+    DO $$ BEGIN PERFORM set_config('request.jwt.claims',
+      json_build_object('sub', ${sqlLit(userId)}, 'role', 'authenticated')::text, true); END $$;
+    CREATE TEMP TABLE _t AS SELECT (provision_app('e2e_lane_probe')->>'tenant_id')::uuid AS id;
+    SELECT provider,
+           is_active::text,
+           ((live_key_id IS NOT NULL OR test_key_id IS NOT NULL)
+             OR coalesce(store_config->>'package_name','') <> ''
+             OR coalesce(store_config->>'bundle_id','') <> '')::text
+    FROM tenant_providers WHERE tenant_id = (SELECT id FROM _t) ORDER BY provider;
+    ROLLBACK;`);
+
+  const byProvider = Object.fromEntries(rows.filter((r) => r.length === 3).map((r) => [r[0], r]));
+  assertEquals(
+    Object.keys(byProvider).sort(),
+    ["app_store", "google_play", "stripe"],
+    "google_play (Android), app_store (StoreKit 2 on iOS/macOS) and stripe (desktop/web) are the " +
+      "lanes the default routing names, so they are the ones that must exist",
+  );
+
+  for (const [provider, row] of Object.entries(byProvider)) {
+    assertEquals(row[1], "true", `${provider} must be ACTIVE so the lane is usable immediately`);
+    // The load-bearing half: a row is not a connection. Marking these connected without credentials
+    // would offer a provider that cannot charge as routable — the exact defect isProviderConnected
+    // exists to prevent.
+    assertEquals(
+      row[2],
+      "false",
+      `${provider} must NOT read as connected — it has no credential, and a provider that reads ` +
+        `connected but cannot charge sends real customers to a dead lane`,
+    );
+  }
+});
+
+/** Re-provisioning must never disturb an operator's configured lane. */
+Deno.test("provider lane defaults never overwrite an existing row", async () => {
+  const t = await seedTenant({
+    name: "lanes_preserve",
+    providers: [{ provider: "stripe", liveKeyId: "pk_live_operator_set", isActive: false }],
+  });
+  try {
+    await psql(`SELECT count(*) FROM tenant_providers_apply_defaults(${sqlLit(t.id)}::uuid)`);
+    const row = (await psqlRows(`
+      SELECT coalesce(live_key_id,''), is_active::text FROM tenant_providers
+      WHERE tenant_id = ${sqlLit(t.id)}::uuid AND provider = 'stripe'`))[0];
+    assertEquals(row[0], "pk_live_operator_set", "the operator's key must survive");
+    assertEquals(row[1], "false", "and so must their decision to disable the lane");
+
+    const all = await psql(
+      `SELECT count(*) FROM tenant_providers WHERE tenant_id = ${sqlLit(t.id)}::uuid`,
+    );
+    assertEquals(all, "3", "the two missing lanes are still added alongside it");
+  } finally {
+    await dropTenant(t.id);
+  }
+});

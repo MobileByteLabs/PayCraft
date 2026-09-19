@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { UnsyncedProductsBanner } from "@/components/products/unsynced-products-banner"
 import { StoreLivenessBanner } from "@/components/products/store-liveness-banner"
+import { StoreReadinessBanner } from "@/components/products/store-readiness-banner"
 import { ProductRowActions } from "@/components/products/product-row-actions"
 import {
   verifyStripeProductSync,
@@ -159,7 +160,7 @@ export default async function ProductsPage() {
           <>
             Subscription, trial, and lifetime offers fetched by the SDK from{" "}
             <code className="bg-ink-100 px-1 rounded text-ink-700 font-mono text-[11px]">/functions/v1/config</code>.{" "}
-            Changes propagate within the SDK&apos;s 1-hour cache TTL.
+            Changes reach devices within the SDK&apos;s cache TTL — 5 min by default, configurable in Settings.
           </>
         }
         actions={
@@ -173,6 +174,7 @@ export default async function ProductsPage() {
       />
 
       <StoreLivenessBanner />
+      <StoreReadinessBanner />
       <UnsyncedProductsBanner />
 
       {/* Bento-Style Stats */}

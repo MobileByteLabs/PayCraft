@@ -38,6 +38,13 @@ preflight() {
 }
 
 run_server() {
+  # Sweep tenants left by a crashed run. A test that dies BEFORE its try/finally (a bad seed, an
+  # interrupted run) leaks its tenant; 37 had accumulated before this ran, and they then showed up
+  # in every migration backfill as if they were real apps.
+  deno eval --allow-net --allow-run --allow-env \
+    'const m = await import("./tests/e2e/harness.ts"); const n = await m.dropAllE2ETenants(); if (n) console.log(`swept ${n} leftover e2e tenant(s)`)' \
+    2>/dev/null || true
+
   echo "── server layer (deno, real Postgres + real edge functions) ──"
   deno test --allow-net --allow-run --allow-env tests/e2e/ || rc=1
 }

@@ -214,7 +214,9 @@ export async function handleCheckoutInitiate(req: Request): Promise<Response> {
       paycraft_plan: product.sku,
       paycraft_email: customer.email,
       paycraft_mode: mode,
-      paycraft_customer_name: customer.name ?? "",
+      // Omitted rather than sent blank. An empty string is a value Razorpay stores and echoes back
+      // on every webhook, so downstream code cannot tell "no name given" from "name is empty".
+      ...(customer.name ? { paycraft_customer_name: customer.name } : {}),
     },
   };
   if (startAt) payload.start_at = startAt;
