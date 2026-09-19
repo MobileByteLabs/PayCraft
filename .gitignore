@@ -92,6 +92,12 @@ node_modules/
 package-lock.json
 !docusaurus/package-lock.json
 !dashboard/package-lock.json
+# docs-site was added after this exception list and never joined it, so its lockfile was ignored
+# while every other JS project here commits one. CI therefore checked out WITHOUT a lockfile, and
+# `npm ci` cannot run without one — which is exactly how docs-deploy started failing at "Install
+# deps". The failure is invisible locally, because running npm install once creates the file on your
+# machine and every later check passes against something CI will never see.
+!docs-site/package-lock.json
 
 # Documentation build
 docs/_build/
