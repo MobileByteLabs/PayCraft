@@ -9,6 +9,12 @@ jobs:
     name: Smoke test paycraft.mobilebytesensei.com
     runs-on: ubuntu-latest
     steps:
+      # Needed only so the edge-function step can read supabase/.temp/project-ref. Deriving the
+      # host from the committed ref keeps ONE source of truth for which project we talk to —
+      # hardcoding the hostname here would re-create the duplicate that broke deploy-cloud for six
+      # weeks, just in a different file.
+      - uses: actions/checkout@v4
+
       - name: Landing page loads
         run: |
           STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" https://paycraft.mobilebytesensei.com/)
@@ -19,13 +25,36 @@ jobs:
           BODY=$(curl -fsS https://paycraft.mobilebytesensei.com/pricing)
           echo "$BODY" | grep -q "Pro" || (echo "Pricing page missing 'Pro'" && exit 1)
 
-      - name: v2-config endpoint reachable
+      # This step asserted NOTHING. It curled `api.paycraft.mobilebytesensei.com`, which does not
+      # resolve — infra/dns-records.md records it as "provisioned but unused, ships in v2.1" — for a
+      # function named `v2-config`, which does not exist (the function is `config`). Both mistakes
+      # were invisible because the command ended in `|| true` and the step only echoed the result,
+      # so it reported success against a dead host and a wrong name. Measured 2026-09-19:
+      #
+      #   api.paycraft.mobilebytesensei.com/functions/v1/v2-config   000  (does not resolve)
+      #   <ref>.supabase.co/functions/v1/v2-config                   404  (no such function)
+      #   <ref>.supabase.co/functions/v1/config                      401  (deployed, auth enforced)
+      #
+      # 401 is the PASS signal for an anonymous probe: it proves the function is deployed AND
+      # rejecting unauthenticated callers. 200 is accepted for any function that allows anonymous
+      # access. 000 (unreachable) and 404 (not deployed) now fail, which is the whole point.
+      - name: Edge functions reachable
         run: |
-          R=$(curl -fsS \
-            "https://api.paycraft.mobilebytesensei.com/functions/v1/v2-config?apiKey=pk_test_canary" \
-            -H "Content-Type: application/json" || true)
-          # 200 (found) or 404 (canary not provisioned) both prove the function is up
-          echo "Response: $R"
+          set -uo pipefail
+          REF="$(tr -d '[:space:]' < supabase/.temp/project-ref)"
+          [ -n "$REF" ] || { echo "::error::supabase/.temp/project-ref is empty"; exit 1; }
+          fail=0
+          for fn in config checkout-initiate account-token; do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+              "https://${REF}.supabase.co/functions/v1/${fn}")
+            case "$CODE" in
+              200|401) echo "  ok   ${fn}: ${CODE}" ;;
+              000)     echo "::error::${fn}: unreachable (000) — host did not respond"; fail=1 ;;
+              404)     echo "::error::${fn}: 404 — function is not deployed under that name"; fail=1 ;;
+              *)       echo "::error::${fn}: unexpected ${CODE}"; fail=1 ;;
+            esac
+          done
+          exit $fail
 
       # `/auth/login`, not `/auth/signin`. This step asserted a route that has never existed:
       # dashboard/app/auth/ contains callback, login, logout and signup — no `signin`. Live probe
