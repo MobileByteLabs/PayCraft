@@ -116,9 +116,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 22, not 20: `pages:deploy` invokes wrangler directly, and wrangler enforces a hard
+      # floor — "Wrangler requires at least Node.js v22.0.0. You are using v20.20.2." The
+      # next-on-pages BUILD succeeds on 20 and the failure lands afterwards, on the upload, so the
+      # log reads as a deploy problem rather than a runtime-version one (2026-09-19 run 35447678934:
+      # "Build completed in 25.99s" immediately followed by exit 1).
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       # The dashboard is a STANDALONE Next.js app under dashboard/ (no root workspace).
       # Deploy target moved twice on 2026-08-23: Vercel → Workers/OpenNext → Pages/next-on-pages.
