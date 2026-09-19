@@ -43,9 +43,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # PINNED, not `latest`. `version: latest` makes setup-cli query the GitHub releases API
+      # unauthenticated — 60 requests/hour shared across every runner on that IP — and run
+      # 35456897180 died on it: "Failed to resolve latest Supabase CLI release: rate limit exceeded".
+      # The job failed before a single one of its own steps ran, so the deploy looked broken when
+      # nothing in this repo had changed.
+      #
+      # Pinning also removes a quieter hazard: this is the PRODUCTION migration path, and `latest`
+      # lets an upstream CLI release change how it behaves with no commit on our side. Bump this
+      # deliberately, the same way any other dependency gets bumped.
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.117.0
 
       # Assert the secrets are non-empty BEFORE touching the CLI. A missing repo
       # secret interpolates to an empty string, not an error: the 2026-08-03 runs
@@ -159,9 +168,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Same pin as deploy-migrations — see the rationale there. Keep the two in step: two jobs in
+      # one deploy resolving different CLI versions is a difference nobody would think to look for.
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.117.0
 
       # The function list IS the directory listing under supabase/functions/, minus _shared
       # (shared utility modules) and __tests__ (canary fixtures). Deriving it from disk rather
