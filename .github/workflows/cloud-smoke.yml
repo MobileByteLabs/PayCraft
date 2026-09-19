@@ -27,33 +27,23 @@ jobs:
           # 200 (found) or 404 (canary not provisioned) both prove the function is up
           echo "Response: $R"
 
+      # `/auth/login`, not `/auth/signin`. This step asserted a route that has never existed:
+      # dashboard/app/auth/ contains callback, login, logout and signup — no `signin`. Live probe
+      # on 2026-09-19: /auth/signin → 404, /auth/login → 200.
+      #
+      # It went unnoticed because this whole job had never run. It is gated behind the dashboard
+      # deploy, which had been failing since 2026-08-03, so the first execution was also the first
+      # time anyone saw the assertion — and it read as "production auth is down" when the site was
+      # healthy and the test was wrong.
       - name: Auth page reachable
         run: |
           STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" \
-            https://paycraft.mobilebytesensei.com/auth/signin)
+            https://paycraft.mobilebytesensei.com/auth/login)
           [ "$STATUS" = "200" ] || (echo "Auth page returned $STATUS" && exit 1)
 
-      - name: Announce deployment
-        if: success()
-        uses: slackapi/slack-github-action@v2
-        with:
-          channel-id: 'C0RELEASES'
-          slack-message: |
-            :rocket: paycraft.mobilebytesensei.com deployed
-            Commit: ${{ github.sha }}
-            Triggered by: ${{ github.actor }}
-            <https://paycraft.mobilebytesensei.com|View site>
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-
-      - name: Notify on failure
-        if: failure()
-        uses: slackapi/slack-github-action@v2
-        with:
-          channel-id: 'C0RELEASES'
-          slack-message: |
-            :x: paycraft.mobilebytesensei.com smoke tests FAILED
-            Commit: ${{ github.sha }}
-            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      # Slack notification removed 2026-09-19. SLACK_BOT_TOKEN was never set, so both steps threw
+      # `Missing input! Either a method or webhook is required to take action.` — the step whose job
+      # was to ANNOUNCE a failure was itself failing, and it added a second red step to every run,
+      # making one real smoke finding look like two. A reporting path nobody exercises is worse than
+      # no reporting path: it converts silence into false confidence. Job status in the Actions UI is
+      # the signal; re-add a notifier only alongside the secret that makes it work.
