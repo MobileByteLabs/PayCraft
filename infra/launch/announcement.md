@@ -61,7 +61,7 @@ re-submit required.
 - 3 paywall templates (Minimal / Premium / Dark)
 - Trial / Subscription / Lifetime product types
 - Per-country pricing via Stripe Pricing API
-- Next.js 14 dashboard deployed to Vercel
+- Next.js 14 dashboard deployed to Cloudflare Pages
 
 **What's next (roadmap):**
 - Google Play Billing + Apple StoreKit 2 native (Q4 2026)

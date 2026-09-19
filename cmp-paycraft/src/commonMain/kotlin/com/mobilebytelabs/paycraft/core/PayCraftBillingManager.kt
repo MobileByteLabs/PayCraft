@@ -138,6 +138,26 @@ class PayCraftBillingManager(
 
     override fun registerAndLogin(email: String) {
         val normalized = email.trim().lowercase()
+        // VALIDATE BEFORE BINDING. This address is not a display field — it is the ENTITLEMENT
+        // IDENTITY: it is persisted, sent to the PSP as the mandate's notify address, and echoed
+        // back on every webhook, where `paycraft-webhook` routes the purchase by it. Accepting
+        // whatever arrives means one bad keystroke permanently attaches a paying customer's
+        // subscription to an address that reaches nobody.
+        //
+        // Observed on a live account: a subscription was created against
+        // "mobilebytese[x]nsei@gmail.com" — a single transposed pair in a real user's address. That
+        // one is VALID and so passes this check; a format test cannot catch a plausible typo, which
+        // is exactly why the host app's authenticated identity should be what calls this (see
+        // PayCraft.logIn's docs). What this DOES stop is the other half: empty strings, missing @,
+        // stray whitespace and pasted display names becoming a permanent identity.
+        if (!isPlausibleEmail(normalized)) {
+            PayCraftLogger.onError(
+                "logIn",
+                "refusing to bind entitlement identity to a malformed address ('$normalized') — " +
+                    "pass the signed-in user's address, or collect a valid one before calling logIn",
+            )
+            return
+        }
         PayCraftLogger.onLogIn(normalized)
         _userEmail.value = normalized
         _billingState.value = BillingState.Loading
@@ -149,6 +169,21 @@ class PayCraftBillingManager(
     }
 
     override fun logIn(email: String) = registerAndLogin(email)
+
+    /**
+     * Deliberately permissive: one `@`, something either side, a dot in the domain, no spaces.
+     *
+     * A stricter grammar rejects addresses that genuinely deliver (plus-tags, long TLDs, unicode
+     * locals), and refusing a paying customer's real address is far worse than accepting an odd one.
+     * The job here is to stop values that CANNOT be an address from becoming an identity.
+     */
+    private fun isPlausibleEmail(value: String): Boolean {
+        if (value.isBlank() || value.any { it.isWhitespace() }) return false
+        val at = value.indexOf('@')
+        if (at <= 0 || at != value.lastIndexOf('@') || at == value.length - 1) return false
+        val domain = value.substring(at + 1)
+        return domain.contains('.') && !domain.startsWith('.') && !domain.endsWith('.')
+    }
 
     // ─── Native in-app-purchase lanes (Payments-policy / Guideline-3.1.1 compliance) ─────────────
 

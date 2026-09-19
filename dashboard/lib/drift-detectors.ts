@@ -258,17 +258,42 @@ export async function detectActiveProviderZeroLinks(
     }
   }
 
-  for (const r of rows ?? []) {
-    if (!PSP_PROVIDERS.has(r.provider)) continue
-    const live = linkCount(r.live_payment_links)
-    const test = linkCount(r.test_payment_links)
-    if (live === 0 && test === 0) {
+  // A PSP's synced artifact is NOT always a payment link. Razorpay turns a subscription into a
+  // PLAN, and stores it in `razorpay_plan_id_by_currency` — no link is ever created. Counting links
+  // alone therefore reported a fully-synced Razorpay as "0 payment links" forever: the sync ran, the
+  // plans were written, the finding came back unchanged, and the suggested action ("sync products to
+  // razorpay") was the very thing that had just succeeded. A finding no action can clear trains the
+  // operator to ignore the banner, which costs more than the check is worth.
+  const pspActive = (rows ?? []).filter((r) => PSP_PROVIDERS.has(r.provider))
+  if (pspActive.length) {
+    const { data: products } = await supa
+      .from("tenant_products")
+      .select("sku, type, stripe_product_id, razorpay_plan_id_by_currency")
+      .eq("tenant_id", tenantId)
+      .eq("active", true)
+
+    /** Artifacts that prove this provider can actually serve this product. */
+    const hasArtifact = (provider: string, p: Record<string, unknown>): boolean => {
+      if (provider === "razorpay") {
+        const plans = p.razorpay_plan_id_by_currency as Record<string, unknown> | null
+        if (plans && Object.keys(plans).length > 0) return true
+      }
+      if (provider === "stripe" && p.stripe_product_id) return true
+      return false
+    }
+
+    for (const r of pspActive) {
+      const links = linkCount(r.live_payment_links) + linkCount(r.test_payment_links)
+      if (links > 0) continue
+      const unserved = (products ?? []).filter((p) => !hasArtifact(r.provider, p as Record<string, unknown>))
+      // Links absent AND no per-product artifact either: genuinely nothing to charge against.
+      if (unserved.length === 0) continue
       out.push({
         kind: "active-provider-zero-links",
         tenant_id: tenantId,
         subject: `provider:${r.provider}`,
-        detail: `${r.provider} is_active=true with 0 payment links — /config will filter it out entirely`,
-        action_hint: `Sync products to ${r.provider} (POST /api/sync/all) to generate checkout links`,
+        detail: `${r.provider} is_active=true with no payment link and no synced artifact for ${unserved.length} product(s): ${unserved.map((p) => p.sku).join(", ")} — /config will filter it out for those`,
+        action_hint: `Sync products to ${r.provider} (POST /api/sync/all) so each carries a link or plan id`,
       })
     }
   }

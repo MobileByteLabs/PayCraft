@@ -93,10 +93,12 @@ echo "$STRIPE_CONNECT_CLIENT_ID" \
 > **Never** type the `rk_live_*` value into chat or commit it. Use the
 > macOS Keychain pattern above. See CLAUDE.md > RULE-SECRETS-MACOS-001.
 
-### Step 5 — Sync to Vercel + redeploy
+### Step 5 — Sync to Cloudflare Pages + redeploy
 
 ```bash
-bash infra/sync-to-vercel.sh --apply --env production
+# infra/sync-to-vercel.sh was deleted with the Vercel migration; phase 2 of
+# deploy.sh is the replacement (walks dashboard/cloudflare-secrets.map).
+bash infra/deploy/deploy.sh --prod --apply --confirm-production --only-phase 2
 /paycraft-deploy ship
 ```
 
@@ -121,7 +123,7 @@ bash infra/sync-to-vercel.sh --apply --env production
 |---|---|---|
 | "Restricted key has no rights for X" | Missing scope on rk_live_* | Recreate restricted key with full subscription scopes |
 | OAuth callback fails with `redirect_uri_mismatch` | `https://paycraft.mobilebytesensei.com/api/oauth/stripe/callback` not added to Connect settings | Settings → Connect → add the exact URL |
-| `/api/oauth/stripe/start` 500 | Vault not synced to Vercel | `bash infra/sync-to-vercel.sh --apply --env production` |
+| `/api/oauth/stripe/start` 500 | Vault not synced to Cloudflare Pages | `bash infra/deploy/deploy.sh --prod --apply --confirm-production --only-phase 2` |
 | Webhook 5xx after activation | `whsec_*` value still test-mode | Get live webhook secret from Stripe → push to vault → resync |
 | Cannot retrieve customer that exists in another country's Stripe ledger | Stripe Connect doesn't share customers across accounts | This is by design — each tenant has their own customer ledger |
 
@@ -135,7 +137,7 @@ This runbook is **DONE** when:
 - [ ] Live restricted key in vault
 - [ ] Live webhook secret in vault
 - [ ] Connect Client ID in vault
-- [ ] Vercel env synced + production redeployed
+- [ ] Cloudflare Pages env synced + production redeployed
 - [ ] One real test charge against reels-downloader succeeds end-to-end
 
 Open `plan-layer/.../paycraft-v2-production-readiness/01-self-monetize/PLAN.md`,

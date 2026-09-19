@@ -1,0 +1,12 @@
+# Surfaces that are intentionally unreached FROM THIS APP.
+#
+# Format:  <path or rpc:name>   # <reason>
+#
+# A waiver is a stated decision, not a mute button (RS-3). "We might use it later" is not a reason —
+# that is the exact rationalization this gate exists to catch, and the correct action there is to
+# delete the surface and bring it back together with its caller. A reason must name the CALLER that
+# lives outside this app.
+
+app/api/account-keys/route.ts  # Operator-issued account API keys. Deliberately has no in-app caller: the key is issued once out-of-band, stored in the vault as `mbs-paycraft-account-key`, and exchanged at functions/v1/account-token by /idea-paycraft-onboard-* running headlessly. An in-app button would reintroduce the human step that runtime exists to remove.
+
+app/api/health/route.ts  # Liveness/readiness probe. Its callers are by definition outside the app: uptime monitoring and post-deploy smoke checks against the deployed origin. An in-app fetch would only report on the instance already serving the page, which proves nothing.

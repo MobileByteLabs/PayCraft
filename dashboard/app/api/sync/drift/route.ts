@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { DRIFT_DETECTORS, type DriftFinding } from "@/lib/drift-detectors"
+import { logRequest } from "@/lib/request-log"
 
 /**
  * GET /api/sync/drift — what has actually diverged.
@@ -25,7 +26,17 @@ const TTL_MS = 90_000
 export async function GET(req: Request) {
   const supabase = createClient()
   const { data: auth } = await supabase.auth.getUser()
-  if (!auth?.user) return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
+  if (!auth?.user) {
+    // Logged, not silently rejected: an unauthenticated call is the one you most need a record of,
+    // and an empty log during a 401 storm looks identical to no traffic at all.
+    await logRequest(supabase, {
+      route: "/api/sync/drift",
+      method: "GET",
+      status: 401,
+      error: "not_authenticated",
+    })
+    return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
+  }
 
   const url = new URL(req.url)
   const tenantId = url.searchParams.get("tenant_id")
@@ -34,6 +45,18 @@ export async function GET(req: Request) {
 
   const hit = CACHE.get(tenantId)
   if (!force && hit && Date.now() - hit.at < TTL_MS) {
+    // Log the CACHE HIT explicitly. A cached report is indistinguishable from a fresh one in the
+    // UI, so "I fixed it and the banner still says the same thing" has two very different causes —
+    // the fix did not work, or the reader never re-ran. Without this line, telling them apart means
+    // guessing.
+    await logRequest(supabase, {
+      route: "/api/sync/drift",
+      method: "GET",
+      tenantId,
+      status: 200,
+      params: { force },
+      result: { cached: true, cached_at: new Date(hit.at).toISOString(), age_ms: Date.now() - hit.at, count: hit.findings.length },
+    })
     return NextResponse.json({
       findings: hit.findings,
       count: hit.findings.length,
@@ -54,6 +77,14 @@ export async function GET(req: Request) {
   }
 
   CACHE.set(tenantId, { at: Date.now(), findings })
+  await logRequest(supabase, {
+    route: "/api/sync/drift",
+    method: "GET",
+    tenantId,
+    status: 200,
+    params: { force },
+    result: { cached: false, count: findings.length, kinds: findings.map((f) => f.kind), detector_errors: errors },
+  })
   return NextResponse.json({
     findings,
     count: findings.length,

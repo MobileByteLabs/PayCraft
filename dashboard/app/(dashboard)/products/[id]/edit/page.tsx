@@ -49,7 +49,7 @@ export default async function ProductEditPage({
         </Link>
         <h1 className="text-2xl font-bold text-gray-900 mb-1">Edit product</h1>
         <p className="text-sm text-gray-500">
-          Changes propagate to the SDK on the next config fetch (max 1h cached
+          Changes propagate to the SDK on the next config fetch (cached up to 5 min
           client-side). After saving you'll be returned to the read-only view
           where you can re-sync providers if pricing changed.
         </p>

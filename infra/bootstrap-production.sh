@@ -15,7 +15,7 @@
 # Hard rules (RULE-SECRETS-VAULT-001):
 #   - Secret values are NEVER echoed, never assigned to top-level variables,
 #     never tee'd to stdout. They flow through subshells into the consumer
-#     tool (`supabase secrets set`, `vercel env add`) and die there.
+#     tool (`supabase secrets set`, `wrangler pages secret put`) and die there.
 #   - This script NEVER calls `gh secret set` on a consumer repo. CI secrets
 #     are provisioned by `/secrets sync-to-ci`.
 #
@@ -23,7 +23,7 @@
 #   ./bootstrap-production.sh                  # dry-run (default)
 #   ./bootstrap-production.sh --apply          # actually mutate
 #   ./bootstrap-production.sh --apply --from-step 5
-#   ./bootstrap-production.sh --apply --skip-vercel --skip-cloudflare
+#   ./bootstrap-production.sh --apply --skip-pages --skip-cloudflare
 
 set -euo pipefail
 
@@ -32,7 +32,8 @@ set -euo pipefail
 # ──────────────────────────────────────────────────────────────────────────────
 
 APPLY=0
-SKIP_VERCEL=0
+SKIP_PAGES=0
+CF_PAGES_PROJECT="${CF_PAGES_PROJECT:-paycraft}"   # must match infra/deploy/deploy.sh
 SKIP_CLOUDFLARE=0
 SKIP_MAVEN=0
 FROM_STEP=1
@@ -41,7 +42,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --apply)           APPLY=1; shift ;;
     --dry-run)         APPLY=0; shift ;;
-    --skip-vercel)     SKIP_VERCEL=1; shift ;;
+    --skip-pages)      SKIP_PAGES=1; shift ;;
+    --skip-vercel)     SKIP_PAGES=1; shift ;;   # deprecated alias (Vercel era)
     --skip-cloudflare) SKIP_CLOUDFLARE=1; shift ;;
     --skip-maven)      SKIP_MAVEN=1; shift ;;
     --from-step)       FROM_STEP="$2"; shift 2 ;;
@@ -235,14 +237,14 @@ require_tool() {
 check_tools() {
   local rc=0
   require_tool supabase  1.0.0  "supabase --version"            || rc=1
-  require_tool vercel    30.0.0 "vercel --version"              || rc=1
   require_tool terraform 1.6.0  "terraform version | head -n1"  || rc=1
   require_tool gh        2.0.0  "gh --version | head -n1"       || rc=1
   require_tool psql      0      "psql --version"                || rc=1
   require_tool jq        0      "jq --version"                  || rc=1
   if [[ $rc -ne 0 ]]; then
     err "Install missing tooling and re-run."
-    err "  brew install supabase/tap/supabase vercel terraform gh postgresql jq"
+    err "  brew install supabase/tap/supabase terraform gh postgresql jq"
+    err "  (wrangler is a dashboard devDependency — npx wrangler, not a global install)"
     return 1
   fi
 }
@@ -270,7 +272,7 @@ step_1_preflight_checks() {
   branch="$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD)"
   info "  git branch: ${branch}"
 
-  # Prod env files present? (Supabase config + Vercel project hint)
+  # Prod env files present? (Supabase config + Pages project hint)
   local req=(
     "${PROJECT_ROOT}/supabase/config.toml"
     "${PROJECT_ROOT}/supabase/migrations"
@@ -440,49 +442,63 @@ step_6_supabase_set_secrets() {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Step 7 — Vercel login check
+# Step 7 — Cloudflare auth check
 # ──────────────────────────────────────────────────────────────────────────────
 
-step_7_vercel_login_check() {
-  if [[ "$SKIP_VERCEL" -eq 1 ]]; then
-    info "  --skip-vercel; bypassing"
+step_7_cloudflare_auth_check() {
+  if [[ "$SKIP_PAGES" -eq 1 ]]; then
+    info "  --skip-pages; bypassing"
     return 0
   fi
-  if vercel whoami >/dev/null 2>&1; then
-    info "  vercel CLI authenticated as: $(vercel whoami 2>/dev/null)"
+  local dash_dir="${PROJECT_ROOT}/dashboard"
+  [[ -d "$dash_dir" ]] || dash_dir="$PROJECT_ROOT"
+  # A token in the environment is what CI uses and beats an interactive session.
+  if [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+    info "  cloudflare authenticated via CLOUDFLARE_API_TOKEN"
+  elif ( cd "$dash_dir" && npx --no-install wrangler whoami >/dev/null 2>&1 ); then
+    info "  cloudflare authenticated (wrangler session)"
   else
-    err "  vercel CLI not authenticated."
-    err "  Run: vercel login"
+    err "  cloudflare not authenticated."
+    err "  Export CLOUDFLARE_API_TOKEN, or run: (cd dashboard && npx wrangler login)"
     return 1
   fi
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Step 8 — link Vercel project
+# Step 8 — confirm the Cloudflare Pages project exists
 # ──────────────────────────────────────────────────────────────────────────────
 
-step_8_vercel_link_project() {
-  if [[ "$SKIP_VERCEL" -eq 1 ]]; then info "  --skip-vercel; bypassing"; return 0; fi
+step_8_pages_project_check() {
+  if [[ "$SKIP_PAGES" -eq 1 ]]; then info "  --skip-pages; bypassing"; return 0; fi
   local dash_dir="${PROJECT_ROOT}/dashboard"
   [[ -d "$dash_dir" ]] || dash_dir="$PROJECT_ROOT"
-  if [[ -f "${dash_dir}/.vercel/project.json" ]]; then
-    info "  vercel project already linked at ${dash_dir}/.vercel/"
+  # Pages has no local link file — the project is named on every deploy
+  # (--project-name=paycraft). Confirming it exists here turns a wrong-account
+  # token into a clear failure instead of a confusing mid-deploy one.
+  # NOTE: dashboard/.vercel/ is next-on-pages BUILD OUTPUT, not a Vercel link.
+  if ( cd "$dash_dir" && npx --no-install wrangler pages project list 2>/dev/null \
+         | grep -q "\b${CF_PAGES_PROJECT}\b" ); then
+    info "  cloudflare pages project present: ${CF_PAGES_PROJECT}"
     return 0
   fi
-  if will_mutate "(cd ${dash_dir} && vercel link --project paycraft-dashboard --yes)"; then
-    ( cd "$dash_dir" && vercel link --project paycraft-dashboard --yes )
+  if will_mutate "(cd ${dash_dir} && npx wrangler pages project create ${CF_PAGES_PROJECT} --production-branch=main)"; then
+    ( cd "$dash_dir" && npx --no-install wrangler pages project create "$CF_PAGES_PROJECT" --production-branch=main )
   fi
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Step 9 — Vercel env vars
+# Step 9 — Cloudflare Pages env vars
 # ──────────────────────────────────────────────────────────────────────────────
 
-# alias -> VERCEL_ENV_NAME
+# alias -> ENV_NAME
 # Same phantom-alias class as SUPABASE_SECRETS above. PayCraft talks to the FRAMEWORK Supabase
 # project, so the Supabase values are the `framework-supabase-*` aliases — there is no
 # paycraft-owned prod URL/anon/service-role secret to name.
-declare -a VERCEL_ENV_VARS=(
+#
+# This list is the BOOTSTRAP subset. The full production map is
+# dashboard/cloudflare-secrets.map, which `infra/deploy/deploy.sh` phase 2 walks;
+# keep the two consistent when adding a variable.
+declare -a PAGES_ENV_VARS=(
   "framework-supabase-url:NEXT_PUBLIC_SUPABASE_URL"
   "framework-supabase-anon-key:NEXT_PUBLIC_SUPABASE_ANON_KEY"
   "framework-supabase-service-role-key:SUPABASE_SERVICE_ROLE_KEY"
@@ -494,11 +510,11 @@ declare -a VERCEL_ENV_VARS=(
   "paycraft-sentry-dsn:NEXT_PUBLIC_SENTRY_DSN"
 )
 
-step_9_vercel_set_env_vars() {
-  if [[ "$SKIP_VERCEL" -eq 1 ]]; then info "  --skip-vercel; bypassing"; return 0; fi
+step_9_pages_set_env_vars() {
+  if [[ "$SKIP_PAGES" -eq 1 ]]; then info "  --skip-pages; bypassing"; return 0; fi
   local dash_dir="${PROJECT_ROOT}/dashboard"
   [[ -d "$dash_dir" ]] || dash_dir="$PROJECT_ROOT"
-  for pair in "${VERCEL_ENV_VARS[@]}"; do
+  for pair in "${PAGES_ENV_VARS[@]}"; do
     local alias="${pair%%:*}"
     local name="${pair##*:}"
     if ! _secret_exists "$alias"; then
@@ -506,11 +522,21 @@ step_9_vercel_set_env_vars() {
       warn "    /secrets push ${alias}"
       continue
     fi
-    if will_mutate "vercel env add ${name} production --force  <from vault:${alias}>"; then
-      # Pipe in subshell — value never reaches parent env or logs.
-      ( cd "$dash_dir" && \
-        "$SECRETS_GET" "$alias" | vercel env add "$name" production --force >/dev/null )
-      info "  set vercel env ${name}=<from vault, not logged>"
+    if will_mutate "wrangler pages secret put ${name} --project-name ${CF_PAGES_PROJECT}  <from vault:${alias}>"; then
+      # RULE-SECRETS-VAULT-001 SV32: materialize to a 0600 tmpfile and redirect it
+      # into the consumer, rather than piping through a pipeline stage. Trap-cleaned
+      # so an interrupt cannot leave the value on disk.
+      local __vf; __vf=$(mktemp -t paycraft-env-XXXXXX); chmod 600 "$__vf"
+      # shellcheck disable=SC2064
+      trap "rm -f '$__vf'" RETURN
+      if "$SECRETS_GET" "$alias" --to-file "$__vf" 2>/dev/null && [[ -s "$__vf" ]]; then
+        ( cd "$dash_dir" && npx --no-install wrangler pages secret put "$name" \
+            --project-name "$CF_PAGES_PROJECT" < "$__vf" >/dev/null )
+        info "  set pages secret ${name}=<from vault, not logged>"
+      else
+        warn "  could not materialize ${alias} — skipped ${name}"
+      fi
+      rm -f "$__vf"
     fi
   done
 }
@@ -594,10 +620,10 @@ step_12_summary() {
     migrations:     applied via 'supabase db push --linked'
     edge functions: deployed from supabase/functions/
 
-  Vercel
+  Cloudflare Pages
     project:        paycraft-dashboard
     url:            https://${PAYCRAFT_DOMAIN}
-    env vars:       $(( ${#VERCEL_ENV_VARS[@]} )) production values set from vault
+    env vars:       $(( ${#PAGES_ENV_VARS[@]} )) production values set from vault
 
   Cloudflare
     domain:         ${PAYCRAFT_DOMAIN}
@@ -638,9 +664,9 @@ main() {
   run_step  4 supabase_push_migrations      step_4_supabase_push_migrations
   run_step  5 supabase_push_edge_functions  step_5_supabase_push_edge_functions
   run_step  6 supabase_set_secrets          step_6_supabase_set_secrets
-  run_step  7 vercel_login_check            step_7_vercel_login_check
-  run_step  8 vercel_link_project           step_8_vercel_link_project
-  run_step  9 vercel_set_env_vars           step_9_vercel_set_env_vars
+  run_step  7 cloudflare_auth_check         step_7_cloudflare_auth_check
+  run_step  8 pages_project_check           step_8_pages_project_check
+  run_step  9 pages_set_env_vars            step_9_pages_set_env_vars
   run_step 10 cloudflare_terraform_apply    step_10_cloudflare_terraform_apply
   run_step 11 post_bootstrap_verify         step_11_post_bootstrap_verify
   run_step 12 summary                       step_12_summary

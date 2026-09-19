@@ -1,14 +1,19 @@
 name: Deploy docs site → Cloudflare Pages
 
 # Phase 2 T8 of paycraft-v2-production-readiness — builds Docusaurus on push
-# to main, uploads to Cloudflare Pages project `paycraft-docs`. PR previews
+# to dev, uploads to Cloudflare Pages project `paycraft-docs`. PR previews
 # are handled by Cloudflare's GitHub integration; this workflow owns the
 # canonical production deploy. Replaces the prior `docusaurus/`-targeted +
 # GitHub-Pages-targeted variant.
+#
+# Trigger moved main → dev alongside deploy-cloud.yml: `dev` is the default
+# branch and `main` stopped being promoted on 2026-08-03, leaving this dormant.
+# The `--branch=main` in the wrangler command below is the Cloudflare Pages
+# production-branch alias, NOT a git branch — it stays `main`.
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
     paths:
       - 'docs/**'
       - 'docs-site/**'

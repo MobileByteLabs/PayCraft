@@ -11,6 +11,7 @@ interface ProductInput {
   sku: string
   type: ProductType
   display_name: string
+  store_description: string | null
   interval?: Interval | null
   trial_enabled?: boolean
   trial_duration_days?: number | null
@@ -139,6 +140,22 @@ export function ProductForm({
           placeholder="Monthly Premium"
           className="input"
         />
+      </Field>
+
+      <Field label="Store description">
+        <input
+          value={p.store_description ?? ""}
+          onChange={(e) => setP({ ...p, store_description: e.target.value || null })}
+          maxLength={80}
+          placeholder="Unlimited captures, synced everywhere"
+          className="input"
+        />
+        <p className="mt-1 text-xs text-ink-500">
+          The line customers read under the name on the App Store and Google Play. Leave blank and
+          each store falls back to an auto-generated string (&ldquo;{p.display_name || "Name"} &mdash;
+          Billed monthly&rdquo;), which is machine-written copy shipped to customers. Apple truncates
+          at 45 characters, Play at 80.
+        </p>
       </Field>
 
       {p.type === "subscription" && (

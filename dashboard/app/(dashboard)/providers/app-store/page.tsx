@@ -115,6 +115,7 @@ export default async function AppStoreSetupPage() {
         issuerId={(cfg.issuer_id as string | undefined) ?? null}
         bundleId={appRow?.app_identifier ?? ((cfg.bundle_id as string | undefined) ?? null)}
         connectionLabel={conn.label ?? null}
+        reviewScreenshotUrl={(cfg.review_screenshot_url as string | undefined) ?? null}
       />
 
       {/* Status */}

@@ -61,7 +61,7 @@ tokens, identifiers, and event metadata:
 
 | System | Component | Why out of scope |
 |---|---|---|
-| Dashboard (`paycraft.mobilebytesensei.com`) | Next.js on Vercel | No card capture forms; payment flows redirect to Stripe / Razorpay hosted checkout |
+| Dashboard (`paycraft.mobilebytesensei.com`) | Next.js on Cloudflare Pages | No card capture forms; payment flows redirect to Stripe / Razorpay hosted checkout |
 | Framework-supabase database | Postgres + RLS + pgsodium-encrypted credentials | Stores tenant config + token IDs + event logs. **No PAN ever persisted.** |
 | Edge Functions (webhook handlers) | Deno on Supabase | Receive signed webhooks containing token IDs + event metadata. Verify signature, persist event log, update derived state. |
 | KMP SDK (`cmp-paycraft`) | Multi-platform Kotlin | Client app reads subscription status by API key. Never collects card data. |

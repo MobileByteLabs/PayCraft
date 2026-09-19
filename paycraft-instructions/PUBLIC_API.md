@@ -1,4 +1,4 @@
-example-provenance: 518e84790cc2794f1cd4007182d72005ae07fe56
+example-provenance: 9cb5162c248fb9426d460f2328ffda6882c29462
 
 # PUBLIC_API.md — PayCraft SDK public integration surface
 
@@ -21,15 +21,15 @@ fun initialize(
 )
 ```
 
-- **Synchronous and non-blocking.** It captures `apiKey`/`backend`, publishes a placeholder
-  `PayCraftConfig` so `requireConfig()` never throws, republishes the last-known-good `SuiteConfig`
-  from disk (`ConfigCache`), then launches the `/config` revalidation fire-and-forget. It never awaits
-  the network.
+- **Synchronous and non-blocking.** It captures `apiKey`/`backend`, resolves the billing country
+  once (override → device region → `US`), resets `paywallPresentation` to `Hidden`, republishes the
+  last-known-good `SuiteConfig` from disk (`ConfigCache`), then launches the `/config` revalidation
+  fire-and-forget. It never awaits the network.
 - **Precondition (hard).** `apiKey` must start with `pk_test_` or `pk_live_`, unless `backend` is
   `PayCraftBackend.Mock`. Anything else throws `IllegalArgumentException` at the call site.
-- **Idempotent-ish.** Re-invocation is supported (test re-init). It resets
-  `paywallPresentation` to `Hidden` but deliberately does NOT reset the once-per-session
-  auto-present debounce.
+- **Idempotent-ish.** Re-invocation is supported (test re-init). It resets `paywallPresentation` to
+  `Hidden` but deliberately does NOT reset the once-per-session auto-present debounce — the debounce
+  clears on process death, the natural session boundary.
 - **Call site.** `commonMain` app startup (`initKoin` / shared app init), NOT a per-platform
   Application class — see WIRING_CONTRACTS.md.
 
@@ -38,21 +38,57 @@ Related surface on the same object:
 | Member | Shape | Notes |
 |---|---|---|
 | `suiteConfigFlow` | `StateFlow<SuiteConfig?>` | Null until the first config (cached or fetched) lands |
+| `configResultFlow` | `StateFlow<ConfigResult>` | **WHICH resilience layer answered** — see below |
+| `isConfigured` | `Boolean` | True when a `pk_test_`/`pk_live_` key was supplied. The SDK owns this question |
 | `mode` | `Mode.{Test,Live,Unknown}` | Derived from the `pk_` key prefix, never configured separately |
 | `monetizationMode` | `MonetizationMode` | Resolved: cloud `SuiteConfig.mode` wins over the `initialize` argument |
 | `isAdFree` | `StateFlow<Boolean>` | Host ad-gating signal under `MonetizationMode.AdSupported` |
-| `paywallPresentation` | `StateFlow<PaywallPresentation>` | `Hidden`/`Shown` — the auto-present signal |
+| `paywallPresentation` | `StateFlow<PaywallPresentation>` | `Hidden`/`Shown(trigger)` — the auto-present signal |
 | `billingManager` | `BillingManager?` | Koin-resolved; null before `initialize` |
 | `plans` | `List<BillingPlan>` | Empty until config lands |
 | `deviceId` | `String` | Lazy `DeviceFingerprint.get()`; the fallback app-user-id when no email |
-| `activeRegion` / `activeCountry` / `activeCurrency` | resolved billing region | Decided once at init, refined by store storefront at fetch time |
+| `activeRegion` | `ResolvedRegion(country, currency)` | THE single resolved billing region |
+| `activeCountry` / `activeCurrency` | `String` | Flat projections of `activeRegion` |
 | `suspend prefetchProducts()` | warm the cache | Call from a splash/home prefetch to avoid a first-frame skeleton |
 | `refreshConfig()` | force a `/config` refetch | |
 | `suspend applyCoupon(planId, code)` | `CouponClient.Result` | |
+| `setAppliedCoupon(planId, coupon?)` | attach/clear a validated coupon | Appended to the checkout URL |
 | `checkout(plan, email?)` | routes through `resolveCheckoutLane` | Never opens a browser for a native digital good |
 | `manageSubscription(email)` | provider manage URL | |
-| `presentPaywall()` / `presentPaywallIfNeeded(entitlement?)` | drive `paywallPresentation` | |
+| `presentPaywall()` / `presentPaywallIfNeeded(entitlement?)` / `dismissPaywall()` | drive `paywallPresentation` | |
+| `onAppOpen(entitlement, trial)` | app-open dispatch | Mode-driven; see below |
 | `requireConfig()` | `PayCraftConfig` | Throws if `initialize` was never called |
+
+### `configResultFlow` — the distinction `suiteConfigFlow` cannot express
+
+`suiteConfigFlow` still exists and still emits; every existing consumer keeps working. What it
+cannot say is whether a null means "no config yet", "the fetch failed", or "this is last week's
+cache" — all three look identical there, which is how an offline user sat on a spinner forever.
+
+```kotlin
+sealed interface ConfigResult {
+    data object Loading
+    data class  Fresh(config)                    // network answered
+    data class  Cached(config)                   // disk, within TTL
+    data class  Stale(config, ageSeconds)        // disk, past TTL — usable, show the age
+    data class  Bundled(config)                  // shipped-in fallback asset
+    data object BuiltIn                          // SDK's own last-resort defaults
+    data class  Failed(reason, detail?)          // reason ∈ OFFLINE|HTTP_ERROR|DECODE_ERROR|NOT_INITIALIZED|UNKNOWN
+}
+```
+
+Helpers: `configOrNull`, `isLoading`, `isStale`, `isRetryable`. `isRetryable` is deliberately false
+for `DECODE_ERROR` (malformed, not flaky) and `NOT_INITIALIZED` (a retry cannot start a billing
+stack) — offering "Try again" there trains the buyer that retry does nothing.
+
+### `onAppOpen(entitlement: EntitlementSnapshot, trial: TrialSnapshot)`
+
+The combined "resync entitlement + maybe present" signal, called from the host's
+onResume/onCreate hook. It always updates `AdFreeEntitlement` first, then dispatches by mode:
+
+- `TrialManaged` — auto-presents ONCE per process when the buyer is **not** premium **and** has an
+  active or just-ended trial (`trial.isActiveOrNearExpiry`) **and** the session debounce is unmarked.
+- `AdSupported` — never auto-presents; the host owns the trigger and reads `isAdFree` to gate ads.
 
 ## Backend selection — `sealed interface PayCraftBackend`
 
@@ -93,8 +129,8 @@ fun purchaseViaStoreKit(plan: BillingPlan, email: String?)      // iOS/macOS dig
 ```
 
 Both drive `billingState`: `Loading` → `Premium` | `Free` (user cancelled) | `PaymentPending` |
-`Error`. A missing `playProductId` / `appStoreProductId` is an **`Error`, never a web fallback** —
-that anti-steering rule is the point of `CheckoutLane.Misconfigured` (PROVIDERS_AND_STORES.md).
+`Error`. A plan with **no `storeBinding`** is an **`Error`, never a web fallback** — that
+anti-steering rule is the point of `CheckoutLane.Misconfigured` (PROVIDERS_AND_STORES.md).
 
 StoreKit has no client-facing grant endpoint: entitlement truth lands server-side via the Apple
 App Store Server Notifications webhook, so success reconciles through the normal refresh path.
@@ -110,19 +146,23 @@ suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String)   // Gate 1
 fun logOut()
 ```
 
-**Device-conflict resolution (Gate 1 → Gate 2 → Gate 3):**
+**Device-conflict resolution (Gate 1 → Gate 2):**
 
 ```kotlin
-suspend fun verifyOtpOwnership(email: String, otp: String): Boolean   // Gate 2
-suspend fun confirmDeviceTransfer()                                    // after OwnershipVerified
+suspend fun confirmDeviceTransfer()                 // after OwnershipVerified
 suspend fun revokeCurrentDevice()
-suspend fun transferToDevice()                                         // internal
-suspend fun requestOtpVerification(email: String)                      // deprecated
-suspend fun verifyOtp(email: String, otp: String): Boolean             // internal
+suspend fun transferToDevice()                      // internal
 ```
 
 The UI **must** show an explicit confirmation between `OwnershipVerified` and
 `confirmDeviceTransfer()` — the user is deactivating another device.
+
+> **The OTP arm is gone.** `requestOtpVerification` / `verifyOtp` / `verifyOtpOwnership` were removed
+> on 2026-09-06 along with the `otp-send-hook` edge function, and `VerificationMethod` now has a
+> single entry, `OAUTH`. A call site still referencing them will not compile. The trade-off is
+> deliberate and worth stating: OTP was the only self-service route for a custom-domain email that
+> cannot be linked to a Google or Apple account, so those buyers now go straight to Gate 2 (manual
+> support) instead of resolving a device conflict themselves.
 
 ## Cloud-config surface — `SuiteConfig`
 
@@ -132,28 +172,50 @@ Fetched from `{backend}/functions/v1/config`, cached to disk, exposed via `PayCr
 data class SuiteConfig(
     tenantId: String, plan: String?,
     products: List<ProductDto>, providers: List<ProviderDto>,
-    paywall: PaywallDto, locale: String = "US",
+    paywall: PaywallDto,
+    offerings: List<OfferingDto> = emptyList(),
+    locale: String = "US",
     mode: MonetizationMode?, geoCountry: String?, geoSource: String?,
-    cacheTtlSeconds: Int = 3600, fetchedAtEpochMillis: Long = 0L,
+    cacheTtlSeconds: Int = 300, fetchedAtEpochMillis: Long = 0L,
 )
 ```
 
-`ProductDto` carries `sku`, `type` (`subscription|trial|lifetime`), `interval`,
+`ProductDto` carries `id`, `sku`, `type` (`subscription|trial|lifetime`), `displayName`, `interval`,
 `basePriceCents`/`baseCurrency`, `resolvedPrice`, `trialEnabled`/`trialDurationDays`,
-`displayOrder`, `active`, and the two store ids `playProductId` / `appStoreProductId` — the fields
-the checkout-lane decision reads.
+`attachesToProductId`, `discountPercent`/`discountEndsAt`, `displayOrder`, `active`, and
+**`storeBinding`**.
 
-`PaywallDto` carries `template` (default `branded-stack`), `themeJsonb`, `branding`,
-`primaryColor`, `fontFamily`, `heroTitle`/`heroSubtitle`, `valueProps`, the CTA + restore labels,
-`termsUrl`/`privacyUrl`, `popularPlanSku`, and the success-sheet copy. See PAYWALL_CUSTOMIZATION.md.
+> **`storeBinding` replaced the `playProductId` / `appStoreProductId` pair.** It is
+> `StoreBinding(provider, productId)` — one binding, **resolved server-side** from
+> `tenant_routing_rules` for the platform in the `x-paycraft-platform` request header. The client no
+> longer picks the store. Shipping every store's id and letting the client choose by platform made
+> the dashboard's Platform-providers page decorative: an app whose iOS primary was set to Stripe
+> still went to StoreKit, because the choice was hardcoded in `resolveCheckoutLane`. Null when the
+> platform has no usable provider.
+
+`OfferingDto` → `PackageDto` maps a package **role** (`$rc_annual`) to a purchasable SKU. A paywall
+component tree binds a plan card to a role, never a SKU, so a tree survives store migrations and
+per-platform product ids; this is the only mapping from that role to something purchasable.
+
+`PaywallDto` carries the v1 columns (`template`, `themeJsonb`, `branding`, `primaryColor`,
+`fontFamily`, `customFooter`), the v2 content fields (hero copy, `valueProps`, CTA + restore labels,
+`termsUrl`/`privacyUrl`, `popularPlanSku`, success-sheet copy, trial-disclosure copy, `heroIconSvg`,
+`supportEmail`), and the epic-2 component tree: **`workflow: JsonElement?`** + `schemaVersion`. See
+PAYWALL_CUSTOMIZATION.md.
 
 ## Compose surface (optional)
 
 `PayCraftPaywall`, `PayCraftPaywallSheet`, `PayCraftSheet`, `PayCraftBanner`,
 `PayCraftInlinePaywallBanner`, `PayCraftPremiumBanner`, `PayCraftPremiumGuard`,
 `PayCraftPremiumGuardInline`, `PayCraftRestore`, `PayCraftRestoreContent`,
-`PayCraftCheckoutSuccessSheet`, `PayCraftCheckoutSuccessSheetOrPaywall`, `BannerPaywall`,
-`PayCraftPaywallComposable`. Surface-mode contract in PAYWALL_CUSTOMIZATION.md.
+`PayCraftPaywallWithRestore`, `PayCraftCheckoutSuccessSheet`,
+`PayCraftCheckoutSuccessSheetOrPaywall`, `BannerPaywall`, `PayCraftPaywallComposable`,
+`ProductList`. Surface-mode contract in PAYWALL_CUSTOMIZATION.md.
+
+`PayCraftTestTags` publishes the stable tags every one of those surfaces sets
+(`paycraft_paywall_screen`, `paycraft_plan_card_<planId>`, `paycraft_payment_pending`,
+`paycraft_subscribe_button`, …) — assert against these rather than against visible text, which is
+tenant-configurable and localized.
 
 ## What an integrator must never do
 
@@ -189,14 +251,13 @@ without adding safety.
 `infra/verify/verify-deprecation-policy.sh` enforces the first of these — the other two need
 judgement a grep cannot supply.
 
-### The case this was written from, stated accurately
+### Two cases this was written from, stated accurately
 
-`PayCraft.configure {}` was introduced in v1.0.0 and deleted in v2.0 in one release, with no version
-in between carrying `@Deprecated`. The plan for that release (`dashboard-provider-integration` 06 T1)
-asked for the deprecation.
+**`PayCraft.configure {}`** was introduced in v1.0.0 and deleted in v2.0 in one release, with no
+version in between carrying `@Deprecated`. That task was **superseded, not skipped**: the consumer
+was migrated directly instead, and no integrator was ever left holding a broken build — which is the
+only harm a deprecation window exists to prevent.
 
-That task was **superseded, not skipped**: the consumer was migrated directly instead —
-`reels-downloader` runs `2.3.1` and calls `PayCraft.initialize(...)`. No integrator was ever left
-holding a broken build, which is the only harm a deprecation window exists to prevent. Doing it that
-way was correct for a library whose consumers we own, and it is what the default above now says to
-do deliberately rather than by accident.
+**The OTP methods** were removed the same way, and the honest note is that this one had a cost the
+first did not: it removed a capability rather than renaming one. That belongs in the record
+(BILLING_STATE_SEMANTICS.md states who it affects), not hidden behind a clean signature diff.

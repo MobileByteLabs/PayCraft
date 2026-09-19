@@ -10,6 +10,7 @@ import { requireTenant, getUserApps } from "@/lib/tenant"
 import { getMode } from "@/lib/mode"
 import { createClient } from "@/lib/supabase-server"
 import { RealtimeRefresh } from "@/components/realtime-refresh"
+import { NeedsAttention } from "@/components/sync/needs-attention"
 
 export default async function DashboardLayout({
   children,
@@ -58,6 +59,11 @@ export default async function DashboardLayout({
           <ModeToggle initialMode={mode} />
         </header>
         <TestModeBanner mode={mode} />
+        {/* GLOBAL reconcile surface. Divergence is not a Products-page concern: an
+            unpublished paywall, a test key in a live slot or an unsynced product is just as
+            true while the operator is on Analytics. Mounted in the SHELL so it cannot be
+            left out by whichever page someone happens to open. Renders null when clean. */}
+        <div className="px-10 max-w-[1280px]"><NeedsAttention tenantId={tenant.id} /></div>
         <div className="px-10 pb-20 max-w-[1280px]">{children}</div>
       </main>
       {/* Persistent PayCraft AI entry point on every dashboard page. */}

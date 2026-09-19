@@ -48,9 +48,9 @@ import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.config.productForRole
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
-import com.mobilebytelabs.paycraft.model.Money
 import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.model.ProductMapper
+import com.mobilebytelabs.paycraft.model.laneAwareDisplayPrice
 import com.mobilebytelabs.paycraft.model.sessionDisplayPriceFormatted
 import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
 import com.mobilebytelabs.paycraft.presentation.PaywallTemplate
@@ -483,6 +483,33 @@ private fun PayCraftPaywallSurface(
                             onRetry = { onAction(PayCraftPaywallAction.RefreshStatus) },
                         )
                     }
+                    // THE TREE PAYWALL HAD NO ERROR SURFACE AT ALL.
+                    //
+                    // The ViewModel sets `errorMessage` / `emailError` on every checkout failure,
+                    // and nothing in this render path ever displayed either. Device-observed: a
+                    // buyer taps Continue, the VM records "checkout failed … no checkout URL for
+                    // currency INR", the screen does not change by one pixel, and the only evidence
+                    // that anything happened is logcat. A failure the buyer cannot see is
+                    // indistinguishable from a dead button.
+                    //
+                    // Rendered ABOVE the paywall body, not below it. Appended after the renderer it
+                    // sat beneath "RESTORE PURCHASES" — off-screen on a phone, so the failure was
+                    // present in the composition and still invisible to the buyer. The body is
+                    // tenant-authored and cannot be relied on to have a slot for this.
+                    val failure = state.errorMessage ?: state.emailError
+                    if (failure != null) {
+                        Text(
+                            text = failure,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 12.dp)
+                                .testTag(PayCraftTestTags.CHECKOUT_ERROR),
+                        )
+                    }
+
                     PaywallStateHost(
                         state = state.billingState,
                         workflow = effectiveWorkflow,
@@ -557,13 +584,15 @@ private fun PayCraftPaywallSurface(
  */
 private fun Product.toBillingPlan(config: SuiteConfig?): BillingPlan {
     val dtoMatch = config?.products?.firstOrNull { it.id == this.id }
-    val priced = dtoMatch?.resolvedPrice
-    val priceLabel = when {
-        priced != null -> Money(priced.amountCents, priced.currency).format()
-        this is Product.Subscription -> sessionDisplayPriceFormatted().orEmpty()
-        this is Product.Lifetime -> sessionDisplayPriceFormatted().orEmpty()
-        this is Product.Trial -> "Free"
-        else -> ""
+    // ONE price rule for the whole card. This used to take `resolvedPrice` directly, while the
+    // per-month anchor in ProductList resolved through `displayPrice` (native-store-first) — opposite
+    // precedence, so a razorpay-bound plan rendered "₹1259" here and "$3.49 / mo" one line below.
+    // `laneAwareDisplayPrice` is the single rule: the native store price counts only on a native
+    // lane, so the two lines cannot disagree.
+    val resolvedMoney = if (this is Product.Trial) null else laneAwareDisplayPrice(config)
+    val priceLabel = when (this) {
+        is Product.Trial -> "Free"
+        else -> resolvedMoney?.format() ?: sessionDisplayPriceFormatted().orEmpty()
     }
     val intervalLabel = when (this) {
         is Product.Subscription -> when (interval) {
@@ -578,8 +607,19 @@ private fun Product.toBillingPlan(config: SuiteConfig?): BillingPlan {
     val trialDays = (this as? Product.Trial)?.durationDays
     return BillingPlan(
         id = id,
+        // Carry the SKU explicitly. `id` here is the product UUID, while every per-product
+        // provider map (payment links included) is keyed by sku — so a plan built on this path
+        // used to miss every checkout URL and report the link as missing.
+        sku = sku,
         name = displayName,
         price = priceLabel,
+        // Carry the currency of the price we just formatted. `BillingPlan.currency` defaults to
+        // "USD" and this path never set it, so a plan displaying "₹1259" still reported currency
+        // USD — and every consumer that reads the FIELD rather than the string diverged from what
+        // the buyer saw: the per-month anchor rendered "$3.49 / mo" under a ₹ headline, and the
+        // checkout-link lookup asked for a currency the card never showed.
+        currency = resolvedMoney?.currency ?: (this as? Product.Subscription)?.basePrice?.currency
+            ?: (this as? Product.Lifetime)?.basePrice?.currency ?: "USD",
         interval = intervalLabel,
         rank = displayOrder,
         trialDays = trialDays,

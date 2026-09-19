@@ -42,19 +42,26 @@ function stripRawStoreIds(p: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
- * Resolve the PRIMARY payment method this tenant has configured for [platform].
+ * Resolve the ORDERED method chain this tenant has configured for [platform].
  *
  * Reads `tenant_routing_rules` — the table the dashboard's Platform-providers page writes — and
- * returns the first entry of `priority_methods` for the highest-priority rule matching [platform]
- * (or the `any` wildcard). That is the provider the tenant intends this platform to transact with:
- * `google_play`, `app_store`, `stripe_card`, …
+ * returns `priority_methods` for the highest-priority rule matching [platform] (or the `any`
+ * wildcard), IN ORDER: primary first, then each configured fallback.
+ *
+ * It used to return `methods[0]` and discard the rest, which made the dashboard's FALLBACK column
+ * decorative: iOS is configured `{app_store, stripe_card}`, but a buyer the App Store could not
+ * serve got NO binding rather than Stripe. A provider that cannot serve this buyer must hand off to
+ * the next one, which is the entire reason the column exists.
  */
-async function primaryMethodForPlatform(
+async function methodChainForPlatform(
   // deno-lint-ignore no-explicit-any
   supabase: any,
   tenantId: string,
   platform: string | null,
-): Promise<string | null> {
+  // Returns the ORDERED CHAIN, not one method — the rename from primaryMethodForPlatform changed the
+  // body to return every priority_method but left this as `string | null`. Deno strips types at
+  // runtime so it never failed, and `deno check` is the only thing that ever sees it.
+): Promise<string[]> {
   const { data: rules } = await supabase
     .from("tenant_routing_rules")
     .select("platform, priority_methods, priority")
@@ -66,7 +73,7 @@ async function primaryMethodForPlatform(
     return rp === "any" || rp === platform
   })
   const methods = match?.priority_methods
-  return Array.isArray(methods) && methods.length > 0 ? String(methods[0]) : null
+  return Array.isArray(methods) ? methods.map((m: unknown) => String(m)).filter(Boolean) : []
 }
 
 /**
@@ -108,6 +115,57 @@ function storeBindingFor(
     const byCur = (p.razorpay_plan_id_by_currency ?? {}) as Record<string, string>
     const id = nonBlank(currency ? byCur[currency] ?? byCur[currency.toUpperCase()] : null)
     return id ? { provider: method, product_id: id } : null
+  }
+  return null
+}
+
+/**
+ * First binding the configured chain can actually produce, then the platform's NATIVE store as a
+ * last resort.
+ *
+ * Two distinct reasons a method yields nothing, and both must hand off rather than stop:
+ *   · the provider has no id for THIS product (never synced to it)
+ *   · the provider has no id for THIS CURRENCY — e.g. Razorpay synced INR only, so a US buyer
+ *     resolving USD finds nothing under it
+ *
+ * The native-store tail exists because a digital subscription on iOS/Android can always transact
+ * through the store even when every web PSP is unusable for that buyer. Returning null instead
+ * strands the purchase with "no provider configured", which is what a US buyer hit while Razorpay
+ * was Android primary.
+ */
+function storeBindingForChain(
+  // deno-lint-ignore no-explicit-any
+  p: Record<string, unknown>,
+  methods: string[],
+  currency: string | null,
+  platform: string | null,
+): { provider: string; product_id: string } | null {
+  for (const m of methods) {
+    const b = storeBindingFor(p, m, currency)
+    if (b) return b
+  }
+  // Last resort 1: the store that owns this platform's digital lane.
+  const nativeTail = platform === "ios" ? "app_store" : platform === "android" ? "google_play" : null
+  if (nativeTail && !methods.includes(nativeTail)) {
+    const b = storeBindingFor(p, nativeTail, currency)
+    if (b) return b
+  }
+
+  // Last resort 2: ANY web PSP that can actually serve this currency.
+  //
+  // The native tail alone still left web and desktop able to resolve NOTHING — observed on a tenant
+  // whose web rule is `{razorpay}` while Razorpay holds no credential and no plan for the product:
+  // the chain produced no binding, there is no native store on web, and a US buyer was offered no
+  // way to pay at all, even though Stripe was fully connected with a USD price sitting right there.
+  //
+  // Deliberately LAST and deliberately narrow. It never reorders a chain that resolved — an operator
+  // choosing Razorpay first still gets Razorpay whenever Razorpay can serve the buyer. It only fires
+  // when the alternative is a dead paywall, because "no provider" is never what an operator meant by
+  // narrowing their chain; they were expressing a preference, not asking for the sale to be dropped.
+  for (const tail of ["stripe_card", "razorpay"]) {
+    if (methods.includes(tail) || tail === nativeTail) continue
+    const b = storeBindingFor(p, tail, currency)
+    if (b) return b
   }
   return null
 }
@@ -317,7 +375,7 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
       .eq("is_active", true),
     supabase
       .from("tenants")
-      .select("plan,entitlements")
+      .select("plan,entitlements,config_cache_ttl_seconds")
       .eq("id", tenantId)
       .single(),
     // D8/AC-11 — offerings→packages→skus. 088 created these tables and nothing ever surfaced them,
@@ -401,7 +459,7 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     )
   }
 
-  const primaryMethod = await primaryMethodForPlatform(supabase, tenantId, callerPlatform)
+  const methodChain = await methodChainForPlatform(supabase, tenantId, callerPlatform)
 
   const pricedProducts = await Promise.all(
     // The tenant's primary method for THIS caller platform — resolved once, applied per product.
@@ -438,7 +496,7 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
           trial_duration_days: trialDurationDays,
           discount_percent: discountActive ? discountPercent : null,
           discount_ends_at: discountActive ? discountEndsAt : null,
-          store_binding: storeBindingFor(p, primaryMethod, String(p.global_currency ?? "")),
+          store_binding: storeBindingForChain(p, methodChain, String(p.global_currency ?? ""), callerPlatform),
           resolved_price: {
             amount_cents: p.global_price_cents,
             currency: p.global_currency,
@@ -474,7 +532,7 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
         trial_duration_days: trialDurationDays,
         discount_percent: discountActive ? discountPercent : null,
         discount_ends_at: discountActive ? discountEndsAt : null,
-        store_binding: storeBindingFor(p, primaryMethod, String(resolved_price.currency ?? "")),
+        store_binding: storeBindingForChain(p, methodChain, String(resolved_price.currency ?? ""), callerPlatform),
         resolved_price,
         // AC-16 — both chains travel on EVERY product row, always. A client that only ever sees
         // the served value cannot tell a correct price from a lucky one; carrying the shadow makes
@@ -514,6 +572,7 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
   //        offer dead options.
   const enabledProviders = (providersRes.data ?? []).filter(
     (pr: {
+      provider: string
       supported_locales?: string[] | null
       test_payment_links?: Record<string, Record<string, string>> | null
       live_payment_links?: Record<string, Record<string, string>> | null
@@ -528,7 +587,24 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
       const linksOk = !!bySku && Object.values(bySku).some(perCurrency =>
         !!perCurrency && Object.keys(perCurrency).length > 0
       )
-      return localeOk && linksOk
+      // A payment LINK is not the only way a provider can charge. Razorpay turns a subscription into
+      // a PLAN (`razorpay_plan_id_by_currency`) and issues no link at all, so a fully-synced Razorpay
+      // carried `{sku: {}}` here, failed linksOk, and was dropped from `providers[]` entirely — the
+      // SDK then reported `primary=stripe` on a tenant whose Android routing rule says razorpay.
+      // Observed on device: cappy, android, country=IN, with INR plan ids present for all 3 products.
+      // Same blind spot as the `active-provider-zero-links` detector; fixed in both places.
+      const artifactOk = (productsRes.data ?? []).some((p: Record<string, unknown>) => {
+        if (pr.provider === "razorpay") {
+          const plans = p.razorpay_plan_id_by_currency as Record<string, string> | null
+          return !!plans && Object.keys(plans).length > 0
+        }
+        if (pr.provider === "stripe") {
+          const id = p.stripe_product_id
+          return typeof id === "string" && id.trim().length > 0
+        }
+        return false
+      })
+      return localeOk && (linksOk || artifactOk)
     },
   )
 
@@ -636,7 +712,18 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     shadow_provenance: shadowCountryResolved.provenance,
     // Phase-4 config-wins MonetizationMode passthrough — see comment above.
     mode: monetizationMode,
-    cache_ttl_seconds: 3600,
+    // PER-TENANT, defaulting to 5 minutes (migration 129).
+    //
+    // The SDK is fully server-driven — prices, paywall copy, provider routing and store bindings all
+    // arrive in this payload — so this number is how long a dashboard change stays INVISIBLE on a
+    // device, not a caching detail. At the old hardcoded 3600 every support answer began with "wait
+    // up to an hour", and an operator who fixed a wrong price could not tell a failed fix from an
+    // unpropagated one.
+    //
+    // The `?? 300` is a floor for a row written before 129 added the column, never a silent override
+    // of an operator's choice. 0 is impossible by CHECK: the SDK uses cacheTtlSeconds=0 as its STALE
+    // sentinel, so serving 0 would make every cached read look permanently expired.
+    cache_ttl_seconds: tenantRes.data?.config_cache_ttl_seconds ?? 300,
   }
 
   return new Response(JSON.stringify(body), {

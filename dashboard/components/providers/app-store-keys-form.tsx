@@ -19,12 +19,14 @@ export function AppStoreKeysForm({
   keyId,
   issuerId,
   bundleId,
+  reviewScreenshotUrl,
   connectionLabel = null,
 }: {
   connected: boolean
   keyId: string | null
   issuerId: string | null
   bundleId: string | null
+  reviewScreenshotUrl?: string | null
   /** What this app currently bills through — names the thing a save would OVERWRITE. */
   connectionLabel?: string | null
 }) {
@@ -38,6 +40,7 @@ export function AppStoreKeysForm({
   const [iss, setIss] = useState(issuerId ?? "")
   const [bid, setBid] = useState(bundleId ?? "")
   const [accountLabel, setAccountLabel] = useState("")
+  const [reviewShot, setReviewShot] = useState(reviewScreenshotUrl ?? "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -66,6 +69,7 @@ export function AppStoreKeysForm({
           issuer_id: iss,
           bundle_id: bid,
           account_label: accountLabel,
+          review_screenshot_url: reviewShot,
           create_new: createNew,
           confirm_shared_overwrite: confirmShared,
         }),
@@ -160,6 +164,33 @@ export function AppStoreKeysForm({
           One value for both platforms — the Android package name and the iOS bundle ID are the
           same string. Saving it here updates it for the other store too.
         </p>
+        </Field>
+
+        <Field label="Review screenshot URL">
+          <input
+            type="url"
+            className="w-full px-3 py-2 bg-ink-50 border border-ink-200 rounded-lg text-sm focus:outline-none focus:border-brand-500"
+            placeholder="https://…/paywall.png"
+            value={reviewShot}
+            onChange={(e) => setReviewShot(e.target.value)}
+          />
+          <p className="text-[11px] text-ink-500">
+            App Store requires one screenshot per subscription — without it they stay in{" "}
+            <span className="font-mono">MISSING_METADATA</span> and cannot be submitted, however
+            complete everything else is.{" "}
+            <strong className="font-semibold text-ink-700">Optional:</strong> leave this blank and
+            product sync renders one from your live paywall — same hero, plans and prices the SDK
+            serves, so it cannot go stale when you edit a price. Set a URL only to override it with
+            a real capture of the shipped app.{" "}
+            <a
+              href="/api/paywall/review-screenshot"
+              target="_blank"
+              rel="noreferrer"
+              className="text-brand-600 underline"
+            >
+              Preview the generated screenshot
+            </a>
+          </p>
         </Field>
       </div>
 

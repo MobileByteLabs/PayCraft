@@ -13,12 +13,29 @@ import kotlin.test.assertFalse
  */
 class HumanBillingErrorTest {
 
+    /**
+     * REVISED 2026-09-17 after a device run disproved the original expectation.
+     *
+     * This test used to assert that Play's "Product not found" maps to "…Try another plan…". That
+     * is wrong, and the device showed why: on cappy the plan WAS bound correctly
+     * (`storeBinding(provider=google_play, productId=com.mobilebytesensei.cappy.sub.year)`) and the
+     * product WAS present in the Play Console — yet Play still refused, because the installed APK
+     * was `CN=Android Debug` at versionCode 1. Play serves in-app products only to a build whose
+     * package AND signing certificate match one distributed through Play.
+     *
+     * So this class of failure is not per-plan at all: every plan fails identically, and telling the
+     * customer to "try another plan" walks them in a circle. The copy has to point at the build.
+     */
     @Test
-    fun a_missing_store_product_reads_as_a_plan_problem_not_an_app_crash() {
+    fun a_store_that_cannot_match_this_build_does_not_tell_the_user_to_try_another_plan() {
+        val shown =
+            humanBillingError("Play purchase failed: Product not found on Play: com.mobilebytesensei.cappy.sub.year")
         assertEquals(
-            "This plan isn't available right now. Try another plan, or check back soon.",
-            humanBillingError("Product not found on Play: com.mobilebytesensei.cappy.sub.year"),
+            "Purchases aren't available in this build. Install the app from the store to subscribe.",
+            shown,
         )
+        // The circular advice must not come back: no plan swap can fix a build mismatch.
+        assertFalse(shown.contains("another plan"))
     }
 
     /**
@@ -45,6 +62,24 @@ class HumanBillingErrorTest {
         )
         // And neither leaks the plan id at the customer.
         assertFalse(unavailable.contains("c0fd8d93"))
+    }
+
+    /**
+     * The three refusals are distinct causes and must not collapse into one sentence.
+     *
+     * `PayCraftBillingManager` refuses for a missing native client (the host app never loaded a
+     * billing module — a developer error) and for a blank product id (the plan carries no store
+     * binding — a dashboard error), while Play's own "not found" is a third (build/catalogue). All
+     * three used to render the same line, which is why diagnosing the cappy failure needed a
+     * logcat capture instead of reading the screen.
+     */
+    @Test
+    fun the_three_refusal_causes_are_distinguishable_on_screen() {
+        val build = humanBillingError("Play purchase failed: Product not found on Play: x.y.z")
+        val plan = humanBillingError("product id missing for c0fd8d93 — refusing web fallback (store anti-steering)")
+        val app = humanBillingError("no NativeBillingClient wired for c0fd8d93 — load the platform billing module")
+        assertEquals(3, setOf(build, plan, app).size)
+        assertEquals("Purchases aren't set up in this app yet.", app)
     }
 
     @Test

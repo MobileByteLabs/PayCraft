@@ -1,220 +1,113 @@
 # PayCraft Deploy — Full Workflow Spec
 
 > Loaded by `/paycraft-deploy` skill (framework-level slim wrapper at `.claude/skills/paycraft-deploy/SKILL.md`).
-> Orchestrated by `infra/deploy/deploy.sh`.
+> Orchestrated by `infra/deploy/deploy.sh` — **that script's header comment is the
+> source of truth for phase behavior**; this file is the operator-facing companion.
+
+> **2026-09-17 — rewritten.** The prior revision documented a 9-phase Vercel + Wix-DNS
+> pipeline with a `sync-to-vercel.sh` sub-script. None of that exists: the dashboard
+> left Vercel on 2026-08-23 (briefly Workers/OpenNext, then Cloudflare **Pages** via
+> `@cloudflare/next-on-pages`), DNS moved from Wix to Cloudflare, and
+> `infra/sync-to-vercel.sh` was deleted. Phases below mirror the four real modes.
 
 ## Goal
 
-**One command takes a fresh machine to a live PayCraft v2.0 deployment** at `https://paycraft.mobilebytesensei.com`. Fully self-contained — `/paycraft-deploy` detects + auto-fixes everything that CAN be automated (CLI installs, auth, project linking, account checks, vault collection, npm install) and prompts you inline for anything only you can provide (live API keys, OAuth callbacks).
+**One command takes a fresh machine to a live PayCraft v2.0 deployment** at
+`https://paycraft.mobilebytesensei.com`. `/paycraft-deploy` auto-fixes what can be
+automated (CLI installs, auth, project linking, vault collection, npm install) and
+prompts inline for what only you can provide (live API keys, OAuth callbacks).
 
 End-state delivered:
-- 14 production secrets vaulted + synced (Vercel env + Supabase Edge Function secrets)
-- All pending migrations applied to framework-supabase
-- Dashboard built + deployed to Vercel production
-- Custom domain (`paycraft.mobilebytesensei.com`) attached via Wix DNS + Vercel
-- SSL provisioned (Let's Encrypt)
-- Health check + Playwright smoke confirming end-to-end up
+- Production secrets vaulted + synced (Cloudflare **Pages** secrets + Supabase Edge Function secrets)
+- All pending migrations applied to the production Supabase project
+- Dashboard built by `next-on-pages` + deployed to Cloudflare Pages project `paycraft`
+- Custom domain `paycraft.mobilebytesensei.com` served via Cloudflare DNS (proxied)
+- TLS provisioned automatically by Cloudflare
+- Health check + smoke confirming end-to-end up
 
 ## Invariants
 
 | ID | Rule |
 |---|---|
 | D-1 | Dry-run is the default; `--apply` required for mutations (RULE-AUTO-FIX-001) |
-| D-2 | Every secret pulled via `secrets-get.sh --to-file` to tmpfile, never stdout (RULE-SECRETS-VAULT-001 SV32) |
-| D-3 | Phase 1 (pre-flight) blocks if ANY of 14 secrets missing — no partial deploys |
-| D-4 | Phase 8 (health) is a gate — non-200 marks deploy as failed, NOT successful (RULE-VERIFY-COMPLETION-001) |
-| D-5 | Resumable from any phase via `--from-phase N` (each phase tracks its own idempotence) |
+| D-2 | Every secret pulled via `secrets-get.sh --to-file` to a tmpfile, never stdout (RULE-SECRETS-VAULT-001 SV32) |
+| D-3 | Pre-flight blocks on missing prerequisites — no partial deploys |
+| D-4 | SMOKE is a gate — non-200 marks the deploy failed, NOT successful (RULE-VERIFY-COMPLETION-001) |
+| D-5 | Resumable via `--from-phase` / `--to-phase` / `--only-phase` |
 | D-6 | Per-phase status matrix rendered after every run; final summary banner |
-| D-7 | DNS phase (6) tries Wix MCP first if loaded; falls back to user-prompt with exact Wix Dashboard steps |
+| D-7 | DNS is **not** a deploy phase. The zone lives on Cloudflare and the custom domain is already attached; see `infra/dns-records.md` |
 | D-8 | Refuses to run unless `session-resolve.sh` returns `mbs/PayCraft` |
-| D-9 | Production env (default) requires `--apply --confirm-production` two-flag explicit consent |
+| D-9 | Production requires `--apply --confirm-production` two-flag explicit consent |
+| D-10 | `--promote-to-prod` is gated on staging having been deployed AND smoked AND HEAD unmoved — promoting an un-rehearsed commit is what staging exists to prevent |
 
 ## CLI
 
 ```
-deploy.sh [OPTIONS]
+deploy.sh [MODE] [OPTIONS]
 
-Modes:
+Modes (pick one):
+  --local                       Run PayCraft on http://localhost:3000 (L1..L5)
+  --staging                     Deploy WHATEVER IS CHECKED OUT to staging (rehearsal, no promote)
+  --promote-to-prod             Prod chain, gated on a matching smoked staging deploy
+  --prod                        Build + deploy `dev` directly to Cloudflare Pages
+
+Safety:
   --dry-run                     (default) Show what would happen, no mutations
-  --apply                       Execute for real (still requires --confirm-production for prod)
-  --confirm-production          Required alongside --apply when --env=production
+  --apply                       Execute for real
+  --confirm-production          Required alongside --apply for prod
+  --allow-destructive           Permit destructive migration ops (scanned for by default)
+  --allow-no-backup             Proceed without a pre-push schema backup
 
 Scoping:
-  --env staging|production      Target Vercel env (default: production)
-  --from-phase N                Resume from phase N (1..8)
-  --to-phase N                  Stop after phase N
-  --only-phase N                Run ONLY phase N (alias: --from N --to N)
-  --skip-dns                    Skip phases 6 + 7 (if DNS already configured)
-  --skip-build                  Skip phase 4 (if you just want to redeploy)
+  --from-phase N / --to-phase N / --only-phase N
+  --skip-build                  Skip the typecheck+build (redeploy only)
+  --sync-prod / --no-sync-prod  (local mode) pull prod data into the local stack
 
 Behavior:
-  --keep-going                  Continue past non-critical phase failures (default: abort)
-  --verbose                     Print every command being run
-  --silent                      Suppress all but errors + final summary
+  --keep-going | --verbose | --silent
 ```
 
-## 9-Phase Spec (Phase 0 + Phases 1-8)
+## Phase spec — `--prod`
 
-### Phase 0 — BOOTSTRAP (auto-install + auto-configure + collect)
-
-The "no-prereqs-needed" phase. Walks each missing prereq to a passing state. Interactive by default; `--non-interactive` mode fails fast on anything needing human input.
-
-Sub-phases (each idempotent):
-
-| Sub | Action | Auto-fix? | Notes |
-|---|---|---|---|
-| 0.1 | CLI INSTALL | ✅ | `npm i -g vercel`, `brew install supabase/tap/supabase`, `brew install jq`. Falls back to manual instructions if `brew` absent. |
-| 0.2 | AUTHENTICATE | ⚠️ semi | Runs `vercel login` + `supabase login` — opens browser, waits for user. |
-| 0.3 | PROJECT LINK | ✅ | `vercel link --yes` (dashboard) + `supabase link --project-ref mlwfgytjxlqyfxcgpysm`. |
-| 0.4 | ACCOUNTS | ⚠️ semi | Detects missing Resend/Sentry secrets → offers to open signup URLs in browser. |
-| 0.5 | SECRETS COLLECT | ⚠️ semi | For each MISSING vault secret: opens provider URL in browser, prompts for hidden-input value, pipes to `secrets-push.sh --stdin`. Skip with `s`. Encryption key auto-generated via `openssl rand`. |
-| 0.6 | DASHBOARD NPM | ✅ | `cd dashboard && npm ci` if `node_modules/` missing. |
-| 0.7 | SUPABASE REACH | ✅ verify | `curl framework-supabase-url/rest/v1/` smoke. |
-
-Flags: `--check-only` (report what's missing, no fix), `--non-interactive` (fail on human-input needs), `--skip <substep,...>`.
-
-Phase 0 status determines whether Phase 1 can proceed.
-
-### Phase 1 — PRE-FLIGHT
-
-Verifies the deploy can proceed. Hard-fails if ANY check fails.
-
-| Check | Method | Hard? |
+| Phase | Name | What it does |
 |---|---|---|
-| Active project = `mbs/PayCraft` | `session-resolve.sh` | YES |
-| Git working tree clean (source) | `git status --short` | YES |
-| 14 vault secrets present | `secrets-verify.sh --required-for mbs/PayCraft` | YES |
-| Vercel CLI installed + logged in | `vercel whoami` | YES |
-| Vercel project linked | `dashboard/.vercel/project.json` | YES |
-| Supabase CLI installed + logged in | `supabase projects list` | YES |
-| Supabase project linked | `supabase status` + ref match | YES |
-| framework-supabase reachable | `curl -fsS $FW_SB_URL/rest/v1/` | YES |
-| Wix MCP available (informational) | tool list scan for `mcp__wix__*` | NO (logs to phase 6 plan) |
-| Node v20+ available | `node --version` | YES |
-| Disk space ≥ 5 GB | `df -h .` | YES |
+| 1 | PRE-FLIGHT | Verify CLIs / vault / Cloudflare / gh; warn on un-pushed `dev` commits; **typecheck** the dashboard (`tsc --noEmit`) so a broken build never ships (`--skip-build` bypasses) |
+| 2 | SECRETS SYNC | vault → Cloudflare Pages secrets, driven by `dashboard/cloudflare-secrets.map` (`wrangler pages secret put <ENV> --project-name paycraft`). Best-effort: a nullable alias missing from the vault is skipped, not fatal |
+| 3 | MIGRATIONS | Detect pending (`db push --dry-run`) → DESTRUCTIVE-op scan (gated by `--allow-destructive`) → pre-push schema BACKUP → `supabase db push` → POST-PUSH VERIFY (0 pending). Aborts the chain on any failure |
+| 3.5 | FUNCTIONS DEPLOY | Vault-mediated `supabase functions deploy` per directory under `supabase/functions/` that has an `index.ts` (`_shared` + `__tests__` have none, so they are skipped by construction) |
+| 4 | PROMOTE | **Retired** — `dev` is the deploy branch; the phase reports SKIP |
+| 5 | DEPLOY CLOUDFLARE | `npm run pages:deploy` = `@cloudflare/next-on-pages` then `wrangler pages deploy .vercel/output/static --project-name=paycraft --branch=main` |
+| 6 | SMOKE | `curl` `/api/health` + `/auth/login` + root + Edge Function `/config` reachability |
 
-Output: `[1] ✓ PASS  4.2s` or `[1] ✗ FAIL  <reason>`.
+Two things in phase 5 that look wrong and are not:
 
-### Phase 2 — SECRETS SYNC
+- **`.vercel/output/`** is the Build Output API directory `next-on-pages` emits. It is
+  not a Vercel deployment and needs no Vercel account, token, or project link.
+- **`--branch=main`** is the Cloudflare Pages *production-branch alias*, unrelated to any
+  git ref (the stale `main` ref was deleted from both remotes on 2026-09-17). It must
+  stay `main`; setting it to `dev` demotes the deploy to a PREVIEW and the custom
+  domain silently stops updating.
 
-Pulls from vault → Vercel + Supabase. Reuses existing scripts.
+## Phase spec — other modes
 
-```bash
-bash infra/sync-to-vercel.sh --apply --env "$ENV"
-bash infra/sync-to-supabase.sh --apply
-```
+**`--local`** — L1 PRE-FLIGHT (Docker, supabase CLI, node_modules, `supabase/.env`) · L2 SUPABASE RESTART (retries once on health timeout) · L2.5 MIGRATIONS (`migration up --local`, then asserts the local schema is not behind the files on disk — `supabase start` restores a volume backup and does **not** apply pending migrations) · L3 DEV SERVER · L4 READY WAIT · L5 SMOKE (expects `env=local`).
 
-Each script handles its own per-secret PASS/FAIL/SKIP. Phase fails if either script's exit code ≠ 0.
+**`--staging`** — same shape as prod against staging targets, no PROMOTE. The staging Supabase project is resolved from `SUPABASE_ACCOUNTS_REGISTRY`; if none is declared, phases 3/3.5 WARN and SKIP — the target is **never** redirected to the prod database. Phase 5 deploys the same Pages project with `--branch=staging` → `staging.paycraft.pages.dev`. On success writes `.state/last-staging.json`, the `--promote-to-prod` precondition.
 
-### Phase 3 — MIGRATIONS
-
-Applies pending migrations to framework-supabase project.
-
-```bash
-cd "$PAYCRAFT_SRC"
-supabase db push --linked --include-roles
-```
-
-Pre-condition: `supabase link --project-ref mlwfgytjxlqyfxcgpysm` ran once.
-
-Phase fails if any migration raises an SQL error. Migrations are forward-only (RULE-SERVER-PROD-PUSH-001 Q8 — no auto-rollback). Manual recovery: `/release-rollback` skill or `supabase db reset` against staging copy.
-
-### Phase 4 — BUILD
-
-Installs deps + production build.
-
-```bash
-cd "$PAYCRAFT_SRC/dashboard"
-npm ci --no-audit --no-fund
-npm run build      # next build — fails on tsc errors
-```
-
-Phase fails if `next build` exits non-zero. Build artifacts cached in `.next/` (Vercel re-uses on deploy).
-
-### Phase 5 — DEPLOY
-
-Deploys to Vercel.
-
-```bash
-cd "$PAYCRAFT_SRC/dashboard"
-VERCEL_TOKEN=$(secrets-get --alias mbs-paycraft-vercel-token --stdout-allowed)
-DEPLOY_URL=$(vercel deploy --prod --token "$VERCEL_TOKEN" --yes 2>&1 | tail -1)
-echo "$DEPLOY_URL" > infra/deploy/.last-deploy-url
-```
-
-`DEPLOY_URL` is the Vercel-assigned URL (e.g. `pay-craft-abc123-mobilebytelabs-projects.vercel.app`). Phase saves it to `.last-deploy-url` for phase 7 + 8.
-
-### Phase 6 — DNS
-
-Verify `paycraft.mobilebytesensei.com` CNAME → `cname.vercel-dns.com`.
-
-**Strategy A — Wix MCP available** (after Claude restart):
-```
-# Use mcp__wix__* tools:
-1. Get site for mobilebytesensei.com
-2. List DNS records → find CNAME for "paycraft"
-3. If missing: create CNAME paycraft → cname.vercel-dns.com (TTL 3600)
-4. If present but value wrong: update
-5. Report
-```
-
-**Strategy B — Wix MCP unavailable** (current session):
-```
-Print exact manual steps:
-  1. Open https://manage.wix.com/account/sites
-  2. Pick mobilebytesensei.com → Domains → Manage DNS Records
-  3. Add CNAME record:  host=paycraft  value=cname.vercel-dns.com  TTL=1 Hour
-  4. Click Save
-Wait for user [Y]es-I-added-it-and-it-resolves confirmation
-Verify resolution: dig +short paycraft.mobilebytesensei.com CNAME
-```
-
-Phase fails if CNAME doesn't resolve after 60s (DNS propagation slow path).
-
-### Phase 7 — DOMAIN ATTACH
-
-```bash
-cd "$PAYCRAFT_SRC/dashboard"
-vercel domains add paycraft.mobilebytesensei.com --token "$VERCEL_TOKEN"
-# SSL auto-provisioned by Vercel (Let's Encrypt, ~30-90s)
-```
-
-Idempotent — already-attached domain is a no-op.
-
-Phase polls Vercel API every 5s up to 90s waiting for SSL cert status = `valid`.
-
-### Phase 8 — HEALTH CHECK
-
-Two checks:
-
-1. **API health endpoint** (if `/api/health` exists in dashboard):
-   ```bash
-   curl -fsS https://paycraft.mobilebytesensei.com/api/health
-   # expect: {"status":"ok","supabase":"reachable","stripe":"reachable"}
-   ```
-
-2. **Playwright smoke** (per RULE-WEB-DEBUG-001):
-   ```bash
-   bash .claude-runtime/scripts/web-debug-bootstrap.sh ensure
-   bash .claude-runtime/scripts/web-debug-bootstrap.sh run /tmp/paycraft-smoke.ts
-   ```
-   The smoke script visits `/auth/login`, asserts presence of Google sign-in button, no console errors.
-
-Phase fails on non-200 or Playwright assert failure.
+---
 
 ## Output
 
 ### Per-phase line
 
 ```
-[1] PRE-FLIGHT          ✓ PASS  4.2s
-[2] SECRETS SYNC        ✓ PASS  8.1s   (14 secrets → Vercel + 8 → Supabase)
-[3] MIGRATIONS          ✓ PASS  3.4s   (0 pending — already current)
-[4] BUILD               ✓ PASS  47s    (build size 12 MB)
-[5] DEPLOY              ✓ PASS  31s    (https://pay-craft-xyz.vercel.app)
-[6] DNS                 ✓ PASS  12s    (CNAME via Wix MCP)
-[7] DOMAIN ATTACH       ✓ PASS  44s    (SSL: valid)
-[8] HEALTH              ✓ PASS  6s     (200 OK + Playwright smoke clean)
+[1]   PRE-FLIGHT        ✓ PASS  4.2s
+[2]   SECRETS SYNC      ✓ PASS  8.1s   (29 set, 8 skipped → Cloudflare Pages; 8 → Supabase)
+[3]   MIGRATIONS        ✓ PASS  3.4s   (0 pending — already current)
+[3.5] FUNCTIONS DEPLOY  ✓ PASS  62s    (24 deployed, 0 failed)
+[4]   PROMOTE           ↷ SKIP  0s     (retired — dev is the deploy branch)
+[5]   DEPLOY CLOUDFLARE ✓ PASS  31s    (paycraft.pages.dev, --branch=main)
+[6]   SMOKE             ✓ PASS  6s     (200 OK + /api/health status=ok)
 ```
 
 ### Final summary banner
@@ -224,16 +117,16 @@ Phase fails on non-200 or Playwright assert failure.
   PayCraft v2.0 — Production Deploy Complete
 ═══════════════════════════════════════════════════════════════
   Live URL:        https://paycraft.mobilebytesensei.com
-  Vercel URL:      https://pay-craft-abc123-mobilebytelabs-projects.vercel.app
+  Pages project:   paycraft (alias: paycraft.pages.dev)
   Supabase:        https://mlwfgytjxlqyfxcgpysm.supabase.co
   Env:             production
-  Deploy ID:       dpl_xK3p9Lm7Rz...
   Total time:      2m 36s
-  Secrets synced:  14 (Vercel) + 8 (Supabase Edge)
-  Migrations:      0 pending applied (all caught up to 063)
+  Secrets synced:  29 (Cloudflare Pages) + 8 (Supabase Edge)
+  Functions:       24 deployed
+  Migrations:      0 pending applied
 
   Next steps:
-    - Tail logs:        vercel logs --token \$VERCEL_TOKEN --follow
+    - Tail logs:        npx wrangler pages deployment tail --project-name=paycraft
     - Monitor errors:   open https://sentry.io/organizations/<org>/issues/
     - Stripe webhook:   https://paycraft.mobilebytesensei.com/api/webhooks/stripe
     - Razorpay webhook: https://paycraft.mobilebytesensei.com/api/webhooks/razorpay
@@ -269,22 +162,29 @@ Phase fails on non-200 or Playwright assert failure.
 - Each phase writes its completion marker to `infra/deploy/.state/phase-N.done` with timestamp + git SHA
 - `--from-phase N` skips phases <N if their .done file exists AND was within last 1h (configurable)
 - Stale state markers (>24h) are ignored; phase re-runs
+- `--staging` additionally writes `.state/last-staging.json`, which `--promote-to-prod` reads to
+  confirm the commit being promoted is the one that was actually rehearsed
 
 ## Cost ledger
 
 `infra/deploy/.deploy-ledger.jsonl` (append-only):
 ```json
-{"ts":"2026-06-16T18:30:00Z","env":"production","duration_s":156,"deploy_id":"dpl_xK3","status":"success","phases_run":[1,2,3,4,5,6,7,8],"secrets_synced":22,"migrations_applied":0}
+{"ts":"2026-09-17T18:30:00Z","env":"production","duration_s":156,"status":"success","phases_run":[1,2,3,3.5,5,6],"secrets_synced":37,"functions_deployed":24,"migrations_applied":0}
 ```
 
 Use `/release-status` to read ledger.
 
 ## Cross-references
 
-- `infra/sync-to-vercel.sh` — phase 2 sub-script
-- `infra/sync-to-supabase.sh` — phase 2 sub-script
+- `infra/deploy/deploy.sh` — the orchestrator; its header comment is the phase source of truth
+- `dashboard/cloudflare-secrets.map` — alias → env-var map that phase 2 walks
+- `.github/workflows/deploy-cloud.yml` — the CI path (triggers on push to `dev`); same ordering, migrations first
+- `infra/dns-records.md` — DNS + custom domain reference (Cloudflare; registrar Hostinger)
 - `infra/secrets-push-checklist.md` — bootstrap (prereq, not deploy)
 - `infra/bootstrap-production.sh` — one-time provisioning (prereq, not deploy)
 - `docs/PRODUCTION_LAUNCH_RUNBOOK.md` — manual fallback runbook
 - `.claude/skills/paycraft-deploy/SKILL.md` — framework wrapper
 - `/release` — generic release framework (PayCraft has its own due to multi-runtime — KMP + dashboard + Supabase + custom domain)
+
+> Removed 2026-09-17: `infra/sync-to-vercel.sh` was listed here as a phase-2 sub-script.
+> The file does not exist — phase 2 pushes secrets with `wrangler pages secret put` directly.

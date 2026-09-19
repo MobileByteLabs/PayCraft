@@ -535,7 +535,7 @@ export function PaywallDesigner({
           <div className="text-xs text-success-700 flex items-center gap-1.5">
             <Check className="w-3.5 h-3.5" strokeWidth={2.5} />
             Saved at <span className="tabular-nums">{savedAt}</span> — SDK will
-            pick this up on its next config fetch (max 1h).
+            pick this up on its next config fetch (within 5 min).
           </div>
         )}
       </div>

@@ -223,7 +223,19 @@ export default async function globalSetup(): Promise<void> {
   type CollectedCookie = { name: string; value: string; options: CookieOptionsWithName }
   const collectedCookies: CollectedCookie[] = []
 
-  const ssrClient = createServerClient(SUPABASE_URL, ANON_KEY, {
+  // THE COOKIE NAME ENCODES THE SUPABASE HOST, AND THE APP MUST AGREE.
+  //
+  // @supabase/ssr derives `sb-<ref>-auth-token` from the URL it is given: 127.0.0.1 yields
+  // `sb-127-auth-token`, localhost yields `sb-localhost-auth-token`. This setup resolves its URL from
+  // `supabase status` (127.0.0.1) while a dev server started from .env.local may be on localhost — so
+  // the minted cookie was NAMED for a host the app never looks up. It was silently ignored, every
+  // page redirected to /auth/login, and the suite went green against the login page: 200, no error
+  // text, nothing actually tested.
+  //
+  // Prefer the URL the APP is configured with, so the names cannot diverge.
+  const APP_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? SUPABASE_URL
+
+  const ssrClient = createServerClient(APP_SUPABASE_URL, ANON_KEY, {
     cookies: {
       getAll: () => [],
       setAll: (cs: CollectedCookie[]) => {
@@ -266,6 +278,22 @@ export default async function globalSetup(): Promise<void> {
 
   const authDir = path.join(__dirname, ".auth")
   fs.mkdirSync(authDir, { recursive: true })
+  // Belt and braces: emit the cookie under BOTH host spellings. Whichever the app resolves, one of
+  // them matches; an unused cookie name is inert. This removes a whole class of "the harness ran and
+  // tested nothing" that is invisible from the test output.
+  const alternates: typeof storageState.cookies = []
+  for (const c of storageState.cookies) {
+    const m = c.name.match(/^sb-(.+)-auth-token(.*)$/)
+    if (!m) continue
+    for (const host of ["127", "localhost"]) {
+      const alt = `sb-${host}-auth-token${m[2]}`
+      if (alt !== c.name && !storageState.cookies.some((x) => x.name === alt)) {
+        alternates.push({ ...c, name: alt })
+      }
+    }
+  }
+  storageState.cookies.push(...alternates)
+
   fs.writeFileSync(path.join(authDir, "state.json"), JSON.stringify(storageState, null, 2))
 
   console.log(

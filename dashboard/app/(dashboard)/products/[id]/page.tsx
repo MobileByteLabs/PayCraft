@@ -1,11 +1,13 @@
 export const runtime = "edge"
 
 import Link from "next/link"
-import { ArrowLeft, Pencil, Tag, Globe } from "lucide-react"
+import { ArrowLeft, Pencil, Globe } from "lucide-react"
 import { notFound } from "next/navigation"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
 import { ProductSyncPanel } from "@/components/products/product-sync-panel"
+import { ProviderDetailsSection } from "@/components/products/provider-details-section"
+import { PROVIDER_CONNECTED_COLUMNS, isProviderConnected } from "@/lib/provider-connected"
 import { verifyStripeProductSync } from "@/lib/stripe-sync-verify"
 
 /**
@@ -31,12 +33,53 @@ export default async function ProductViewPage({
 
   const { data: pricingRows = [] } = await supabase
     .from("tenant_pricing")
-    .select("currency, amount_cents")
+    .select("currency, amount_cents, locale")
     .eq("tenant_id", tenant.id)
     .eq("product_id", params.id)
     .order("currency")
 
+  /**
+   * `tenant_pricing` is per-LOCALE, not per-currency: DE, FR, ES and IT all price in EUR. Rendering
+   * the rows directly therefore printed EUR four times — and, keyed by currency, produced duplicate
+   * React keys. Collapse to one row per currency, keeping the DISTINCT amounts: if two locales that
+   * share a currency disagree on price, that is a real inconsistency and hiding it behind "the first
+   * one" would be worse than the duplication.
+   */
+  const byCurrency = new Map<string, { amounts: Set<number>; locales: number }>()
+  for (const r of (pricingRows ?? []) as any[]) {
+    const e = byCurrency.get(r.currency) ?? { amounts: new Set<number>(), locales: 0 }
+    e.amounts.add(r.amount_cents)
+    e.locales += 1
+    byCurrency.set(r.currency, e)
+  }
+  const currencyRows = [...byCurrency.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([currency, e]) => ({ currency, amounts: [...e.amounts].sort((x, y) => x - y), locales: e.locales }))
+
   const p: any = product
+
+  // Provider rows for THIS tenant: connection state + the payment links the provider issued for
+  // this product's sku. `live_payment_links` is {sku: {currency: url}} — a per-product slice of a
+  // per-provider column, which is why it has to be read here rather than off the product row.
+  const { data: providerRows = [] } = await supabase
+    .from("tenant_providers")
+    .select(`${PROVIDER_CONNECTED_COLUMNS}, live_payment_links, test_payment_links`)
+    .eq("tenant_id", tenant.id)
+
+  const providerConnected: Record<string, boolean> = {}
+  const providerActive: Record<string, boolean> = {}
+  const providerLinks: Record<string, { mode: "live" | "test"; links: Record<string, string> }> = {}
+  for (const row of (providerRows ?? []) as any[]) {
+    // Last row wins per provider only when it is the stronger claim: a tenant can hold more than one
+    // row for a provider (re-onboarding leaves the earlier one behind), and an empty leftover must
+    // not overwrite a connected row's state.
+    providerConnected[row.provider] = providerConnected[row.provider] || isProviderConnected(row)
+    providerActive[row.provider] = providerActive[row.provider] || !!row.is_active
+    const live = (row.live_payment_links ?? {})[p.sku] ?? {}
+    const test = (row.test_payment_links ?? {})[p.sku] ?? {}
+    const chosen = Object.keys(live).length ? { mode: "live" as const, links: live } : { mode: "test" as const, links: test }
+    if (Object.keys(chosen.links).length) providerLinks[row.provider] = chosen
+  }
 
   // Live verify against the current Stripe account so the sync panel chip
   // doesn't lie when a stale ID is in the DB.
@@ -73,7 +116,7 @@ export default async function ProductViewPage({
           </div>
           <p className="text-sm text-ink-500 mt-1">
             Read-only view. Changes propagate to the SDK on the next config
-            fetch (max 1h cached client-side).
+            fetch (cached up to 5 min client-side).
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -102,6 +145,15 @@ export default async function ProductViewPage({
         initialPlayProductId={p.play_product_id ?? null}
         initialAppStoreProductId={p.app_store_product_id ?? null}
         stripeVerification={stripeVerification}
+      />
+
+      {/* Everything each provider holds for THIS product — ids, links, last verdict. Read-only;
+          the panel above is the write path. */}
+      <ProviderDetailsSection
+        product={p as any}
+        connected={providerConnected}
+        active={providerActive}
+        paymentLinks={providerLinks}
       />
 
       {/* Configuration snapshot */}
@@ -159,25 +211,29 @@ export default async function ProductViewPage({
       </div>
 
       {/* Per-currency pricing matrix */}
-      {pricingRows && pricingRows.length > 0 && (
+      {currencyRows.length > 0 && (
         <div className="bg-white border border-ink-200 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-ink-900">Pricing matrix</h3>
             <span className="text-[11px] text-ink-500">
-              {pricingRows.length} currenc{pricingRows.length === 1 ? "y" : "ies"}
+              {currencyRows.length} currenc{currencyRows.length === 1 ? "y" : "ies"} ·{" "}
+              {pricingRows?.length ?? 0} locale{(pricingRows?.length ?? 0) === 1 ? "" : "s"}
             </span>
           </div>
           <div className="grid grid-cols-4 gap-2">
-            {pricingRows.map((row: any) => (
+            {currencyRows.map((row) => (
               <div
                 key={row.currency}
                 className="flex items-center justify-between p-2 bg-ink-50 rounded border border-ink-100"
+                title={`${row.locales} locale${row.locales === 1 ? "" : "s"}`}
               >
                 <span className="text-[11px] font-mono font-bold text-ink-700">
                   {row.currency}
                 </span>
-                <span className="text-xs tabular-nums text-ink-900">
-                  {formatMoney(row.amount_cents, row.currency)}
+                <span
+                  className={`text-xs tabular-nums ${row.amounts.length > 1 ? "text-amber-700 font-semibold" : "text-ink-900"}`}
+                >
+                  {row.amounts.map((a) => formatMoney(a, row.currency)).join(" / ")}
                 </span>
               </div>
             ))}
@@ -185,27 +241,6 @@ export default async function ProductViewPage({
         </div>
       )}
 
-      {/* Stripe price IDs (helpful for debugging webhook / SDK config flow) */}
-      {p.stripe_price_id_by_currency &&
-        Object.keys(p.stripe_price_id_by_currency).length > 0 && (
-          <details className="bg-white border border-ink-200 rounded-xl p-6">
-            <summary className="text-sm font-bold text-ink-900 cursor-pointer flex items-center gap-2">
-              <Tag className="w-4 h-4 text-ink-400" />
-              Stripe price IDs ({Object.keys(p.stripe_price_id_by_currency).length})
-            </summary>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              {Object.entries(p.stripe_price_id_by_currency).map(([ccy, id]) => (
-                <div
-                  key={ccy}
-                  className="flex items-center justify-between p-2 bg-ink-50 rounded text-[11px] font-mono"
-                >
-                  <span className="font-bold text-ink-700">{ccy}</span>
-                  <span className="text-ink-500 truncate ml-2">{id as string}</span>
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
     </div>
   )
 }

@@ -3,11 +3,13 @@ package com.mobilebytelabs.paycraft.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.PayCraftPlatform
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
 import com.mobilebytelabs.paycraft.debug.platformLog
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
+import com.mobilebytelabs.paycraft.network.CheckoutInitiateClient
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -205,6 +207,62 @@ class PayCraftPaywallViewModel(private val billingManager: BillingManager) : Vie
 
         _state.update { it.copy(isSubmitting = true, emailError = null) }
         if (email.isNotBlank()) billingManager.logIn(email)
+
+        // SERVER-MINTED CHECKOUT.
+        //
+        // Some plans have no static URL to open: a Razorpay subscription's auth link authorises one
+        // customer's mandate, so it is created per buyer and cannot be a product-level link. Those
+        // go through the checkout-initiate edge function, which holds the merchant secret the SDK
+        // must never see and returns a short_url.
+        //
+        // Before this branch existed the static-link path was the only one, so every such plan hit
+        // "no checkout URL for currency INR" and the buyer got nothing — while the plan id needed to
+        // create the subscription sat in the very config the paywall had just rendered from.
+        if (PayCraft.requiresServerCheckout(plan)) {
+            // `email` is the TEXT FIELD; `userEmail` is the address the SDK already knows for this
+            // subscriber. A tenant-authored paywall need not contain an email input at all — cappy's
+            // does not — so demanding the typed field asks for something the buyer has no way to
+            // give, which is a dead button wearing a helpful message. Prefer what was typed (a buyer
+            // correcting the address means it), fall back to who we know they are.
+            val checkoutEmail = email.ifBlank { currentState.userEmail.orEmpty().trim() }
+            if (checkoutEmail.isBlank()) {
+                // Razorpay needs a contact to bind the mandate to. Ask for it rather than sending a
+                // request that can only fail at the PSP.
+                _state.update {
+                    it.copy(
+                        isSubmitting = false,
+                        emailError = "Enter your email to start this subscription",
+                    )
+                }
+                return
+            }
+            viewModelScope.launch {
+                when (val r = PayCraft.serverCheckoutUrl(plan, checkoutEmail)) {
+                    is CheckoutInitiateClient.Result.Ok -> {
+                        PayCraftPlatform.openUrl(r.url)
+                        _state.update { it.copy(isSubmitting = false) }
+                        _events.send(PayCraftPaywallEvent.CheckoutLaunched(url = r.url))
+                    }
+                    // The server's refusal is written for a human ("no Razorpay plan for currency
+                    // USD — this product has plans for INR"), so it reaches the buyer as-is instead
+                    // of being flattened into "please try again".
+                    is CheckoutInitiateClient.Result.Rejected -> {
+                        logE(TAG) { "checkout rejected for ${plan.sku}: ${r.message}" }
+                        _state.update { it.copy(isSubmitting = false, errorMessage = r.message) }
+                    }
+                    is CheckoutInitiateClient.Result.Error -> {
+                        logE(TAG) { "checkout error for ${plan.sku}: ${r.message}" }
+                        _state.update {
+                            it.copy(
+                                isSubmitting = false,
+                                errorMessage = "Couldn't start checkout. Please try again or contact support.",
+                            )
+                        }
+                    }
+                }
+            }
+            return
+        }
         // A missing/misconfigured checkout URL (no payment link for this plan+mode
         // in the dashboard) makes the provider adapter throw. Catch it here so a
         // config gap surfaces as an error state instead of crashing the host app.

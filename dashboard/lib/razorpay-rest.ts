@@ -17,7 +17,11 @@ export interface RazorpayRestClient {
   subscriptions: { create(payload: Record<string, unknown>): Promise<any> }
   payments: { all(params?: { count?: number }): Promise<any> }
   offers: { create(payload: Record<string, unknown>): Promise<any> }
-  plans: { create(payload: Record<string, unknown>): Promise<any> }
+  plans: {
+    create(payload: Record<string, unknown>): Promise<any>
+    /** Read a plan back. Used to VERIFY a stored id still exists before trusting it. */
+    fetch(planId: string): Promise<any>
+  }
   paymentLink: { create(payload: Record<string, unknown>): Promise<any> }
   subscriptionRegistration: {
     createRegistrationLink(payload: Record<string, unknown>): Promise<any>
@@ -65,7 +69,10 @@ export function razorpayRest(keyId: string, keySecret: string): RazorpayRestClie
     subscriptions: { create: (payload) => call("POST", "/subscriptions", payload) },
     payments: { all: (params) => call("GET", "/payments", undefined, { count: params?.count }) },
     offers: { create: (payload) => call("POST", "/offers", payload) },
-    plans: { create: (payload) => call("POST", "/plans", payload) },
+    plans: {
+      create: (payload) => call("POST", "/plans", payload),
+      fetch: (planId) => call("GET", `/plans/${planId}`),
+    },
     paymentLink: { create: (payload) => call("POST", "/payment_links", payload) },
     subscriptionRegistration: {
       createRegistrationLink: (payload) =>

@@ -99,7 +99,13 @@ describe("App Store", () => {
     installFetch(() => ({ ok: true, status: 200, json: async () => ({ resultCount: 0, results: [] }) }))
     const v = await checkAppStoreAppLive("com.example.draft")
     expect(v.status).toBe("not-published")
-    expect(v.message).toMatch(/not live on the App Store/i)
+    // Assert the SUBSTANCE, not the phrasing. What must survive a rewrite is that the operator is
+    // told (a) this probe reads the PUBLIC storefront, (b) a TestFlight / in-review app is therefore
+    // invisible to it and is NOT evidence the app is missing, and (c) StoreKit still works in
+    // TestFlight so subscriptions are testable now. Pinning the old sentence made a strictly more
+    // informative message fail.
+    expect(v.message).toMatch(/public (App Store|storefront)/i)
+    expect(v.message).toMatch(/TestFlight/i)
     expect(v.message).toMatch(/App Store Connect/i)
   })
 

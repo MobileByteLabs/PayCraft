@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
@@ -105,11 +105,36 @@ export function ProductRowActions({
     }
   }
 
+  // The menu must escape its ancestors' clipping. The products table wrapper is `overflow-hidden`
+  // (it needs that for its rounded corners), and an absolutely-positioned child of a clipping box is
+  // cut off at the box edge — which is why the last row's menu appeared truncated. Measuring the
+  // trigger and rendering the menu `fixed` takes it out of that containing block entirely, so no
+  // ancestor's overflow can clip it regardless of where the row sits.
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
+
+  function toggle() {
+    const next = !open
+    if (next && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect()
+      const MENU_W = 224 // w-56
+      // Flip upward when there is not room below, so a row near the viewport bottom still shows all
+      // of its options rather than running off-screen.
+      const openUp = window.innerHeight - r.bottom < 120
+      setMenuPos({
+        top: openUp ? r.top - 8 : r.bottom + 4,
+        left: Math.max(8, Math.min(r.right - MENU_W, window.innerWidth - MENU_W - 8)),
+      })
+    }
+    setOpen(next)
+  }
+
   return (
     <div className="relative inline-block text-left">
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-ink-700 border border-ink-200 bg-white rounded hover:bg-ink-50"
         aria-label={`Actions for ${sku}`}
       >
@@ -119,11 +144,14 @@ export function ProductRowActions({
       {open && (
         <>
           <div
-            className="fixed inset-0 z-10"
+            className="fixed inset-0 z-40"
             onClick={() => setOpen(false)}
             aria-hidden="true"
           />
-          <div className="absolute right-0 mt-1 w-56 bg-white border border-ink-200 rounded-lg shadow-lg z-20 py-1 text-left">
+          <div
+            className="fixed w-56 bg-white border border-ink-200 rounded-lg shadow-lg z-50 py-1 text-left"
+            style={menuPos ? { top: menuPos.top, left: menuPos.left } : undefined}
+          >
             <Link
               href={`/products/${productId}`}
               onClick={() => setOpen(false)}

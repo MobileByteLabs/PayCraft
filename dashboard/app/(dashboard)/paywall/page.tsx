@@ -35,7 +35,7 @@ export default async function PaywallPage() {
     <div>
       <PageHeader
         title="Paywall designer"
-        subtitle="Pick a template + theme — the SDK renders this directly. Changes propagate within the SDK's 1-hour cache TTL."
+        subtitle="Pick a template + theme — the SDK renders this directly. Changes reach devices within the SDK's cache TTL (5 min by default)."
         badge={
           <Badge tone="info" dot>
             Live preview

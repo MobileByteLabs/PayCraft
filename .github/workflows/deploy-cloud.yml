@@ -1,8 +1,19 @@
 name: Deploy paycraft.mobilebytesensei.com
 
+# Trigger is `dev`, the repository's DEFAULT branch — every PR merges there.
+# This previously fired on `main`, which stopped being promoted on 2026-08-03:
+# `main` fell 140 commits behind and still carries the pre-Cloudflare (Vercel)
+# copy of this workflow, so all 8 recorded runs failed and production shipped
+# only from `infra/deploy/deploy.sh` on a laptop — skipping the migrations-first
+# ordering below and the smoke job at the bottom.
+#
+# NOTE: the `--branch=main` in `dashboard/package.json#pages:deploy` is the
+# CLOUDFLARE PAGES production-branch alias, not a git branch. It must stay
+# `main` — changing it to `dev` would demote these to PREVIEW deployments and
+# paycraft.mobilebytesensei.com would stop updating.
 on:
   push:
-    branches: [main]
+    branches: [dev]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -35,6 +46,27 @@ jobs:
         with:
           version: latest
 
+      # Assert the secrets are non-empty BEFORE touching the CLI. A missing repo
+      # secret interpolates to an empty string, not an error: the 2026-08-03 runs
+      # shipped `supabase link --project-ref ""` with a blank SUPABASE_ACCESS_TOKEN
+      # and failed several CLI-layers deep ("Access token not provided"), which read
+      # like a CLI bug rather than an unset secret. Name the missing one instead.
+      - name: Assert required secrets are present
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROD_REF: ${{ secrets.SUPABASE_PROD_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          missing=""
+          for v in SUPABASE_ACCESS_TOKEN SUPABASE_PROD_REF SUPABASE_DB_PASSWORD; do
+            [ -n "${!v:-}" ] || missing="${missing} ${v}"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::missing repo secret(s):${missing} — set them in Settings → Secrets → Actions"
+            exit 1
+          fi
+          echo "All 3 Supabase secrets present."
+
       - name: Push migrations to production
         run: |
           supabase link --project-ref "${{ secrets.SUPABASE_PROD_REF }}"
@@ -44,7 +76,7 @@ jobs:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
   deploy-dashboard:
-    name: Deploy Next.js dashboard to Cloudflare Workers
+    name: Deploy Next.js dashboard to Cloudflare Pages
     runs-on: ubuntu-latest
     needs: [deploy-migrations]
     if: github.event.inputs.dry_run != 'true'
@@ -74,6 +106,11 @@ jobs:
       - name: Build + deploy to Cloudflare Pages
         run: npm run pages:deploy
         env:
+          # NEXT_PUBLIC_* is inlined by `next build`, so this must be set HERE at
+          # build time — a Pages dashboard env var would be read too late. Without
+          # it /api/health reports env "local" in production (route.ts falls back),
+          # which is why a live build could not be told apart from a local one.
+          NEXT_PUBLIC_APP_ENV: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # The org token materializes as CLOUDFLARE_PAGES_API_TOKEN (alias
           # mbs-cloudflare-pages-api-token); wrangler reads CLOUDFLARE_API_TOKEN.
@@ -109,18 +146,55 @@ jobs:
       #
       # Failures accumulate rather than short-circuit: one broken function should not hide the
       # status of the other 23. The job still exits non-zero if any failed.
+      # Same empty-secret assert as deploy-migrations: the 2026-08-03 failure was
+      # an unset SUPABASE_ACCESS_TOKEN + an empty `--project-ref`, not bad code.
+      - name: Assert required secrets are present
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROD_REF: ${{ secrets.SUPABASE_PROD_REF }}
+        run: |
+          missing=""
+          for v in SUPABASE_ACCESS_TOKEN SUPABASE_PROD_REF; do
+            [ -n "${!v:-}" ] || missing="${missing} ${v}"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::missing repo secret(s):${missing} — set them in Settings → Secrets → Actions"
+            exit 1
+          fi
+          echo "Both Supabase secrets present."
+
+      # A deployable function IS its `index.ts`. Skipping by ENTRYPOINT rather than by
+      # NAME is what infra/deploy/deploy.sh:534-543 already settled on, after a name-based
+      # skip list reported a permanent "2 function(s) failed" for `__tests__` (canary
+      # subdirectories, no entrypoint) — which is exactly how a real failure gets ignored.
+      # Matching that here means the next helper/test directory someone adds cannot
+      # re-break this job. `--project-ref` is quoted so an empty value can never silently
+      # become "deploy to the linked default project".
       - name: Deploy edge functions (derived from disk)
         run: |
           set -uo pipefail
           fail=0
+          deployed=0
           for d in supabase/functions/*/; do
             name="$(basename "$d")"
-            case "$name" in _shared|__tests__) continue ;; esac
+            if [ ! -f "${d}index.ts" ]; then
+              echo "↷ ${name}: no index.ts — not a function, skipped"
+              continue
+            fi
             echo "Deploying $name"
-            supabase functions deploy "$name" \
-              --project-ref ${{ secrets.SUPABASE_PROD_REF }} \
-              || { echo "::error::edge function $name failed to deploy"; fail=$((fail+1)); }
+            if supabase functions deploy "$name" \
+                 --project-ref "${{ secrets.SUPABASE_PROD_REF }}"; then
+              deployed=$((deployed+1))
+            else
+              echo "::error::edge function $name failed to deploy"
+              fail=$((fail+1))
+            fi
           done
+          echo "Deployed ${deployed} function(s), ${fail} failed."
+          if [ "$deployed" -eq 0 ]; then
+            echo "::error::no edge functions deployed — supabase/functions/*/index.ts matched nothing"
+            exit 1
+          fi
           if [ "$fail" -ne 0 ]; then
             echo "::error::$fail edge function(s) failed to deploy"
             exit 1

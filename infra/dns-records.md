@@ -1,19 +1,25 @@
 # PayCraft DNS Records — copy-paste reference
 
-> Phase 2 T5 + Phase 4 T10 of paycraft-v2-production-readiness — every CNAME
-> the production environment needs. The apex `mobilebytesensei.com` is
-> managed via Wix DNS; copy each row below into the DNS console.
+> Phase 2 T5 + Phase 4 T10 of paycraft-v2-production-readiness — every record
+> the production environment needs. `mobilebytesensei.com` is registered at
+> **Hostinger** and its DNS is served by **Cloudflare** (`haley.ns.cloudflare.com`
+> / `noah.ns.cloudflare.com`); copy each row below into the Cloudflare DNS panel.
 
-**Effective:** 2026-06-17
+**Effective:** 2026-09-17 (was 2026-06-17 — Wix/Vercel era)
 **Operator:** Run `dig +short` after each add to verify propagation (≤ 5 min).
+
+> **Migration note.** DNS moved off Wix and the dashboard moved off Vercel. Rows
+> fronted by Cloudflare are **proxied** (orange-cloud), so `dig` returns Cloudflare
+> anycast IPs (`104.21.x` / `172.67.x`) rather than the CNAME target — a proxied
+> record verifies by `curl`, not by matching the target in `dig` output.
 
 ---
 
-## Production records (4 CNAMEs)
+## Production records (4)
 
 | Subdomain | Type | Target | Owner | Purpose |
 |---|---|---|---|---|
-| `paycraft.mobilebytesensei.com` | CNAME | `cname.vercel-dns.com` | Vercel | Dashboard + marketing + `/api/*` + `/legal/*` |
+| `paycraft.mobilebytesensei.com` | CNAME (proxied) | `paycraft.pages.dev` | Cloudflare Pages | Dashboard + marketing + `/api/*` + `/legal/*` |
 | `docs.paycraft.mobilebytesensei.com` | CNAME | `paycraft-docs.pages.dev` | Cloudflare Pages | Docusaurus public docs site |
 | `status.paycraft.mobilebytesensei.com` | CNAME | `mobilebytelabs.github.io` | GitHub Pages (upptime) | Public status page |
 | `api.paycraft.mobilebytesensei.com` | CNAME | `mlwfgytjxlqyfxcgpysm.supabase.co` | Supabase | Direct Supabase API (reserved — currently unused, ships in v2.1) |
@@ -47,12 +53,20 @@ disconnected at the Supabase side until v2.1 needs it.
 
 ## Apex behavior
 
-`mobilebytesensei.com` apex itself remains MobileByteSensei's marketing site
-(Wix-managed). PayCraft does NOT take over the apex.
+`mobilebytesensei.com` apex itself remains MobileByteSensei's marketing site.
+PayCraft does NOT take over the apex.
 
 If the apex needs to redirect to PayCraft someday (e.g. brand consolidation),
-use a Wix-side 301 to `https://paycraft.mobilebytesensei.com` — do NOT CNAME
-the apex (RFC 1035 forbids apex CNAMEs anyway).
+use a Cloudflare **Redirect Rule** (Rules → Redirect Rules) to
+`https://paycraft.mobilebytesensei.com`. Cloudflare's CNAME-flattening would
+technically permit an apex CNAME, but a redirect rule is the reversible choice
+and keeps the apex free for the marketing site.
+
+**Mail lives on this apex — do not touch it while editing PayCraft rows.**
+Zoho serves it: `MX` → `mx{,2,3}.zoho.in`, SPF `v=spf1 include:zoho.in ~all`,
+DKIM at `zmail._domainkey`, DMARC at `_dmarc` (`p=none`). These survived the
+Wix → Hostinger/Cloudflare move; deleting or re-proxying them silently breaks
+inbound mail for the whole org, PayCraft support address included.
 
 ---
 
@@ -83,15 +97,21 @@ Expected:
 
 ## Rollback
 
-If a CNAME mis-targets and the production app is down:
+If a record mis-targets and the production app is down:
 
-1. Delete the offending row from the Wix DNS console.
+1. Delete the offending row from the **Cloudflare DNS panel** (zone
+   `mobilebytesensei.com`).
 2. Wait ≤ 5 min for negative-cache TTLs to expire.
 3. Re-add the correct row.
 
-The dashboard's underlying Vercel deploy never moves; only the CNAME front-door
-flips. Browser cache may hold the broken IP — incognito-test after each
-mutation.
+The dashboard's underlying Cloudflare Pages deployment never moves; only the DNS
+front-door flips. Browser cache may hold the broken IP — incognito-test after
+each mutation.
+
+A **DNS** rollback is the wrong tool for a bad *build*: to undo a deployment,
+roll back the Pages deployment itself (Cloudflare dashboard → Pages → `paycraft`
+→ Deployments → *Rollback*), which repoints the production alias without any DNS
+change. See `docs/PRODUCTION_LAUNCH_RUNBOOK.md` § Cloudflare Pages.
 
 ---
 

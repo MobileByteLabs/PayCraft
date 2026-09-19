@@ -26,7 +26,7 @@ Target: SOC2 Type 1 audit — 6 months post-launch (Dec 2026)
 
 ### CC9 — Risk Mitigation
 - [x] Data encrypted at rest (Supabase pgcrypto for tokens)
-- [x] TLS 1.3 via Cloudflare + Vercel (no plaintext)
+- [x] TLS 1.3 via Cloudflare (no plaintext)
 - [x] Supabase connection pooling (PgBouncer, no direct DB exposure)
 - [x] Webhook signature verification (HMAC-SHA256)
 - [ ] Vendor management policy — post-launch
@@ -36,5 +36,5 @@ Target: SOC2 Type 1 audit — 6 months post-launch (Dec 2026)
 
 - [x] 99.9% SLA target (see `infra/monitoring/sla-dashboard.md`)
 - [x] Multi-region Cloudflare CDN (US, EU, APAC probes)
-- [x] Vercel Edge Network (global)
+- [x] Cloudflare global edge network (Pages + Workers runtime)
 - [ ] Backup restoration test — quarterly cadence, first run post-launch

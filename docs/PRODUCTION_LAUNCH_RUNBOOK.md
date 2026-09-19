@@ -17,7 +17,7 @@
 3. [Phase 3 — Production Stripe Connect setup](#phase-3--production-stripe-connect-setup)
 4. [Phase 4 — Production Razorpay setup (optional)](#phase-4--production-razorpay-setup-optional)
 5. [Phase 5 — Cloudflare DNS apply](#phase-5--cloudflare-dns-apply)
-6. [Phase 6 — Vercel project link + deploy](#phase-6--vercel-project-link--deploy)
+6. [Phase 6 — Cloudflare Pages project + deploy](#phase-6--cloudflare-pages-project--deploy)
 7. [Phase 7 — Production database migration](#phase-7--production-database-migration)
 8. [Phase 8 — KMP SDK publish to Maven Central](#phase-8--kmp-sdk-publish-to-maven-central)
 9. [Post-launch validation](#post-launch-validation)
@@ -37,7 +37,7 @@
 | Stripe | Primary payment provider (Connect platform) | https://dashboard.stripe.com |
 | Razorpay (optional) | India-region payment provider | https://dashboard.razorpay.com |
 | Cloudflare | DNS for `paycraft.mobilebytesensei.com` + WAF + rate-limit | https://dash.cloudflare.com |
-| Vercel | Hosting for Next.js dashboard | https://vercel.com/dashboard |
+| Cloudflare Pages | Hosting for Next.js dashboard (project `paycraft`) | https://dash.cloudflare.com |
 | Postmark | Transactional email (welcome, receipt, reset) | https://account.postmarkapp.com |
 | Sentry | Error tracking for dashboard + Edge Functions | https://sentry.io |
 | Sonatype OSSRH | Maven Central publishing for KMP SDK | https://central.sonatype.org/publish/publish-portal-ossrh-staging-api/ |
@@ -47,7 +47,7 @@
 
 ```bash
 supabase --version       # expect: 1.200.0 or higher
-vercel --version         # expect: 39.x or higher
+npx wrangler --version   # expect: 4.x or higher
 terraform --version      # expect: Terraform v1.6.0 or higher
 gh --version             # expect: gh version 2.50.0 or higher
 node --version           # expect: v20.x (LTS) or higher
@@ -64,7 +64,8 @@ curl --version           # expect: curl 8.x
 Install hints (macOS, Homebrew):
 
 ```bash
-brew install supabase/tap/supabase vercel-cli terraform gh node pnpm openjdk@17 sops age postgresql@15
+brew install supabase/tap/supabase terraform gh node pnpm openjdk@17 sops age postgresql@15
+# wrangler is NOT installed globally — it comes from dashboard/devDependencies (npx wrangler)
 ```
 
 ### 1.3 Framework session bound to PayCraft
@@ -395,7 +396,8 @@ terraform apply
 
 ```bash
 dig paycraft.mobilebytesensei.com +short
-# Expected: 76.76.21.21 (Vercel anycast) — may take 1-5 min to propagate
+# Expected: Cloudflare anycast IPs (104.21.x.x / 172.67.x.x) — the record is PROXIED,
+# so dig shows Cloudflare's edge, never the paycraft.pages.dev target. May take 1-5 min.
 
 dig www.paycraft.mobilebytesensei.com +short
 # Expected: paycraft.mobilebytesensei.com. then 76.76.21.21
@@ -418,101 +420,93 @@ If this is the first time the zone exists in Cloudflare, the registrar must poin
 
 ---
 
-## Phase 6 — Vercel project link + deploy
+## Phase 6 — Cloudflare Pages project + deploy
 
-### 6.1 Login
+> The dashboard left Vercel on 2026-08-23. It is a **standalone** Next.js app under
+> `dashboard/` (no root workspace), built by `@cloudflare/next-on-pages` and served by
+> Cloudflare **Pages** project `paycraft`. `infra/deploy/deploy.sh` automates 6.2-6.4;
+> the steps below are what it does, for when you need to run one in isolation.
 
-```bash
-cd /Users/therajanmaurya/project-development/claude-product-cycle/workspaces/mbs/PayCraft/source/PayCraft/dashboard
-vercel login
-# Browser opens; sign in as the MobileByteLabs Vercel owner
-# Expected CLI line: "Success! GitHub authentication complete for ..."
-```
-
-> Vercel CLI docs: https://vercel.com/docs/cli
-
-### 6.2 Link the project
+### 6.1 Authenticate
 
 ```bash
-vercel link --project paycraft-dashboard --yes
-# Expected output: "Linked to mobilebytelabs/paycraft-dashboard (created .vercel)"
+cd .../workspaces/mbs/PayCraft/source/PayCraft/dashboard
+npx wrangler login          # browser opens; sign in as the MobileByteLabs Cloudflare owner
+npx wrangler whoami         # expect: your email + the MobileByteLabs account id
 ```
 
-If the project does not exist yet:
+CI does not log in — it reads `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`
+(supplied from the `CLOUDFLARE_PAGES_API_TOKEN` repo secret) from the environment.
+
+### 6.2 Push env vars from the vault
+
+`dashboard/cloudflare-secrets.map` is the source of truth for which vault alias
+materializes as which env var (37 rows). Each is pushed as a Pages **secret**:
 
 ```bash
-vercel projects add paycraft-dashboard
-vercel link --project paycraft-dashboard --yes
+npx wrangler pages secret put NEXT_PUBLIC_SUPABASE_URL --project-name paycraft
+# repeat per row — or let deploy.sh do the whole map from the vault in one pass
 ```
 
-### 6.3 Materialize env vars from the vault
+> `NEXT_PUBLIC_*` vars are **inlined at build time** by `next build`. A Pages secret
+> alone is not enough for those — they must be present in the build environment, which
+> is why `.github/workflows/deploy-cloud.yml` sets `NEXT_PUBLIC_APP_ENV` in the build
+> step's `env:` block rather than in the Pages dashboard.
 
-Generate `.env.production.local` from the vault aliases:
+### 6.3 Build + deploy
 
 ```bash
-bash ../../../../../core/scripts/secrets-pull.sh --project mbs/PayCraft --target dashboard/.env.production.local
-# Expected: file created with NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
-#           SUPABASE_SERVICE_ROLE_KEY, NEXT_PUBLIC_STRIPE_PK, STRIPE_SECRET_KEY,
-#           STRIPE_WEBHOOK_SECRET, STRIPE_CONNECT_CLIENT_ID, NEXT_PUBLIC_SENTRY_DSN, ...
+npm run pages:deploy
+# = npx @cloudflare/next-on-pages@1
+#   && wrangler pages deploy .vercel/output/static --project-name=paycraft --branch=main
 ```
 
-Push them into Vercel:
+Two things that look wrong and are not:
 
-```bash
-vercel env import .env.production.local production
-# Expected: prompts for each var; choose 'y' to overwrite
-```
+- **`.vercel/output/`** is the Build Output API directory that `next-on-pages` emits.
+  It is not a Vercel deployment and does not require a Vercel account or link.
+- **`--branch=main`** is the Cloudflare Pages *production-branch alias*, unrelated to
+  any git branch. It must stay `main`; changing it to `dev` demotes the deploy to a
+  PREVIEW and `paycraft.mobilebytesensei.com` silently stops updating.
 
-Alternatively (one-by-one, scriptable):
+### 6.4 Attach the custom domain (one-time; already done)
 
-```bash
-while IFS='=' read -r k v; do
-  [[ "$k" =~ ^[A-Z_] ]] || continue
-  echo "$v" | vercel env add "$k" production
-done < .env.production.local
-```
+Cloudflare dashboard → Pages → `paycraft` → Custom domains → Add
+`paycraft.mobilebytesensei.com`. Because the zone is already on Cloudflare, the
+record is created for you as a PROXIED CNAME to `paycraft.pages.dev` and the
+certificate issues automatically. Verify with `curl`, not `dig` — a proxied record
+resolves to Cloudflare anycast IPs, never to the target.
 
-### 6.4 First deploy (manual, sanity check)
-
-```bash
-vercel --prod
-# Expected: builds with pnpm --filter dashboard build; outputs a https://paycraft-dashboard-...vercel.app URL
-```
-
-### 6.5 Attach the custom domain
-
-```bash
-vercel domains add paycraft.mobilebytesensei.com paycraft-dashboard
-vercel domains add www.paycraft.mobilebytesensei.com paycraft-dashboard
-# Expected: "Domain paycraft.mobilebytesensei.com added to paycraft-dashboard"
-```
-
-Vercel auto-issues a Let's Encrypt certificate within ~60 seconds because the CNAME already resolves.
-
-### 6.6 Verify
+### 6.5 Verify
 
 ```bash
 curl -fsS -o /dev/null -w "%{http_code}\n" https://paycraft.mobilebytesensei.com
 # Expected: 200
 
+curl -fsS https://paycraft.mobilebytesensei.com/api/health
+# Expected: {"status":"ok", ... "checks":[{"name":"env","ok":true},{"name":"supabase","ok":true}]}
+# `env` should read "production" — "local" means NEXT_PUBLIC_APP_ENV was missing at BUILD time.
+
 curl -fsS https://paycraft.mobilebytesensei.com/pricing | grep -c "Pro"
 # Expected: at least 1
 ```
 
-### 6.7 Wire GitHub Actions for future deploys
-
-Confirm `.github/workflows/deploy-cloud.yml` GitHub secrets exist on the repo:
+### 6.6 Wire GitHub Actions for future deploys
 
 ```bash
-gh secret list --repo MobileByteLabs/PayCraft | grep -E 'VERCEL|SUPABASE_PROD_REF|SUPABASE_ACCESS_TOKEN|NEXT_PUBLIC'
-# Expected rows: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID, SUPABASE_PROD_REF,
-#                SUPABASE_ACCESS_TOKEN, NEXT_PUBLIC_SUPABASE_URL,
-#                NEXT_PUBLIC_SUPABASE_ANON_KEY, NEXT_PUBLIC_SENTRY_DSN
+gh secret list --repo MobileByteLabs/PayCraft | grep -E 'CLOUDFLARE|SUPABASE_PROD_REF|SUPABASE_ACCESS_TOKEN|SUPABASE_DB_PASSWORD'
+# Expected rows: CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_PAGES_API_TOKEN,
+#                SUPABASE_PROD_REF, SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD
 ```
 
-Missing ones go through `/secrets sync-to-ci` from a Claude session — never `gh secret set` by hand (RULE-SECRETS-VAULT-001).
+Missing ones go through `/secrets sync-to-ci` from a Claude session — never
+`gh secret set` by hand (RULE-SECRETS-VAULT-001). Both deploy jobs assert these are
+non-empty before touching a CLI: an unset repo secret interpolates to an empty string
+rather than erroring, which is how the 2026-08-03 runs failed several CLI-layers deep.
 
-After the first push to `main`, the workflow takes over and Vercel CLI deploys become a fallback path.
+`.github/workflows/deploy-cloud.yml` triggers on push to **`dev`** (the default
+branch). `main` was deleted on 2026-09-17: it had fallen 140 commits behind, still
+carried the pre-Cloudflare Vercel workflow, and every run it produced failed.
 
 ---
 
@@ -774,13 +768,28 @@ psql "$PROD_DB_URL" -c "DELETE FROM supabase_migrations.schema_migrations WHERE 
 
 If no `down/NNN_*.sql` exists, the migration is non-rollbackable. Plan a hotfix migration `050_revert_049.sql` instead.
 
-### Vercel
+### Cloudflare Pages
+
+The dashboard has not been on Vercel since 2026-08-23; it is Cloudflare Pages
+project `paycraft` (custom domain `paycraft.mobilebytesensei.com`, production
+branch alias `main`). Roll back the DEPLOYMENT, not DNS:
 
 ```bash
-vercel rollback <DEPLOYMENT_ID> --token=$(bash ../../../core/scripts/secrets-get.sh mbs-vercel-token --allow-claude-stdout)
-# DEPLOYMENT_ID from: vercel ls paycraft-dashboard
-# Last 3 deployments are retained (per /release Q3 retention policy)
+# List recent deployments (newest first)
+npx wrangler pages deployment list --project-name=paycraft
+
+# Promote a known-good one back to production
+npx wrangler pages deployment tail --project-name=paycraft   # confirm the ID first
+# then, in the Cloudflare dashboard: Pages → paycraft → Deployments → ⋯ → Rollback
 ```
+
+Requires `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` in the environment
+(`CLOUDFLARE_PAGES_API_TOKEN` is the vault alias CI uses). Cloudflare retains
+every deployment, so there is no 3-deployment retention window to race.
+
+Rolling back the deployment does NOT roll back the database — if the bad release
+shipped a migration, do the migration rollback above FIRST, since the restored
+build expects the older schema.
 
 ### Edge Functions
 
@@ -870,7 +879,7 @@ Once all six rows are checked, the operator has the mandate to proceed. Run phas
 [ ] Phase 3  Stripe live keys + webhook secret in vault + Connect approved
 [ ] Phase 4  Razorpay live keys + webhook secret in vault (or explicitly skipped)
 [ ] Phase 5  terraform apply OK; dig paycraft.mobilebytesensei.com / www / api / MX / SPF all resolve
-[ ] Phase 6  vercel link + env import + custom domain + curl 200
+[ ] Phase 6  wrangler login + pages secret put + pages:deploy + curl 200
 [ ] Phase 7  /project-complete green + /server promote --confirm + RLS on every tenant_* table
 [ ] Phase 8  git push --tags v2.0.0 + publish.yml green + curl maven-central .pom 200
 [ ] Post     cloud-smoke.yml green + Sentry first event + Postmark test email + live $0.50 charge
