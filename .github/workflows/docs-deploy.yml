@@ -42,9 +42,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 22 to match deploy-cloud.yml. This job is NOT currently failing — it goes through
+      # cloudflare/wrangler-action@v3, which supplies its own runtime, so wrangler's v22 floor has
+      # not bitten here the way it did the dashboard deploy. Pinning 20 anyway leaves the same trap
+      # armed for whenever that action stops shielding it, and there is no reason for the two
+      # Cloudflare deploy paths in this repo to run different Node majors.
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       # `npm ci`, matching docs-site/wrangler.toml#build.command. Two systems build this
       # same site; `npm install` may resolve a tree the lockfile does not describe, so the
