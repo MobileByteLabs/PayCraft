@@ -30,6 +30,7 @@ export type DriftKind =
   | "product-missing-at-provider"
   | "paywall-not-published"
   | "credential-mode-mismatch"
+  | "active-provider-no-credential"
   | "active-provider-zero-links"
   | "missing-currency-for-country"
 
@@ -168,10 +169,40 @@ export async function detectCredentialModeMismatch(
   const out: DriftFinding[] = []
   const { data: rows } = await supa
     .from("tenant_providers")
-    .select("provider, is_active, live_key_id, test_key_id, live_webhook_secret_enc")
+    .select(
+      "provider, is_active, live_key_id, test_key_id, live_webhook_secret_enc, store_credential_enc",
+    )
     .eq("tenant_id", tenantId)
 
+  const connectivity = await resolvedConnectivity(supa, tenantId)
+
   for (const r of rows ?? []) {
+    // ACTIVE WITH NO CREDENTIAL AT ALL.
+    //
+    // This branch is the one Class 1 already defers to ("No live credential is Class 3's finding,
+    // not this one") and Class 5 now defers to as well — but until it existed, nothing implemented
+    // the case. Both branches below require `live_key_id` to be PRESENT, so a provider switched on
+    // and never connected fell through Class 3 entirely and surfaced under Class 5 as
+    // "zero payment links", whose hint is "sync products to <provider>". That sync cannot succeed:
+    // it returns `skipped — <provider> is not connected for this tenant` for every product, so the
+    // finding returns unchanged on the next sweep. That is precisely the failure this file already
+    // names for the razorpay-plans case — "a finding no action can clear trains the operator to
+    // ignore the banner". Observed on tenant cappy, 2026-09-20: razorpay is_active=true with every
+    // credential column empty, three products skipped on each drain.
+    //
+    // The remedy is CONNECT, not sync, so it gets its own kind and its own hint.
+    if (r.is_active && connectivity && connectivity.get(r.provider) === false) {
+      const what = NATIVE_PROVIDERS.has(r.provider) ? "store credential" : "API key"
+      out.push({
+        kind: "active-provider-no-credential",
+        tenant_id: tenantId,
+        subject: `provider:${r.provider}`,
+        detail: `${r.provider} is_active=true but has no ${what} — it cannot authenticate, so every product sync to it is skipped`,
+        action_hint: `Connect ${r.provider} in Providers → ${r.provider} (or deactivate it if unused)`,
+      })
+      continue
+    }
+
     // A test-shaped key id sitting in the LIVE slot. Structurally "connected"; functionally dead.
     if (r.live_key_id && /_test_/.test(r.live_key_id)) {
       out.push({
@@ -214,6 +245,38 @@ export async function detectCredentialModeMismatch(
 const PSP_PROVIDERS = new Set(["stripe", "razorpay", "cashfree"])
 const NATIVE_PROVIDERS = new Set(["google_play", "app_store"])
 
+/**
+ * Which providers does this app actually RESOLVE a credential for?
+ *
+ * ONE definition, shared by Class 3 (which reports the absence) and Class 5 (which defers to it) —
+ * and it is not a definition this file invents. `tenant_providers_resolved_list` (migration 110)
+ * calls `tenant_provider_resolve` (115) per provider, whose rule is "connected means the resolver
+ * would hand out a credential": a PINNED account, else the app's own key, else the account default.
+ *
+ * READING THE COLUMNS DIRECTLY IS WRONG, and this is the second time that mistake has been made
+ * here. A credential belongs to the ACCOUNT ("an operator running six apps off one Play console
+ * connects it once"), so an account-attached app has `provider_account_id` set and every local key
+ * column NULL. Asking `live_key_id IS NULL` of such a row answers "no credential" about an app that
+ * is billing live right now. Migration 115 was written for exactly that false negative — Reels
+ * Downloader billing through Stripe while the index said `connected=false`, "two truths on one
+ * screen". Measured on production tenant cappy 2026-09-20: razorpay, app_store and google_play all
+ * resolve through accounts, and all three have empty key columns.
+ *
+ * Failure is NOT treated as "uncredentialed": if the RPC cannot be read we return null and every
+ * caller degrades to reporting nothing, because inventing a finding from an unreadable source is
+ * how an outage becomes a spurious "connect your provider" banner.
+ */
+async function resolvedConnectivity(
+  supa: SupabaseClient,
+  tenantId: string,
+): Promise<Map<string, boolean> | null> {
+  const { data, error } = await supa.rpc("tenant_providers_resolved_list", { p_tenant_id: tenantId })
+  if (error || !Array.isArray(data)) return null
+  return new Map(
+    (data as { provider: string; connected: boolean }[]).map((r) => [r.provider, !!r.connected]),
+  )
+}
+
 export async function detectActiveProviderZeroLinks(
   supa: SupabaseClient,
   tenantId: string,
@@ -221,7 +284,9 @@ export async function detectActiveProviderZeroLinks(
   const out: DriftFinding[] = []
   const { data: rows } = await supa
     .from("tenant_providers")
-    .select("provider, is_active, live_payment_links, test_payment_links")
+    .select(
+      "provider, is_active, live_payment_links, test_payment_links, live_key_id, test_key_id, store_credential_enc",
+    )
     .eq("tenant_id", tenantId)
     .eq("is_active", true)
 
@@ -233,7 +298,13 @@ export async function detectActiveProviderZeroLinks(
     }, 0)
   }
 
-  const nativeActive = (rows ?? []).filter((r) => NATIVE_PROVIDERS.has(r.provider))
+  // Defer every uncredentialed provider to Class 3, the same way Class 1 already does. Without
+  // this, one root cause is reported twice under two kinds with two different remedies, and only
+  // one of them can work.
+  const connectivity = await resolvedConnectivity(supa, tenantId)
+  const credentialed = (rows ?? []).filter((r) => connectivity?.get(r.provider) !== false)
+
+  const nativeActive = credentialed.filter((r) => NATIVE_PROVIDERS.has(r.provider))
   if (nativeActive.length) {
     const { data: products } = await supa
       .from("tenant_products")
@@ -264,7 +335,7 @@ export async function detectActiveProviderZeroLinks(
   // plans were written, the finding came back unchanged, and the suggested action ("sync products to
   // razorpay") was the very thing that had just succeeded. A finding no action can clear trains the
   // operator to ignore the banner, which costs more than the check is worth.
-  const pspActive = (rows ?? []).filter((r) => PSP_PROVIDERS.has(r.provider))
+  const pspActive = credentialed.filter((r) => PSP_PROVIDERS.has(r.provider))
   if (pspActive.length) {
     const { data: products } = await supa
       .from("tenant_products")
@@ -356,6 +427,7 @@ export const DRIFT_KINDS: DriftKind[] = [
   "product-missing-at-provider",
   "paywall-not-published",
   "credential-mode-mismatch",
+  "active-provider-no-credential",
   "active-provider-zero-links",
   "missing-currency-for-country",
 ]
