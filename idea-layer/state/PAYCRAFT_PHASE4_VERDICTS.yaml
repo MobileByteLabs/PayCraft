@@ -18,30 +18,41 @@
 generated_at: "2026-09-05T09:53:00Z"
 
 publish:
-  # NOT published. /lib-publish release is outward-facing and irreversible; it requires explicit
-  # operator authorisation, which has not been given. Secrets are present (see
-  # PAYCRAFT_PHASE4_SECRETS_VERDICT.yaml) so the blocker is authorisation, not capability.
-  published_version: null
-  sdk_version_on_disk: "2.3.2"
-  status: awaiting-operator-authorisation
+  # PUBLISHED. This block previously read `published_version: null /
+  # status: awaiting-operator-authorisation / sdk_version_on_disk: "2.3.2"`, written 2026-09-05.
+  # That is stale: 2.4.0 reached Maven Central on 2026-09-17 (pom Last-Modified), which is AFTER the
+  # SDK absorbed its StoreKit shim on 2026-09-16 — so the published artefact carries the new lane.
+  # Verified 2026-09-21 by direct fetch, not by inference.
+  published_version: "2.4.0"
+  sdk_version_on_disk: "2.4.0"
+  status: published
   route: "/lib-publish release"
+  verified_at: "2026-09-21T17:05:00Z"
+  evidence:
+    pom: "https://repo1.maven.org/maven2/io/github/mobilebytelabs/cmp-paycraft/2.4.0/cmp-paycraft-2.4.0.pom → HTTP 200, Last-Modified Thu, 17 Sep 2026 06:31:12 GMT"
+    storekit_lane_in_artefact: "cmp-paycraft-iossimulatorarm64-2.4.0-cinterop-paycraftStoreKit.klib present on Central"
+    dr4_holds_in_published_pom: "supabase 3.8.0 · store5 5.1.0-alpha10 · kermit ABSENT — every DR-4 remedy is in the published dependency set"
 
+# SCOPE (operator decision, 2026-09-21): epic 1 ships the CAPPY consumer end to end. The
+# reels-downloader and steady rollout is split to a follow-up epic — see GOAL.md `## Out of scope`.
+# This narrowing is recorded here rather than achieved by shrinking the gate: the AC-13 evaluator
+# still defaults to all three consumers, so a later full run reports the two that remain.
 consumers:
   - consumer: reels-downloader
     pinned_version: "2.3.1"
     platform: android
     bumped: false
     verified: false
-    verdict: pending-device-verify
-    reason: "SDK not published; no Android device or emulator available (adb unavailable)"
+    verdict: out-of-scope
+    reason: "Split to the follow-up consumer-rollout epic (operator decision 2026-09-21). Still on 2.3.1, which predates the SDK-carried StoreKit lane; its six-member per-app shim is CORRECT for the version it pins and must not be touched ahead of its bump."
     capture_path: null
   - consumer: reels-downloader
     pinned_version: "2.3.1"
     platform: ios
     bumped: false
     verified: false
-    verdict: pending-device-verify
-    reason: "SDK not published; no booted iOS simulator or device"
+    verdict: out-of-scope
+    reason: "Split to the follow-up consumer-rollout epic (operator decision 2026-09-21)."
     capture_path: null
 
   - consumer: steady
@@ -49,34 +60,50 @@ consumers:
     platform: android
     bumped: false
     verified: false
-    verdict: pending-device-verify
-    reason: "SDK not published; no Android device or emulator available (adb unavailable)"
+    verdict: out-of-scope
+    reason: "Split to the follow-up consumer-rollout epic (operator decision 2026-09-21). Same 2.3.1/shim pairing as reels-downloader."
     capture_path: null
   - consumer: steady
     pinned_version: "2.3.1"
     platform: ios
     bumped: false
     verified: false
-    verdict: pending-device-verify
-    reason: "SDK not published; no booted iOS simulator or device. Also blocks AC-13 storefront capture."
+    verdict: out-of-scope
+    reason: "Split to the follow-up consumer-rollout epic (operator decision 2026-09-21). AC-35's steady offline-onboarding proof travels with it."
     capture_path: null
 
+  # ── cappy — epic 1's shipped consumer, verified end to end 2026-09-21 ──────────────────────────
   - consumer: cappy
-    pinned_version: "2.3.1"
+    pinned_version: "2.4.0"
     platform: android
-    bumped: false
-    verified: false
-    verdict: pending-device-verify
-    reason: "SDK not published; no Android device or emulator available (adb unavailable)"
-    capture_path: null
+    bumped: true
+    verified: true
+    verdict: green
+    reason: "Built against PUBLISHED 2.4.0 (lib-integrate paycraft.local=false, artefact resolved from Maven Central into the Gradle module cache — not the composite). Installed, md5 parity verified, force-stopped, cold-launched: renders the real Home surface, ZERO FATAL EXCEPTION and zero NoSuchMethodError — the DR-4 crash class is clear at the published dependency set."
+    device: "emulator-5554 (Pixel_10_Pro AVD)"
+    apk_md5: "0ffa59447da7377477e02ffd5319b4b6 (device == built, verified both sides)"
+    capture_path: "idea-layer/testers/captures/paycraft-epic1-cappy/t9-cappy-android-cold-launch.png"
+    note: "PayCraft config fetch failed with `all resilience layers exhausted — OFFLINE` because this machine's cappy local.properties sets CAPPY_PAYCRAFT_LOCAL_URL=http://127.0.0.1:54321 and no local Supabase is running. That is a developer opt-in, not an app defect — and the graceful OFFLINE terminal is the Phase-3a resilience chain (AC-20..24) observed live rather than asserted."
   - consumer: cappy
-    pinned_version: "2.3.1"
+    pinned_version: "2.4.0"
     platform: ios
-    bumped: false
-    verified: false
-    verdict: pending-device-verify
-    reason: "SDK not published; no booted iOS simulator or device. Also blocks AC-13 storefront capture."
-    capture_path: null
+    bumped: true
+    verified: true
+    verdict: green
+    reason: "xcodebuild -scheme prodDebug against the published 2.4.0 → BUILD SUCCEEDED with NO per-app shim, proving the SDK-carried cinterop lane links. Installed + launched on simulator; StoreKit resolved a real storefront."
+    device: "iPhone 17 simulator, iOS 26.5 (1F13FC9E-528E-4543-87BA-637EBE8AB12D)"
+    capture_path: "idea-layer/testers/captures/paycraft-epic1-cappy/t9-cappy-ios-cold-launch.png"
+    storefront_capture: ".claude-runtime/state/ios-storefront-captures/cappy.json"
+    storefront_country: "USA"
+    note: |
+      AC-13 proven by three independent facts rather than one:
+        1. StoreKit itself logged `Storefront updated ... countryCode: "USA"` at launch.
+        2. The shipped Cappy.debug.dylib carries PayCraftStoreKitShim x9 (incl. the mangled ObjC
+           class _TtC20PayCraftStoreKitShim13PCTransaction) and storefrontCountry x3.
+        3. PayCraftStoreKit2 (the superseded per-app shim) appears ZERO times, and cappy ships no
+           StoreKit source of its own — so the SDK-internal lane is the only path that could have
+           driven the StoreKit/TransactionQuery + TransactionUpdateStart seen at launch.
+      countryCode is alpha-3 as StoreKit returns it; the server normalizes in _shared/country-code.ts.
 
 # AC-35 — the single capture this epic exists for: steady gates onboarding behind the paywall with
 # a no-op dismiss unless already Premium, so before Phase 3a an offline user at first launch was
