@@ -22,6 +22,17 @@ import { getConnectedStripeClient } from "./stripe-client"
  *                                    links, so `/config` filtered it out entirely
  *   5 missing-currency-for-country — no INR `tenant_pricing` rows, so IN buyers were quoted USD
  *
+ * Two later classes follow the same rule — each is a measured defect, not a category added for
+ * symmetry:
+ *
+ *   6 active-provider-no-credential — a provider switched on and never connected matched neither
+ *                                     branch of class 3 and fell through to class 4, whose remedy
+ *                                     is a sync that cannot work
+ *   7 no-test-credential            — live key present, test key absent (measured on cappy,
+ *                                     2026-09-22): sync can only create LIVE products, so a
+ *                                     `pk_test_` build resolves no link and the only way to
+ *                                     exercise a purchase is with real money
+ *
  * Every finding carries an `action_hint`. A finding without one is a complaint rather than a fix,
  * and the operator is left to work out what to do with it.
  */
@@ -33,6 +44,7 @@ export type DriftKind =
   | "active-provider-no-credential"
   | "active-provider-zero-links"
   | "missing-currency-for-country"
+  | "no-test-credential"
 
 export interface DriftFinding {
   kind: DriftKind
@@ -415,12 +427,78 @@ export async function detectMissingCurrencyForCountry(
 }
 
 /** All five, in a fixed order so the report is stable between refreshes. */
+/**
+ * Class 7 — the provider can only ever transact LIVE, so there is no way to exercise a purchase
+ * without real money.
+ *
+ * Distinct from class 3 (`credential-mode-mismatch`, a TEST key sitting in the LIVE slot) and from
+ * class 4 (`active-provider-no-credential`, no credential at all). Here the live credential is
+ * present and correct — what is missing is its test counterpart, and nothing today says so.
+ *
+ * Why it earns a class of its own: `runProductSync` syncs into every CONFIGURED mode
+ * (`stripe-route-helper.ts` — "Sync into EVERY configured mode, not just the preferred one"), so a
+ * tenant with no test key silently gets live products only. `/config` then routes a `pk_test_`
+ * caller to `test_payment_links`, which is `{}` — the dead-checkout-button case that comment
+ * describes. The developer's build looks wired and buys nothing, or the developer gives up and
+ * ships a `pk_live_` debug build and tests against real charges. Both failures are invisible
+ * without this finding.
+ *
+ * Deliberately NOT gated on `is_active`: an inactive provider a merchant is still setting up is
+ * exactly when adding the test key is cheapest.
+ */
+export async function detectNoTestCredential(
+  supa: SupabaseClient,
+  tenantId: string,
+): Promise<DriftFinding[]> {
+  const out: DriftFinding[] = []
+  const { data: rows, error } = await supa
+    .from("tenant_providers")
+    .select("provider, is_active, live_key_id, test_key_id, test_payment_links")
+    .eq("tenant_id", tenantId)
+
+  // An unreadable table must not become a "connect your test keys" banner — same fail-quiet rule
+  // the connectivity-backed detectors use. A finding invented from an outage trains the operator
+  // to ignore the list.
+  if (error || !Array.isArray(rows)) return out
+
+  for (const r of rows as {
+    provider: string
+    is_active: boolean | null
+    live_key_id: string | null
+    test_key_id: string | null
+    test_payment_links: unknown
+  }[]) {
+    if (!r.live_key_id) continue        // class 4 owns "no credential at all"
+    if (r.test_key_id) continue         // both modes present — nothing to say
+
+    const activeNote = r.is_active ? "" : " (provider is inactive, but the gap applies once enabled)"
+    out.push({
+      kind: "no-test-credential",
+      tenant_id: tenantId,
+      subject: `provider:${r.provider}`,
+      detail:
+        `${r.provider} has a live key (${r.live_key_id}) and NO test key, so product sync can only ` +
+        `create LIVE products and \`test_payment_links\` stays empty. A \`pk_test_\` build resolves ` +
+        `no link and cannot check out; testing this provider means transacting against REAL ` +
+        `products with REAL money${activeNote}.`,
+      action_hint:
+        `Add a ${r.provider} TEST-mode key in Providers → ${r.provider}, then run product sync — ` +
+        `runProductSync writes every configured mode, so test products are created automatically. ` +
+        `Note: the Stripe OAuth/Connect path carries a single mode; a tenant needs the manual ` +
+        `API-key path (or a second test-mode connection) to hold both.`,
+      subject_id: r.provider,
+    })
+  }
+  return out
+}
+
 export const DRIFT_DETECTORS = [
   detectProductMissingAtProvider,
   detectPaywallNotPublished,
   detectCredentialModeMismatch,
   detectActiveProviderZeroLinks,
   detectMissingCurrencyForCountry,
+  detectNoTestCredential,
 ] as const
 
 export const DRIFT_KINDS: DriftKind[] = [
@@ -428,6 +506,7 @@ export const DRIFT_KINDS: DriftKind[] = [
   "paywall-not-published",
   "credential-mode-mismatch",
   "active-provider-no-credential",
+  "no-test-credential",
   "active-provider-zero-links",
   "missing-currency-for-country",
 ]

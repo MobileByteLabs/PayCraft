@@ -8,6 +8,15 @@ actual object PlatformInfo {
         get() = loadOrCreateJvmDeviceId()
     actual val country: String?
         get() = java.util.Locale.getDefault().country.takeIf { it.isNotBlank() }
+
+    // No equivalent of FLAG_DEBUGGABLE on the JVM. A JDWP agent means someone is running this from
+    // an IDE/debugger, which is the closest honest signal; a packaged desktop app has none. Anything
+    // else would be a guess, and per the expect-declaration an unknown defaults to LIVE.
+    actual val isDebugBuild: Boolean
+        get() = runCatching {
+            java.lang.management.ManagementFactory.getRuntimeMXBean()
+                .inputArguments.any { it.contains("jdwp", ignoreCase = true) }
+        }.getOrDefault(false)
 }
 
 private fun loadOrCreateJvmDeviceId(): String {
@@ -17,4 +26,5 @@ private fun loadOrCreateJvmDeviceId(): String {
     file.parentFile.mkdirs()
     file.writeText(id)
     return id
+
 }

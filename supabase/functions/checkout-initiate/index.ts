@@ -138,8 +138,16 @@ export async function handleCheckoutInitiate(req: Request): Promise<Response> {
     throw e;
   }
 
-  // `pk_test_*` → test credentials, matching how the SDK and /config read the same key.
-  const mode: "test" | "live" = apiKey.startsWith("pk_test_") ? "test" : "live";
+  // Same resolution order as /config — see the comment there. `x-paycraft-mode` first (one key per
+  // app, so the prefix carries no mode), then the legacy `pk_test_` prefix, then live.
+  //
+  // This one selects CREDENTIALS, not just links, so getting it wrong charges a real card. The
+  // default stays live for the same reason it does in /config: a silent test-mode checkout takes no
+  // money and nothing surfaces the loss. A caller that wants test must say so.
+  const modeHeader = req.headers.get("x-paycraft-mode")?.toLowerCase();
+  const mode: "test" | "live" = modeHeader === "test" ? "test"
+    : modeHeader === "live" ? "live"
+    : apiKey.startsWith("pk_test_") ? "test" : "live";
 
   const productQuery = supabase
     .from("tenant_products")

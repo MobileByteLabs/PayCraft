@@ -113,8 +113,12 @@ object PayCraft {
      * true: unconfigured, the SDK reports a Free entitlement rather than throwing, so a host can
      * wire billing unconditionally and let the SDK decide what it can deliver.
      */
+    // Accepts ANY `pk_` publishable key. Under the one-key-per-app model the prefix no longer
+    // carries mode — `pk_test_`/`pk_live_` remain valid (legacy two-key apps) but a plain `pk_…`
+    // is now the norm, and rejecting it here would report a correctly-provisioned app as
+    // unconfigured and silently drop it to local-first entitlements.
     val isConfigured: Boolean
-        get() = apiKey?.let { it.startsWith("pk_test_") || it.startsWith("pk_live_") } == true
+        get() = apiKey?.startsWith("pk_") == true && apiKey?.startsWith("pk_YOUR") != true
 
     /**
      * Stable per-(device, app) fingerprint. Available for consumer-app analytics
@@ -127,19 +131,42 @@ object PayCraft {
     val deviceId: String by lazy { DeviceFingerprint.get() }
 
     /**
-     * Resolved test/live mode for this PayCraft instance, derived from the [apiKey]
-     * prefix at [initialize] time. Mirrors Stripe's own test-mode model — consumer
-     * apps inject `pk_test_*` in debug builds and `pk_live_*` in release builds; the
-     * SDK and dashboard pick mode-appropriate payment links (and the server returns
-     * mode-appropriate webhook routes) automatically.
+     * Resolved test/live mode. **The SDK owns this decision — a host app supplies ONE key.**
+     *
+     * Debug build → [Mode.Test]; release build → [Mode.Live]. That is the rule, and it holds with
+     * no configuration: `PlatformInfo.isDebugBuild` reads the HOST application's debuggable flag,
+     * so the same artifact behaves correctly in both build types.
+     *
+     * This replaces deriving mode from a `pk_test_`/`pk_live_` prefix, which required each consumer
+     * to provision, store and select between TWO keys and to re-implement the build-type branch
+     * themselves. Every host that did so could disagree with the SDK — cappy carried
+     * `PAYCRAFT_API_KEY_TEST`, `PAYCRAFT_API_KEY_LIVE` and a `PAYCRAFT_USE_TEST_BILLING` opt-in to
+     * express exactly this rule, and still shipped `pk_live_` in its debug builds because the
+     * opt-in was never set. One key in, the SDK decides.
+     *
+     * Resolution order:
+     *   1. [InitOptions.modeOverride] — an explicit choice always wins (e.g. exercising the live
+     *      checkout from a debug build, or forcing test on JVM/web where no signal exists)
+     *   2. a legacy `pk_test_`/`pk_live_` prefix — honoured so existing two-key apps keep working
+     *      unchanged; a key that explicitly says which mode it is was a deliberate act
+     *   3. the host build type
+     *
+     * Never [Mode.Unknown] once configured: an unrecognised key on a release build is LIVE, for the
+     * same reason [PlatformInfo.isDebugBuild] defaults that way — a silent test-mode checkout
+     * charges nobody and nothing surfaces the loss.
      */
-    val mode: Mode get() = when {
-        apiKey?.startsWith("pk_test_") == true -> Mode.Test
-        apiKey?.startsWith("pk_live_") == true -> Mode.Live
-        else -> Mode.Unknown
+    val mode: Mode get() {
+        initOptions.modeOverride?.let { return it }
+        return when {
+            apiKey?.startsWith("pk_test_") == true -> Mode.Test
+            apiKey?.startsWith("pk_live_") == true -> Mode.Live
+            apiKey.isNullOrBlank() -> Mode.Unknown
+            PlatformInfo.isDebugBuild -> Mode.Test
+            else -> Mode.Live
+        }
     }
 
-    /** Test/live duality of the active PayCraft key. */
+    /** Test/live duality of this PayCraft instance. */
     enum class Mode { Test, Live, Unknown }
 
     /** Long-lived scope for the SDK's background work — currently just the cloud SuiteConfig fetch. */
@@ -432,8 +459,9 @@ object PayCraft {
             // Supabase Edge Functions require an Authorization header by default
             // (verify_jwt=true at the platform level). Pass the backend's known
             // anon key — same value the SDK uses for the postgrest data plane.
-            // Test/live duality is resolved server-side from the apiKey prefix —
-            // server returns mode-appropriate payment_links + webhook routes.
+            // Test/live duality is stated by the CLIENT — see [mode]. It used to be inferred
+            // server-side from the apiKey prefix, which only works while every app ships two keys
+            // and selects between them itself. One key per app, so the SDK sends what it resolved.
             val response: HttpResponse = http.get(backend.configUrl) {
                 parameter("apiKey", apiKey)
                 header("Authorization", "Bearer ${backend.supabaseAnonKey}")
@@ -443,6 +471,10 @@ object PayCraft {
                 // `/config` edge function orders providers[] by the tenant's routing rule for this
                 // platform, so [primaryProvider] is the tenant's intended provider per platform.
                 header("X-PayCraft-Platform", runCatching { PlatformInfo.platform.lowercase() }.getOrDefault(""))
+                // Debug build → test, release → live, unless InitOptions.modeOverride says otherwise.
+                // The server falls back to the key prefix when this is absent, so an older SDK keeps
+                // working; it is read for link selection only, never for authorisation.
+                header("x-paycraft-mode", if (mode == Mode.Test) "test" else "live")
             }
             if (!response.status.isSuccess()) {
                 // Previously this logged "paywall stays in loading state" and bare-returned, which
@@ -1249,6 +1281,19 @@ data class InitOptions(
     val localeOverride: String? = null, // ISO 3166-1 alpha-2; null = system locale
     val skipCache: Boolean = false,
     val debug: Boolean = false,
+    /**
+     * Force test or live, overriding the build-type default ([PayCraft.mode]).
+     *
+     * OPTIONAL and null by default — the whole point of the build-type rule is that a correctly
+     * built app needs nothing here. Set it for the cases the rule cannot see:
+     *   • exercising the LIVE checkout from a debug build before a release
+     *   • JVM / JS / WasmJs, where no runtime signal distinguishes a development build
+     *   • an automated test that must pin a mode regardless of how it was compiled
+     *
+     * Deliberately NOT named `testMode: Boolean`: a boolean has no "unset" state, so every caller
+     * would have to decide a value and the build-type default could never apply.
+     */
+    val modeOverride: PayCraft.Mode? = null,
 )
 
 data class PayCraftConfig(

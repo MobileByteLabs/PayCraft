@@ -34,6 +34,7 @@ const KIND_LABEL: Record<string, string> = {
   "active-provider-no-credential": "Active provider that was never connected",
   "active-provider-zero-links": "Active provider with no checkout links",
   "missing-currency-for-country": "Served country with no price",
+  "no-test-credential": "⚠ Live-only provider — testing means real money",
 }
 
 export function NeedsAttention({ tenantId }: { tenantId: string }) {

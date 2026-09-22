@@ -474,18 +474,26 @@ verify_jwt = false
 # webhooks and stopped there; every endpoint the SDK itself calls was left on the platform default,
 # so the gateway was rejecting all five BEFORE the function ran.
 #
-# Measured on production 2026-09-22, reproducing the SDK's exact request shape
-# (`Accept-Language` + `x-paycraft-platform` + `?apiKey=pk_live_…`, which is all ConfigClient.kt
-# sends — it sets no Authorization header):
+# Measured on production 2026-09-22. The SDK DOES send an Authorization header — the live fetch is
+# the inline one in PayCraft.kt (`header("Authorization", "Bearer ${backend.supabaseAnonKey}")`),
+# not the @Deprecated ConfigClient, which an earlier revision of this comment cited by mistake and
+# which was never wired into the real path at all.
 #
-#     GET /functions/v1/config?apiKey=…  →  401 {"code":"UNAUTHORIZED_NO_AUTH_HEADER"}
-#     …same call with any Authorization  →  401 {"code":"UNAUTHORIZED_INVALID_JWT_FORMAT"}
+# The header does not help, because the baked-in CLOUD_SUPABASE_ANON_KEY is a LEGACY-format JWT that
+# Supabase's gateway no longer accepts. Verified against `billing`, a function deliberately left at
+# verify_jwt=true:
 #
-# The error CHANGING between those two proves the gateway is doing JWT verification, not the
-# function rejecting a bad key. User-visible symptom: the paywall renders "You appear to be offline"
-# with a Retry button on a device that is fully online — `loadConfig` 401s, every resilience layer
-# is exhausted, and the SDK's honest conclusion from a failed fetch is OFFLINE. Seen on a Play Store
-# internal-testing build over WiFi + LTE.
+#     no auth                    →  401 {"code":"UNAUTHORIZED_NO_AUTH_HEADER"}
+#     SDK's baked-in anon JWT    →  401 {"code":"UNAUTHORIZED_LEGACY_JWT"}
+#
+# So every SDK call to a verify_jwt=true function is rejected BEFORE the function runs, whatever it
+# sends. User-visible symptom: the paywall renders "You appear to be offline" with a Retry button on
+# a device that is fully online — `loadConfig` 401s, every resilience layer is exhausted, and the
+# SDK's honest conclusion from a failed fetch is OFFLINE.
+#
+# NOTE for anything still on verify_jwt=true: rotating CLOUD_SUPABASE_ANON_KEY to a current-format
+# key would ALSO clear this, and is worth doing independently — but it cannot be the fix here,
+# because Apple and Google hold no Supabase key of any vintage.
 #
 # Security is NOT weakened, for the same reason as the webhooks: each of these authenticates its
 # OWN caller. `config/index.ts` requires `?apiKey=` (400 `missing_apiKey`) and resolves the tenant
