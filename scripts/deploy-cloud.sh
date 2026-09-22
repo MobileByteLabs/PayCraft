@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-# deploy-cloud-local.sh — the INLINE twin of .github/workflows/deploy-cloud.yml
+# deploy-cloud.sh — THE deploy path for PayCraft's Supabase half. ONE source of truth.
 # =============================================================================
-# Runs the Supabase half of the cloud deploy from this machine, so the loop is
+# Run by BOTH .github/workflows/deploy-cloud.yml and a developer inline. There is deliberately no
+# second copy of this logic: the workflow used to inline the same three steps, which is how CI and
+# local drifted — the function list was hardcoded in one and globbed in the other, so CI silently
+# skipped functions nobody had added to its list. Improve it here and both paths improve.
+#
+# Runs the Supabase half of the cloud deploy, so the local loop is
 #
 #     edit → commit → deploy → verify end-to-end
 #
@@ -33,10 +38,13 @@
 #   * public vs private   → supabase/config.toml `verify_jwt = false` blocks
 # A second hand-kept copy of either is what lets CI and local disagree.
 #
-# Usage:
-#   bash scripts/deploy-cloud-local.sh              # migrations + functions + smoke
-#   bash scripts/deploy-cloud-local.sh --smoke-only # verify only, deploy nothing
-#   bash scripts/deploy-cloud-local.sh --dry-run    # show what would run
+# Usage (identical in CI and locally):
+#   bash scripts/deploy-cloud.sh              # migrations + functions + smoke
+#   bash scripts/deploy-cloud.sh --smoke-only # verify only, deploy nothing
+#   bash scripts/deploy-cloud.sh --dry-run    # show what would run
+#
+# CREDENTIAL: $SUPABASE_ACCESS_TOKEN if already set (CI injects it from repo secrets), otherwise
+# resolved from the framework vault (local). One code path, two credential sources.
 #
 # THIS DEPLOYS TO PRODUCTION. There is no staging project.
 # =============================================================================
@@ -48,8 +56,10 @@ REPO_ROOT="$(pwd)"
 # Four lands on workspaces/ and every vault lookup then fails with a misleading
 # "could not resolve from the vault" rather than "wrong path".
 FW_ROOT="${FW_ROOT:-$(cd "$REPO_ROOT/../../../../.." 2>/dev/null && pwd)}"
-[ -f "$FW_ROOT/core/scripts/secrets-get.sh" ] || {
-  echo "❌ framework root not found at $FW_ROOT (expected core/scripts/secrets-get.sh)"; exit 1; }
+# NOT asserted here. In CI this repo is checked out standalone — there is no framework tree and no
+# vault, and the token arrives via $SUPABASE_ACCESS_TOKEN instead. Demanding FW_ROOT up front would
+# fail every CI run on a path it never takes. It is asserted at the one point of use (the vault
+# fallback), where its absence is actually a problem and can say so precisely.
 
 MODE=deploy
 case "${1:-}" in
@@ -59,13 +69,24 @@ case "${1:-}" in
   *) echo "usage: $0 [--smoke-only|--dry-run]" >&2; exit 2 ;;
 esac
 
-REF="$(tr -d '[:space:]' < supabase/.temp/project-ref 2>/dev/null)"
-[ -n "$REF" ] || { echo "❌ supabase/.temp/project-ref is empty"; exit 1; }
+# GitHub Actions renders `::error::` as an annotation on the run; locally it is just noise.
+if [ -n "${GITHUB_ACTIONS:-}" ]; then err() { echo "::error::$*"; }; else err() { echo "❌ $*"; }; fi
+
+REF_FILE="supabase/.temp/project-ref"
+[ -f "$REF_FILE" ] || { err "$REF_FILE is missing — it is the source of truth for which project we deploy to."; exit 1; }
+REF="$(tr -d '[:space:]' < "$REF_FILE")"
+# A Supabase project ref is exactly 20 lowercase letters. Asserting the SHAPE is what turns six
+# weeks of "Branch not found" into one line naming the real problem. (Absorbed verbatim from the
+# workflow this script replaced — the check was worth keeping, the duplication was not.)
+if ! printf '%s' "$REF" | grep -qE '^[a-z]{20}$'; then
+  err "project ref '$REF' (${#REF} chars) is malformed — expected exactly 20 lowercase letters. Fix $REF_FILE."
+  exit 1
+fi
 
 command -v supabase >/dev/null 2>&1 || { echo "❌ supabase CLI not installed"; exit 1; }
 LOCAL_CLI="$(supabase --version 2>/dev/null)"
 CI_CLI="$(grep -A2 'setup-cli' .github/workflows/deploy-cloud.yml | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-echo "── PayCraft cloud deploy (local) ───────────────────────────────────────"
+echo "── PayCraft cloud deploy ───────────────────────────────────────────────"
 echo "   project ref : $REF"
 echo "   supabase CLI: $LOCAL_CLI local / ${CI_CLI:-?} pinned in CI"
 [ "$LOCAL_CLI" != "$CI_CLI" ] && echo "   ⚠ CLI version differs from CI — deploy semantics could differ"
@@ -82,15 +103,26 @@ trap cleanup EXIT INT TERM
 # Only a real deploy needs the credential. --dry-run and --smoke-only must work
 # with a cold vault, otherwise "show me what this would do" needs Touch ID.
 if [ "$MODE" = deploy ]; then
-  TOKEN_FILE="$(mktemp)"; chmod 600 "$TOKEN_FILE"
-  if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-access-token \
-         --to-file "$TOKEN_FILE" >/dev/null 2>&1; then
-    echo "❌ could not resolve framework-supabase-access-token from the vault"
-    echo "   run /secrets pull, or check vault auth with secrets-auth-warm.sh"
-    exit 1
+  if [ -n "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+    # CI path: the workflow injects it from repo secrets. Never re-resolve — CI has no vault.
+    echo "✓ access token from environment"
+  else
+    if [ ! -f "$FW_ROOT/core/scripts/secrets-get.sh" ]; then
+      err "no SUPABASE_ACCESS_TOKEN in the environment and no framework vault at $FW_ROOT"
+      echo "   In CI: set SUPABASE_ACCESS_TOKEN from repo secrets."
+      echo "   Locally: run from a framework checkout so the vault resolver is reachable."
+      exit 1
+    fi
+    TOKEN_FILE="$(mktemp)"; chmod 600 "$TOKEN_FILE"
+    if ! bash "$FW_ROOT/core/scripts/secrets-get.sh" framework-supabase-access-token \
+           --to-file "$TOKEN_FILE" >/dev/null 2>&1; then
+      err "could not resolve framework-supabase-access-token from the vault"
+      echo "   run /secrets pull, or check vault auth with secrets-auth-warm.sh"
+      exit 1
+    fi
+    SUPABASE_ACCESS_TOKEN="$(cat "$TOKEN_FILE")"; export SUPABASE_ACCESS_TOKEN
+    echo "✓ access token resolved from vault"
   fi
-  SUPABASE_ACCESS_TOKEN="$(cat "$TOKEN_FILE")"; export SUPABASE_ACCESS_TOKEN
-  echo "✓ access token resolved from vault"
 fi
 
 fail=0
@@ -100,7 +132,12 @@ if [ "$MODE" = deploy ]; then
   echo ""
   echo "── 1/3  migrations ──"
   supabase link --project-ref "$REF" >/dev/null 2>&1 || { echo "❌ supabase link failed"; exit 1; }
-  if supabase db push; then echo "✓ migrations applied"; else echo "❌ db push failed"; exit 1; fi
+  # --yes: `db push` otherwise prompts "Do you want to push these migrations?". In a non-tty that
+  # prompt reads an empty stdin and, observed 2026-09-22, left the SESSION in a state where every
+  # subsequent `functions deploy` in this same run failed — 25 spurious "failed to deploy" lines
+  # from one unanswered question. The operator already consented by invoking a script whose header
+  # says THIS DEPLOYS TO PRODUCTION; re-asking mid-run buys nothing and breaks the run.
+  if supabase db push --yes; then echo "✓ migrations applied"; else echo "❌ db push failed"; exit 1; fi
 elif [ "$MODE" = dry ]; then
   echo "── 1/3  migrations (dry) ──"
   echo "   would run: supabase link --project-ref $REF && supabase db push"
@@ -115,10 +152,16 @@ if [ "$MODE" = deploy ] || [ "$MODE" = dry ]; then
     name="$(basename "$d")"
     [ -f "${d}index.ts" ] || { echo "   ↷ ${name}: no index.ts — not a function"; continue; }
     if [ "$MODE" = dry ]; then echo "   would deploy: $name"; deployed=$((deployed+1)); continue; fi
-    if supabase functions deploy "$name" --project-ref "$REF" >/dev/null 2>&1; then
+    # Capture rather than discard: a bare "failed to deploy" with the reason sent to /dev/null is
+    # the same silent-failure shape this script exists to replace. The reason is almost always
+    # actionable (expired token, bad import, Deno type error) and costs nothing to print.
+    err="$(supabase functions deploy "$name" --project-ref "$REF" 2>&1)"
+    if [ $? -eq 0 ]; then
       echo "   ✓ $name"; deployed=$((deployed+1))
     else
-      echo "   ❌ $name failed to deploy"; fail=1
+      echo "   ❌ $name failed to deploy"
+      printf '%s\n' "$err" | grep -viE '^\s*$' | tail -4 | sed 's/^/        /'
+      fail=1
     fi
   done
   echo "   ${deployed} function(s)"
@@ -166,8 +209,8 @@ done
 
 echo ""
 if [ "$fail" -eq 0 ]; then
-  echo "✅ deploy-cloud-local: PASS"
+  echo "✅ deploy-cloud: PASS"
 else
-  echo "❌ deploy-cloud-local: FAIL"
+  echo "❌ deploy-cloud: FAIL"
 fi
 exit $fail
