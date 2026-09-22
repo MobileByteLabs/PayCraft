@@ -67,32 +67,48 @@ jobs:
           PUBLIC="$(grep -B1 'verify_jwt = false' supabase/config.toml \
                     | grep -oE '\[functions\.[a-z-]+\]' | sed 's/\[functions\.//;s/\]//' | tr '\n' ' ')"
           echo "public (verify_jwt=false): ${PUBLIC}"
+          # The question is NOT "which status code came back" — it is "did the request REACH the
+          # function, or did the gateway reject it first?" Two reasons a status code alone cannot
+          # answer that, both hit on 2026-09-22:
+          #
+          #   * Methods differ. `config` is GET; `checkout-initiate` / `register-*` are POST, so an
+          #     anonymous GET probe gets 405 — which is a HEALTHY answer, proving the function ran.
+          #     A first cut of this gate accepted only 200|400 and failed the deploy on that 405.
+          #   * 401 is ambiguous. After the fix `config` answers 401 `{"error":"invalid_apiKey"}`
+          #     ITSELF, which is correct behaviour and must pass; the gateway's pre-function refusal
+          #     is ALSO 401. Identical status, opposite meanings.
+          #
+          # The BODY disambiguates them unambiguously. The Supabase gateway emits a machine-readable
+          # `"code":"UNAUTHORIZED_*"` envelope; a function's own rejection never does. So: fail a
+          # public function only when the gateway envelope is present, whatever the status.
           for fn in config checkout-initiate coupon-validate register-play-purchase register-appstore account-token billing; do
+            BODY=$(curl -s --max-time 20 "https://${REF}.supabase.co/functions/v1/${fn}" || true)
             CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
               "https://${REF}.supabase.co/functions/v1/${fn}")
             case " $PUBLIC " in
               *" $fn "*) KIND=public ;;
               *)         KIND=private ;;
             esac
-            case "$CODE" in
-              000) echo "::error::${fn}: unreachable (000) — host did not respond"; fail=1 ;;
-              404) echo "::error::${fn}: 404 — function is not deployed under that name"; fail=1 ;;
-              401)
-                if [ "$KIND" = public ]; then
-                  echo "::error::${fn}: 401 but config.toml declares verify_jwt=false — the gateway is rejecting callers BEFORE the function runs. This is the 'You appear to be offline' outage; the function's own guard (e.g. 400 missing_apiKey) should have answered."
-                  fail=1
-                else
-                  echo "  ok   ${fn}: 401 (private, JWT enforced as declared)"
-                fi ;;
-              200|400)
-                if [ "$KIND" = public ]; then
-                  echo "  ok   ${fn}: ${CODE} (public, reached the function's own guard)"
-                else
-                  echo "::error::${fn}: ${CODE} on an anonymous probe but config.toml does NOT declare verify_jwt=false — gateway auth appears to be off for a private function"
-                  fail=1
-                fi ;;
-              *) echo "::error::${fn}: unexpected ${CODE}"; fail=1 ;;
+            # Did the GATEWAY refuse it before the function ran?
+            case "$BODY" in
+              *UNAUTHORIZED_NO_AUTH_HEADER*|*UNAUTHORIZED_INVALID_JWT_FORMAT*) GATED=yes ;;
+              *) GATED=no ;;
             esac
+            case "$CODE" in
+              000) echo "::error::${fn}: unreachable (000) — host did not respond"; fail=1; continue ;;
+              404) echo "::error::${fn}: 404 — function is not deployed under that name"; fail=1; continue ;;
+            esac
+            if [ "$KIND" = public ] && [ "$GATED" = yes ]; then
+              echo "::error::${fn}: gateway rejected the call BEFORE the function ran (${CODE}, UNAUTHORIZED_*) although config.toml declares verify_jwt=false. This is the 'You appear to be offline' outage — the function's own guard should have answered."
+              fail=1
+            elif [ "$KIND" = private ] && [ "$GATED" = no ]; then
+              echo "::error::${fn}: reached the function on an anonymous probe (${CODE}) but config.toml does NOT declare verify_jwt=false — gateway auth appears to be off for a private function"
+              fail=1
+            elif [ "$KIND" = public ]; then
+              echo "  ok   ${fn}: ${CODE} (public, reached the function's own guard)"
+            else
+              echo "  ok   ${fn}: ${CODE} (private, gateway JWT enforced as declared)"
+            fi
           done
           exit $fail
 
