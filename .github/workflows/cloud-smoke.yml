@@ -35,23 +35,63 @@ jobs:
       #   <ref>.supabase.co/functions/v1/v2-config                   404  (no such function)
       #   <ref>.supabase.co/functions/v1/config                      401  (deployed, auth enforced)
       #
-      # 401 is the PASS signal for an anonymous probe: it proves the function is deployed AND
-      # rejecting unauthenticated callers. 200 is accepted for any function that allows anonymous
-      # access. 000 (unreachable) and 404 (not deployed) now fail, which is the whole point.
+      # 401 IS NOT A UNIVERSAL PASS — that assumption made this step green while every SDK endpoint
+      # was broken in production (found 2026-09-22 from a user screenshot: the paywall rendered
+      # "You appear to be offline" on a Play internal build over WiFi + LTE).
+      #
+      # The line above used to read "401 is the PASS signal for an anonymous probe: it proves the
+      # function is deployed AND rejecting unauthenticated callers", and the measurement note above
+      # records `config → 401 (deployed, auth enforced)` as the healthy state. That is right for a
+      # function that SHOULD require a JWT, and exactly wrong for `config`, which is a PUBLIC
+      # endpoint authenticated by the caller's publishable key (`?apiKey=pk_live_…`). For it, 401
+      # means the Supabase gateway is rejecting the SDK before the function runs — the outage the
+      # probe exists to detect, recorded as success.
+      #
+      # So the expectation is now PER FUNCTION, derived from the same source of truth the deploy
+      # applies — `supabase/config.toml`:
+      #
+      #   verify_jwt = false (public)  → anonymous probe must NOT be 401. The function's own guard
+      #                                  answers instead (config → 400 missing_apiKey). 401 FAILS.
+      #   verify_jwt unset   (private) → 401 is correct and expected; 200 would be the surprise.
+      #
+      # Both directions fail closed: a public endpoint that starts demanding a JWT breaks the apps,
+      # and a private one that stops demanding one is an exposure. 000/404 fail as before.
       - name: Edge functions reachable
         run: |
           set -uo pipefail
           REF="$(tr -d '[:space:]' < supabase/.temp/project-ref)"
           [ -n "$REF" ] || { echo "::error::supabase/.temp/project-ref is empty"; exit 1; }
           fail=0
-          for fn in config checkout-initiate account-token; do
+          # Public = declared verify_jwt = false in config.toml. Read from the file rather than a
+          # second hand-kept list, so adding a function to one and not the other cannot drift.
+          PUBLIC="$(grep -B1 'verify_jwt = false' supabase/config.toml \
+                    | grep -oE '\[functions\.[a-z-]+\]' | sed 's/\[functions\.//;s/\]//' | tr '\n' ' ')"
+          echo "public (verify_jwt=false): ${PUBLIC}"
+          for fn in config checkout-initiate coupon-validate register-play-purchase register-appstore account-token billing; do
             CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
               "https://${REF}.supabase.co/functions/v1/${fn}")
+            case " $PUBLIC " in
+              *" $fn "*) KIND=public ;;
+              *)         KIND=private ;;
+            esac
             case "$CODE" in
-              200|401) echo "  ok   ${fn}: ${CODE}" ;;
-              000)     echo "::error::${fn}: unreachable (000) — host did not respond"; fail=1 ;;
-              404)     echo "::error::${fn}: 404 — function is not deployed under that name"; fail=1 ;;
-              *)       echo "::error::${fn}: unexpected ${CODE}"; fail=1 ;;
+              000) echo "::error::${fn}: unreachable (000) — host did not respond"; fail=1 ;;
+              404) echo "::error::${fn}: 404 — function is not deployed under that name"; fail=1 ;;
+              401)
+                if [ "$KIND" = public ]; then
+                  echo "::error::${fn}: 401 but config.toml declares verify_jwt=false — the gateway is rejecting callers BEFORE the function runs. This is the 'You appear to be offline' outage; the function's own guard (e.g. 400 missing_apiKey) should have answered."
+                  fail=1
+                else
+                  echo "  ok   ${fn}: 401 (private, JWT enforced as declared)"
+                fi ;;
+              200|400)
+                if [ "$KIND" = public ]; then
+                  echo "  ok   ${fn}: ${CODE} (public, reached the function's own guard)"
+                else
+                  echo "::error::${fn}: ${CODE} on an anonymous probe but config.toml does NOT declare verify_jwt=false — gateway auth appears to be off for a private function"
+                  fail=1
+                fi ;;
+              *) echo "::error::${fn}: unexpected ${CODE}"; fail=1 ;;
             esac
           done
           exit $fail
