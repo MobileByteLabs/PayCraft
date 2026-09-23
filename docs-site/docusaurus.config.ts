@@ -75,6 +75,15 @@ const config: Config = {
       },
       items: [
         { type: 'docSidebar', sidebarId: 'main', position: 'left', label: 'Docs' },
+        { to: '/API_OVERVIEW', label: 'API', position: 'left' },
+        { to: '/MCP_SERVER', label: 'MCP', position: 'left' },
+        // Straight to the live, callable reference — generated from the running server's own spec,
+        // so it cannot drift from what the API actually does.
+        {
+          href: 'https://api.paycraft.mobilebytesensei.com/v1/docs',
+          label: 'API reference ↗',
+          position: 'right',
+        },
         { to: '/REELS_DOWNLOADER_INTEGRATION', label: 'Case study', position: 'left' },
         { href: 'https://paycraft.mobilebytesensei.com', label: 'Dashboard ↗', position: 'right' },
         { href: GITHUB_REPO, label: 'GitHub', position: 'right' },

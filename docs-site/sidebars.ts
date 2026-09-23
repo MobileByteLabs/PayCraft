@@ -29,6 +29,19 @@ const sidebars: SidebarsConfig = {
       ],
     },
     {
+      // The machine-facing surface: REST for pipelines, MCP for assistants. Placed after
+      // Integration because it answers a different question — not "how do I add billing to my app"
+      // but "how do I operate it without a browser".
+      type: 'category',
+      label: 'API & automation',
+      items: [
+        'API_OVERVIEW',
+        'API_REFERENCE',
+        'API_RECIPES',
+        'MCP_SERVER',
+      ],
+    },
+    {
       type: 'category',
       label: 'Production operations',
       items: [
