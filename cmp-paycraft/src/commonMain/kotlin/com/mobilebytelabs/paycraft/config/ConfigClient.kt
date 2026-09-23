@@ -1,7 +1,7 @@
 package com.mobilebytelabs.paycraft.config
 
-import com.mobilebytelabs.paycraft.PayCraftBackend
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.PayCraftBackend
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import io.ktor.client.HttpClient

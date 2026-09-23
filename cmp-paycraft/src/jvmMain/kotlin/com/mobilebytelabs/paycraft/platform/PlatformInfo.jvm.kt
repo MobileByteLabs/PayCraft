@@ -26,5 +26,4 @@ private fun loadOrCreateJvmDeviceId(): String {
     file.parentFile.mkdirs()
     file.writeText(id)
     return id
-
 }
