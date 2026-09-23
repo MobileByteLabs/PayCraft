@@ -1,0 +1,33 @@
+headers {
+  ~x-paycraft-platform: android
+}
+
+docs {
+  # PayCraft API — live backend verification
+
+  Runnable against PRODUCTION with the Bruno CLI:
+
+      npx @usebruno/cli run api --env production -r
+
+  ## Why this exists
+
+  Two independent failures this month were invisible to every gate we had, and both were one HTTP
+  call away from being obvious:
+
+    * `/config` returned 401 at the Supabase GATEWAY, before the function ran. Every SDK endpoint
+      was dead in production while CI smoke reported green, because it accepted 401 as healthy.
+    * The dashboard's own login page throws a client-side exception, so the UI cannot be used to
+      inspect or fix tenant state at all.
+
+  A file-based collection answers both: it talks to the live backend directly, needs no browser,
+  and the assertions live in git next to the code they check.
+
+  ## Secrets
+
+  NO secret is stored here. `environments/production.bru` reads every credential from process env,
+  so this directory is safe to commit. Populate them from the vault at call time:
+
+      export PAYCRAFT_ANON_KEY="$(bash ../../../../../core/scripts/secrets-get.sh <alias> --allow-claude-stdout)"
+
+  ...or for interactive use, source a gitignored .env that `/secrets pull` materialises.
+}

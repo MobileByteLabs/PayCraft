@@ -1,0 +1,29 @@
+meta {
+  name: config — anonymous probe reaches the function
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{supabase_url}}/functions/v1/config
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 400
+  res.body.error: eq missing_apiKey
+}
+
+docs {
+  The single most important assertion in this collection.
+
+  400 `missing_apiKey` proves the request REACHED the function and its own guard answered. A 401
+  with a `"code":"UNAUTHORIZED_*"` envelope would mean the Supabase gateway rejected it BEFORE the
+  function ran — which is precisely the outage that took the paywall down on 2026-09-22 while CI
+  smoke stayed green, because that check treated 401 as healthy for every function.
+
+  `config` is a PUBLIC endpoint authenticated by the caller's publishable key, so it must carry
+  `verify_jwt = false` in supabase/config.toml. If this assertion ever flips to 401, that block was
+  lost and every SDK client is offline.
+}

@@ -1,0 +1,40 @@
+meta {
+  name: config — TEST mode returns test links
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{supabase_url}}/functions/v1/config?apiKey={{paycraft_pk_test}}
+  body: none
+  auth: none
+}
+
+headers {
+  Accept-Language: en-US
+  x-paycraft-platform: android
+  x-paycraft-mode: test
+}
+
+assert {
+  res.status: eq 200
+  res.body.tenant_id: eq {{tenant_id}}
+}
+
+tests {
+  test("test mode resolves at least one payment link", function() {
+    const p = res.getBody().providers?.find(x => x.provider === "stripe") ?? {}
+    const n = Object.keys(p.test_payment_links ?? {}).length
+    // Deliberately a TEST, not an assert: this is the row that is expected to FAIL until a Stripe
+    // test key is attached and product sync has run. It names the gap rather than hiding it.
+    expect(n, "stripe test_payment_links is empty — add a Stripe test key and run POST /api/sync/all").to.be.above(0)
+  })
+}
+
+docs {
+  The gap this whole workstream exists to close. Expected to fail today.
+
+  Test mode is not a separate catalogue — the same `/config` call with a test key must return
+  `test_payment_links`. Empty means runProductSync never had a test credential to sync WITH, so a
+  pk_test_ build resolves nothing and its checkout is dead.
+}

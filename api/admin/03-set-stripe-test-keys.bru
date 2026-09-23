@@ -1,0 +1,49 @@
+meta {
+  name: attach Stripe TEST keys to the tenant
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{supabase_url}}/rest/v1/rpc/tenant_providers_update_keys
+  body: json
+  auth: none
+}
+
+headers {
+  apikey: {{anon_key}}
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "p_tenant_id": "{{tenant_id}}",
+    "p_provider": "stripe",
+    "p_test_key_id": "{{stripe_test_key_id}}",
+    "p_test_secret": "{{stripe_test_secret}}",
+    "p_test_webhook_secret": "{{stripe_test_webhook_secret}}"
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Writes ONLY the three test slots. `tenant_providers_update_keys` (migration 057) treats NULL as
+  "don't change", so live credentials are untouched — which is why this uses it rather than
+  `tenant_providers_save_keys`, whose every-field overwrite would blank live config for any
+  parameter not re-sent.
+
+  The RPC encrypts server-side via the same pgcrypto helpers the dashboard form uses; plaintext is
+  never stored.
+
+  Values come from env (`BRUNO_VAR_stripe_test_*`), resolved from the vault at call time:
+    mbs-stripe-platform-test-publishable-key   → p_test_key_id
+    mbs-stripe-platform-test-secret-key        → p_test_secret
+    mbs-stripe-platform-test-webhook-secret    → p_test_webhook_secret
+
+  DISABLED BY DEFAULT in CI runs — it mutates tenant state. Run it deliberately:
+    npx @usebruno/cli run api/admin/03-set-stripe-test-keys.bru --env production
+}

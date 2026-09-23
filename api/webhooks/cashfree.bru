@@ -1,0 +1,38 @@
+meta {
+  name: cashfree-webhook rejects an UNSIGNED payload
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{supabase_url}}/functions/v1/cashfree-webhook
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "type": "forged.event",
+    "data": { "object": { "id": "evt_forged", "customer_email": "attacker@example.com" } }
+  }
+}
+
+assert {
+  res.status: neq 200
+}
+
+docs {
+  THE security assertion for this endpoint.
+
+  Every provider webhook carries verify_jwt = false — it must, because a payment provider POSTs from
+  its own infrastructure and cannot hold a Supabase JWT. That makes these the only edge functions
+  reachable by anyone on the internet with no credential at all, so the ONLY thing standing between
+  a forged POST and a granted entitlement is the function's own HMAC signature check.
+
+  A 2xx here means an unauthenticated caller can fabricate subscription events. Anything else —
+  400, 401, 403 — means the signature check ran and refused.
+}

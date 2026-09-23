@@ -99,7 +99,7 @@ ASK: "PayCraft Cloud Billing Stripe Secret Key (for billing YOUR tenants):"
   DISPLAY: "This is the Stripe key for your own PayCraft Cloud Stripe account."
   DISPLAY: "It's used to charge tenants who upgrade to Pro/Enterprise."
   VALIDATE: starts with sk_
-  STORE → PAYCRAFT_CLOUD_STRIPE_SECRET_KEY
+  STORE → PAYCRAFT_STRIPE_LIVE_SECRET_KEY
 
 OUTPUT: "✓ Stripe keys collected"
 ```
@@ -219,7 +219,7 @@ DISPLAY: "  Pushing secrets to Edge Functions..."
 SECRETS = {
   "STRIPE_TEST_SECRET_KEY": STRIPE_TEST_SECRET_KEY,
   "STRIPE_LIVE_SECRET_KEY": STRIPE_LIVE_SECRET_KEY,       -- may be empty
-  "PAYCRAFT_CLOUD_STRIPE_SECRET_KEY": PAYCRAFT_CLOUD_STRIPE_SECRET_KEY,
+  "PAYCRAFT_STRIPE_LIVE_SECRET_KEY": PAYCRAFT_STRIPE_LIVE_SECRET_KEY,
   "PAYCRAFT_ENCRYPTION_KEY": PAYCRAFT_ENCRYPTION_KEY,
 }
 
@@ -294,10 +294,19 @@ DISPLAY:
 
 ASK: "Cloud Billing Webhook Signing Secret (whsec_...):"
   VALIDATE: starts with whsec_
-  STORE → PAYCRAFT_CLOUD_BILLING_WEBHOOK_SECRET
+  STORE → PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET
 
+-- NAME RECONCILED 2026-09-23. This runtime used to provision PAYCRAFT_CLOUD_STRIPE_SECRET_KEY /
+-- PAYCRAFT_CLOUD_BILLING_WEBHOOK_SECRET into the SAME Supabase secret store that
+-- paycraft-adopt-keys.md fills as PAYCRAFT_STRIPE_{LIVE,TEST}_*. Two runtimes, one store, two names
+-- for one secret. Production followed adopt-keys, this one was never run, so the names
+-- cloud-billing-webhook read never existed — every PayCraft Cloud plan change returned 500 and was
+-- silently dropped after Stripe exhausted its retries.
+--
+-- NOTE the CLOUD_* spelling is still correct for CLOUDFLARE (dashboard/cloudflare-secrets.map
+-- aliases it deliberately, and create-checkout reads it there). It was only ever wrong for Supabase.
 RUN: supabase secrets set \
-  PAYCRAFT_CLOUD_BILLING_WEBHOOK_SECRET={PAYCRAFT_CLOUD_BILLING_WEBHOOK_SECRET} \
+  PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET={PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET} \
   --project-ref {PROJECT_REF}
 
 -- Create Stripe Products for PayCraft Cloud billing
@@ -349,8 +358,8 @@ STRIPE_LIVE_SECRET_KEY={STRIPE_LIVE_SECRET_KEY}
 STRIPE_TEST_WEBHOOK_SECRET={STRIPE_TEST_WEBHOOK_SECRET}
 STRIPE_LIVE_WEBHOOK_SECRET={STRIPE_LIVE_WEBHOOK_SECRET}
 
-PAYCRAFT_CLOUD_STRIPE_SECRET_KEY={PAYCRAFT_CLOUD_STRIPE_SECRET_KEY}
-PAYCRAFT_CLOUD_BILLING_WEBHOOK_SECRET={PAYCRAFT_CLOUD_BILLING_WEBHOOK_SECRET}
+PAYCRAFT_STRIPE_LIVE_SECRET_KEY={PAYCRAFT_STRIPE_LIVE_SECRET_KEY}
+PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET={PAYCRAFT_STRIPE_LIVE_WEBHOOK_SECRET}
 STRIPE_PRO_PRICE_ID={STRIPE_PRO_PRICE_ID}
 STRIPE_ENTERPRISE_PRICE_ID={STRIPE_ENTERPRISE_PRICE_ID}
 

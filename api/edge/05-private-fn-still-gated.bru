@@ -1,0 +1,24 @@
+meta {
+  name: billing — private function still requires a JWT
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{supabase_url}}/functions/v1/billing
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 401
+}
+
+docs {
+  The inverse direction, and it must fail closed too.
+
+  `billing` carries ZERO self-authentication — no apiKey, no signature check — so it relies entirely
+  on the gateway JWT and is deliberately NOT listed under verify_jwt = false. If this ever returns
+  200 or 400, gateway auth was switched off for a function that has no other guard, which is an
+  exposure rather than an outage.
+}

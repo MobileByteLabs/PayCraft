@@ -1,0 +1,41 @@
+meta {
+  name: provider mode readiness
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{supabase_url}}/rest/v1/rpc/tenant_providers_mode_readiness
+  body: json
+  auth: none
+}
+
+headers {
+  apikey: {{anon_key}}
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "p_tenant_id": "{{tenant_id}}"
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:post-response {
+  for (const r of res.body ?? []) {
+    console.log(`${r.provider.padEnd(13)} live=${r.live_ready ? "YES" : "no "} test=${r.test_ready ? "YES" : "no "}  ${r.test_detail}`)
+  }
+}
+
+docs {
+  Per-provider, per-mode state (migration 133/134). The dashboard's provider cards render these
+  exact rows, so this is the same truth the UI shows — available even when the UI will not load.
+
+  Key fingerprints are truncated server-side (`pk_live_51R…aVcn`); the full credential is never
+  returned by this RPC.
+}

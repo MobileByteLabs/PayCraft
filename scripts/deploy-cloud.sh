@@ -168,6 +168,17 @@ if [ "$MODE" = deploy ] || [ "$MODE" = dry ]; then
   [ "$deployed" -eq 0 ] && { echo "❌ no functions matched — glob is wrong"; exit 1; }
 fi
 
+# ── 2.5 env-name audit ───────────────────────────────────────────────────────
+# Advisory, deliberately NOT fatal. It catches the class that killed cloud-billing — a function
+# reading an env name nothing provisions — which no other check can see: deno check passes (the
+# name is a string), the smoke passes (a 500 IS reachable), and the deploy succeeds. But the
+# remaining findings are unconfigured OPTIONAL providers, so failing the deploy on them would make
+# every run red and train people to ignore it.
+if [ "$MODE" = deploy ] && [ -x scripts/verify-edge-env.sh ]; then
+  echo ""
+  bash scripts/verify-edge-env.sh || true
+fi
+
 # ── 3. smoke ─────────────────────────────────────────────────────────────────
 # Asserts the question that matters: did the request REACH the function, or did
 # the GATEWAY refuse it first? A status code cannot answer that — methods differ

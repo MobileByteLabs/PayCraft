@@ -1,0 +1,40 @@
+meta {
+  name: config — real key, LIVE mode
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{supabase_url}}/functions/v1/config?apiKey={{paycraft_pk_live}}
+  body: none
+  auth: none
+}
+
+headers {
+  Accept-Language: en-US
+  x-paycraft-platform: android
+  x-paycraft-mode: live
+}
+
+assert {
+  res.status: eq 200
+  res.body.tenant_id: eq {{tenant_id}}
+  res.body.products: isDefined
+}
+
+script:post-response {
+  const p = res.body.providers?.find(x => x.provider === "stripe") ?? {}
+  const live = Object.keys(p.live_payment_links ?? {}).length
+  const test = Object.keys(p.test_payment_links ?? {}).length
+  bru.setVar("stripe_live_links", live)
+  bru.setVar("stripe_test_links", test)
+  console.log(`stripe payment-link skus — live:${live} test:${test}`)
+}
+
+docs {
+  Exercises the SDK's exact request shape, including `x-paycraft-mode` (one key per app: the client
+  states the mode, the server no longer infers it from a pk_test_/pk_live_ prefix).
+
+  The post-response script records how many SKUs carry links in each mode. `test:0` with `live:3` is
+  the live-only state that makes a debug build's checkout button do nothing.
+}

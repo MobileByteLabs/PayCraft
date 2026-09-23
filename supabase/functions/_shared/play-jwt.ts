@@ -18,6 +18,8 @@ export interface ServiceAccount {
 }
 
 function loadServiceAccount(): ServiceAccount {
+  // env-optional: GOOGLE_PLAY_SA_JSON — self-hoster fallback only. playDeveloperJwt(creds ?? ...)
+  // prefers the PER-TENANT decrypted service account, which is what multi-tenant installs use.
   const raw = Deno.env.get("GOOGLE_PLAY_SA_JSON");
   if (!raw) {
     throw new Error("play-jwt: missing GOOGLE_PLAY_SA_JSON env (wire live credentials in E6)");

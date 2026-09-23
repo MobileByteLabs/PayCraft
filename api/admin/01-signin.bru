@@ -1,0 +1,46 @@
+meta {
+  name: sign in as tenant admin
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{supabase_url}}/auth/v1/token?grant_type=password
+  body: json
+  auth: none
+}
+
+headers {
+  apikey: {{anon_key}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "email": "{{admin_email}}",
+    "password": "{{admin_password}}"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.access_token: isDefined
+}
+
+script:post-response {
+  bru.setVar("access_token", res.body.access_token)
+  bru.setVar("user_id", res.body.user?.id)
+}
+
+docs {
+  Obtains a REAL user JWT, which is the only thing that can satisfy the admin-gated RPCs.
+
+  `tenant_providers_update_keys` and `tenant_providers_save_keys` both raise `forbidden` unless
+  `auth.uid()` matches a `tenant_admins` row. A service-role key has no `auth.uid()`, so it cannot
+  write provider credentials no matter what privileges it holds — deliberate, and not something to
+  route around with a direct table write (which would also skip the pgcrypto encryption the RPC
+  applies).
+
+  Signing in here is the SANCTIONED way to act as that admin, and it works while the dashboard's
+  own /auth/login page is throwing a client-side exception.
+}
