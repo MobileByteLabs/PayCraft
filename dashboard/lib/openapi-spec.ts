@@ -670,11 +670,13 @@ export const OPENAPI_SPEC = {
         },
       },
       ServerError: {
-        description: "Server-side failure. The response names the misconfigured variable where it can.",
+        description:
+          "Server-side failure. The specific cause is logged server-side rather than returned — this " +
+          "status is reachable without authenticating, so the body must not describe our infrastructure.",
         content: {
           "application/json": {
             schema: { $ref: "#/components/schemas/Error" },
-            example: { error: "server_misconfigured", detail: "SUPABASE_SERVICE_ROLE_KEY is not set" },
+            example: { error: "server_misconfigured", detail: "The API is not correctly configured. Contact support." },
           },
         },
       },

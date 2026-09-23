@@ -166,6 +166,45 @@ export async function recordAuthFailureShared(
   }
 }
 
+/**
+ * Per-source limit on EVERY request, not only failures.
+ *
+ * This exists because the edge cannot provide it. `api.paycraft` and `mcp.paycraft` are Pages
+ * custom domains, and a zone rate-limiting rule pointed at them does not fire — verified by
+ * lowering the threshold to its floor (5 per 10s) and watching 30 concurrent requests all return
+ * 200 with zero Cloudflare blocks. Custom firewall rules DO reach those hosts (a probe rule
+ * returned 403 at once), but they cannot express a rate. So the application is the only place this
+ * limit can actually live on this plan.
+ *
+ * 600 tokens refilling at 10/second: generous enough that no legitimate client notices, tight
+ * enough that a runaway loop or a scraper is bounded. Charged BEFORE authentication, so an
+ * unauthenticated flood against the public docs costs the attacker the same as anyone else.
+ *
+ * Fails OPEN. A limiter that cannot reach the database must not take the API down with it.
+ */
+export async function requestThrottleExceeded(
+  req: Request,
+  admin: { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown }> },
+): Promise<boolean> {
+  try {
+    const ip_hash = await hashIp(req)
+    if (!ip_hash) return false
+    const { data } = await admin.rpc("request_throttle_check", { p_ip_hash: ip_hash })
+    return data === false
+  } catch {
+    return false
+  }
+}
+
+export function tooManyRequests(): Response {
+  return withSecurityHeaders(
+    NextResponse.json(
+      { error: "rate_limited", detail: "Too many requests from this address. Slow down." },
+      { status: 429, headers: { "Retry-After": "10" } },
+    ),
+  )
+}
+
 export function tooManyAttempts(outcome: ThrottleOutcome): Response {
   return withSecurityHeaders(
     NextResponse.json(

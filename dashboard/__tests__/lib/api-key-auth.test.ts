@@ -138,7 +138,7 @@ describe("requireApiKey — tenant identity", () => {
 })
 
 describe("requireApiKey — misconfiguration", () => {
-  it("names the missing variable instead of returning a bare 500", async () => {
+  it("does NOT name our infrastructure in a body an anonymous caller can read", async () => {
     const saved = process.env.SUPABASE_SERVICE_ROLE_KEY
     delete process.env.SUPABASE_SERVICE_ROLE_KEY
     jest.resetModules()
@@ -147,7 +147,13 @@ describe("requireApiKey — misconfiguration", () => {
     expect(mod.isFailure(r)).toBe(true)
     if (mod.isFailure(r)) {
       expect(r.failed.status).toBe(500)
-      expect((await r.failed.json()).detail).toMatch(/SUPABASE_SERVICE_ROLE_KEY/)
+      // This 500 is reachable WITHOUT authenticating. Naming the variable here told any anonymous
+      // caller which infrastructure we run on; the operator gets the name via console.error, the
+      // internet gets the fact. The earlier version of this test asserted the opposite — it was
+      // written before that reachability was noticed.
+      const body = await r.failed.json()
+      expect(body.detail).not.toMatch(/SUPABASE|SERVICE_ROLE|NEXT_PUBLIC/)
+      expect(body.error).toBe("server_misconfigured")
     }
     process.env.SUPABASE_SERVICE_ROLE_KEY = saved
   })

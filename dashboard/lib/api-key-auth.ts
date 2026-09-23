@@ -5,7 +5,9 @@ import {
   checkAuthAttempts,
   recordAuthFailure,
   recordAuthFailureShared,
+  requestThrottleExceeded,
   tooManyAttempts,
+  tooManyRequests,
   withSecurityHeaders,
 } from "@/lib/api-security"
 
@@ -99,9 +101,13 @@ export async function requireApiKey(
   scope: ApiScope,
 ): Promise<ApiKeyContext | ApiKeyFailure> {
   if (!SUPABASE_URL || !SERVICE_ROLE) {
-    // Naming the variable matters: a generic "server error" here is indistinguishable from an
-    // outage, and this particular misconfiguration has cost this codebase a day before.
-    return fail(500, "server_misconfigured", "SUPABASE_SERVICE_ROLE_KEY is not set")
+    // Detailed in the LOG, generic in the RESPONSE. Naming the variable matters for whoever is
+    // debugging — a bare "server error" is indistinguishable from an outage, and that ambiguity
+    // cost this codebase a day. But this 500 is reachable WITHOUT authenticating, so naming it in
+    // the body told any anonymous caller which infrastructure variable we run on. The operator
+    // gets the name; the internet gets the fact.
+    console.error("api-key-auth: SUPABASE_SERVICE_ROLE_KEY / NEXT_PUBLIC_SUPABASE_URL is not set")
+    return fail(500, "server_misconfigured", "The API is not correctly configured. Contact support.")
   }
 
   // Throttle BEFORE touching the header, the database or anything else. An attempt that is going
@@ -128,6 +134,12 @@ export async function requireApiKey(
   const admin: SupabaseClient<any> = createServiceClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
+
+  // Per-source ceiling on every request, charged before the key is looked up. The edge cannot do
+  // this for Pages-served hostnames (see api-security), so it is enforced here or nowhere.
+  if (await requestThrottleExceeded(req, admin)) {
+    return { failed: tooManyRequests() as NextResponse }
+  }
 
   const { data, error } = await admin.rpc("tenant_api_key_verify", { p_key: key })
   if (error) return fail(500, "verification_failed", error.message)
