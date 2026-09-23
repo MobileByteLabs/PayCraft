@@ -37,7 +37,6 @@ on:
     # touching it. A filter would mean the site silently describes the previous release — the same
     # class of failure as the `--branch=main` bug above: a green run and a stale site.
     # A docs build is ~90s; that is cheaper than documentation nobody can trust.
-      - '.github/workflows/docs-deploy.yml'
   workflow_dispatch:
 
 permissions:
