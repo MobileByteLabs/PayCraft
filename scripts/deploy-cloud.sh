@@ -83,13 +83,22 @@ if ! printf '%s' "$REF" | grep -qE '^[a-z]{20}$'; then
   exit 1
 fi
 
-command -v supabase >/dev/null 2>&1 || { echo "❌ supabase CLI not installed"; exit 1; }
-LOCAL_CLI="$(supabase --version 2>/dev/null)"
-CI_CLI="$(grep -A2 'setup-cli' .github/workflows/deploy-cloud.yml | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+# The CLI is required only to DEPLOY. `--smoke-only` is pure curl against public endpoints, and
+# demanding the binary there broke the cloud-smoke workflow — which reasonably installs no Supabase
+# CLI, because the step it runs does not need one. Same mistake as asserting FW_ROOT up front: a
+# dependency checked on a path that never uses it.
+LOCAL_CLI=""
+if [ "$MODE" = deploy ] || [ "$MODE" = dry ]; then
+  command -v supabase >/dev/null 2>&1 || { err "supabase CLI not installed"; exit 1; }
+  LOCAL_CLI="$(supabase --version 2>/dev/null)"
+fi
+CI_CLI="$(grep -A2 'setup-cli' .github/workflows/deploy-cloud.yml 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
 echo "── PayCraft cloud deploy ───────────────────────────────────────────────"
 echo "   project ref : $REF"
-echo "   supabase CLI: $LOCAL_CLI local / ${CI_CLI:-?} pinned in CI"
-[ "$LOCAL_CLI" != "$CI_CLI" ] && echo "   ⚠ CLI version differs from CI — deploy semantics could differ"
+if [ -n "$LOCAL_CLI" ]; then
+  echo "   supabase CLI: $LOCAL_CLI local / ${CI_CLI:-?} pinned in CI"
+  [ "$LOCAL_CLI" != "$CI_CLI" ] && echo "   ⚠ CLI version differs from CI — deploy semantics could differ"
+fi
 echo "   mode        : $MODE"
 echo ""
 
