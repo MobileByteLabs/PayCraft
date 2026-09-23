@@ -1,6 +1,19 @@
 # Supabase
 .branches
-.temp
+
+# CLI scratch state — version probes, pooler URL, storage-migration marker. The CLI rewrites these
+# on almost every invocation, so tracking them means a conflict on every branch that runs it: 13
+# commits here have touched .temp, and 12 of them carried nothing but churn.
+#
+# `project-ref` is the deliberate exception and MUST stay tracked: deploy-cloud.yml, cloud-smoke.yml
+# and verify-edge-env.sh all read it on a FRESH checkout to resolve the Supabase project, and it is
+# no longer mirrored in a CI secret. Untracking it breaks production deploys. It is also the one
+# file here that does not churn — a single commit in the repo's whole history.
+#
+# Note the glob must be `.temp/*`, not `.temp`: git does not descend into an ignored DIRECTORY, so
+# a bare `.temp` would make the negation below unreachable.
+.temp/*
+!.temp/project-ref
 
 # dotenvx
 .env.keys

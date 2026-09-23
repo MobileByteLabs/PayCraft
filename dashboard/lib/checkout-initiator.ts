@@ -34,6 +34,20 @@ export interface InitiateCheckoutRequest {
   tenantId: string
   product: ProductForRouting
   method: string  // "direct_upi" | "stripe_card" | "razorpay" | "cashfree_upi"
+  /**
+   * Which credential mode to transact in. EXPLICIT, and it defaults to "test".
+   *
+   * This used to be derived as `!!live_key_id ? "live" : "test"` at each provider, which is not a
+   * choice at all: once a live key exists that expression is always "live", so there was no way to
+   * run a test checkout from the dashboard — the operator's only options were "charge a real card"
+   * or "don't test". The SDK path never had this problem; `/config` and the `checkout-initiate`
+   * edge function both read the CALLER's key (`apiKey.startsWith("pk_test_")`), and this is the
+   * dashboard catching up to that contract.
+   *
+   * Defaulting to "test" is deliberate: the failure mode of guessing wrong toward test is a
+   * checkout that doesn't charge, and toward live is one that does.
+   */
+  mode?: "test" | "live"
   customer: {
     email: string                // required for subscription mandates
     name?: string | null
@@ -173,6 +187,35 @@ function initiateDirectUpi(
   }
 }
 
+/**
+ * Resolve the link map for the REQUESTED mode, and fail loudly when it is empty.
+ *
+ * The old `liveAvailable ? live : test` silently substituted live links whenever a live key
+ * existed. Substituting the other mode is never safe here: "test" silently becoming "live" charges
+ * a real card, and "live" silently becoming "test" takes a payment that never settles. An error
+ * the operator can read beats either.
+ */
+function linksForMode(
+  provider: string,
+  row: { test_payment_links: Record<string, string> | null; live_payment_links: Record<string, string> | null; test_key_id: string | null; live_key_id: string | null },
+  mode: "test" | "live",
+): Record<string, string> {
+  const map = mode === "live" ? row.live_payment_links : row.test_payment_links
+  if (map && Object.keys(map).length > 0) return map
+
+  const hasKey = mode === "live" ? !!row.live_key_id : !!row.test_key_id
+  throw new Error(
+    hasKey
+      ? `${provider} has a ${mode} key but no ${mode} payment links — run product sync ` +
+        `(POST /api/sync/all); runProductSync writes every configured mode`
+      : `${provider} has no ${mode}-mode credential, so no ${mode} payment links exist. ` +
+        `Add a ${mode} key in Providers → ${provider} and sync. ` +
+        (mode === "test"
+          ? `Refusing to fall back to LIVE links — that would charge a real card for a test checkout.`
+          : `Refusing to fall back to TEST links — that payment would never settle.`),
+  )
+}
+
 function initiateStripeCard(
   providers: Map<string, ProviderRow>,
   req: InitiateCheckoutRequest,
@@ -180,11 +223,7 @@ function initiateStripeCard(
 ): InitiateCheckoutResult {
   const stripe = providers.get("stripe")
   if (!stripe) throw new Error("Stripe not configured")
-  const liveAvailable = !!stripe.live_key_id
-  const linksMap = liveAvailable
-    ? stripe.live_payment_links
-    : stripe.test_payment_links
-  if (!linksMap) throw new Error("no Stripe payment links cached")
+  const linksMap = linksForMode("stripe", stripe, req.mode ?? "test")
   const url = linksMap[currency] ?? linksMap[currency.toLowerCase()]
   if (!url) throw new Error(`no Stripe payment link for currency ${currency}`)
 
@@ -209,16 +248,26 @@ async function initiateRazorpay(
   }
   const razorpay = providers.get("razorpay")
   if (!razorpay) throw new Error("Razorpay not configured")
-  const liveAvailable = !!razorpay.live_key_id
-  const mode: "test" | "live" = liveAvailable ? "live" : "test"
+  // Requested mode, not "whatever key happens to exist" — see InitiateCheckoutRequest.mode.
+  // Razorpay's subscription path below ALSO keys off this, so a test checkout creates a test
+  // subscription rather than a real mandate against the customer's bank.
+  const mode: "test" | "live" = req.mode ?? "test"
 
   // Subscription products → create per-customer Razorpay Subscription with
   // UPI Autopay. We use the plan_id from tenant_products.
   if (req.product.type === "subscription") {
-    const planId = req.product.razorpay_plan_id_by_currency?.["INR"]
+    // MODE-SCOPED since 141. Reading the live column in test mode (or vice versa) hands Razorpay a
+    // plan from the other account, which it rejects — and the failure reads as a payment problem
+    // rather than the data problem it is. There is no fallback to the other mode on purpose: a
+    // missing test plan must say so, not quietly bill against a live one.
+    const planMap =
+      mode === "test"
+        ? req.product.razorpay_plan_id_by_currency_test
+        : req.product.razorpay_plan_id_by_currency
+    const planId = planMap?.["INR"]
     if (!planId) {
       throw new Error(
-        "Razorpay plan not yet synced for this product in INR — re-sync at /products",
+        `Razorpay ${mode} plan not yet synced for this product in INR — re-sync at /products`,
       )
     }
     // Free trial → Razorpay start_at (first charge delayed by the trial window).
@@ -248,10 +297,7 @@ async function initiateRazorpay(
   }
 
   // One-time products → use the cached Payment Link.
-  const linksMap = liveAvailable
-    ? razorpay.live_payment_links
-    : razorpay.test_payment_links
-  if (!linksMap) throw new Error("no Razorpay payment links cached")
+  const linksMap = linksForMode("razorpay", razorpay, mode)
   const url = linksMap[currency] ?? linksMap["INR"]
   if (!url) throw new Error(`no Razorpay payment link for ${currency}`)
   return {
@@ -277,11 +323,7 @@ function initiateCashfree(
   }
   const cashfree = providers.get("cashfree")
   if (!cashfree) throw new Error("Cashfree not configured")
-  const liveAvailable = !!cashfree.live_key_id
-  const linksMap = liveAvailable
-    ? cashfree.live_payment_links
-    : cashfree.test_payment_links
-  if (!linksMap) throw new Error("no Cashfree payment links cached")
+  const linksMap = linksForMode("cashfree", cashfree, req.mode ?? "test")
   const url = linksMap[currency] ?? linksMap["INR"]
   if (!url) throw new Error(`no Cashfree payment link for ${currency}`)
   return {

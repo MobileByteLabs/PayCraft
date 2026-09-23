@@ -19,15 +19,24 @@ name: Deploy docs site → Cloudflare Pages
 #
 # Trigger moved main → dev alongside deploy-cloud.yml: `dev` is the default
 # branch and `main` stopped being promoted on 2026-08-03, leaving this dormant.
-# The `--branch=main` in the wrangler command below is the Cloudflare Pages
-# production-branch alias, NOT a git branch — it stays `main`.
+#
+# CORRECTED 2026-09-23. The note here used to claim `--branch=main` was the Cloudflare Pages
+# production alias. It is not — this project's `production_branch` is `dev`, so every run was
+# publishing a PREVIEW deployment while docs.paycraft.mobilebytesensei.com kept serving a
+# production build from 2026-09-19. The deploy reported success each time, which is why nobody
+# noticed the site had stopped changing.
+#
+# `--branch` must match the project's production_branch to reach the custom domain. Verify with:
+#   GET /accounts/{account}/pages/projects/paycraft-docs  →  .result.production_branch
 
 on:
   push:
     branches: [dev]
-    paths:
-      - 'docs/**'
-      - 'docs-site/**'
+    # Deliberately NO paths filter. The docs describe the API and the MCP server, so a change to
+    # `dashboard/app/api/v1/**` or `lib/mcp-tools.ts` can invalidate a page in `docs/` without
+    # touching it. A filter would mean the site silently describes the previous release — the same
+    # class of failure as the `--branch=main` bug above: a green run and a stale site.
+    # A docs build is ~90s; that is cheaper than documentation nobody can trust.
       - '.github/workflows/docs-deploy.yml'
   workflow_dispatch:
 
@@ -72,7 +81,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy docs-site/build --project-name=paycraft-docs --branch=main
+          command: pages deploy docs-site/build --project-name=paycraft-docs --branch=dev
 
       - name: Skip deploy if Cloudflare not configured
         if: env.CLOUDFLARE_API_TOKEN == ''

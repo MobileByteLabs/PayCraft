@@ -42,4 +42,9 @@ actual object PlatformInfo {
         get() = loadOrCreateWasmDeviceId()
     actual val country: String?
         get() = detectWasmCountry().takeIf { it.isNotBlank() }
+
+    // Neither JS nor WasmJs can distinguish a development bundle from a production one at runtime
+    // without the host telling us. Defaults to LIVE per the expect-declaration; web hosts that want
+    // test mode pass initialize(mode = PayCraft.Mode.Test) explicitly.
+    actual val isDebugBuild: Boolean get() = false
 }

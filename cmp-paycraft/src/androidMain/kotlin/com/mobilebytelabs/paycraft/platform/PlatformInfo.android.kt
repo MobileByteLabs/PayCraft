@@ -18,6 +18,15 @@ actual object PlatformInfo {
     // NOT the language locale — a user whose phone language is English (UK) but whose SIM is
     // Indian must bill in ₹, not £. Falls back to the language-locale region only when there's
     // no SIM/network (e.g. a wifi-only tablet). simCountryIso/networkCountryIso are permission-free.
+    // The HOST app's debuggable flag, not this library's. FLAG_DEBUGGABLE is set by AGP on any
+    // debug-signed/debuggable build and cleared for release, so it answers "is the app the user is
+    // running a development build?" — which is the actual question. Falls back to false (LIVE) when
+    // the context is unavailable, matching the expect-declaration's stated bias.
+    actual val isDebugBuild: Boolean
+        get() = DeviceTokenStore.applicationContext?.let { ctx ->
+            (ctx.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        } ?: false
+
     actual val country: String?
         get() = simOrNetworkCountry()
             ?: java.util.Locale.getDefault().country.takeIf { it.isNotBlank() }

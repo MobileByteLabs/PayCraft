@@ -4,6 +4,7 @@
  */
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
+// env-optional: PAYCRAFT_FROM_EMAIL — literal default on the same line.
 const FROM_EMAIL = Deno.env.get("PAYCRAFT_FROM_EMAIL") || "PayCraft <noreply@paycraft.dev>";
 
 interface EmailParams {

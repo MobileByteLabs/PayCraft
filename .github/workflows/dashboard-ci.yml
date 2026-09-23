@@ -1,0 +1,53 @@
+name: Dashboard CI
+
+# WHY THIS EXISTS
+# The dashboard's typecheck and 490+ tests ran nowhere in CI. `pr-check.yml` delegates to a
+# KMP-library workflow that builds the `cmp-` SDK modules and never touches `dashboard/`.
+#
+# That made every guard in the suite advisory: the tests asserting tenant isolation, that no route
+# leaks a credential column, that a public endpoint touches no tenant data, and that no response
+# names our infrastructure — all of them only protected someone who happened to run jest locally
+# before pushing. A guard that does not gate is documentation.
+
+on:
+  pull_request:
+    paths: ['dashboard/**', '.github/workflows/dashboard-ci.yml']
+  push:
+    branches: [dev, main]
+    paths: ['dashboard/**', '.github/workflows/dashboard-ci.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck + tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      # `npm ci` rather than `npm install`: it fails on a lockfile that does not match package.json
+      # instead of silently resolving a tree nobody tested against.
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
+      # No `--passWithNoTests`. If a path filter means zero tests ran, that is a signal, not a pass.
+      - name: Tests
+        run: npx jest --ci

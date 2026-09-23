@@ -31,8 +31,10 @@ const KIND_LABEL: Record<string, string> = {
   "product-missing-at-provider": "Products missing at provider",
   "paywall-not-published": "Paywall not published",
   "credential-mode-mismatch": "Credential in the wrong mode",
+  "active-provider-no-credential": "Active provider that was never connected",
   "active-provider-zero-links": "Active provider with no checkout links",
   "missing-currency-for-country": "Served country with no price",
+  "no-test-credential": "⚠ Live-only provider — testing means real money",
 }
 
 export function NeedsAttention({ tenantId }: { tenantId: string }) {

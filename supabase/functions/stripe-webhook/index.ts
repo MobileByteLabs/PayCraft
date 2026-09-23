@@ -31,6 +31,8 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 // Legacy env fallbacks (single-tenant self-hosters).
 const envTestSecretKey =
   Deno.env.get("STRIPE_TEST_SECRET_KEY") || Deno.env.get("STRIPE_SECRET_KEY") || "";
+// env-optional: STRIPE_LIVE_SECRET_KEY — falls back at the USE site (line ~111:
+// `isLive ? envLiveSecretKey || envTestSecretKey : ...`), which resolves to STRIPE_SECRET_KEY.
 const envLiveSecretKey = Deno.env.get("STRIPE_LIVE_SECRET_KEY") || "";
 const envTestWebhookSecret =
   Deno.env.get("STRIPE_TEST_WEBHOOK_SECRET") || Deno.env.get("STRIPE_WEBHOOK_SECRET") || "";

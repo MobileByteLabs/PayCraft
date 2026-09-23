@@ -25,50 +25,71 @@ jobs:
           BODY=$(curl -fsS https://paycraft.mobilebytesensei.com/pricing)
           echo "$BODY" | grep -q "Pro" || (echo "Pricing page missing 'Pro'" && exit 1)
 
-      # This step asserted NOTHING. It curled `api.paycraft.mobilebytesensei.com`, which does not
-      # resolve — infra/dns-records.md records it as "provisioned but unused, ships in v2.1" — for a
-      # function named `v2-config`, which does not exist (the function is `config`). Both mistakes
-      # were invisible because the command ended in `|| true` and the step only echoed the result,
-      # so it reported success against a dead host and a wrong name. Measured 2026-09-19:
+      # Edge-function reachability — implemented ONCE, in scripts/deploy-cloud.sh, which the
+      # deploy itself also runs. Inlining it here meant the probe guarding a deploy and the probe a
+      # developer can run locally were two different programs, and they disagreed.
       #
-      #   api.paycraft.mobilebytesensei.com/functions/v1/v2-config   000  (does not resolve)
-      #   <ref>.supabase.co/functions/v1/v2-config                   404  (no such function)
-      #   <ref>.supabase.co/functions/v1/config                      401  (deployed, auth enforced)
+      # Two defects this step has actually shipped, kept as the reason it is now delegated:
+      #   • It curled `api.paycraft.mobilebytesensei.com/functions/v1/v2-config` — a host that does
+      #     not resolve, for a function that does not exist (it is `config`) — ending in `|| true`,
+      #     so it reported success against both mistakes for weeks.
+      #   • It then accepted 401 as healthy for EVERY function, on the reasoning that 401 proves a
+      #     function is deployed and rejecting anonymous callers. True for a private function;
+      #     exactly inverted for `config`, a PUBLIC endpoint authenticated by the caller's
+      #     publishable key. A total SDK outage stayed green until a user photographed a phone
+      #     rendering "You appear to be offline" over WiFi + LTE (2026-09-22).
       #
-      # 401 is the PASS signal for an anonymous probe: it proves the function is deployed AND
-      # rejecting unauthenticated callers. 200 is accepted for any function that allows anonymous
-      # access. 000 (unreachable) and 404 (not deployed) now fail, which is the whole point.
+      # The expectation is now per-function, derived from supabase/config.toml's verify_jwt blocks —
+      # the same file the deploy applies — and fails closed in both directions.
       - name: Edge functions reachable
-        run: |
-          set -uo pipefail
-          REF="$(tr -d '[:space:]' < supabase/.temp/project-ref)"
-          [ -n "$REF" ] || { echo "::error::supabase/.temp/project-ref is empty"; exit 1; }
-          fail=0
-          for fn in config checkout-initiate account-token; do
-            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
-              "https://${REF}.supabase.co/functions/v1/${fn}")
-            case "$CODE" in
-              200|401) echo "  ok   ${fn}: ${CODE}" ;;
-              000)     echo "::error::${fn}: unreachable (000) — host did not respond"; fail=1 ;;
-              404)     echo "::error::${fn}: 404 — function is not deployed under that name"; fail=1 ;;
-              *)       echo "::error::${fn}: unexpected ${CODE}"; fail=1 ;;
-            esac
-          done
-          exit $fail
+        run: bash scripts/deploy-cloud.sh --smoke-only
 
-      # `/auth/login`, not `/auth/signin`. This step asserted a route that has never existed:
-      # dashboard/app/auth/ contains callback, login, logout and signup — no `signin`. Live probe
-      # on 2026-09-19: /auth/signin → 404, /auth/login → 200.
+      # 200 IS NOT ENOUGH FOR A CLIENT-RENDERED PAGE — and neither is grepping the HTML.
       #
-      # It went unnoticed because this whole job had never run. It is gated behind the dashboard
-      # deploy, which had been failing since 2026-08-03, so the first execution was also the first
-      # time anyone saw the assertion — and it read as "production auth is down" when the site was
-      # healthy and the test was wrong.
-      - name: Auth page reachable
+      # On 2026-09-23 /auth/login was completely unusable while this step was green. The HTML is
+      # server-rendered correctly ("Sign in to your dashboard", OAuth buttons, all present) and
+      # returns 200; the failure happens on HYDRATION, when the browser bundle calls
+      # createBrowserClient with undefined and React replaces the tree with "Application error: a
+      # client-side exception has occurred". That string is injected client-side and NEVER appears
+      # in the response, so no amount of curl-grepping the page can see it.
+      #
+      # What curl CAN see is the cause. `next build` inlines NEXT_PUBLIC_* into the JS chunks, so a
+      # correctly-built bundle literally contains the Supabase project ref. Measured on the broken
+      # deploy: 0 of 9 chunks contained it. Asserting its presence tests the exact thing that
+      # failed, needs no browser, and cannot silently pass the way a status check did.
+      - name: Auth page reachable AND browser env was inlined
         run: |
+          REF="$(tr -d '[:space:]' < supabase/.temp/project-ref)"
+          BODY=$(curl -fsS https://paycraft.mobilebytesensei.com/auth/login)
           STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" \
             https://paycraft.mobilebytesensei.com/auth/login)
-          [ "$STATUS" = "200" ] || (echo "Auth page returned $STATUS" && exit 1)
+          [ "$STATUS" = "200" ] || { echo "::error::Auth page returned $STATUS"; exit 1; }
+
+          hits=0
+          for c in $(printf '%s' "$BODY" | grep -oE '/_next/static/chunks/[A-Za-z0-9._/-]+\.js' | sort -u); do
+            if curl -fsS "https://paycraft.mobilebytesensei.com${c}" 2>/dev/null | grep -q "$REF"; then
+              hits=$((hits+1))
+            fi
+          done
+          if [ "$hits" -eq 0 ]; then
+            echo "::error::No JS chunk contains the Supabase project ref — NEXT_PUBLIC_SUPABASE_URL was not set at BUILD time. The page will return 200 and then throw on hydration; nobody can log in."
+            exit 1
+          fi
+          echo "browser env inlined (ref found in ${hits} chunk(s))"
+
+      # The live security properties, re-checked after every deploy.
+      #
+      # These are the checks that found the two real issues they now guard: an unauthenticated 500
+      # naming SUPABASE_SERVICE_ROLE_KEY, and /api/health publishing which variable was missing at
+      # exactly the moment it was. The unit tests scan SOURCE and see only literal leaks; this
+      # probes the live response, so it also catches a name interpolated at runtime.
+      #
+      # SKIP_AUTHED: no vault in CI, so the authenticated checks are skipped rather than faked.
+      # The 17 public checks still run, and a fake-green check would be worse than a skipped one.
+      - name: Security audit (public checks)
+        env:
+          SKIP_AUTHED: '1'
+        run: bash scripts/security-audit.sh
 
       # Slack notification removed 2026-09-19. SLACK_BOT_TOKEN was never set, so both steps threw
       # `Missing input! Either a method or webhook is required to take action.` — the step whose job

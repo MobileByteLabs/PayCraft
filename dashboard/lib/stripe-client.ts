@@ -1,6 +1,6 @@
 import Stripe from "stripe"
 import { createClient } from "@/lib/supabase-server"
-import { createClient as createServiceClient } from "@supabase/supabase-js"
+import { createClient as createServiceClient, type SupabaseClient } from "@supabase/supabase-js"
 
 /**
  * Server-side Stripe SDK wrapper.
@@ -73,8 +73,21 @@ export async function getConnectedStripeClient(
    * test map, and a paywall that shows zero providers to every `pk_test_` build.
    */
   mode?: "live" | "test",
+  /**
+   * `supa` — the client to authenticate the credential lookup with.
+   *
+   * Omit it and this falls back to the cookie-scoped session client, which is correct for a request
+   * made by a logged-in operator and WRONG for anything else. The management API authenticates with a
+   * bearer key and has no cookies, so the fallback ran as `anon` and the decrypt RPC answered
+   * "permission denied for function tenant_providers_decrypt_key" — surfaced to the operator as
+   * "No Razorpay live keys for tenant …", naming the wrong cause entirely.
+   *
+   * Callers that already hold a privileged client must pass it rather than letting this reach for a
+   * session that is not there.
+   */
+  supa?: SupabaseClient<any>,
 ): Promise<Stripe> {
-  const supabase = createClient()
+  const supabase = supa ?? createClient()
 
   // OAuth path first — Connect access tokens already carry the connected
   // account scope, so no on-behalf-of header is required downstream.

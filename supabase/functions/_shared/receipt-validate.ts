@@ -39,6 +39,8 @@ function toHex(buf: ArrayBuffer): string {
  *  via APPLE_ROOT_CA_EXTRA_FINGERPRINTS (comma-separated lowercase hex). */
 function allowedRootFingerprints(): Set<string> {
   const set = new Set(APPLE_ROOT_CA_G3_FINGERPRINTS);
+  // env-optional: APPLE_ROOT_CA_EXTRA_FINGERPRINTS — EXTRA pins on top of the built-in Apple
+  // root CAs. Absent means "use the built-ins", which is the normal case.
   const extra = Deno.env.get("APPLE_ROOT_CA_EXTRA_FINGERPRINTS");
   if (extra) for (const fp of extra.split(",")) if (fp.trim()) set.add(fp.trim().toLowerCase());
   return set;

@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
   const { data: product } = await supabase
     .from("tenant_products")
     .select(
-      "id, sku, type, display_name, interval, base_price_cents, base_currency, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency",
+      "id, sku, type, display_name, interval, base_price_cents, base_currency, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency, razorpay_plan_id_by_currency_test",
     )
     .eq("tenant_id", tenant.id)
     .eq("id", productId)
@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
         productId,
         body: syncBody,
         existingRazorpayPlanIds: product.razorpay_plan_id_by_currency ?? undefined,
+        existingRazorpayPlanIdsTest: product.razorpay_plan_id_by_currency_test ?? undefined,
       }),
       cashfreeSyncProduct(supabase, {
         tenantId: tenant.id,

@@ -384,11 +384,24 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     supabase.rpc("tenant_offerings_public_list", { p_tenant_id: tenantId }),
   ])
 
-  // Mode-aware: the SDK reads payment_links from the matching map per
-  // `apiKey.startsWith("pk_test_")` → testPaymentLinks; pk_live_* → livePaymentLinks.
-  // We surface only the relevant map here so older SDKs that don't know about mode
-  // duality still pick the correct one.
-  const isTestMode = apiKey.startsWith("pk_test_")
+  // Mode-aware: we surface only the relevant payment-links map so the SDK cannot pick the wrong one.
+  //
+  // RESOLUTION ORDER (one key per app, since 2026-09-22):
+  //   1. `x-paycraft-mode` — the CLIENT states it. Under the one-key model the key prefix carries
+  //      no mode, and the client is the only party that knows whether it is a debug build. The SDK
+  //      resolves debug → test / release → live from the HOST application's debuggable flag.
+  //   2. `pk_test_` / `pk_live_` prefix — legacy two-key apps keep working untouched. An SDK too
+  //      old to send the header still lands on the mode its key names.
+  //   3. live — an unrecognised key on a request with no header. Defaulting to test would serve
+  //      test links to a paying customer and silently take no money.
+  //
+  // The header is NOT trusted for authorisation, only for link selection: the tenant is already
+  // resolved from the apiKey above, so a forged header can at most show a caller its OWN tenant's
+  // test links, which are public payment URLs. It cannot cross a tenant boundary or move money.
+  const modeHeader = req.headers.get("x-paycraft-mode")?.toLowerCase()
+  const isTestMode = modeHeader === "test" ? true
+    : modeHeader === "live" ? false
+    : apiKey.startsWith("pk_test_")
 
   // 4. Resolve per-locale price for each product + project trial fields with safe
   //    defaults so the SDK always receives a fully-formed ProductDto regardless of

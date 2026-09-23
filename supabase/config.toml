@@ -467,3 +467,66 @@ verify_jwt = false
 verify_jwt = false
 [functions.cloud-billing-webhook]
 verify_jwt = false
+
+# ── SDK client endpoints: verify_jwt MUST be false ────────────────────────────────────────────────
+#
+# SAME DEFECT CLASS AS THE WEBHOOKS ABOVE, one surface over. The block above fixed the 11 provider
+# webhooks and stopped there; every endpoint the SDK itself calls was left on the platform default,
+# so the gateway was rejecting all five BEFORE the function ran.
+#
+# Measured on production 2026-09-22. The SDK DOES send an Authorization header — the live fetch is
+# the inline one in PayCraft.kt (`header("Authorization", "Bearer ${backend.supabaseAnonKey}")`),
+# not the @Deprecated ConfigClient, which an earlier revision of this comment cited by mistake and
+# which was never wired into the real path at all.
+#
+# The header does not help, because the baked-in CLOUD_SUPABASE_ANON_KEY is a LEGACY-format JWT that
+# Supabase's gateway no longer accepts. Verified against `billing`, a function deliberately left at
+# verify_jwt=true:
+#
+#     no auth                    →  401 {"code":"UNAUTHORIZED_NO_AUTH_HEADER"}
+#     SDK's baked-in anon JWT    →  401 {"code":"UNAUTHORIZED_LEGACY_JWT"}
+#
+# So every SDK call to a verify_jwt=true function is rejected BEFORE the function runs, whatever it
+# sends. User-visible symptom: the paywall renders "You appear to be offline" with a Retry button on
+# a device that is fully online — `loadConfig` 401s, every resilience layer is exhausted, and the
+# SDK's honest conclusion from a failed fetch is OFFLINE.
+#
+# NOTE for anything still on verify_jwt=true: rotating CLOUD_SUPABASE_ANON_KEY to a current-format
+# key would ALSO clear this, and is worth doing independently — but it cannot be the fix here,
+# because Apple and Google hold no Supabase key of any vintage.
+#
+# Security is NOT weakened, for the same reason as the webhooks: each of these authenticates its
+# OWN caller. `config/index.ts` requires `?apiKey=` (400 `missing_apiKey`) and resolves the tenant
+# through `tenant_resolve_by_api_key` (401 `invalid_apiKey`). The publishable key IS the credential
+# here — the same model as Stripe's pk_live_* endpoints — and a Supabase JWT, which a shipped mobile
+# app has no way to hold before the user authenticates, is not a substitute for it.
+[functions.config]
+verify_jwt = false
+[functions.checkout-initiate]
+verify_jwt = false
+[functions.coupon-validate]
+verify_jwt = false
+[functions.register-play-purchase]
+verify_jwt = false
+[functions.register-appstore]
+verify_jwt = false
+
+# ── Store server-to-server callbacks: verify_jwt MUST be false ────────────────────────────────────
+#
+# Apple (App Store Server Notifications V2) and Google (Real-Time Developer Notifications) POST from
+# their own infrastructure and can no more hold a Supabase JWT than a payment provider can. Left on
+# the default they are rejected at the gateway, so renewals, cancellations, refunds and grace-period
+# transitions never reach the database — entitlement state then drifts away from what the buyer
+# actually owns, silently and with no failed request anywhere in the app to notice.
+#
+# Both verify their caller cryptographically: Apple via the signedPayload JWS chain, Google via the
+# Pub/Sub push token. That is the correct authentication for these senders.
+[functions.apple-server-notifications]
+verify_jwt = false
+[functions.google-rtdn]
+verify_jwt = false
+
+# NOT listed, deliberately: [functions.billing] carries ZERO self-authentication (checked
+# 2026-09-22 — no apiKey, no signature verification). It is dashboard-called with a real user JWT
+# and MUST keep the gateway check. Blanket-applying verify_jwt = false across every function would
+# have opened it up; each entry above earns its place by authenticating its own caller.

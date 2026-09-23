@@ -10,6 +10,7 @@ import type { SidebarsConfig } from '@docusaurus/plugin-content-docs'
 
 const sidebars: SidebarsConfig = {
   main: [
+    'HOME',
     {
       type: 'category',
       label: 'Getting started',
@@ -26,6 +27,19 @@ const sidebars: SidebarsConfig = {
       items: [
         'REELS_DOWNLOADER_INTEGRATION',
         'CLAUDE_SKILLS',
+      ],
+    },
+    {
+      // The machine-facing surface: REST for pipelines, MCP for assistants. Placed after
+      // Integration because it answers a different question — not "how do I add billing to my app"
+      // but "how do I operate it without a browser".
+      type: 'category',
+      label: 'API & automation',
+      items: [
+        'API_OVERVIEW',
+        'API_REFERENCE',
+        'API_RECIPES',
+        'MCP_SERVER',
       ],
     },
     {

@@ -13,6 +13,11 @@ import { requireTenant } from "@/lib/tenant"
 import { PageHeader } from "@/components/ui/page-header"
 import { Card, CardBody } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import {
+  ModeReadiness,
+  ModeReadinessSummary,
+  type ProviderModeReadiness,
+} from "@/components/providers/mode-readiness"
 import { CountryPicker } from "@/components/providers/country-picker"
 import {
   recommendationsFor,
@@ -52,7 +57,7 @@ export default async function ProvidersPage({
   const { tenant } = await requireTenant()
   const supabase = createClient()
 
-  const [tenantRes, providersRes, paymentMethodsRes, stripeOauthRes, registryRes] =
+  const [tenantRes, providersRes, paymentMethodsRes, stripeOauthRes, registryRes, readinessRes] =
     await Promise.all([
       supabase
         .from("tenants")
@@ -73,6 +78,10 @@ export default async function ProvidersPage({
         .from("provider_method_registry")
         .select("method, provider, display_name, fee_percent, supports_subscription, supports_one_time")
         .order("fee_percent"),
+      // PER-MODE readiness. `tenant_providers_resolved_list` above answers only "does this bill at
+      // all?" — one boolean that reads `connected` for a provider with zero test payment links, so
+      // the card looked healthy while no test purchase was possible.
+      supabase.rpc("tenant_providers_mode_readiness", { p_tenant_id: tenant.id }),
     ])
 
   const savedCountry = tenantRes.data?.country_code ?? null
@@ -94,6 +103,8 @@ export default async function ProvidersPage({
   }
   const resolved = (providersRes.data ?? []) as ResolvedProvider[]
   const resolvedByProvider = new Map(resolved.map((r) => [r.provider, r]))
+  const readinessRows = (readinessRes.data ?? []) as ProviderModeReadiness[]
+  const readinessByProvider = new Map(readinessRows.map((r) => [r.provider, r]))
   // Kept as a Set of CONNECTED providers so every downstream `has()` now means "bills through
   // something" rather than "has a row".
   const tenantProviders = new Set<string>(
@@ -114,6 +125,14 @@ export default async function ProvidersPage({
   const registry = new Map(
     (registryRes.data ?? []).map((r: any) => [r.method, r]),
   )
+
+  // method → provider comes from provider_method_registry, the table that already owns that
+  // mapping. A hand-written switch here would be a second copy of it, and would silently miss any
+  // provider added to the registry later — the same drift class as the hardcoded function list.
+  const readinessForMethod = (method: string): ProviderModeReadiness | undefined => {
+    const providerName = (registry.get(method) as { provider?: string } | undefined)?.provider
+    return providerName ? readinessByProvider.get(providerName) : undefined
+  }
 
   // Bucket the recommendations by tier so we can render each section.
   const byTier: Record<Tier, ProviderRecommendation[]> = {
@@ -182,6 +201,8 @@ export default async function ProvidersPage({
           </span>
         </div>
       )}
+
+      <ModeReadinessSummary rows={readinessRows} />
 
       {/* Connected summary */}
       {savedCountry && connectedCount > 0 && (
@@ -259,6 +280,7 @@ export default async function ProvidersPage({
                 key={r.method}
                 recommendation={r}
                 state={methodState(r.method, stateInputs)}
+                readiness={readinessForMethod(r.method)}
                 feePercent={registry.get(r.method)?.fee_percent}
                 supportsSubscription={
                   registry.get(r.method)?.supports_subscription
@@ -271,6 +293,7 @@ export default async function ProvidersPage({
                 key={r.method}
                 recommendation={r}
                 state={methodState(r.method, stateInputs)}
+                readiness={readinessForMethod(r.method)}
                 feePercent={registry.get(r.method)?.fee_percent}
                 supportsSubscription={
                   registry.get(r.method)?.supports_subscription
@@ -295,6 +318,7 @@ export default async function ProvidersPage({
                 key={r.method}
                 recommendation={r}
                 state={methodState(r.method, stateInputs)}
+                readiness={readinessForMethod(r.method)}
                 feePercent={registry.get(r.method)?.fee_percent}
                 supportsSubscription={
                   registry.get(r.method)?.supports_subscription
@@ -352,6 +376,7 @@ function ProviderCard({
   supportsSubscription,
   supportsOneTime,
   muted = false,
+  readiness,
 }: {
   recommendation: ProviderRecommendation
   state: MethodState
@@ -359,6 +384,7 @@ function ProviderCard({
   supportsSubscription: boolean | undefined
   supportsOneTime: boolean | undefined
   muted?: boolean
+  readiness?: ProviderModeReadiness
 }) {
   const brand = methodBrand(recommendation.method)
   const setupPath = setupPathFor(recommendation.method)
@@ -426,6 +452,10 @@ function ProviderCard({
             <span className="text-ink-400">· One-time only</span>
           )}
         </div>
+
+        {/* Per-mode state. Rendered only for providers the tenant actually has a row for —
+            a recommendation the merchant has never touched has nothing to report yet. */}
+        {readiness && <ModeReadiness r={readiness} />}
 
         {setupPath ? (
           <Link

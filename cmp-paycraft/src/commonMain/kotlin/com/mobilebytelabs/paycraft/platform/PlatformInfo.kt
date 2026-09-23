@@ -27,4 +27,22 @@ expect object PlatformInfo {
      * per-currency provider checkout link is used.
      */
     val country: String?
+
+    /**
+     * `true` when the CONSUMING APP is a debug build. Drives the default test/live mode so a host
+     * app never has to inject two keys or flip a flag (`PayCraft.mode`).
+     *
+     * It must describe the HOST, not this library. A library's own `BuildConfig.DEBUG` reflects how
+     * the AAR was compiled — always `false` in a published artifact — so reading it would report
+     * every consumer as release, including the developer's own debug build. Android therefore reads
+     * the host's `ApplicationInfo.FLAG_DEBUGGABLE` and iOS reads `Platform.isDebugBinary`; both are
+     * properties of the running application.
+     *
+     * Where no honest signal exists (JVM, JS, WasmJs) this returns `false` — i.e. LIVE. That
+     * asymmetry is deliberate: guessing "debug" wrong means a shipped app silently charges nobody
+     * and the revenue loss is invisible, while guessing "live" wrong is caught the first time a
+     * developer sees a real charge. An explicit `initialize(mode = …)` override covers those
+     * platforms.
+     */
+    val isDebugBuild: Boolean
 }

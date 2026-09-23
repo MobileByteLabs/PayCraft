@@ -8,6 +8,12 @@ import platform.UIKit.UIDevice
 actual object PlatformInfo {
     actual val platform: String = "ios"
 
+    // Kotlin/Native exposes how THIS binary was compiled. The framework is built alongside the app
+    // in the same Xcode configuration, so a Debug-configuration app carries a debug framework.
+    @OptIn(kotlin.experimental.ExperimentalNativeApi::class)
+    actual val isDebugBuild: Boolean
+        get() = kotlin.native.Platform.isDebugBinary
+
     // UIDevice.currentDevice.name is the user-assigned device name: "Rajan's iPhone"
     actual val deviceName: String
         get() = UIDevice.currentDevice.name

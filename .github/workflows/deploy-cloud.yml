@@ -36,79 +36,52 @@ jobs:
   # Requires repo secret SUPABASE_DB_PASSWORD (the prod Postgres password) in
   # addition to the SUPABASE_ACCESS_TOKEN the functions job uses. The project REF is not a
   # secret and is no longer read from one — it comes from supabase/.temp/project-ref.
-  deploy-migrations:
-    name: Apply Supabase DB migrations
+  supabase:
+    name: Supabase — migrations + edge functions + smoke
     runs-on: ubuntu-latest
     if: github.event.inputs.dry_run != 'true'
+    # ONE SOURCE OF TRUTH. This job used to be THREE (deploy-migrations, deploy-functions, smoke),
+    # each inlining its own copy of the same steps — and the copies drifted. The function list was a
+    # hardcoded array here while the local path globbed the directory, so CI silently skipped every
+    # function nobody had remembered to add. Both paths now run scripts/deploy-cloud.sh, so a fix
+    # lands once and a developer can reproduce CI exactly with one command.
     steps:
       - uses: actions/checkout@v4
 
+      # PINNED, not `latest`. `version: latest` makes setup-cli query the GitHub releases API
+      # unauthenticated — 60 requests/hour shared across every runner on that IP — and run
+      # 35456897180 died on it: "Failed to resolve latest Supabase CLI release: rate limit exceeded".
+      # The job failed before a single one of its own steps ran, so the deploy looked broken when
+      # nothing in this repo had changed.
+      #
+      # Pinning also removes a quieter hazard: this is the PRODUCTION migration path, and `latest`
+      # lets an upstream CLI release change how it behaves with no commit on our side. Bump this
+      # deliberately, the same way any other dependency gets bumped. The script WARNS when the local
+      # CLI differs from this pin, so the two cannot diverge unnoticed.
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.117.0
 
-      # Assert the secrets are non-empty BEFORE touching the CLI. A missing repo
-      # secret interpolates to an empty string, not an error: the 2026-08-03 runs
-      # shipped `supabase link --project-ref ""` with a blank SUPABASE_ACCESS_TOKEN
-      # and failed several CLI-layers deep ("Access token not provided"), which read
-      # like a CLI bug rather than an unset secret. Name the missing one instead.
-      #
-      # NON-EMPTY IS NOT WELL-FORMED, and that gap cost six weeks. Every run from
-      # 2026-08-03 to 2026-09-19 failed because SUPABASE_PROD_REF held a 40-byte value
-      # where a 20-char project ref belongs. It passed this check; the CLI could not
-      # parse it as a ref, fell back to resolving it as a BRANCH, and reported
-      # `Branch "***" not found`. Masked in the log, so the malformed value was never
-      # visible. The ref no longer comes from a secret at all — see the next step.
-      - name: Assert required secrets are present
+      # Assert the secret is non-empty BEFORE touching the CLI. A missing repo secret interpolates
+      # to an empty string, not an error: the 2026-08-03 runs shipped `supabase link --project-ref ""`
+      # with a blank token and reported success.
+      - name: Assert deploy secrets are present
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          [ -n "$SUPABASE_ACCESS_TOKEN" ] || {
+            echo "::error::SUPABASE_ACCESS_TOKEN repo secret is empty or unset"; exit 1; }
+
+      - name: Deploy (migrations → functions → smoke)
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        run: |
-          missing=""
-          for v in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD; do
-            [ -n "${!v:-}" ] || missing="${missing} ${v}"
-          done
-          if [ -n "$missing" ]; then
-            echo "::error::missing repo secret(s):${missing} — set them in Settings → Secrets → Actions"
-            exit 1
-          fi
-          echo "Required Supabase secrets present."
-
-      # The project ref is NOT a secret. It is committed at supabase/.temp/project-ref,
-      # printed unmasked in CI logs, and written in plaintext across infra/*. Keeping a
-      # SECOND copy in a repo secret created two sources of truth with no reconciliation,
-      # and because secrets are masked, the copy that drifted was the invisible one.
-      # Read it from the repo: one reader, one source, nothing to drift against.
-      - name: Resolve and validate the Supabase project ref
-        id: ref
-        run: |
-          REF_FILE="supabase/.temp/project-ref"
-          if [ ! -f "$REF_FILE" ]; then
-            echo "::error::$REF_FILE is missing — it is the source of truth for which project we deploy to."
-            exit 1
-          fi
-          REF="$(tr -d '[:space:]' < "$REF_FILE")"
-          # A Supabase project ref is exactly 20 lowercase letters. Asserting the SHAPE is
-          # what turns six weeks of "Branch not found" into one line naming the real problem.
-          if ! printf '%s' "$REF" | grep -qE '^[a-z]{20}$'; then
-            echo "::error::project ref '$REF' (${#REF} chars) is malformed — expected exactly 20 lowercase letters. Fix $REF_FILE."
-            exit 1
-          fi
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-          echo "Deploying to Supabase project: $REF"
-
-      - name: Push migrations to production
-        run: |
-          supabase link --project-ref "${{ steps.ref.outputs.ref }}"
-          supabase db push
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: bash scripts/deploy-cloud.sh
 
   deploy-dashboard:
     name: Deploy Next.js dashboard to Cloudflare Pages
     runs-on: ubuntu-latest
-    needs: [deploy-migrations]
+    needs: [supabase]
     if: github.event.inputs.dry_run != 'true'
     defaults:
       run:
@@ -138,6 +111,35 @@ jobs:
       - name: Install deps
         run: npm install
 
+      # Derive the Supabase URL from the COMMITTED project ref — the same single source of truth
+      # the migration job uses. Hardcoding the hostname here would be a second copy of "which
+      # project are we", which is precisely the duplicate that broke deploy-cloud for six weeks.
+      - name: Resolve Supabase URL
+        id: sb
+        working-directory: .
+        run: |
+          REF="$(tr -d '[:space:]' < supabase/.temp/project-ref)"
+          printf '%s' "$REF" | grep -qE '^[a-z]{20}$' || {
+            echo "::error::project ref '$REF' is malformed"; exit 1; }
+          echo "url=https://${REF}.supabase.co" >> "$GITHUB_OUTPUT"
+
+      # FAIL BEFORE BUILDING on an empty NEXT_PUBLIC_*.
+      #
+      # This is the check that was missing. `next build` inlines these into the browser bundle; an
+      # UNSET one inlines as `undefined` and the build still succeeds. The failure then surfaces
+      # only in a browser, as `@supabase/ssr: Your project's URL and API key are required`, on a
+      # page that returns HTTP 200 with an empty body — so cloud-smoke's `/auth/login → 200`
+      # assertion passed straight through a completely broken login page (measured 2026-09-23).
+      - name: Assert browser-inlined env is present
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.sb.outputs.url }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          for v in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY; do
+            [ -n "${!v}" ] || { echo "::error::$v is empty — the browser bundle would ship undefined and every page would throw at createBrowserClient"; exit 1; }
+          done
+          echo "browser env present: URL + ANON_KEY"
+
       - name: Build + deploy to Cloudflare Pages
         run: npm run pages:deploy
         env:
@@ -146,113 +148,19 @@ jobs:
           # it /api/health reports env "local" in production (route.ts falls back),
           # which is why a live build could not be told apart from a local one.
           NEXT_PUBLIC_APP_ENV: production
+          # These two were MISSING while the comment above stated the rule. supabase-browser.ts
+          # reads them via createBrowserClient, so every client page threw and rendered
+          # "Application error: a client-side exception has occurred" — including /auth/login,
+          # which locked the dashboard entirely.
+          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.sb.outputs.url }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # The org token materializes as CLOUDFLARE_PAGES_API_TOKEN (alias
           # mbs-cloudflare-pages-api-token); wrangler reads CLOUDFLARE_API_TOKEN.
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_API_TOKEN }}
 
-  deploy-functions:
-    name: Deploy Supabase edge functions
-    runs-on: ubuntu-latest
-    needs: [deploy-migrations]
-    if: github.event.inputs.dry_run != 'true'
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      # The function list IS the directory listing under supabase/functions/, minus _shared
-      # (shared utility modules) and __tests__ (canary fixtures). Deriving it from disk rather
-      # than hardcoding fixes three separate defects at once and prevents their recurrence:
-      #
-      #   1. Name drift — the old list named `v2-config`, `v2-billing` and `lemon-squeezy-webhook`;
-      #      the real directories are `config`, `billing` and `lemonsqueezy-webhook`. Each was a
-      #      hard `supabase functions deploy` failure on every run.
-      #   2. Coverage gap — 15 of 24 functions were absent from the list entirely, including
-      #      `config` and `billing` (the SDK's two core endpoints) and both client-facing grant
-      #      endpoints, `register-play-purchase` and `register-appstore`.
-      #   3. Recurrence — a new function directory now reaches production on its first CI run
-      #      instead of waiting for someone to remember to add it here.
-      #
-      # This matches infra/deploy/deploy.sh:381-386, which already globs the real directories and
-      # is the only internally consistent deploy path in the repo.
-      #
-      # Failures accumulate rather than short-circuit: one broken function should not hide the
-      # status of the other 23. The job still exits non-zero if any failed.
-      # Same empty-secret assert as deploy-migrations: the 2026-08-03 failure was
-      # an unset SUPABASE_ACCESS_TOKEN + an empty `--project-ref`, not bad code.
-      - name: Assert required secrets are present
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || {
-            echo "::error::missing repo secret: SUPABASE_ACCESS_TOKEN — set it in Settings → Secrets → Actions"
-            exit 1
-          }
-          echo "Required Supabase secret present."
-
-      # Same source of truth as deploy-migrations, and for the same reason: the ref is
-      # committed, not secret, so reading it here keeps ONE reader per fact. A second
-      # copy in a repo secret is what silently drifted and broke every run for six weeks.
-      - name: Resolve and validate the Supabase project ref
-        id: ref
-        run: |
-          REF_FILE="supabase/.temp/project-ref"
-          if [ ! -f "$REF_FILE" ]; then
-            echo "::error::$REF_FILE is missing — it is the source of truth for which project we deploy to."
-            exit 1
-          fi
-          REF="$(tr -d '[:space:]' < "$REF_FILE")"
-          if ! printf '%s' "$REF" | grep -qE '^[a-z]{20}$'; then
-            echo "::error::project ref '$REF' (${#REF} chars) is malformed — expected exactly 20 lowercase letters. Fix $REF_FILE."
-            exit 1
-          fi
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-          echo "Deploying functions to Supabase project: $REF"
-
-      # A deployable function IS its `index.ts`. Skipping by ENTRYPOINT rather than by
-      # NAME is what infra/deploy/deploy.sh:534-543 already settled on, after a name-based
-      # skip list reported a permanent "2 function(s) failed" for `__tests__` (canary
-      # subdirectories, no entrypoint) — which is exactly how a real failure gets ignored.
-      # Matching that here means the next helper/test directory someone adds cannot
-      # re-break this job. `--project-ref` is quoted so an empty value can never silently
-      # become "deploy to the linked default project".
-      - name: Deploy edge functions (derived from disk)
-        run: |
-          set -uo pipefail
-          fail=0
-          deployed=0
-          for d in supabase/functions/*/; do
-            name="$(basename "$d")"
-            if [ ! -f "${d}index.ts" ]; then
-              echo "↷ ${name}: no index.ts — not a function, skipped"
-              continue
-            fi
-            echo "Deploying $name"
-            if supabase functions deploy "$name" \
-                 --project-ref "${{ steps.ref.outputs.ref }}"; then
-              deployed=$((deployed+1))
-            else
-              echo "::error::edge function $name failed to deploy"
-              fail=$((fail+1))
-            fi
-          done
-          echo "Deployed ${deployed} function(s), ${fail} failed."
-          if [ "$deployed" -eq 0 ]; then
-            echo "::error::no edge functions deployed — supabase/functions/*/index.ts matched nothing"
-            exit 1
-          fi
-          if [ "$fail" -ne 0 ]; then
-            echo "::error::$fail edge function(s) failed to deploy"
-            exit 1
-          fi
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-
   smoke:
     name: Run production smoke tests
-    needs: [deploy-dashboard, deploy-functions]
+    needs: [deploy-dashboard]
     uses: ./.github/workflows/cloud-smoke.yml
     secrets: inherit

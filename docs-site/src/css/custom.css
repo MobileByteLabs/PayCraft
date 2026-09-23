@@ -1,10 +1,27 @@
 /**
- * docs-site/src/css/custom.css
+ * PayCraft docs — theme.
  *
- * PayCraft brand palette — kept minimal so the Docusaurus default
- * theme does most of the work. Brand violet matches the dashboard's
- * marketing hero gradient.
+ * Builds on the existing brand (violet-700) rather than replacing it. The neutrals carry a slight
+ * violet bias so greys read as chosen next to the accent instead of inherited from the framework.
+ *
+ * Type: IBM Plex Sans throughout, differentiated by WEIGHT rather than by family, with IBM Plex
+ * Mono for code.
+ *
+ * The first version paired Sora for headings with Public Sans for body. Sora is a geometric display
+ * face — wide, rounded, with distinctive descenders — and at hero size it read as startup marketing
+ * rather than payments infrastructure. In a domain where the reader is deciding whether to trust us
+ * with money, the type should recede and let the content carry the authority.
+ *
+ * Plex is the deliberate opposite: commissioned for technical documentation, neutral at text sizes,
+ * with enough character in its 600 weight to hold a heading. Using one superfamily for headings,
+ * body and code means prose and code blocks feel like one system instead of three fonts negotiating.
+ * That is what Stripe, Cloudflare and Twilio's docs all do, and it is why they read as serious.
+ *
+ * Real fallback stacks on all three — a silent fallback to Helvetica is the most common way a
+ * "designed" docs site quietly stops looking designed.
  */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,450;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
   --ifm-color-primary: #6d28d9;        /* violet-700 — PayCraft brand */
@@ -14,17 +31,155 @@
   --ifm-color-primary-light: #7c3aed;
   --ifm-color-primary-lighter: #8b5cf6;
   --ifm-color-primary-lightest: #a78bfa;
-  --ifm-code-font-size: 90%;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+
+  --ifm-font-family-base: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --ifm-heading-font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --ifm-font-family-monospace: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* 16.5px/1.65: Plex runs slightly small at 16, and docs are read, not skimmed. */
+  --ifm-font-size-base: 16.5px;
+  --ifm-line-height-base: 1.65;
+  --ifm-heading-font-weight: 600;
+  --ifm-h1-font-size: 2.15rem;
+  --ifm-code-font-size: 88%;
+  --ifm-navbar-height: 4rem;
+
+  /* Neutrals biased toward the accent — a pure grey reads as unconsidered beside violet. */
+  --ifm-background-color: #ffffff;
+  --ifm-background-surface-color: #faf9fd;
+  --ifm-font-color-base: #1c1a25;
+  --ifm-heading-color: #14121c;
+  --ifm-toc-border-color: #e9e6f2;
+  --ifm-hr-border-color: #e9e6f2;
+
+  --pc-muted: #635d78;
+  --pc-line: #e9e6f2;
+  --pc-surface: #faf9fd;
+  --pc-accent-soft: #f1ecfe;
+  --pc-radius: 12px;
 }
 
 [data-theme='dark'] {
-  --ifm-color-primary: #a78bfa;        /* violet-400 for dark contrast */
+  --ifm-color-primary: #a78bfa;        /* violet-400 holds contrast on a dark ground */
   --ifm-color-primary-dark: #8b5cf6;
   --ifm-color-primary-darker: #7c3aed;
   --ifm-color-primary-darkest: #6d28d9;
   --ifm-color-primary-light: #c4b5fd;
   --ifm-color-primary-lighter: #ddd6fe;
   --ifm-color-primary-lightest: #ede9fe;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+
+  --ifm-background-color: #100e17;
+  --ifm-background-surface-color: #17141f;
+  --ifm-font-color-base: #e6e3ee;
+  --ifm-heading-color: #f4f2f8;
+  --ifm-toc-border-color: #262133;
+  --ifm-hr-border-color: #262133;
+
+  --pc-muted: #a09ab5;
+  --pc-line: #262133;
+  --pc-surface: #17141f;
+  --pc-accent-soft: #1e1733;
+}
+
+/* ── chrome ──────────────────────────────────────────────────────────────── */
+
+.navbar {
+  border-bottom: 1px solid var(--pc-line);
+  box-shadow: none;
+  backdrop-filter: saturate(180%) blur(8px);
+}
+.navbar__title { font-family: var(--ifm-heading-font-family); font-weight: 600; letter-spacing: -.01em; }
+.navbar__link { font-weight: 500; }
+.footer { border-top: 1px solid var(--pc-line); }
+.footer--dark { --ifm-footer-background-color: #14121c; }
+
+h1, h2, h3, h4 { letter-spacing: -.014em; text-wrap: balance; }
+h2 { margin-top: 2.4rem; padding-top: .3rem; }
+.markdown > h2 { border-top: 1px solid var(--pc-line); padding-top: 1.9rem; }
+.markdown > h2:first-of-type { border-top: 0; padding-top: 0; }
+
+article p, article li { max-width: 74ch; }
+
+/* Tables carry most of the reference content, so they get real attention. */
+table { display: table; width: 100%; border-collapse: collapse; font-size: .93rem; }
+table th {
+  font: 600 .72rem/1 var(--ifm-font-family-monospace);
+  letter-spacing: .07em; text-transform: uppercase; color: var(--pc-muted);
+  border-bottom: 1px solid var(--pc-line); padding: .7rem .8rem .7rem 0; text-align: left;
+}
+table td { border-bottom: 1px solid var(--pc-line); padding: .72rem .8rem .72rem 0; vertical-align: top; }
+table tr:last-child td { border-bottom: 0; }
+table tr { background: transparent !important; border: 0; }
+
+code { border: 1px solid var(--pc-line); background: var(--pc-surface); border-radius: 5px; padding: .12em .38em; }
+a code { color: inherit; }
+.theme-code-block { border-radius: var(--pc-radius); border: 1px solid var(--pc-line); }
+
+blockquote { border-left: 3px solid var(--ifm-color-primary); background: var(--pc-accent-soft); border-radius: 0 var(--pc-radius) var(--pc-radius) 0; }
+
+.menu__link { font-weight: 450; }
+.menu__link--active { font-weight: 600; }
+.theme-doc-sidebar-item-category > .menu__list-item-collapsible > .menu__link {
+  font: 600 .74rem/1 var(--ifm-font-family-monospace);
+  letter-spacing: .08em; text-transform: uppercase; color: var(--pc-muted);
+}
+
+/* ── home page ───────────────────────────────────────────────────────────── */
+
+.pc-hero { padding: 1rem 0 2.6rem; border-bottom: 1px solid var(--pc-line); margin-bottom: 2.4rem; }
+.pc-hero h1 {
+  /* Down from 3.4rem. A hero that fills the viewport is a landing-page move; this is a docs home,
+     and the reader came to find something, not to be impressed. */
+  font-size: clamp(2rem, 4.2vw, 2.7rem); line-height: 1.14;
+  margin: 0 0 1rem; letter-spacing: -.022em; font-weight: 600;
+}
+.pc-hero > p { font-size: 1.08rem; color: var(--pc-muted); max-width: 62ch; }
+.pc-hero > p strong { color: var(--ifm-font-color-base); font-weight: 600; }
+.pc-hero .theme-code-block { max-width: 34rem; }
+
+.pc-hero-actions { display: flex; gap: .7rem; flex-wrap: wrap; margin-top: 1.7rem; }
+.pc-btn {
+  display: inline-block; padding: .62rem 1.15rem; border-radius: 9px;
+  border: 1px solid var(--pc-line); background: var(--ifm-background-color);
+  font-weight: 600; font-size: .94rem; text-decoration: none !important;
+  color: var(--ifm-font-color-base); transition: border-color .15s, transform .15s;
+}
+.pc-btn:hover { border-color: var(--ifm-color-primary); transform: translateY(-1px); }
+.pc-btn-primary {
+  background: var(--ifm-color-primary); border-color: var(--ifm-color-primary); color: #fff;
+}
+[data-theme='dark'] .pc-btn-primary { color: #17141f; }
+.pc-btn-primary:hover { background: var(--ifm-color-primary-dark); color: #fff; }
+[data-theme='dark'] .pc-btn-primary:hover { color: #17141f; }
+
+.pc-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
+  gap: 1rem; margin: 1.3rem 0 2rem;
+}
+.pc-grid-tight { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+
+.pc-card {
+  border: 1px solid var(--pc-line); border-radius: var(--pc-radius);
+  padding: 1.15rem 1.25rem; background: var(--pc-surface);
+  transition: border-color .15s, transform .15s;
+}
+.pc-card:hover { border-color: var(--ifm-color-primary); transform: translateY(-2px); }
+.pc-card h3 { margin: 0 0 .45rem; font-size: 1.04rem; }
+.pc-card h3 a { text-decoration: none !important; }
+.pc-card p { margin: 0; color: var(--pc-muted); font-size: .93rem; max-width: none; }
+.pc-card-accent { background: var(--pc-accent-soft); border-color: transparent; }
+.pc-card-sm { padding: .9rem 1rem; }
+.pc-card-sm p, .pc-card-sm strong { font-size: .92rem; }
+.pc-card-sm p { margin: 0; }
+
+.pc-tag {
+  display: inline-block; margin-top: .8rem;
+  font: 500 .7rem/1 var(--ifm-font-family-monospace);
+  letter-spacing: .05em; color: var(--ifm-color-primary);
+  border: 1px solid currentColor; border-radius: 99px; padding: .3rem .6rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-btn, .pc-card { transition: none; }
+  .pc-btn:hover, .pc-card:hover { transform: none; }
 }

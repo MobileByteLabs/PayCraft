@@ -1,0 +1,27 @@
+meta {
+  name: config — bad key rejected BY THE FUNCTION
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{supabase_url}}/functions/v1/config?apiKey=pk_live_deliberately_invalid
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 401
+  res.body.error: eq invalid_apiKey
+}
+
+docs {
+  Also 401 — but a DIFFERENT 401, and the difference is the whole point.
+
+  `{"error":"invalid_apiKey"}` is the function's own rejection after resolving the tenant. The
+  gateway's refusal is `{"code":"UNAUTHORIZED_NO_AUTH_HEADER"}`. Identical status, opposite
+  meanings: one says the stack is healthy and the key is wrong, the other says nothing ran.
+
+  Asserting on the BODY rather than the status is what makes this test able to tell them apart —
+  the lesson that cost a day of debugging.
+}

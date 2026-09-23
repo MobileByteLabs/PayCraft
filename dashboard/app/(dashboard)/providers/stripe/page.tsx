@@ -899,6 +899,7 @@ function ManualKeysPanel({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [sharedWarning, setSharedWarning] = useState<number | null>(null)
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [supabaseUrl, setSupabaseUrl] = useState<string>("")
   const [webhookCopied, setWebhookCopied] = useState(false)
@@ -924,9 +925,10 @@ function ManualKeysPanel({
     webhookUrl.includes("localhost") || webhookUrl.includes("127.0.0.1")
   const stripeCliCmd = `stripe listen --forward-to ${webhookUrl || "<tenant-webhook-url>"}`
 
-  async function save() {
+  async function save(confirmShared = false, createNew = false) {
     setSaving(true)
     setError(null)
+    if (!confirmShared) setSharedWarning(null)
     try {
       // In partial-update mode the backend treats empty fields as "keep
       // existing", so we send fields as-is (empty strings become null on the
@@ -958,10 +960,25 @@ function ManualKeysPanel({
       const res = await fetch("/api/providers/stripe/keys", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          confirm_shared_overwrite: confirmShared,
+          create_new: createNew,
+        }),
       })
       const data = await res.json()
+      // 409 `shared_credential_in_use` is NOT a failure — it is the RPC asking a question only the
+      // operator can answer: these keys already bill N other apps, so a save either ROTATES all of
+      // them or was meant for a second Stripe account. The payload looks identical either way, so
+      // the server refuses until told which. Without this branch the raw error string reached the
+      // user as "Save failed: shared_credential_in_use" with no way forward — the google-play and
+      // app-store forms have always handled it; Stripe was the one that missed the house pattern.
+      if (res.status === 409 && data?.error === "shared_credential_in_use") {
+        setSharedWarning(Number(data.appsUsing) || 0)
+        return
+      }
       if (!res.ok) throw new Error(data.error ?? "Save failed")
+      setSharedWarning(null)
       setSaved(true)
       setTimeout(onSaved, 1200)
     } catch (e: any) {
@@ -1264,6 +1281,40 @@ function ManualKeysPanel({
             )}
           </div>
 
+          {sharedWarning !== null && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 space-y-2">
+              <p>
+                <strong>
+                  {sharedWarning} other app{sharedWarning === 1 ? "" : "s"} bill through these
+                  Stripe keys.
+                </strong>{" "}
+                Replacing them moves all {sharedWarning} to the new Stripe account. Or keep them where they are and file these keys as a separate connection.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => save(true)}
+                  disabled={saving}
+                  className="px-3 py-1 text-[11px] font-bold bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
+                >
+                  Replace for all {sharedWarning} apps
+                </button>
+                <button
+                  onClick={() => save(false, true)}
+                  disabled={saving}
+                  className="px-3 py-1 text-[11px] font-bold border border-amber-400 text-amber-900 rounded hover:bg-amber-100 disabled:opacity-50"
+                >
+                  Connect as a separate account
+                </button>
+                <button
+                  onClick={() => setSharedWarning(null)}
+                  className="px-3 py-1 text-[11px] font-bold border border-amber-300 rounded hover:bg-amber-100"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700 flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -1284,7 +1335,7 @@ function ManualKeysPanel({
           <Button
             variant="primary"
             size="lg"
-            onClick={save}
+            onClick={() => save()}
             disabled={!canSave || saving || saved}
           >
             {saving ? (

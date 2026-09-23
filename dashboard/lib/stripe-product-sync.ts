@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js"
 import type Stripe from "stripe"
 import { getConnectedStripeClient } from "./stripe-client"
 
@@ -80,9 +81,14 @@ export async function syncProductToStripe(
   trialDays?: number,
   /** Which Stripe account to sync into. Omit for the historical live-then-test preference. */
   mode?: "live" | "test",
+  /**
+   * Client for credential lookups. Threaded from the caller so a machine-authenticated request
+   * (management API, service role) does not fall back to a cookie session that does not exist.
+   */
+  supa?: SupabaseClient<any>,
 ): Promise<SyncResult> {
   const wantsTrial = productType === "subscription" && typeof trialDays === "number" && trialDays > 0
-  const stripe = await getConnectedStripeClient(tenantId, mode)
+  const stripe = await getConnectedStripeClient(tenantId, mode, supa)
 
   // Idempotency keys are tenant+product scoped. When we self-heal a stale
   // product (account swap, key rotation), we MUST bump a generation suffix —

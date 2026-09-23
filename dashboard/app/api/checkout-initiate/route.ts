@@ -14,6 +14,7 @@ import type { ProductForRouting } from "@/lib/checkout-router"
  *   {
  *     product_id: string,
  *     method:     string ("direct_upi" | "stripe_card" | "razorpay" | "cashfree_upi"),
+ *     mode?:      "test" | "live"  — DEFAULT "test". Only an explicit "live" charges a real card.
  *     customer:   { email: string, name?: string, phone?: string,
  *                   country?: string, currency?: string }
  *   }
@@ -37,6 +38,18 @@ export async function POST(req: NextRequest) {
   const productId = body?.product_id
   const method = body?.method
   const customer = body?.customer ?? {}
+
+  // Credential mode. Absent → "test", so an older caller that never sent it cannot accidentally
+  // transact live; only an explicit "live" charges a real card. Anything else is rejected rather
+  // than coerced — a typo'd mode silently meaning live is the failure this parameter exists to stop.
+  const rawMode = body?.mode ?? "test"
+  if (rawMode !== "test" && rawMode !== "live") {
+    return NextResponse.json(
+      { error: `mode must be "test" or "live" (got ${JSON.stringify(rawMode)})` },
+      { status: 400 },
+    )
+  }
+  const mode = rawMode as "test" | "live"
 
   if (!productId || typeof productId !== "string") {
     return NextResponse.json({ error: "product_id required" }, { status: 400 })
@@ -68,6 +81,7 @@ export async function POST(req: NextRequest) {
       tenantId: tenant.id,
       product: product as ProductForRouting,
       method,
+      mode,
       customer: {
         email: customer.email,
         name: customer.name ?? null,
@@ -87,6 +101,7 @@ export async function POST(req: NextRequest) {
         method: result.method,
         provider: result.provider,
         currency: result.currency,
+        mode,
         subscription_id: result.subscription_id ?? null,
         customer_email: customer.email,
       },
