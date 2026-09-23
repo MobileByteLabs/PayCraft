@@ -49,10 +49,17 @@ function checkEnv(): HealthCheck {
     "SUPABASE_SERVICE_ROLE_KEY",
   ]
   const missing = required.filter((k) => !process.env[k])
+  if (missing.length) {
+    // The NAMES go to the log; the COUNT goes to the caller. /api/health is public and
+    // unauthenticated, so naming the variables here would publish which part of our infrastructure
+    // is misconfigured at exactly the moment it is — the worst possible time to be specific in
+    // public. Whoever is on call reads the log and gets the full list immediately.
+    console.error(`health: missing required env — ${missing.join(", ")}`)
+  }
   return {
     name: "env",
     ok: missing.length === 0,
-    detail: missing.length ? `missing: ${missing.join(", ")}` : undefined,
+    detail: missing.length ? `${missing.length} required variable(s) not set` : undefined,
   }
 }
 

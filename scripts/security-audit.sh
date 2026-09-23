@@ -122,6 +122,18 @@ if [ -z "${SKIP_AUTHED:-}" ]; then
     && bad "/v1/tenant" "returns a credential column" || ok "/v1/tenant exposes no credential columns"
 fi
 
+# The runtime half of the infra-name rule. The unit test scans source and therefore only sees
+# LITERAL leaks; a name interpolated from a variable at runtime is invisible to it. This looks at
+# what the server actually sends, so it catches both.
+for ep in /api/health /v1/readiness /v1/openapi.json; do
+  body=$(curl -s --max-time 25 "$API$ep")
+  if grep -qE 'SUPABASE_[A-Z_]+|SERVICE_ROLE_KEY|DATABASE_URL|CLOUDFLARE_API_TOKEN' <<<"$body"; then
+    bad "$ep" "response names an infrastructure variable"
+  else
+    ok "$ep names no infrastructure variable"
+  fi
+done
+
 sec "8. MCP"
 init=$(curl -s --max-time 30 -X POST -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"audit","version":"1"}}}' "$MCP/")

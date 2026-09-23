@@ -192,3 +192,109 @@ describe("no endpoint leaks a secret column", () => {
     expect(wildcardOnTenants || wildcardOnProviders).toBe(false)
   })
 })
+
+/**
+ * No response body may name our infrastructure.
+ *
+ * The specific instance: `requireApiKey` returned `500 server_misconfigured` with the detail
+ * "SUPABASE_SERVICE_ROLE_KEY is not set". That 500 sits BEFORE authentication, so any anonymous
+ * caller learned which infrastructure variable we run on. Fixing that one line is not a permanent
+ * fix — the next endpoint to add a helpful error can reintroduce it, and nothing would object.
+ *
+ * This is the rule rather than the instance: a variable name may go to the LOG, never to a caller.
+ * `console.error` is explicitly allowed; a response body is not.
+ */
+describe("no response names our infrastructure", () => {
+  const fs2 = require("fs") as typeof import("fs")
+  const path2 = require("path") as typeof import("path")
+  const ROOT2 = path2.join(__dirname, "..", "..")
+
+  function routeFiles(dir: string, out: string[] = []): string[] {
+    if (!fs2.existsSync(dir)) return out
+    for (const e of fs2.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === "node_modules" || e.name === ".next") continue
+      const p = path2.join(dir, e.name)
+      if (e.isDirectory()) routeFiles(p, out)
+      else if (e.name === "route.ts") out.push(p)
+    }
+    return out
+  }
+
+  // Names that describe OUR deployment. Leaking one tells an attacker what to attack.
+  const INFRA = /SUPABASE_SERVICE_ROLE_KEY|SUPABASE_ANON_KEY|NEXT_PUBLIC_SUPABASE|SERVICE_ROLE_KEY|DATABASE_URL|CLOUDFLARE_API_TOKEN/
+
+  const routes = routeFiles(path2.join(ROOT2, "app", "api")).map((f) => ({
+    rel: path2.relative(ROOT2, f),
+    src: fs2.readFileSync(f, "utf8"),
+  }))
+
+  const libs = ["lib/api-key-auth.ts", "lib/api-security.ts", "lib/api-v1-helpers.ts"]
+    .filter((p) => fs2.existsSync(path2.join(ROOT2, p)))
+    .map((p) => ({ rel: p, src: fs2.readFileSync(path2.join(ROOT2, p), "utf8") }))
+
+  it("scans a meaningful number of files", () => {
+    expect(routes.length + libs.length).toBeGreaterThan(15)
+  })
+
+  it.each([...routes, ...libs].map((f) => [f.rel, f]))(
+    "%s never puts an infrastructure name in a response",
+    (_r, f: any) => {
+      const offending = f.src
+        .split("\n")
+        .map((l: string) => l.trim())
+        // Comments explain the rule; they are not responses.
+        .filter((l: string) => !l.startsWith("//") && !l.startsWith("*") && !l.startsWith("/*"))
+        // The log is the sanctioned destination for the specific cause.
+        .filter((l: string) => !/console\.(error|warn|log)/.test(l))
+        // Reading process.env is how a variable is USED; that is not a leak.
+        .filter((l: string) => !/process\.env/.test(l))
+        .filter((l: string) => INFRA.test(l))
+        // A bare string-literal list entry is a DECLARATION — code naming a variable in order to
+        // check that it is set. /api/health must list the names to test them. This exemption is
+        // deliberately narrow: `return fail(500, "…", "SUPABASE_… is not set")` is not a bare
+        // literal, so the real leak still fails. Verified in both directions.
+        .filter((l: string) => !/^["'`][A-Z_]+["'`],?$/.test(l))
+      // NO further narrowing beyond that. The first version of this test required the line to also mention
+      // detail/message/error/json — and `return fail(500, "server_misconfigured", "SUPABASE_…")`
+      // contains none of those words, so reintroducing the exact leak it was written for did not
+      // fail it. Once comments, console.* and process.env reads are excluded, an infrastructure
+      // name left in executable code is the thing being banned; narrowing further only creates
+      // spellings that slip through.
+      expect(offending).toEqual([])
+    },
+  )
+})
+
+/**
+ * The indirect case the scan above CANNOT see.
+ *
+ * `detail: `missing: ${missing.join(", ")}`` carries no literal variable name — the names arrive at
+ * runtime from an array. A line-based scan is blind to it, which was proven by reintroducing that
+ * exact line and watching the rule stay green.
+ *
+ * Two things close it: this assertion, pinned to the one endpoint that enumerates env names, and
+ * `scripts/security-audit.sh`, which probes the LIVE response and therefore sees the rendered
+ * output regardless of how it was built. Static analysis and runtime probing catch different
+ * halves; neither alone is enough.
+ */
+describe("/api/health reports a count, never the names", () => {
+  const fs3 = require("fs") as typeof import("fs")
+  const path3 = require("path") as typeof import("path")
+  const src = fs3.readFileSync(
+    path3.join(__dirname, "..", "..", "app", "api", "health", "route.ts"),
+    "utf8",
+  )
+
+  it("does not interpolate the missing-variable list into the response", () => {
+    expect(src).not.toMatch(/detail:[^\n]*missing\.join/)
+    expect(src).not.toMatch(/`missing: \$\{/)
+  })
+
+  it("returns a count instead", () => {
+    expect(src).toMatch(/missing\.length\} required variable/)
+  })
+
+  it("still logs the names for whoever is on call", () => {
+    expect(src).toMatch(/console\.error[^\n]*missing\.join/)
+  })
+})

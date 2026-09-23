@@ -77,6 +77,20 @@ jobs:
           fi
           echo "browser env inlined (ref found in ${hits} chunk(s))"
 
+      # The live security properties, re-checked after every deploy.
+      #
+      # These are the checks that found the two real issues they now guard: an unauthenticated 500
+      # naming SUPABASE_SERVICE_ROLE_KEY, and /api/health publishing which variable was missing at
+      # exactly the moment it was. The unit tests scan SOURCE and see only literal leaks; this
+      # probes the live response, so it also catches a name interpolated at runtime.
+      #
+      # SKIP_AUTHED: no vault in CI, so the authenticated checks are skipped rather than faked.
+      # The 17 public checks still run, and a fake-green check would be worse than a skipped one.
+      - name: Security audit (public checks)
+        env:
+          SKIP_AUTHED: '1'
+        run: bash scripts/security-audit.sh
+
       # Slack notification removed 2026-09-19. SLACK_BOT_TOKEN was never set, so both steps threw
       # `Missing input! Either a method or webhook is required to take action.` — the step whose job
       # was to ANNOUNCE a failure was itself failing, and it added a second red step to every run,
