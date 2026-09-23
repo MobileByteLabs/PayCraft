@@ -10,6 +10,7 @@ import type { SidebarsConfig } from '@docusaurus/plugin-content-docs'
 
 const sidebars: SidebarsConfig = {
   main: [
+    'HOME',
     {
       type: 'category',
       label: 'Getting started',

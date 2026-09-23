@@ -60,7 +60,7 @@ const config: Config = {
       '@docusaurus/plugin-client-redirects',
       {
         redirects: [
-          { from: '/', to: '/QUICK_START/' },
+          // '/' is now a real page (docs/HOME.md, slug: /). A redirect here would fight it.
         ],
       },
     ],

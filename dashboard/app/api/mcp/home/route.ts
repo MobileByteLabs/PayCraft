@@ -138,6 +138,12 @@ const HTML = `<!doctype html>
     a product sync &mdash; with exactly the permissions the key you give it carries.
   </p>
   <div class="endpoint"><b>Endpoint</b> ${ENDPOINT}</div>
+  <p style="margin-top:18px">
+    <a class="btn" href="https://docs.paycraft.mobilebytesensei.com/MCP_SERVER/"
+       style="display:inline-block;padding:10px 18px;border-radius:10px;font-weight:600;font-size:14px;text-decoration:none;border:1px solid var(--accent);color:#fff;background:var(--accent)">
+      Full documentation &rarr;
+    </a>
+  </p>
 </div></header>
 
 <section><div class="wrap">
@@ -219,6 +225,7 @@ const HTML = `<!doctype html>
 </div></section>
 
 <footer><div class="wrap">
+  <a href="https://docs.paycraft.mobilebytesensei.com/MCP_SERVER/">Documentation</a>
   <a href="https://api.paycraft.mobilebytesensei.com/">API portal</a>
   <a href="https://api.paycraft.mobilebytesensei.com/v1/docs">REST reference</a>
   <a href="https://paycraft.mobilebytesensei.com/settings/developer-api">Create an API key</a>

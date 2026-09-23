@@ -160,7 +160,8 @@ const HTML = `<!doctype html>
     pipelines and agents.
   </p>
   <div class="cta">
-    <a class="btn primary" href="/v1/docs">Interactive reference</a>
+    <a class="btn primary" href="https://docs.paycraft.mobilebytesensei.com/API_OVERVIEW/">Documentation</a>
+    <a class="btn" href="/v1/docs">Interactive reference</a>
     <a class="btn" href="/v1/openapi.json">openapi.json</a>
     <a class="btn" href="https://paycraft.mobilebytesensei.com/settings/developer-api">Create an API key</a>
   </div>
