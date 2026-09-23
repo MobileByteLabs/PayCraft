@@ -4,13 +4,24 @@
  * Builds on the existing brand (violet-700) rather than replacing it. The neutrals carry a slight
  * violet bias so greys read as chosen next to the accent instead of inherited from the framework.
  *
- * Type: Sora for headings (geometric, technical, distinct from the Inter/Space-Grotesk default),
- * Public Sans for body, JetBrains Mono for code. All three are declared with real fallback stacks —
- * a silent fallback to Helvetica is the most common way a "designed" docs site quietly stops
- * looking designed.
+ * Type: IBM Plex Sans throughout, differentiated by WEIGHT rather than by family, with IBM Plex
+ * Mono for code.
+ *
+ * The first version paired Sora for headings with Public Sans for body. Sora is a geometric display
+ * face — wide, rounded, with distinctive descenders — and at hero size it read as startup marketing
+ * rather than payments infrastructure. In a domain where the reader is deciding whether to trust us
+ * with money, the type should recede and let the content carry the authority.
+ *
+ * Plex is the deliberate opposite: commissioned for technical documentation, neutral at text sizes,
+ * with enough character in its 600 weight to hold a heading. Using one superfamily for headings,
+ * body and code means prose and code blocks feel like one system instead of three fonts negotiating.
+ * That is what Stripe, Cloudflare and Twilio's docs all do, and it is why they read as serious.
+ *
+ * Real fallback stacks on all three — a silent fallback to Helvetica is the most common way a
+ * "designed" docs site quietly stops looking designed.
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,450;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
   --ifm-color-primary: #6d28d9;        /* violet-700 — PayCraft brand */
@@ -21,14 +32,15 @@
   --ifm-color-primary-lighter: #8b5cf6;
   --ifm-color-primary-lightest: #a78bfa;
 
-  --ifm-font-family-base: 'Public Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --ifm-heading-font-family: 'Sora', 'Public Sans', ui-sans-serif, system-ui, sans-serif;
-  --ifm-font-family-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ifm-font-family-base: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --ifm-heading-font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --ifm-font-family-monospace: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --ifm-font-size-base: 16px;
-  --ifm-line-height-base: 1.68;
+  /* 16.5px/1.65: Plex runs slightly small at 16, and docs are read, not skimmed. */
+  --ifm-font-size-base: 16.5px;
+  --ifm-line-height-base: 1.65;
   --ifm-heading-font-weight: 600;
-  --ifm-h1-font-size: 2.4rem;
+  --ifm-h1-font-size: 2.15rem;
   --ifm-code-font-size: 88%;
   --ifm-navbar-height: 4rem;
 
@@ -81,7 +93,7 @@
 .footer { border-top: 1px solid var(--pc-line); }
 .footer--dark { --ifm-footer-background-color: #14121c; }
 
-h1, h2, h3, h4 { letter-spacing: -.021em; text-wrap: balance; }
+h1, h2, h3, h4 { letter-spacing: -.014em; text-wrap: balance; }
 h2 { margin-top: 2.4rem; padding-top: .3rem; }
 .markdown > h2 { border-top: 1px solid var(--pc-line); padding-top: 1.9rem; }
 .markdown > h2:first-of-type { border-top: 0; padding-top: 0; }
@@ -116,10 +128,12 @@ blockquote { border-left: 3px solid var(--ifm-color-primary); background: var(--
 
 .pc-hero { padding: 1rem 0 2.6rem; border-bottom: 1px solid var(--pc-line); margin-bottom: 2.4rem; }
 .pc-hero h1 {
-  font-size: clamp(2.3rem, 5.4vw, 3.4rem); line-height: 1.08;
-  margin: 0 0 1rem; letter-spacing: -.033em;
+  /* Down from 3.4rem. A hero that fills the viewport is a landing-page move; this is a docs home,
+     and the reader came to find something, not to be impressed. */
+  font-size: clamp(2rem, 4.2vw, 2.7rem); line-height: 1.14;
+  margin: 0 0 1rem; letter-spacing: -.022em; font-weight: 600;
 }
-.pc-hero > p { font-size: 1.14rem; color: var(--pc-muted); max-width: 60ch; }
+.pc-hero > p { font-size: 1.08rem; color: var(--pc-muted); max-width: 62ch; }
 .pc-hero > p strong { color: var(--ifm-font-color-base); font-weight: 600; }
 .pc-hero .theme-code-block { max-width: 34rem; }
 
