@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { withApiKey } from "@/lib/api-v1-helpers"
+import { queryFailed } from "@/lib/api-security"
 export const dynamic = "force-dynamic"
 
 /** GET /v1/products/{id} — one product, with its pricing rows. */
@@ -13,7 +14,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       .eq("id", params.id)
       .maybeSingle()
 
-    if (error) return NextResponse.json({ error: "query_failed", detail: error.message }, { status: 500 })
+    if (error) return queryFailed("v1/products/[id]", error) as NextResponse
     if (!data) return NextResponse.json({ error: "not_found" }, { status: 404 })
 
     const { data: pricing } = await ctx.admin

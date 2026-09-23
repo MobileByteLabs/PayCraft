@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireApiKey, isFailure, type ApiScope, type ApiKeyContext } from "@/lib/api-key-auth"
-import { withSecurityHeaders } from "@/lib/api-security"
+import { queryFailed, withSecurityHeaders } from "@/lib/api-security"
 
 /**
  * Shared shape for the v1 read endpoints.
@@ -71,9 +71,7 @@ export async function listResource(
   }
 
   const { data, error, count } = await query
-  if (error) {
-    return NextResponse.json({ error: "query_failed", detail: error.message }, { status: 500 })
-  }
+  if (error) return queryFailed(`v1/${opts.table}`, error) as NextResponse
 
   return withSecurityHeaders(
     NextResponse.json({

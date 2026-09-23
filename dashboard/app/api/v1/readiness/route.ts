@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireApiKey, isFailure, auditApiAction } from "@/lib/api-key-auth"
-import { withSecurityHeaders } from "@/lib/api-security"
+import { queryFailed, withSecurityHeaders } from "@/lib/api-security"
 
 export const dynamic = "force-dynamic"
 
@@ -20,9 +20,7 @@ export async function GET(req: Request) {
     p_tenant_id: ctx.tenantId,
   })
   if (error) {
-    return withSecurityHeaders(
-      NextResponse.json({ error: "readiness_failed", detail: error.message }, { status: 500 }),
-    )
+    return queryFailed("v1/readiness", error)
   }
 
   // The full row is returned to the caller; this type names every field so the API contract is

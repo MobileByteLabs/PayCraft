@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { withApiKey } from "@/lib/api-v1-helpers"
+import { queryFailed } from "@/lib/api-security"
 export const dynamic = "force-dynamic"
 
 /**
@@ -20,7 +21,7 @@ export async function GET(req: Request) {
       .eq("id", ctx.tenantId)
       .single()
 
-    if (error) return NextResponse.json({ error: "query_failed", detail: error.message }, { status: 500 })
+    if (error) return queryFailed("v1/tenant", error) as NextResponse
 
     return NextResponse.json({
       ...(data as unknown as Record<string, unknown>),

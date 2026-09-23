@@ -223,6 +223,33 @@ export function tooManyAttempts(outcome: ThrottleOutcome): Response {
  * Every write this API accepts is a handful of fields. Without a cap, `await req.json()` will
  * happily buffer whatever arrives, which turns a public endpoint into a memory amplifier.
  */
+/**
+ * A database error, rendered safely.
+ *
+ * Five endpoints passed `error.message` straight to the caller. A Postgres message is not a safe
+ * string: it routinely carries schema and constraint names, and it carries ROW VALUES —
+ * `duplicate key value violates unique constraint … Key (email)=(someone@example.com) already
+ * exists` hands another tenant's customer email to whoever triggered it. One was observed in this
+ * project quoting an entire failing row.
+ *
+ * It is also invisible to a source scan: the leak is assembled at runtime from a value the code
+ * never names. So the rule is structural rather than textual — a database error NEVER reaches a
+ * caller. The caller gets a stable code it can branch on; the operator gets the message in the log.
+ */
+export function queryFailed(where: string, error: { message?: string; code?: string } | null): Response {
+  console.error(`query_failed at ${where}: ${error?.code ?? "?"} ${error?.message ?? "unknown"}`)
+  return withSecurityHeaders(
+    NextResponse.json(
+      {
+        error: "query_failed",
+        // Deliberately not `error.message`. A stable code is what a client can act on anyway.
+        detail: "The request could not be completed. If this persists, contact support.",
+      },
+      { status: 500 },
+    ),
+  )
+}
+
 export const MAX_BODY_BYTES = 64 * 1024
 
 export function bodyTooLarge(req: Request): Response | null {

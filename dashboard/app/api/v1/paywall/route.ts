@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { withApiKey } from "@/lib/api-v1-helpers"
+import { queryFailed } from "@/lib/api-security"
 export const dynamic = "force-dynamic"
 
 /**
@@ -16,7 +17,7 @@ export async function GET(req: Request) {
       .eq("tenant_id", ctx.tenantId)
       .maybeSingle()
 
-    if (error) return NextResponse.json({ error: "query_failed", detail: error.message }, { status: 500 })
+    if (error) return queryFailed("v1/paywall", error) as NextResponse
     if (!data) {
       return NextResponse.json(
         { error: "not_found", detail: "no paywall configured for this tenant" },
