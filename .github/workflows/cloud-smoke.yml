@@ -44,11 +44,38 @@ jobs:
       - name: Edge functions reachable
         run: bash scripts/deploy-cloud.sh --smoke-only
 
-      - name: Auth page reachable
+      # 200 IS NOT ENOUGH FOR A CLIENT-RENDERED PAGE — and neither is grepping the HTML.
+      #
+      # On 2026-09-23 /auth/login was completely unusable while this step was green. The HTML is
+      # server-rendered correctly ("Sign in to your dashboard", OAuth buttons, all present) and
+      # returns 200; the failure happens on HYDRATION, when the browser bundle calls
+      # createBrowserClient with undefined and React replaces the tree with "Application error: a
+      # client-side exception has occurred". That string is injected client-side and NEVER appears
+      # in the response, so no amount of curl-grepping the page can see it.
+      #
+      # What curl CAN see is the cause. `next build` inlines NEXT_PUBLIC_* into the JS chunks, so a
+      # correctly-built bundle literally contains the Supabase project ref. Measured on the broken
+      # deploy: 0 of 9 chunks contained it. Asserting its presence tests the exact thing that
+      # failed, needs no browser, and cannot silently pass the way a status check did.
+      - name: Auth page reachable AND browser env was inlined
         run: |
+          REF="$(tr -d '[:space:]' < supabase/.temp/project-ref)"
+          BODY=$(curl -fsS https://paycraft.mobilebytesensei.com/auth/login)
           STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" \
             https://paycraft.mobilebytesensei.com/auth/login)
-          [ "$STATUS" = "200" ] || (echo "Auth page returned $STATUS" && exit 1)
+          [ "$STATUS" = "200" ] || { echo "::error::Auth page returned $STATUS"; exit 1; }
+
+          hits=0
+          for c in $(printf '%s' "$BODY" | grep -oE '/_next/static/chunks/[A-Za-z0-9._/-]+\.js' | sort -u); do
+            if curl -fsS "https://paycraft.mobilebytesensei.com${c}" 2>/dev/null | grep -q "$REF"; then
+              hits=$((hits+1))
+            fi
+          done
+          if [ "$hits" -eq 0 ]; then
+            echo "::error::No JS chunk contains the Supabase project ref — NEXT_PUBLIC_SUPABASE_URL was not set at BUILD time. The page will return 200 and then throw on hydration; nobody can log in."
+            exit 1
+          fi
+          echo "browser env inlined (ref found in ${hits} chunk(s))"
 
       # Slack notification removed 2026-09-19. SLACK_BOT_TOKEN was never set, so both steps threw
       # `Missing input! Either a method or webhook is required to take action.` — the step whose job

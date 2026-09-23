@@ -111,6 +111,35 @@ jobs:
       - name: Install deps
         run: npm install
 
+      # Derive the Supabase URL from the COMMITTED project ref — the same single source of truth
+      # the migration job uses. Hardcoding the hostname here would be a second copy of "which
+      # project are we", which is precisely the duplicate that broke deploy-cloud for six weeks.
+      - name: Resolve Supabase URL
+        id: sb
+        working-directory: .
+        run: |
+          REF="$(tr -d '[:space:]' < supabase/.temp/project-ref)"
+          printf '%s' "$REF" | grep -qE '^[a-z]{20}$' || {
+            echo "::error::project ref '$REF' is malformed"; exit 1; }
+          echo "url=https://${REF}.supabase.co" >> "$GITHUB_OUTPUT"
+
+      # FAIL BEFORE BUILDING on an empty NEXT_PUBLIC_*.
+      #
+      # This is the check that was missing. `next build` inlines these into the browser bundle; an
+      # UNSET one inlines as `undefined` and the build still succeeds. The failure then surfaces
+      # only in a browser, as `@supabase/ssr: Your project's URL and API key are required`, on a
+      # page that returns HTTP 200 with an empty body — so cloud-smoke's `/auth/login → 200`
+      # assertion passed straight through a completely broken login page (measured 2026-09-23).
+      - name: Assert browser-inlined env is present
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.sb.outputs.url }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          for v in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY; do
+            [ -n "${!v}" ] || { echo "::error::$v is empty — the browser bundle would ship undefined and every page would throw at createBrowserClient"; exit 1; }
+          done
+          echo "browser env present: URL + ANON_KEY"
+
       - name: Build + deploy to Cloudflare Pages
         run: npm run pages:deploy
         env:
@@ -119,6 +148,12 @@ jobs:
           # it /api/health reports env "local" in production (route.ts falls back),
           # which is why a live build could not be told apart from a local one.
           NEXT_PUBLIC_APP_ENV: production
+          # These two were MISSING while the comment above stated the rule. supabase-browser.ts
+          # reads them via createBrowserClient, so every client page threw and rendered
+          # "Application error: a client-side exception has occurred" — including /auth/login,
+          # which locked the dashboard entirely.
+          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.sb.outputs.url }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # The org token materializes as CLOUDFLARE_PAGES_API_TOKEN (alias
           # mbs-cloudflare-pages-api-token); wrangler reads CLOUDFLARE_API_TOKEN.
