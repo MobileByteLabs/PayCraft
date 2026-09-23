@@ -1,5 +1,6 @@
 import fs from "fs"
 import path from "path"
+import { namesInfraInResponse, selectsCredentialColumn } from "../support/guards"
 import {
   SECURITY_HEADERS,
   DOCS_HEADERS,
@@ -170,18 +171,7 @@ describe("no endpoint leaks a secret column", () => {
   it.each(v1.map((f) => [f.rel, f]))("%s never selects a credential column", (_r, f: any) => {
     // `tenants` holds api_key_live / webhook_secret_live beside the safe columns; tenant_providers
     // and provider_accounts hold encrypted credentials. None may appear in a response.
-    for (const col of [
-      "api_key_live",
-      "api_key_test",
-      "webhook_secret_live",
-      "webhook_secret_test",
-      "credential_enc",
-      "store_credential_enc",
-      "secret_key_enc",
-      "razorpay_key_secret_encrypted",
-    ]) {
-      expect(f.src).not.toContain(col)
-    }
+    expect(selectsCredentialColumn(f.src)).toBe(false)
   })
 
   it.each(v1.map((f) => [f.rel, f]))("%s does not wildcard-select a table with secrets", (_r, f: any) => {
@@ -220,8 +210,9 @@ describe("no response names our infrastructure", () => {
     return out
   }
 
-  // Names that describe OUR deployment. Leaking one tells an attacker what to attack.
-  const INFRA = /SUPABASE_SERVICE_ROLE_KEY|SUPABASE_ANON_KEY|NEXT_PUBLIC_SUPABASE|SERVICE_ROLE_KEY|DATABASE_URL|CLOUDFLARE_API_TOKEN/
+  // The predicate lives in ../support/guards and is proven to fire in
+  // guard-predicates.test.ts. Inlining a regex here is how the first version of this guard came
+  // to pass on the very line it was written to reject.
 
   const routes = routeFiles(path2.join(ROOT2, "app", "api")).map((f) => ({
     rel: path2.relative(ROOT2, f),
@@ -239,27 +230,7 @@ describe("no response names our infrastructure", () => {
   it.each([...routes, ...libs].map((f) => [f.rel, f]))(
     "%s never puts an infrastructure name in a response",
     (_r, f: any) => {
-      const offending = f.src
-        .split("\n")
-        .map((l: string) => l.trim())
-        // Comments explain the rule; they are not responses.
-        .filter((l: string) => !l.startsWith("//") && !l.startsWith("*") && !l.startsWith("/*"))
-        // The log is the sanctioned destination for the specific cause.
-        .filter((l: string) => !/console\.(error|warn|log)/.test(l))
-        // Reading process.env is how a variable is USED; that is not a leak.
-        .filter((l: string) => !/process\.env/.test(l))
-        .filter((l: string) => INFRA.test(l))
-        // A bare string-literal list entry is a DECLARATION — code naming a variable in order to
-        // check that it is set. /api/health must list the names to test them. This exemption is
-        // deliberately narrow: `return fail(500, "…", "SUPABASE_… is not set")` is not a bare
-        // literal, so the real leak still fails. Verified in both directions.
-        .filter((l: string) => !/^["'`][A-Z_]+["'`],?$/.test(l))
-      // NO further narrowing beyond that. The first version of this test required the line to also mention
-      // detail/message/error/json — and `return fail(500, "server_misconfigured", "SUPABASE_…")`
-      // contains none of those words, so reintroducing the exact leak it was written for did not
-      // fail it. Once comments, console.* and process.env reads are excluded, an infrastructure
-      // name left in executable code is the thing being banned; narrowing further only creates
-      // spellings that slip through.
+      const offending = f.src.split("\n").filter(namesInfraInResponse)
       expect(offending).toEqual([])
     },
   )

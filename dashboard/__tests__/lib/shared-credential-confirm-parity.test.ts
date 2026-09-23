@@ -1,3 +1,4 @@
+import { hasDoubleArrowHandler } from "../support/guards"
 import fs from "fs"
 import path from "path"
 
@@ -92,7 +93,7 @@ describe("no double-arrow click handlers", () => {
 
   it("has no handler that returns a function instead of calling it", () => {
     const offenders = all
-      .filter((f) => /on[A-Z]\w+=\{\(\s*\)\s*=>\s*\(\s*\)\s*=>/.test(fs.readFileSync(f, "utf8")))
+      .filter((f) => hasDoubleArrowHandler(fs.readFileSync(f, "utf8")))
       .map((f) => path.relative(ROOT, f))
     expect(offenders).toEqual([])
   })

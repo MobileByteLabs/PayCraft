@@ -15,6 +15,7 @@ jest.mock("@supabase/supabase-js", () => ({
 }))
 
 import { requireApiKey, isFailure, type ApiKeyContext } from "@/lib/api-key-auth"
+import { takesTenantFromRequest } from "../support/guards"
 
 const VALID_KEY = "pcsk_" + "a".repeat(64)
 const TENANT = "11111111-1111-1111-1111-111111111111"
@@ -212,20 +213,10 @@ describe("v1 routes — tenant is never taken from the request", () => {
   )
 
   it.each(files.map((f) => [f.rel, f]))("%s never reads a tenant id from the request", (_r, f: any) => {
-    // Matching `body.tenant_id` exactly is not enough: `(body as any).tenant_id` reads identically
-    // to a human and slips straight past it — verified by injecting that precise line, which the
-    // first version of this test passed. So the rule is line-shaped instead of expression-shaped:
-    // no line may mention a request-derived value and a tenant together, however it is spelled.
-    const offending = f.src
-      .split("\n")
-      .map((l: string) => l.trim())
-      .filter((l: string) => !l.startsWith("//") && !l.startsWith("*"))
-      // `ctx.tenantId` is the ONE sanctioned source, so remove it before judging the line. Without
-      // this the correct call — which legitimately mentions ctx.tenantId and body.confirm_count on
-      // the same line — reads as a violation, and a guard that cries wolf gets deleted.
-      .map((l: string) => l.split("ctx.tenantId").join(""))
-      .filter((l: string) => /tenant/i.test(l))
-      .filter((l: string) => /\bbody\b|searchParams|req\.|request\.|headers|params/i.test(l))
+    // Shared predicate, proven in guard-predicates.test.ts to flag the cast form
+    // `(body as any).tenant_id` that an inline regex here originally missed, and to ignore the
+    // correct call that mentions ctx.tenantId and body on the same line.
+    const offending = f.src.split("\n").filter(takesTenantFromRequest)
     expect(offending).toEqual([])
   })
 
