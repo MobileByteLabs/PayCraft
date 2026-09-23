@@ -292,6 +292,7 @@ export async function POST() {
         productId: row.id,
         body,
         existingRazorpayPlanIds: body.razorpay_plan_id_by_currency ?? undefined,
+        existingRazorpayPlanIdsTest: body.razorpay_plan_id_by_currency_test ?? undefined,
       })
       const { data: after } = await supabase
         .from("tenant_products")

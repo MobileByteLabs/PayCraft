@@ -12,6 +12,8 @@ interface SyncOptions {
   existingStripeProductId?: string
   existingPrices?: Record<string, string>
   existingRazorpayPlanIds?: Record<string, string>
+  /** TEST-mode plan ids. Separate since 141 — reusing the live map in a test sync re-registers a live plan id as test. */
+  existingRazorpayPlanIdsTest?: Record<string, string>
   existingPlayProductId?: string
   existingAppStoreProductId?: string
   /**
@@ -141,6 +143,7 @@ export async function stripeSyncProduct(
     if (modes.length === 0) modes.push(connect.livemode ? "live" : "test")
 
     let lastResult: Awaited<ReturnType<typeof syncProductToStripe>> | null = null
+    const modeErrors: string[] = []
     for (const mode of modes) {
       // One mode failing must not abandon the other — a missing test account is not a reason to
       // leave live unsynced, and vice versa.
@@ -155,6 +158,7 @@ export async function stripeSyncProduct(
           { stripeProductId: existingStripeProductId, existingPrices },
           trialDays,
           connect.source === "oauth" ? undefined : mode,
+          supabase,
         )
         lastResult = result
         // Nest under the product's SKU so multi-product tenants don't overwrite
@@ -167,10 +171,22 @@ export async function stripeSyncProduct(
           p_payment_links: result.paymentLinksByCurrency,
         })
       } catch (e: any) {
-        console.error(`[products] stripe ${mode} sync failed:`, e?.message ?? e)
+        // KEEP the reason. This used to log and discard, so every mode-level failure collapsed into
+        // one generic sentence recorded in sync_state — and the actual cause (a revoked key, a
+        // refused RPC, a Stripe validation error) existed only in a Worker log nobody reads. A
+        // failure that cannot be diagnosed from the record it writes is barely better than a silent one.
+        const msg = e?.message ?? String(e)
+        modeErrors.push(`${mode}: ${msg}`)
+        console.error(`[products] stripe ${mode} sync failed:`, msg)
       }
     }
-    if (!lastResult) return { error: "stripe sync failed for every configured mode" }
+    if (!lastResult) {
+      return {
+        error:
+          "stripe sync failed for every configured mode" +
+          (modeErrors.length ? ` — ${modeErrors.join("; ")}` : ""),
+      }
+    }
 
     // Product/price ids are account-scoped; record the last successful sync's ids, preferring live
     // because that is the account the shipped app bills through.
@@ -193,7 +209,7 @@ export async function razorpaySyncProduct(
   supabase: ReturnType<typeof createClient>,
   opts: SyncOptions,
 ): Promise<{ ok: boolean; error?: string; warning?: string; reason?: string }> {
-  const { tenantId, productId, body, existingRazorpayPlanIds } = opts
+  const { tenantId, productId, body, existingRazorpayPlanIds, existingRazorpayPlanIdsTest } = opts
   try {
     // Check Razorpay connection status (live keys preferred; fall back to test).
     const { data: rpStatus } = await supabase
@@ -212,6 +228,8 @@ export async function razorpaySyncProduct(
     if (modes.length === 0) modes.push("test")
 
     let lastResult: Awaited<ReturnType<typeof syncProductToRazorpay>> | null = null
+    const rzResultsByMode = new Map<"live" | "test", Awaited<ReturnType<typeof syncProductToRazorpay>>>()
+    const rzModeErrors: string[] = []
     for (const mode of modes) {
       try {
         const result = await syncProductToRazorpay(
@@ -222,9 +240,11 @@ export async function razorpaySyncProduct(
           body.interval ?? null,
           prices,
           mode,
-          existingRazorpayPlanIds,
+          mode === "test" ? existingRazorpayPlanIdsTest : existingRazorpayPlanIds,
+          supabase,
         )
         lastResult = result
+        rzResultsByMode.set(mode, result)
         await supabase.rpc("tenant_providers_merge_payment_links", {
           p_tenant_id: tenantId,
           p_provider: "razorpay",
@@ -233,15 +253,32 @@ export async function razorpaySyncProduct(
           p_payment_links: result.paymentLinksByCurrency,
         })
       } catch (e: any) {
-        console.error(`[products] razorpay ${mode} sync failed:`, e?.message ?? e)
+        // Same reasoning as stripe above: keep the cause, do not collapse it to a generic sentence.
+        const msg = e?.message ?? String(e)
+        rzModeErrors.push(`${mode}: ${msg}`)
+        console.error(`[products] razorpay ${mode} sync failed:`, msg)
       }
     }
-    if (!lastResult) return { ok: false, error: "razorpay sync failed for every configured mode" }
+    if (!lastResult) {
+      return {
+        ok: false,
+        error:
+          "razorpay sync failed for every configured mode" +
+          (rzModeErrors.length ? ` — ${rzModeErrors.join("; ")}` : ""),
+      }
+    }
 
-    await supabase.rpc("tenant_products_set_razorpay_ids", {
-      p_id: productId,
-      p_razorpay_plan_id_by_currency: lastResult.planIdsByCurrency,
-    })
+    // Write EACH mode's ids to its own column. This used to run once, after the loop, with
+    // `lastResult` — so a live-then-test sync recorded the TEST plan ids in the column live
+    // checkout reads. `rzResultsByMode` keeps them apart, and the RPC refuses a mode it does not
+    // recognise rather than defaulting to live.
+    for (const [m, res] of rzResultsByMode) {
+      await supabase.rpc("tenant_products_set_razorpay_ids", {
+        p_id: productId,
+        p_razorpay_plan_id_by_currency: res.planIdsByCurrency,
+        p_mode: m,
+      })
+    }
 
     // Nothing landed and every currency was rejected by Razorpay → tell the
     // operator exactly what to do (Razorpay is INR-first; USD-only products need
@@ -718,7 +755,7 @@ export async function loadProductSyncBody(
   const { data: product, error } = await supabase
     .from("tenant_products")
     .select(
-      "id, sku, type, display_name, store_description, interval, base_price_cents, base_currency, trial_enabled, trial_duration_days, trial_per_platform, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency, play_product_id, app_store_product_id",
+      "id, sku, type, display_name, store_description, interval, base_price_cents, base_currency, trial_enabled, trial_duration_days, trial_per_platform, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency, razorpay_plan_id_by_currency_test, play_product_id, app_store_product_id",
     )
     .eq("tenant_id", tenantId)
     .eq("id", productId)

@@ -71,6 +71,7 @@ export interface ProductForRouting {
   // the router treats absence as "Stripe unavailable for this currency".
   stripe_payment_links_by_currency?: Record<string, string> | null
   razorpay_plan_id_by_currency?: Record<string, string> | null
+  razorpay_plan_id_by_currency_test?: Record<string, string> | null
   razorpay_payment_links_by_currency?: Record<string, string> | null
 }
 

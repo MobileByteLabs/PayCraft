@@ -45,6 +45,7 @@ export type DriftKind =
   | "active-provider-zero-links"
   | "missing-currency-for-country"
   | "no-test-credential"
+  | "test-links-missing"
 
 export interface DriftFinding {
   kind: DriftKind
@@ -451,9 +452,21 @@ export async function detectNoTestCredential(
   tenantId: string,
 ): Promise<DriftFinding[]> {
   const out: DriftFinding[] = []
+  // Credentials are ACCOUNT-level (migration 112): an app does not own a provider credential, it
+  // shares one. The per-app `test_key_id` / `live_key_id` columns are a pre-112 denormalization and
+  // NOTHING has written them since — the last writers are migrations 049 and 057.
+  //
+  // Reading them alone therefore reports "no test key" for every app onboarded through the account
+  // tier, however plainly the key sits on the shared account. Observed on cappy: the Stripe account
+  // carries `config.test_key_id`, and this detector still raised the finding — a false positive
+  // that also inflated `confirm_count`, which the sync drain makes the operator echo back.
+  //
+  // COALESCE keeps any genuinely per-app pre-112 row working, so the fix is strictly additive.
   const { data: rows, error } = await supa
     .from("tenant_providers")
-    .select("provider, is_active, live_key_id, test_key_id, test_payment_links")
+    .select(
+      "provider, is_active, live_key_id, test_key_id, test_payment_links, provider_accounts(config)",
+    )
     .eq("tenant_id", tenantId)
 
   // An unreadable table must not become a "connect your test keys" banner — same fail-quiet rule
@@ -461,15 +474,26 @@ export async function detectNoTestCredential(
   // to ignore the list.
   if (error || !Array.isArray(rows)) return out
 
-  for (const r of rows as {
+  for (const r of rows as unknown as {
     provider: string
     is_active: boolean | null
     live_key_id: string | null
     test_key_id: string | null
     test_payment_links: unknown
+    // PostgREST types a to-one embed as an ARRAY even though it returns a single object here, and
+    // the two shapes are indistinguishable at the call site — so normalise rather than pick one.
+    provider_accounts:
+      | { config: Record<string, string> | null }
+      | { config: Record<string, string> | null }[]
+      | null
   }[]) {
-    if (!r.live_key_id) continue        // class 4 owns "no credential at all"
-    if (r.test_key_id) continue         // both modes present — nothing to say
+    const embedded = Array.isArray(r.provider_accounts) ? r.provider_accounts[0] : r.provider_accounts
+    const acct = embedded?.config ?? {}
+    const liveKey = acct.live_key_id ?? r.live_key_id
+    const testKey = acct.test_key_id ?? r.test_key_id
+
+    if (!liveKey) continue              // class 4 owns "no credential at all"
+    if (testKey) continue               // both modes present — nothing to say
 
     const activeNote = r.is_active ? "" : " (provider is inactive, but the gap applies once enabled)"
     out.push({
@@ -477,7 +501,8 @@ export async function detectNoTestCredential(
       tenant_id: tenantId,
       subject: `provider:${r.provider}`,
       detail:
-        `${r.provider} has a live key (${r.live_key_id}) and NO test key, so product sync can only ` +
+        `${r.provider} has a live key (${liveKey}) and NO test key on its shared connection, so ` +
+        `product sync can only ` +
         `create LIVE products and \`test_payment_links\` stays empty. A \`pk_test_\` build resolves ` +
         `no link and cannot check out; testing this provider means transacting against REAL ` +
         `products with REAL money${activeNote}.`,
@@ -492,11 +517,146 @@ export async function detectNoTestCredential(
   return out
 }
 
+/**
+ * Class 8 — the provider CAN transact in test mode and has live links, but zero TEST links.
+ *
+ * WHY NO EXISTING DETECTOR SEES THIS
+ * `detectActiveProviderZeroLinks` counts `linkCount(live) + linkCount(test)` and returns early on
+ * any non-zero total. A provider with three live links and no test links therefore reads as fully
+ * synced. `detectNoTestCredential` does not fire either, because the test CREDENTIAL is present —
+ * that is its whole precondition. So the one state that actually blocks test mode falls between
+ * the two, and did: Stripe on cappy held a test key and three live links, every detector was quiet,
+ * and a `pk_test_` build still had no link to open.
+ *
+ * The remedy is a plain re-sync. `runProductSync` writes every configured mode, so syncing this
+ * provider creates the missing test artifacts without touching the live ones.
+ */
+/** Plan-artifact counts for Razorpay, whose synced artifact is a plan id rather than a link. */
+async function razorpayPlanCounts(
+  supa: SupabaseClient,
+  tenantId: string,
+): Promise<{ livePlans: number; testPlans: number; unverified: number }> {
+  const { data, error } = await supa
+    .from("tenant_products")
+    .select("razorpay_plan_id_by_currency, razorpay_plan_id_by_currency_test, live_plan_ids_verified")
+    .eq("tenant_id", tenantId)
+  if (error || !Array.isArray(data)) return { livePlans: 0, testPlans: 0, unverified: 0 }
+  const filled = (v: unknown) => !!v && typeof v === "object" && Object.keys(v as object).length > 0
+  let livePlans = 0, testPlans = 0, unverified = 0
+  for (const r of data as Record<string, unknown>[]) {
+    const hasLive = filled(r.razorpay_plan_id_by_currency)
+    if (filled(r.razorpay_plan_id_by_currency_test)) testPlans++
+    if (hasLive && r.live_plan_ids_verified === true) livePlans++
+    if (hasLive && r.live_plan_ids_verified !== true) unverified++
+  }
+  return { livePlans, testPlans, unverified }
+}
+
+export async function detectTestLinksMissing(
+  supa: SupabaseClient,
+  tenantId: string,
+): Promise<DriftFinding[]> {
+  const out: DriftFinding[] = []
+  const { data: rows, error } = await supa
+    .from("tenant_providers")
+    .select(
+      "provider, is_active, live_payment_links, test_payment_links, test_key_id, provider_accounts(config)",
+    )
+    .eq("tenant_id", tenantId)
+  if (error || !Array.isArray(rows)) return out
+
+  const count = (m: unknown): number => {
+    if (!m || typeof m !== "object") return 0
+    return Object.values(m as Record<string, unknown>).reduce((n: number, perCurrency) => {
+      if (!perCurrency || typeof perCurrency !== "object") return n
+      return n + Object.keys(perCurrency as Record<string, unknown>).length
+    }, 0)
+  }
+
+  for (const r of rows as unknown as {
+    provider: string
+    is_active: boolean | null
+    live_payment_links: unknown
+    test_payment_links: unknown
+    test_key_id: string | null
+    provider_accounts:
+      | { config: Record<string, string> | null }
+      | { config: Record<string, string> | null }[]
+      | null
+  }[]) {
+    // Stores have no payment links at all — their test mode is a sandbox purchase, not a link.
+    if (NATIVE_PROVIDERS.has(r.provider)) continue
+
+    const embedded = Array.isArray(r.provider_accounts) ? r.provider_accounts[0] : r.provider_accounts
+    const testKey = embedded?.config?.test_key_id ?? r.test_key_id
+    if (!testKey) continue              // class 7 owns "no test credential"
+
+    // PLAN-STYLE providers (Razorpay subscriptions) never produce payment links — their synced
+    // artifact is a plan id on tenant_products, mode-scoped since 141. Judging them by link counts
+    // makes them permanently invisible here: both maps read `{sku: {}}`, so `live === 0` defers to
+    // class 6, class 6 sees a plan artifact and stays quiet, and NOTHING ever asks for the re-sync
+    // that would populate the test column. Measured: after 141 shipped, confirm_count was 0 while
+    // Razorpay had zero test plans and three unverified live ones.
+    if (r.provider === "razorpay") {
+      const { livePlans, testPlans, unverified } = await razorpayPlanCounts(supa, tenantId)
+      if (testPlans === 0 && (livePlans > 0 || unverified > 0)) {
+        out.push({
+          kind: "test-links-missing",
+          tenant_id: tenantId,
+          subject: `provider:${r.provider}`,
+          detail:
+            `razorpay has a test credential but ZERO test subscription plans. Razorpay subscriptions ` +
+            `are plans, not payment links, so a test build has no plan to subscribe against.`,
+          action_hint:
+            `Run product sync — it writes every configured mode, creating the test plans alongside ` +
+            `the live ones.`,
+          subject_id: r.provider,
+        })
+      } else if (unverified > 0) {
+        // Not a test-mode problem: these ids predate the mode split and may have been written by a
+        // TEST sync, which would have live customers subscribing against a test plan.
+        out.push({
+          kind: "test-links-missing",
+          tenant_id: tenantId,
+          subject: `provider:${r.provider}`,
+          detail:
+            `${unverified} razorpay plan id(s) predate the mode split (migration 141) and may have ` +
+            `been written by a TEST sync — live checkout reads that column.`,
+          action_hint: `Run product sync to rewrite them from the live account.`,
+          subject_id: r.provider,
+        })
+      }
+      continue
+    }
+
+    const live = count(r.live_payment_links)
+    const test = count(r.test_payment_links)
+    if (live === 0) continue            // class 6 owns "nothing synced at all"
+    if (test > 0) continue              // both modes present
+
+    out.push({
+      kind: "test-links-missing",
+      tenant_id: tenantId,
+      subject: `provider:${r.provider}`,
+      detail:
+        `${r.provider} has a test credential and ${live} LIVE payment link(s) but ZERO test links. ` +
+        `A test build resolves no link and cannot check out, so the only way to exercise this ` +
+        `provider is to transact against real products with real money.`,
+      action_hint:
+        `Run product sync for ${r.provider} — runProductSync writes every configured mode, so the ` +
+        `test links are created alongside the existing live ones.`,
+      subject_id: r.provider,
+    })
+  }
+  return out
+}
+
 export const DRIFT_DETECTORS = [
   detectProductMissingAtProvider,
   detectPaywallNotPublished,
   detectCredentialModeMismatch,
   detectActiveProviderZeroLinks,
+  detectTestLinksMissing,
   detectMissingCurrencyForCountry,
   detectNoTestCredential,
 ] as const
@@ -507,6 +667,7 @@ export const DRIFT_KINDS: DriftKind[] = [
   "credential-mode-mismatch",
   "active-provider-no-credential",
   "no-test-credential",
+  "test-links-missing",
   "active-provider-zero-links",
   "missing-currency-for-country",
 ]

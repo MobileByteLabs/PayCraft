@@ -256,10 +256,18 @@ async function initiateRazorpay(
   // Subscription products → create per-customer Razorpay Subscription with
   // UPI Autopay. We use the plan_id from tenant_products.
   if (req.product.type === "subscription") {
-    const planId = req.product.razorpay_plan_id_by_currency?.["INR"]
+    // MODE-SCOPED since 141. Reading the live column in test mode (or vice versa) hands Razorpay a
+    // plan from the other account, which it rejects — and the failure reads as a payment problem
+    // rather than the data problem it is. There is no fallback to the other mode on purpose: a
+    // missing test plan must say so, not quietly bill against a live one.
+    const planMap =
+      mode === "test"
+        ? req.product.razorpay_plan_id_by_currency_test
+        : req.product.razorpay_plan_id_by_currency
+    const planId = planMap?.["INR"]
     if (!planId) {
       throw new Error(
-        "Razorpay plan not yet synced for this product in INR — re-sync at /products",
+        `Razorpay ${mode} plan not yet synced for this product in INR — re-sync at /products`,
       )
     }
     // Free trial → Razorpay start_at (first charge delayed by the trial window).

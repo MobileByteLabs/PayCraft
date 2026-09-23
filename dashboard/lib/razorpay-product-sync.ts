@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js"
 import { getConnectedRazorpayClient } from "./razorpay-client"
 
 export interface RazorpayPriceInput {
@@ -76,8 +77,13 @@ export async function syncProductToRazorpay(
   prices: RazorpayPriceInput[],
   mode: "test" | "live" = "live",
   existingPlanIds: Record<string, string> = {},
+  /**
+   * Client for credential lookups. Threaded from the caller so a machine-authenticated request
+   * (management API, service role) does not fall back to a cookie session that does not exist.
+   */
+  supa?: SupabaseClient<any>,
 ): Promise<RazorpaySyncResult> {
-  const client = await getConnectedRazorpayClient(tenantId, mode)
+  const client = await getConnectedRazorpayClient(tenantId, mode, supa)
   const planIdsByCurrency: Record<string, string> = { ...existingPlanIds }
   const paymentLinksByCurrency: Record<string, string> = {}
   const skippedCurrencies: string[] = []

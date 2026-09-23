@@ -105,6 +105,7 @@ export async function PATCH(
     existingStripeProductId: existing.stripe_product_id ?? undefined,
     existingPrices: existing.stripe_price_id_by_currency ?? undefined,
     existingRazorpayPlanIds: existing.razorpay_plan_id_by_currency ?? undefined,
+    existingRazorpayPlanIdsTest: existing.razorpay_plan_id_by_currency_test ?? undefined,
   })
 
   return NextResponse.json({ id })

@@ -10,6 +10,8 @@ export interface ProviderModeReadiness {
   test_detail: string
   test_mechanism: string
   human_action: string | null
+  manual_steps?: string[] | null
+  console_url?: string | null
 }
 
 /** Plain-English name for how THIS provider achieves test mode. */
@@ -62,13 +64,38 @@ export function ModeReadiness({ r }: { r: ProviderModeReadiness }) {
         </div>
       </dl>
 
-      {r.human_action && (
-        // The action, verbatim from the RPC — ONE source of truth for what to do, shared with
-        // /idea-paycraft. Restating it in the UI would let the dashboard and the CLI give a
-        // developer two different instructions for the same gap.
-        <p className="text-[11px] leading-snug rounded-md bg-amber-50 border border-amber-200 text-amber-900 px-2.5 py-2">
-          {r.human_action}
-        </p>
+      {(r.manual_steps?.length || r.human_action) && (
+        // Verbatim from the RPC — ONE source of truth for what to do, shared with /idea-paycraft.
+        // Restating it in the UI would let the dashboard and the CLI give a developer two different
+        // instructions for the same gap.
+        //
+        // Steps when the RPC provides them, the paragraph otherwise. Play and App Store test mode
+        // has no API to call, so these instructions ARE the feature — a wall of prose is the
+        // difference between a gap someone closes and one they keep scrolling past.
+        <div className="text-[11px] leading-snug rounded-md bg-amber-50 border border-amber-200 text-amber-900 px-2.5 py-2 space-y-1.5">
+          {r.manual_steps?.length ? (
+            <>
+              <p className="font-semibold">Manual steps — no API can do this:</p>
+              <ol className="list-decimal pl-4 space-y-1">
+                {r.manual_steps.map((step, i) => (
+                  <li key={i}>{step}</li>
+                ))}
+              </ol>
+            </>
+          ) : (
+            <p>{r.human_action}</p>
+          )}
+          {r.console_url && (
+            <a
+              href={r.console_url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-block font-semibold underline underline-offset-2 hover:no-underline"
+            >
+              Open {mechanismLabel(r.test_mechanism)} console →
+            </a>
+          )}
+        </div>
       )}
     </div>
   )
