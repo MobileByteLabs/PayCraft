@@ -585,6 +585,7 @@ function ManualKeysPanel({
   const [showLive, setShowLive] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [sharedWarning, setSharedWarning] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [supabaseUrl, setSupabaseUrl] = useState<string>("http://localhost:54321")
@@ -607,9 +608,10 @@ function ManualKeysPanel({
     ? `${supabaseUrl}/functions/v1/razorpay-webhook/${tenantId}`
     : `${supabaseUrl}/functions/v1/razorpay-webhook/<tenant_id>`
 
-  async function save() {
+  async function save(confirmShared = false, createNew = false) {
     setSaving(true)
     setError(null)
+    if (!confirmShared) setSharedWarning(null)
     try {
       const payload = isUpdate
         ? {
@@ -633,10 +635,21 @@ function ManualKeysPanel({
       const res = await fetch("/api/providers/razorpay/keys", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          confirm_shared_overwrite: confirmShared,
+          create_new: createNew,
+        }),
       })
       const data = await res.json()
+      // See app-store-keys-form: the 409 is a question, not a failure. Throwing would surface the
+      // raw `shared_credential_in_use` string to the operator with no way to answer it.
+      if (res.status === 409 && data?.error === "shared_credential_in_use") {
+        setSharedWarning(Number(data.appsUsing) || 0)
+        return
+      }
       if (!res.ok) throw new Error(data.error ?? "Save failed")
+      setSharedWarning(null)
       setSaved(true)
       setTimeout(onSaved, 1200)
     } catch (e: any) {
@@ -750,6 +763,41 @@ function ManualKeysPanel({
               />
             )}
           </div>
+
+          {sharedWarning !== null && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 space-y-2">
+              <p>
+                <strong>
+                  {sharedWarning} other app{sharedWarning === 1 ? "" : "s"} bill through these
+                  Razorpay keys.
+                </strong>{" "}
+                Replacing them moves all {sharedWarning} to the new Razorpay account. To connect a
+                second account instead, give this one a different account label above.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => void save(true)}
+                  disabled={saving}
+                  className="px-3 py-1 text-[11px] font-bold bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
+                >
+                  Replace for all {sharedWarning} apps
+                </button>
+                <button
+                  onClick={() => void save(false, true)}
+                  disabled={saving}
+                  className="px-3 py-1 text-[11px] font-bold border border-amber-400 text-amber-900 rounded hover:bg-amber-100 disabled:opacity-50"
+                >
+                  Connect as a separate account
+                </button>
+                <button
+                  onClick={() => setSharedWarning(null)}
+                  className="px-3 py-1 text-[11px] font-bold border border-amber-300 rounded hover:bg-amber-100"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700 flex items-start gap-2">

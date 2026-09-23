@@ -38,11 +38,13 @@ export function CashfreeKeysForm({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [sharedWarning, setSharedWarning] = useState<number | null>(null)
 
-  async function save() {
+  async function save(confirmShared = false, createNew = false) {
     setSaving(true)
     setError(null)
     setSaved(false)
+    if (!confirmShared) setSharedWarning(null)
     try {
       const res = await fetch("/api/providers/cashfree/keys", {
         method: "POST",
@@ -55,13 +57,23 @@ export function CashfreeKeysForm({
           live_secret_key: showLive ? live.secret_key : "",
           live_webhook_secret: showLive ? live.webhook_secret : "",
           account_label: accountLabel,
+          confirm_shared_overwrite: confirmShared,
+          create_new: createNew,
         }),
       })
       const data = await res.json()
+      // See app-store-keys-form: the 409 is the RPC asking whether a rotation across every app
+      // sharing these keys is intended. Falling through to setError would show the operator the
+      // raw `shared_credential_in_use` string with no way to answer.
+      if (res.status === 409 && data?.error === "shared_credential_in_use") {
+        setSharedWarning(Number(data.appsUsing) || 0)
+        return
+      }
       if (!res.ok) {
         setError(data?.error ?? "save failed")
         return
       }
+      setSharedWarning(null)
       setSaved(true)
       router.refresh()
       setTimeout(() => setSaved(false), 2500)
@@ -145,6 +157,41 @@ export function CashfreeKeysForm({
         )}
       </div>
 
+      {sharedWarning !== null && (
+        <div className="text-xs bg-amber-50 border border-amber-200 text-amber-900 px-3 py-2.5 rounded-lg space-y-2">
+          <p>
+            <strong>
+              {sharedWarning} other app{sharedWarning === 1 ? "" : "s"} bill through these Cashfree
+              keys.
+            </strong>{" "}
+            Replacing them moves all {sharedWarning} to the new Cashfree account. To connect a
+            second account instead, give this one a different account label.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => save(true)}
+              disabled={saving}
+              className="px-3 py-1 text-[11px] font-bold bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
+            >
+              Replace for all {sharedWarning} apps
+            </button>
+            <button
+              onClick={() => save(false, true)}
+              disabled={saving}
+              className="px-3 py-1 text-[11px] font-bold border border-amber-400 text-amber-900 rounded hover:bg-amber-100 disabled:opacity-50"
+            >
+              Connect as a separate account
+            </button>
+            <button
+              onClick={() => setSharedWarning(null)}
+              className="px-3 py-1 text-[11px] font-bold border border-amber-300 rounded hover:bg-amber-100"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="text-xs text-danger-700 font-mono bg-danger-50 border border-danger-200 px-3 py-2 rounded-lg">
           {error}
@@ -160,7 +207,7 @@ export function CashfreeKeysForm({
         )}
         {!saved && <span />}
         <button
-          onClick={save}
+          onClick={() => save()}
           disabled={!canSave || saving}
           className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed ml-auto"
         >
