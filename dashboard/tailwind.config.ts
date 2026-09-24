@@ -42,26 +42,27 @@ const config: Config = {
         danger:  { 50: "#FEF2F2", 100: "#FEE2E2", 500: "#EF4444", 600: "#DC2626", 700: "#B91C1C" },
         info:    { 50: "#EFF6FF", 100: "#DBEAFE", 500: "#3B82F6", 600: "#2563EB", 700: "#1D4ED8" },
       },
+      // IBM Plex, loaded via next/font in app/layout.tsx as CSS variables so there is no
+      // render-blocking @import and no silent fallback to Helvetica. See DESIGN.md for why Plex
+      // rather than Inter: one superfamily across prose, UI and code, commissioned for technical
+      // documentation, and already shipping on the docs site.
       fontFamily: {
         sans: [
-          "Inter",
+          "var(--font-sans)",
           "ui-sans-serif",
           "system-ui",
           "-apple-system",
-          "BlinkMacSystemFont",
           "Segoe UI",
-          "Roboto",
           "sans-serif",
         ],
         mono: [
-          "JetBrains Mono",
+          "var(--font-mono)",
           "ui-monospace",
           "SFMono-Regular",
           "Menlo",
-          "Monaco",
           "monospace",
         ],
-        display: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       fontSize: {
         "2xs": ["0.6875rem", { lineHeight: "1rem", letterSpacing: "0.01em" }],
