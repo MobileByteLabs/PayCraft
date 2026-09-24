@@ -169,7 +169,7 @@ jobs:
             paycraft = "${{ steps.version.outputs.version }}"
 
             [libraries]
-            paycraft = { module = "io.github.mobilebytelabs:paycraft", version.ref = "paycraft" }
+            paycraft = { module = "io.github.mobilebytelabs:cmp-paycraft", version.ref = "paycraft" }
             ```
 
             ```kotlin

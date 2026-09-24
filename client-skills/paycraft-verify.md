@@ -20,7 +20,7 @@ Verifies that PayCraft is correctly integrated into this KMP app.
 
 Read `gradle/libs.versions.toml`:
 - ✅ `paycraft = "1.0.0"` in `[versions]`
-- ✅ `paycraft = { module = "io.github.mobilebytelabs:paycraft", ... }` in `[libraries]`
+- ✅ `paycraft = { module = "io.github.mobilebytelabs:cmp-paycraft", ... }` in `[libraries]`
 
 Read the shared module's `build.gradle.kts`:
 - ✅ `implementation(libs.paycraft)` in `commonMain.dependencies`
@@ -71,7 +71,7 @@ Search for old subscription code that should be removed:
 PayCraft Integration Verification
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-[✓] Dependency: io.github.mobilebytelabs:paycraft:1.0.0
+[✓] Dependency: io.github.mobilebytelabs:cmp-paycraft:1.0.0
 [✓] PayCraft.configure() called in app init
 [✓] PayCraftModule in Koin
 [✓] BillingManager used at all premium gates ([N] files)

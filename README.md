@@ -1,7 +1,7 @@
 # PayCraft
 
 [![CI](https://github.com/MobileByteLabs/PayCraft/actions/workflows/gradle.yml/badge.svg)](https://github.com/MobileByteLabs/PayCraft/actions/workflows/gradle.yml)
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.mobilebytelabs/paycraft?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.mobilebytelabs/paycraft)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.mobilebytelabs/cmp-paycraft?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.mobilebytelabs/cmp-paycraft)
 [![npm](https://img.shields.io/npm/v/paycraft?label=CLI)](https://www.npmjs.com/package/paycraft)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.1.0-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -151,7 +151,7 @@ If you prefer to set up without Claude AI, see [docs/QUICK_START.md](docs/QUICK_
 paycraft = "LATEST_VERSION"   # check Maven Central badge above
 
 [libraries]
-paycraft = { module = "io.github.mobilebytelabs:paycraft", version.ref = "paycraft" }
+paycraft = { module = "io.github.mobilebytelabs:cmp-paycraft", version.ref = "paycraft" }
 ```
 
 ```kotlin
@@ -365,7 +365,7 @@ See [`plugin-template/`](plugin-template/) for a starter template.
 | Documentation | [mobilebytelabs.github.io/PayCraft](https://mobilebytelabs.github.io/PayCraft/) |
 | Dashboard | [paycraft.mobilebytesensei.com](https://paycraft.mobilebytesensei.com) |
 | CLI | [npmjs.com/package/paycraft](https://www.npmjs.com/package/paycraft) |
-| SDK | [Maven Central](https://central.sonatype.com/artifact/io.github.mobilebytelabs/paycraft) |
+| SDK | [Maven Central](https://central.sonatype.com/artifact/io.github.mobilebytelabs/cmp-paycraft) |
 
 ## Contributing
 

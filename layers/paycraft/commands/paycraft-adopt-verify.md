@@ -1162,7 +1162,7 @@ OUTPUT: "✓ Phase 5 state saved → .paycraft/memory.json"
 ║  ✓ Customer portal: [portal_url]                                         ║
 ║                                                                          ║
 ║  CLIENT APP                                                              ║
-║  ✓ Dependency: io.github.mobilebytelabs:paycraft:[version]              ║
+║  ✓ Dependency: io.github.mobilebytelabs:cmp-paycraft:[version]              ║
 ║  ✓ PayCraft.configure() in [configure_file]                              ║
 ║  ✓ PayCraftModule in Koin — {koin_module_file}:{koin_module_line}       ║
 ║  ✓ PayCraftPlatform.init(context) in Android Application                ║

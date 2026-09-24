@@ -66,7 +66,7 @@ Done! Your app has a verified billing system in test mode.
 paycraft = "1.0.0"
 
 [libraries]
-paycraft = { module = "io.github.mobilebytelabs:paycraft", version.ref = "paycraft" }
+paycraft = { module = "io.github.mobilebytelabs:cmp-paycraft", version.ref = "paycraft" }
 ```
 
 ```kotlin

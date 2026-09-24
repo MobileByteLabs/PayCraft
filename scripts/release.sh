@@ -194,7 +194,7 @@ if [ "$LOCAL_MAVEN" = true ]; then
     -PsigningInMemoryKeyPassword="${PAYCRAFT_SIGNING_PASSWORD:-}" \
     -PsigningInMemoryKey="${PAYCRAFT_GPG_KEY_CONTENTS:-}" \
     --quiet
-  echo "✅  Published to ~/.m2 — artifact: io.github.mobilebytelabs:paycraft:$VERSION"
+  echo "✅  Published to ~/.m2 — artifact: io.github.mobilebytelabs:cmp-paycraft:$VERSION"
 else
   echo "▶  [6/6] Skipping local Maven (use --local-maven to enable)"
 fi

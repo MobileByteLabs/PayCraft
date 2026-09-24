@@ -67,7 +67,7 @@ To add a new provider:
 
 Client apps add PayCraft with:
 ```kotlin
-implementation("io.github.mobilebytelabs:paycraft:VERSION")
+implementation("io.github.mobilebytelabs:cmp-paycraft:VERSION")
 ```
 
 Then boot with one line:

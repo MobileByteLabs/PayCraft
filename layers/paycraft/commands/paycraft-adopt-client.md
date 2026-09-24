@@ -216,13 +216,13 @@ IF path provided:
 ### STEP 4.2 — Check latest PayCraft version
 
 ```
-TRY     : GET https://central.sonatype.com/api/v1/publisher/search?q=io.github.mobilebytelabs:paycraft
+TRY     : GET https://central.sonatype.com/api/v1/publisher/search?q=io.github.mobilebytelabs:cmp-paycraft
           Parse response → extract latest stable version string
 IF FAILS OR RESPONSE UNPARSEABLE:
   FALLBACK 1: Read {paycraft-root}/gradle.properties → look for version= or VERSION= line
               IF FOUND: use that version
   FALLBACK 2: Ask user: "What PayCraft version should I add?
-                         (Check: https://central.sonatype.com/artifact/io.github.mobilebytelabs/paycraft)"
+                         (Check: https://central.sonatype.com/artifact/io.github.mobilebytelabs/cmp-paycraft)"
 
 CAPTURE : latest stable version (e.g. 1.0.2)
 OUTPUT  : "✓ Latest PayCraft version: [version] (from [Sonatype/gradle.properties/user])"
@@ -243,7 +243,7 @@ ELSE    :
   ADD under [versions] section:
     paycraft = "[latest_version]"
   ADD under [libraries] section:
-    paycraft = { module = "io.github.mobilebytelabs:paycraft", version.ref = "paycraft" }
+    paycraft = { module = "io.github.mobilebytelabs:cmp-paycraft", version.ref = "paycraft" }
 
 VERIFY  : Re-read libs.versions.toml → both entries present with correct version
 IF MISSING: HARD STOP — "Failed to write PayCraft entries to libs.versions.toml."

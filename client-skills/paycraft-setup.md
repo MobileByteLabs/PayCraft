@@ -24,7 +24,7 @@ Find `gradle/libs.versions.toml` and add:
 paycraft = "1.0.0"
 
 [libraries]
-paycraft = { module = "io.github.mobilebytelabs:paycraft", version.ref = "paycraft" }
+paycraft = { module = "io.github.mobilebytelabs:cmp-paycraft", version.ref = "paycraft" }
 ```
 
 Find the shared/common module's `build.gradle.kts` and add:

@@ -46,4 +46,33 @@ jobs:
       # 2.0.3 instead of the declared 2.1.0. v1.9.1 resolves from gradle.properties.
       version-source: 'gradle-properties'
       gradle-properties-key: 'paycraft.version'
+
+      # Fail EARLY when the declared version is <= what Maven Central already has, instead of
+      # late at the upload with a Central rejection. kmp-toolkit has carried this; PayCraft did
+      # not, which is how paycraft.version sat at 2.4.1 while 2.4.1 was already released — a
+      # state nothing in the pipeline complained about until the next publish tried to redeploy
+      # existing coordinates.
+      verify-against-maven: true
+
+      # ── Auto-bump for the next cycle ──────────────────────────────────────
+      # After a successful publish + GH release, mbl-actionhub delegates to
+      # mbl-actionhub-bump-version to open a PR bumping paycraft.version to the next
+      # patch (2.4.1 → 2.4.2). Without `bump-after-release`, that job is default-off and
+      # reports `skipped` — which is why every release since has left the version in
+      # gradle.properties equal to the one already published, so the next publish had
+      # nothing new to ship unless someone bumped it by hand.
+      #
+      # Want a minor/major next cycle instead? Close the auto-PR and bump manually, or
+      # change `next-bump-type` here.
+      bump-after-release: true
+      next-bump-type: 'patch'
+
+      # REQUIRED HERE, and the reason this block is not a copy of kmp-toolkit's.
+      # The base branch defaults to GITHUB_REF_NAME, described upstream as "the branch the
+      # publish workflow ran on". That holds for schedule/workflow_dispatch, which run on
+      # `dev` — but this workflow ALSO triggers on `push: tags: v*`, and on a tag run
+      # GITHUB_REF_NAME is the TAG (`v2.4.1`), not a branch. Left unset, a tag-triggered
+      # release would open its bump PR against a branch named `v2.4.1`.
+      # kmp-toolkit omits this input safely because it has no tag trigger; PayCraft does.
+      bump-pr-base-branch: 'dev'
     secrets: inherit

@@ -415,7 +415,7 @@ This is friction. A single `/paycraft-adopt` command should handle **everything 
   │   IF YES : Read current version → compare to latest → offer to update
   │   IF NO  : Edit libs.versions.toml:
   │             Add under [versions]: paycraft = "[latest]"
-  │             Add under [libraries]: paycraft = { module = "io.github.mobilebytelabs:paycraft", version.ref = "paycraft" }
+  │             Add under [libraries]: paycraft = { module = "io.github.mobilebytelabs:cmp-paycraft", version.ref = "paycraft" }
   │   ACTION : Read shared/build.gradle.kts (or commonMain module)
   │   CHECK  : Is libs.paycraft already in commonMain.dependencies?
   │   IF NO  : Edit → add implementation(libs.paycraft) under commonMain.dependencies

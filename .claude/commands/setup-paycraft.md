@@ -290,7 +290,7 @@ Mark ✅ Step 4 when configure block is shown to user.
 Tell user to add to their app's `build.gradle.kts`:
 ```kotlin
 commonMain.dependencies {
-    implementation("io.github.mobilebytelabs:paycraft:VERSION")
+    implementation("io.github.mobilebytelabs:cmp-paycraft:VERSION")
 }
 ```
 
@@ -342,7 +342,7 @@ Webhook URL:
 Next steps:
   1. Register the webhook URL in your provider dashboard
   2. Copy PayCraft.configure() into your app (shown above)
-  3. Add dependency: io.github.mobilebytelabs:paycraft:VERSION
+  3. Add dependency: io.github.mobilebytelabs:cmp-paycraft:VERSION
   4. Start Koin with PayCraftModule
 
 To re-verify anytime: /verify
