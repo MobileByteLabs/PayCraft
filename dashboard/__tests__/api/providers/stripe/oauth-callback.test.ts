@@ -57,9 +57,7 @@ jest.mock("stripe", () => {
 })
 
 // Import AFTER mocks so the route picks up the mocked modules.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { GET } = require("@/app/api/providers/stripe/oauth/callback/route")
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { makeState } = require("@/lib/stripe-oauth-state")
 
 // ---------- Helpers ----------

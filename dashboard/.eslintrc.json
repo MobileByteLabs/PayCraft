@@ -1,0 +1,43 @@
+{
+  "extends": ["next/core-web-vitals"],
+  "rules": {
+    "react/no-unescaped-entities": "off",
+    "@next/next/no-html-link-for-pages": ["error", "app"],
+    "@next/next/no-img-element": "error",
+    "react/jsx-no-target-blank": ["error", { "allowReferrer": false }],
+    "react/no-danger": "error",
+    "no-restricted-globals": [
+      "error",
+      {
+        "name": "eval",
+        "message": "eval() in a payments dashboard is never the answer."
+      }
+    ],
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "JSXAttribute[name.name='dangerouslySetInnerHTML']",
+        "message": "dangerouslySetInnerHTML injects unescaped HTML. If content is genuinely trusted, render it as text or sanitize at the boundary and add an explicit eslint-disable naming the source."
+      },
+      {
+        "selector": "CallExpression[callee.property.name='json'] > TSAsExpression",
+        "message": "Casting a parsed request body with `as` is a compile-time claim, not a runtime check. Validate the shape where it is consumed (see lib/sync-drain.ts:45) or add an explicit type guard."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["__tests__/**/*.ts", "__tests__/**/*.tsx"],
+      "rules": {
+        "no-restricted-syntax": "off"
+      }
+    }
+  ],
+  "ignorePatterns": [
+    "node_modules/",
+    ".next/",
+    ".vercel/",
+    "out/",
+    "coverage/"
+  ]
+}
