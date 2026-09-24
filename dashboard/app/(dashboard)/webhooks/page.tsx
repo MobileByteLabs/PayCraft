@@ -195,8 +195,64 @@ export default async function WebhooksPage({
 
   const totalPages = Math.ceil((count ?? 0) / perPage)
 
-  const successCount = (logs ?? []).filter((l: WebhookLog) => l.status === "success").length
-  const failedCount = (logs ?? []).filter((l: WebhookLog) => l.status === "failed").length
+  // COUNTS ARE TENANT-WIDE, not page-local.
+  //
+  // These used to be `logs.filter(...).length`, where `logs` is the 50-row page slice. On page 1
+  // of a busy account that reports "3 failed" when the real figure might be 300, and on page 4 it
+  // reports whatever happens to be in that window. A delivery-health number that silently means
+  // "on this page" is worse than no number, because it reads as reassurance.
+  const [{ count: successTotal }, { count: failedTotal }] = await Promise.all([
+    supabase
+      .from("webhook_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenant.id)
+      .eq("status", "success"),
+    supabase
+      .from("webhook_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenant.id)
+      .eq("status", "failed"),
+  ])
+  const successCount = successTotal ?? 0
+  const failedCount = failedTotal ?? 0
+  const deliveredTotal = successCount + failedCount
+  const successRate = deliveredTotal > 0 ? successCount / deliveredTotal : null
+
+  // ── Recent failures, grouped for the "Needs attention" panel ───────────────
+  // Grouped by (event_type, provider) because the same broken handler fires repeatedly and a flat
+  // list would show the same problem twenty times. The REASON is carried through: a handler that
+  // timed out and a signature that failed verification need completely different responses, so
+  // collapsing both into a red dot would strip the only actionable part of the row.
+  const { data: recentFailures } = await supabase
+    .from("webhook_logs")
+    .select("id, provider, event_type, error_message, created_at")
+    .eq("tenant_id", tenant.id)
+    .eq("status", "failed")
+    .order("created_at", { ascending: false })
+    .limit(50)
+
+  const failureGroups = (() => {
+    const m = new Map<
+      string,
+      { provider: string; eventType: string; count: number; reason: string | null; last: string }
+    >()
+    for (const f of (recentFailures ?? []) as WebhookLog[]) {
+      const key = `${f.provider}::${f.event_type}`
+      const existing = m.get(key)
+      if (existing) {
+        existing.count += 1
+      } else {
+        m.set(key, {
+          provider: f.provider,
+          eventType: f.event_type,
+          count: 1,
+          reason: f.error_message,
+          last: f.created_at,
+        })
+      }
+    }
+    return [...m.values()].sort((a, b) => b.count - a.count).slice(0, 5)
+  })()
 
   // Active providers for this tenant — drives which setup-instructions
   // sections render below. Falls back to the full set if the query fails
@@ -225,6 +281,107 @@ export default async function WebhooksPage({
           Add endpoint
         </button>
       </div>
+
+      {/* ── Delivery health: four flat peers ─────────────────────────────────
+          Tenant-wide figures, not page-local. Only the failed card carries
+          semantic colour, and only when it is above zero, so a healthy account
+          reads entirely neutral. */}
+      <section>
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-ink-200 bg-ink-200 lg:grid-cols-4">
+          {[
+            {
+              label: "Delivered",
+              value: successCount.toLocaleString(),
+              note: successRate === null ? "no deliveries yet" : `${(successRate * 100).toFixed(1)}% success`,
+              bad: false,
+            },
+            {
+              label: "Failed",
+              value: failedCount.toLocaleString(),
+              note: failedCount > 0 ? "needs attention" : "none",
+              bad: failedCount > 0,
+            },
+            {
+              label: "Providers",
+              value: String(activeProviders.length),
+              note: "sending events",
+              bad: false,
+            },
+            {
+              label: "This page",
+              value: String((logs ?? []).length),
+              note: `page ${page} of ${Math.max(totalPages, 1)}`,
+              bad: false,
+            },
+          ].map((m) => (
+            <div key={m.label} className="bg-white px-5 py-5">
+              <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-500">
+                {m.label}
+              </div>
+              <div
+                className={`mt-2 text-2xl font-semibold tabular-nums tracking-tight ${
+                  m.bad ? "text-danger-600" : "text-ink-950"
+                }`}
+              >
+                {m.value}
+              </div>
+              <div className={`mt-1 text-xs ${m.bad ? "text-danger-600" : "text-ink-500"}`}>
+                {m.note}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Needs attention ──────────────────────────────────────────────────
+          PINNED ABOVE THE LOG, not buried in it. Someone opens this page
+          because a customer paid and the app did not unlock, so the failures
+          and their REASONS come first. Grouped by (event, provider) because one
+          broken handler fires repeatedly and twenty identical rows hide the
+          shape of the problem. */}
+      {failureGroups.length > 0 && (
+        <section>
+          <div className="rounded-xl border border-ink-200 bg-white">
+            <div className="flex items-center gap-2 border-b border-ink-200 px-5 py-3">
+              <span className="h-1.5 w-1.5 rounded-full bg-danger-500" />
+              <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-500">
+                Needs attention
+              </h3>
+              <span className="text-xs text-ink-500">
+                {failureGroups.length} failing {failureGroups.length === 1 ? "event" : "events"}
+              </span>
+            </div>
+            <div className="divide-y divide-ink-200">
+              {failureGroups.map((g) => (
+                <div
+                  key={`${g.provider}-${g.eventType}`}
+                  className="flex flex-col gap-2 border-l-2 border-danger-500 px-5 py-3.5 sm:flex-row sm:items-start sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <code className="font-mono text-sm text-ink-900">{g.eventType}</code>
+                      <span className="text-xs text-ink-500">
+                        {g.provider} · {g.count} {g.count === 1 ? "failure" : "failures"}
+                      </span>
+                    </div>
+                    {/* The reason, in the provider's own words. A timed-out handler and a bad
+                        signature need different fixes, so this line is the actionable part. */}
+                    <p className="mt-1 truncate text-xs text-ink-600">
+                      {g.reason ?? "No error message recorded by the provider."}
+                    </p>
+                  </div>
+                  <Link
+                    href={`/webhooks?status=failed&event=${encodeURIComponent(g.eventType)}`}
+                    className="shrink-0 text-xs font-semibold text-brand-700 hover:underline"
+                  >
+                    Inspect →
+                  </Link>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Endpoints Section */}
       <section>
