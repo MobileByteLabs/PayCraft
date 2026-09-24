@@ -67,7 +67,7 @@ gh pr create \
 {CHANGELOG — summarize commits since last tag}
 
 ### Maven Central
-Available at `io.github.mobilebytelabs:paycraft:{VERSION}` within ~10 minutes of merge.
+Available at `io.github.mobilebytelabs:cmp-paycraft:{VERSION}` within ~10 minutes of merge.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
