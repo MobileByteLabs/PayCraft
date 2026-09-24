@@ -4,18 +4,24 @@ name: Deploy docs site → Cloudflare Pages
 # to dev, uploads to Cloudflare Pages project `paycraft-docs`. Replaces the prior
 # `docusaurus/`-targeted + GitHub-Pages-targeted variant.
 #
-# TWO SYSTEMS BUILD THIS SITE, and the earlier note here ("PR previews are handled
-# by Cloudflare's GitHub integration") understated the second one:
+# ONE deploy path, matching every other site in this account.
 #
-#   1. THIS workflow  → `wrangler pages deploy` → Pages project `paycraft-docs`.
-#      This is what SERVES production: docs.paycraft.mobilebytesensei.com is a
-#      CNAME to paycraft-docs.pages.dev (infra/dns-records.md).
-#   2. Cloudflare WORKERS BUILDS → builds docs-site/wrangler.toml on every push
-#      to dev, not just PRs. It is not preview-only.
+# This workflow builds Docusaurus and runs `wrangler pages deploy` into the Pages project
+# `paycraft-docs`; docs.paycraft.mobilebytesensei.com is a custom domain on that project.
+# It is the same shape as deploy-cloud.yml, which deploys the Next.js app to the `paycraft`
+# project serving paycraft / api.paycraft / mcp.paycraft. All Pages projects in this account
+# have NO Git integration — GitHub Actions is the only publisher.
 #
-# Both are kept deliberately. Keep the distinction in mind before changing either:
-# they share the name `paycraft-docs`, so a change that makes one authoritative
-# silently demotes the other, and only this path is wired to DNS today.
+# It was not always one path. Until 2026-09-24 this site had THREE publishers racing on every
+# push to dev: this workflow, a Cloudflare Pages Git integration, and a Cloudflare WORKERS BUILDS
+# connection driven by docs-site/wrangler.toml. The Workers build failed in zero seconds on every
+# push — it had no custom domain and had not deployed since 2026-08-24, so it published a red X
+# to GitHub while changing nothing. The other two both succeeded and raced; last writer won.
+#
+# The Pages Git integration and the Workers Builds connection were disconnected, and
+# docs-site/wrangler.toml (consumed ONLY by Workers Builds, and the sole wrangler.toml in the
+# repo) was deleted with them. Restoring that file re-arms the duplicate path, so leave it gone
+# unless you are deliberately moving this site off Pages.
 #
 # Trigger moved main → dev alongside deploy-cloud.yml: `dev` is the default
 # branch and `main` stopped being promoted on 2026-08-03, leaving this dormant.
@@ -59,10 +65,8 @@ jobs:
         with:
           node-version: '22'
 
-      # `npm ci`, matching docs-site/wrangler.toml#build.command. Two systems build this
-      # same site; `npm install` may resolve a tree the lockfile does not describe, so the
-      # two builders could ship different dependency sets from one commit — and only one of
-      # them is wired to DNS, which is the hard kind of difference to notice.
+      # `npm ci`, not `npm install` — it honours package-lock.json, so a CI build cannot
+      # silently resolve a dependency tree different from the one committed.
       - name: Install deps
         working-directory: docs-site
         run: npm ci --no-audit --no-fund

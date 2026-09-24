@@ -22,7 +22,8 @@
 | `paycraft.mobilebytesensei.com` | CNAME (proxied) | `paycraft.pages.dev` | Cloudflare Pages | Dashboard + marketing + `/api/*` + `/legal/*` |
 | `docs.paycraft.mobilebytesensei.com` | CNAME | `paycraft-docs.pages.dev` | Cloudflare Pages | Docusaurus public docs site |
 | `status.paycraft.mobilebytesensei.com` | CNAME | `mobilebytelabs.github.io` | GitHub Pages (upptime) | Public status page |
-| `api.paycraft.mobilebytesensei.com` | CNAME | `mlwfgytjxlqyfxcgpysm.supabase.co` | Supabase | Direct Supabase API (reserved — currently unused, ships in v2.1) |
+| `api.paycraft.mobilebytesensei.com` | CNAME (proxied) | `paycraft.pages.dev` | Cloudflare Pages | Management API — `/v1/*` on the `paycraft` project |
+| `mcp.paycraft.mobilebytesensei.com` | CNAME (proxied) | `paycraft.pages.dev` | Cloudflare Pages | MCP server — `/api/mcp` on the `paycraft` project |
 
 ---
 
@@ -45,9 +46,13 @@ curl -sI https://docs.paycraft.mobilebytesensei.com/ | head -1
 curl -sI https://status.paycraft.mobilebytesensei.com/ | head -1
 ```
 
-The `api.paycraft.mobilebytesensei.com` CNAME is **provisioned but unused** —
-Supabase auto-issues a cert via its custom-domain feature. Leave it
-disconnected at the Supabase side until v2.1 needs it.
+`api.` and `mcp.` are **custom domains on the `paycraft` Pages project**, not separate
+deployments — the same Next.js app serves all three hostnames and routes by path. They ship
+with every `deploy-cloud.yml` run; there is nothing to deploy for them independently.
+
+This entry previously described `api.` as an unused CNAME to Supabase reserved for v2.1. That
+stopped being true when the management API shipped: the record now resolves to Cloudflare
+(`104.21.x` / `172.67.x`) and returns 200.
 
 ---
 
