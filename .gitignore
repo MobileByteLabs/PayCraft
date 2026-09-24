@@ -90,7 +90,6 @@ temp/
 # npm (if using Kotlin/JS)
 node_modules/
 package-lock.json
-!docusaurus/package-lock.json
 !dashboard/package-lock.json
 # docs-site was added after this exception list and never joined it, so its lockfile was ignored
 # while every other JS project here commits one. CI therefore checked out WITHOUT a lockfile, and
