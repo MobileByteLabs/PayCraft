@@ -47,8 +47,8 @@ export default async function ProductEditPage({
           <ArrowLeft className="w-3.5 h-3.5" />
           Back to product
         </Link>
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">Edit product</h1>
-        <p className="text-sm text-gray-500">
+        <h1 className="text-2xl font-bold text-ink-900 mb-1">Edit product</h1>
+        <p className="text-sm text-ink-500">
           Changes propagate to the SDK on the next config fetch (cached up to 5 min
           client-side). After saving you'll be returned to the read-only view
           where you can re-sync providers if pricing changed.

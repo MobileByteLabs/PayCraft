@@ -277,11 +277,11 @@ export function ProductForm({
 
       {p.type === "lifetime" && <PriceFields p={p} setP={setP} />}
 
-      <fieldset className="space-y-3 rounded border border-gray-200 p-4">
-        <legend className="px-1 text-sm font-semibold text-gray-700">
+      <fieldset className="space-y-3 rounded border border-ink-200 p-4">
+        <legend className="px-1 text-sm font-semibold text-ink-700">
           Store product IDs (native billing)
         </legend>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-ink-500">
           Required for Google Play Billing on Android / StoreKit on iOS. Leave
           blank if this product is sold only through payment links.
         </p>
@@ -359,7 +359,7 @@ export function ProductForm({
         <button
           type="button"
           onClick={() => router.back()}
-          className="rounded border border-gray-300 px-5 py-2 text-sm text-gray-700"
+          className="rounded border border-ink-300 px-5 py-2 text-sm text-ink-700"
         >
           Cancel
         </button>
@@ -420,7 +420,7 @@ function PriceFields({
           }
           className="input"
         />
-        <p className="text-xs text-gray-500 mt-1">
+        <p className="text-xs text-ink-500 mt-1">
           {(p.base_price_cents / 100).toFixed(2)} {p.base_currency} — used when
           no per-locale override is set
         </p>
@@ -448,7 +448,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-sm font-medium text-gray-700">{label}</span>
+      <span className="text-sm font-medium text-ink-700">{label}</span>
       <div className="mt-1">{children}</div>
     </label>
   )

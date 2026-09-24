@@ -56,13 +56,13 @@ export function SubscriberTable({
             placeholder="Search by email..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            className="w-full rounded-lg border border-ink-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
           />
         </form>
         <select
           value={searchParams.get("status") || ""}
           onChange={(e) => navigate({ status: e.target.value, page: "1" })}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          className="rounded-lg border border-ink-300 px-3 py-2 text-sm"
         >
           <option value="">All statuses</option>
           <option value="active">Active</option>
@@ -73,7 +73,7 @@ export function SubscriberTable({
         <select
           value={currentMode}
           onChange={(e) => navigate({ mode: e.target.value, page: "1" })}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          className="rounded-lg border border-ink-300 px-3 py-2 text-sm"
         >
           <option value="live">Live</option>
           <option value="test">Test</option>
@@ -81,44 +81,44 @@ export function SubscriberTable({
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <div className="bg-white rounded-xl shadow-sm border border-ink-200 overflow-hidden">
+        <table className="min-w-full divide-y divide-ink-200">
+          <thead className="bg-ink-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Plan</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Provider</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expires</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Updated</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-ink-500 uppercase">Email</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-ink-500 uppercase">Plan</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-ink-500 uppercase">Status</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-ink-500 uppercase">Provider</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-ink-500 uppercase">Expires</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-ink-500 uppercase">Updated</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200">
+          <tbody className="divide-y divide-ink-200">
             {subscribers.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                <td colSpan={6} className="px-6 py-12 text-center text-ink-500">
                   No subscribers found
                 </td>
               </tr>
             ) : (
               subscribers.map((sub) => (
-                <tr key={sub.id} className="hover:bg-gray-50 cursor-pointer"
+                <tr key={sub.id} className="hover:bg-ink-50 cursor-pointer"
                   onClick={() => router.push(`/subscribers/${sub.id}`)}
                 >
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{sub.email}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{sub.plan}</td>
+                  <td className="px-6 py-4 text-sm font-medium text-ink-900">{sub.email}</td>
+                  <td className="px-6 py-4 text-sm text-ink-600">{sub.plan}</td>
                   <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[sub.status] || "bg-gray-100 text-gray-800"}`}>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[sub.status] || "bg-ink-100 text-ink-800"}`}>
                       {sub.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{sub.provider}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600">
+                  <td className="px-6 py-4 text-sm text-ink-600">{sub.provider}</td>
+                  <td className="px-6 py-4 text-sm text-ink-600">
                     {sub.current_period_end
                       ? new Date(sub.current_period_end).toLocaleDateString()
                       : "—"}
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
+                  <td className="px-6 py-4 text-sm text-ink-500">
                     {new Date(sub.updated_at).toLocaleDateString()}
                   </td>
                 </tr>
@@ -131,21 +131,21 @@ export function SubscriberTable({
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex justify-between items-center">
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-ink-600">
             Page {page} of {totalPages}
           </p>
           <div className="flex gap-2">
             <button
               disabled={page <= 1}
               onClick={() => navigate({ page: String(page - 1) })}
-              className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 disabled:opacity-50 hover:bg-gray-50"
+              className="px-3 py-1.5 text-sm rounded-lg border border-ink-300 disabled:opacity-50 hover:bg-ink-50"
             >
               Previous
             </button>
             <button
               disabled={page >= totalPages}
               onClick={() => navigate({ page: String(page + 1) })}
-              className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 disabled:opacity-50 hover:bg-gray-50"
+              className="px-3 py-1.5 text-sm rounded-lg border border-ink-300 disabled:opacity-50 hover:bg-ink-50"
             >
               Next
             </button>

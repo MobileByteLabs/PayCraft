@@ -8,8 +8,8 @@ export default async function UpgradePage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-2">Upgrade Plan</h1>
-      <p className="text-gray-500 mb-8">
+      <h1 className="text-2xl font-bold text-ink-900 mb-2">Upgrade Plan</h1>
+      <p className="text-ink-500 mb-8">
         Current plan: <span className="font-medium capitalize">{tenant.plan}</span>
         {" "}({tenant.subscriber_limit.toLocaleString()} subscribers)
       </p>
