@@ -38,7 +38,7 @@ export function PropertiesPanel({
 }: PropertiesPanelProps) {
   if (!path) {
     return (
-      <aside className="w-80 shrink-0 border-l border-zinc-200 p-4 text-sm text-zinc-500 dark:border-zinc-800">
+      <aside className="w-80 shrink-0 border-l border-ink-200 p-4 text-sm text-ink-500 dark:border-ink-800">
         Select a layer to edit it.
       </aside>
     )
@@ -47,7 +47,7 @@ export function PropertiesPanel({
   const found = locate(root, path)
   if (!found) {
     return (
-      <aside className="w-80 shrink-0 border-l border-zinc-200 p-4 text-sm text-zinc-500 dark:border-zinc-800">
+      <aside className="w-80 shrink-0 border-l border-ink-200 p-4 text-sm text-ink-500 dark:border-ink-800">
         That layer no longer exists.
       </aside>
     )
@@ -58,11 +58,11 @@ export function PropertiesPanel({
   const lid = typeof node.text_lid === "string" ? node.text_lid : null
 
   return (
-    <aside className="w-80 shrink-0 space-y-5 overflow-y-auto border-l border-zinc-200 p-4 dark:border-zinc-800">
+    <aside className="w-80 shrink-0 space-y-5 overflow-y-auto border-l border-ink-200 p-4 dark:border-ink-800">
       <header className="flex items-center justify-between">
         <div>
-          <div className="text-xs uppercase tracking-wide text-zinc-500">{type}</div>
-          <div className="font-mono text-[11px] text-zinc-400">{path}</div>
+          <div className="text-xs uppercase tracking-wide text-ink-500">{type}</div>
+          <div className="font-mono text-[11px] text-ink-400">{path}</div>
         </div>
         <div className="flex gap-1">
           <IconBtn title="Move up" onClick={() => onMove(path, -1)}>↑</IconBtn>
@@ -75,11 +75,11 @@ export function PropertiesPanel({
 
       {lid !== null && (
         <Section title="Copy">
-          <label className="block text-xs text-zinc-500">
+          <label className="block text-xs text-ink-500">
             {locale} · <span className="font-mono">{lid}</span>
           </label>
           <textarea
-            className="mt-1 w-full rounded-md border border-zinc-300 p-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+            className="mt-1 w-full rounded-md border border-ink-300 p-2 text-sm dark:border-ink-700 dark:bg-ink-900"
             rows={3}
             value={localizations[lid] ?? ""}
             onChange={(e) => onCopyChange(lid, e.target.value)}
@@ -90,14 +90,14 @@ export function PropertiesPanel({
                 key={v}
                 type="button"
                 title={`Insert {{ ${v} }}`}
-                className="rounded border border-zinc-300 px-1.5 py-0.5 font-mono text-[10px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="rounded border border-ink-300 px-1.5 py-0.5 font-mono text-[10px] text-ink-600 hover:bg-ink-100 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-800"
                 onClick={() => onCopyChange(lid, `${localizations[lid] ?? ""}{{ ${v} }}`)}
               >
                 {v.replace("product.", "")}
               </button>
             ))}
           </div>
-          <p className="mt-1 text-[11px] leading-snug text-zinc-500">
+          <p className="mt-1 text-[11px] leading-snug text-ink-500">
             Variables resolve against the plan this text sits inside. A variable with nothing to
             show renders as nothing — and takes its chip with it.
           </p>
@@ -209,7 +209,7 @@ export function PropertiesPanel({
             />
             Selected by default
           </label>
-          <p className="mt-1 text-[11px] leading-snug text-zinc-500">
+          <p className="mt-1 text-[11px] leading-snug text-ink-500">
             Bind to a ROLE (<span className="font-mono">$rc_annual</span>), never a store SKU — a
             role survives price changes and works on every platform.
           </p>
@@ -217,7 +217,7 @@ export function PropertiesPanel({
       )}
 
       {type === "unknown" && (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-ink-500">
           This dashboard build does not know this node type. It is preserved untouched — editing
           around it is safe, and it will render correctly on an SDK that understands it.
         </p>
@@ -258,7 +258,7 @@ function str(v: unknown, fallback: string): string {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-2">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</h4>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-500">{title}</h4>
       {children}
     </section>
   )
@@ -284,7 +284,7 @@ function IconBtn({
       className={`rounded border px-2 py-1 text-xs ${
         danger
           ? "border-red-300 text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950/40"
-          : "border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          : "border-ink-300 text-ink-600 hover:bg-ink-100 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-800"
       }`}
     >
       {children}
@@ -302,13 +302,13 @@ function NumberField({
   onChange: (v: number) => void
 }) {
   return (
-    <label className="block text-xs text-zinc-500">
+    <label className="block text-xs text-ink-500">
       {label}
       <input
         type="number"
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-1 w-full rounded-md border border-zinc-300 p-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+        className="mt-1 w-full rounded-md border border-ink-300 p-1.5 text-sm text-ink-900 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-100"
       />
     </label>
   )
@@ -324,12 +324,12 @@ function TextField({
   onChange: (v: string) => void
 }) {
   return (
-    <label className="block text-xs text-zinc-500">
+    <label className="block text-xs text-ink-500">
       {label}
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-md border border-zinc-300 p-1.5 font-mono text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+        className="mt-1 w-full rounded-md border border-ink-300 p-1.5 font-mono text-sm text-ink-900 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-100"
       />
     </label>
   )
@@ -347,12 +347,12 @@ function SelectField({
   onChange: (v: string) => void
 }) {
   return (
-    <label className="block text-xs text-zinc-500">
+    <label className="block text-xs text-ink-500">
       {label}
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-md border border-zinc-300 p-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+        className="mt-1 w-full rounded-md border border-ink-300 p-1.5 text-sm text-ink-900 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-100"
       >
         {options.map(([v, l]) => (
           <option key={v} value={v}>

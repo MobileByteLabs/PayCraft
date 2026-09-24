@@ -224,19 +224,21 @@ export default async function AuditPage({
   )
 }
 
-function actorClass(actor: string): string {
-  switch (actor) {
-    case "user":
-      return "bg-blue-50 text-blue-700 ring-blue-700/10"
-    case "webhook":
-      return "bg-ink-100 text-ink-700 ring-ink-700/10"
-    case "system":
-      return "bg-purple-50 text-purple-700 ring-purple-700/10"
-    case "api_key":
-      return "bg-warning-50 text-warning-700 ring-warning-700/10"
-    default:
-      return "bg-ink-100 text-ink-700 ring-ink-700/10"
-  }
+/**
+ * Actor chips are NEUTRAL, differentiated by label rather than by colour.
+ *
+ * These four values are CATEGORIES, not severities. The previous palette gave `user` blue,
+ * `system` purple and `api_key` **amber** — the warning colour — which told every reader that an
+ * API-key action was a thing to worry about. It is not: an automated sync is the product working
+ * as designed, and most accounts will have far more key actions than human ones. Colouring them
+ * as warnings makes the log unreadable exactly when it is busiest, and trains people to ignore
+ * amber on the one page where a real problem should stand out.
+ *
+ * Semantic colour is reserved on this page for entries that actually FAILED. Everything else
+ * stays neutral no matter how consequential the change was.
+ */
+function actorClass(_actor: string): string {
+  return "bg-ink-100 text-ink-700 ring-ink-700/10"
 }
 
 function formatTs(iso: string): string {
