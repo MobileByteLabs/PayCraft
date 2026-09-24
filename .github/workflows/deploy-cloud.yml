@@ -1,5 +1,27 @@
-name: Deploy paycraft.mobilebytesensei.com
+name: Deploy PayCraft — Supabase, dashboard, docs
 
+# ONE deploy unit for everything that ships from this repo to production:
+#
+#   supabase          → migrations + edge functions
+#   deploy-dashboard  → Pages project `paycraft`      — paycraft / api.paycraft / mcp.paycraft
+#   deploy-docs       → Pages project `paycraft-docs` — docs.paycraft
+#   smoke             → cloud-smoke.yml against the live dashboard
+#
+# api. and mcp. are CUSTOM DOMAINS on the `paycraft` project, not separate deploys — the same
+# Next.js app answers all three hostnames and routes by path. There is nothing to deploy for
+# them independently.
+#
+# The docs job arrived here on 2026-09-24 from a standalone docs-deploy.yml. It was not merely
+# tidier: that site had THREE publishers racing on every push to dev (this repo's workflow, a
+# Cloudflare Pages Git integration, and a Cloudflare Workers Builds connection that failed in
+# zero seconds while owning no domain). Both Cloudflare-side connections were disconnected and
+# their config deleted; folding the workflow in leaves exactly one publisher per host, declared
+# in one file.
+#
+# Renaming this workflow is safe as of 2026-09-24 — `dev` branch protection requires only the
+# `zero-leak` check, so no required-status-check name depends on it. Re-verify before renaming
+# again: GET /repos/{owner}/{repo}/branches/dev/protection → .required_status_checks.contexts
+#
 # Trigger is `dev`, the repository's DEFAULT branch — every PR merges there.
 # This previously fired on `main`, which stopped being promoted on 2026-08-03:
 # `main` fell 140 commits behind and still carries the pre-Cloudflare (Vercel)
@@ -158,6 +180,83 @@ jobs:
           # The org token materializes as CLOUDFLARE_PAGES_API_TOKEN (alias
           # mbs-cloudflare-pages-api-token); wrangler reads CLOUDFLARE_API_TOKEN.
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_API_TOKEN }}
+
+  # docs.paycraft.mobilebytesensei.com — Docusaurus → Pages project `paycraft-docs`.
+  #
+  # Moved here from a standalone docs-deploy.yml on 2026-09-24. Same trigger, same runner, same
+  # wrangler call; what changes is that the docs now ship as part of ONE deploy unit with the app
+  # they document, rather than as a parallel workflow that happened to share a trigger.
+  #
+  # `needs: [deploy-dashboard]` is deliberate and IS a behavior change: the standalone workflow
+  # published unconditionally, so a failed dashboard deploy still shipped docs describing the
+  # release that did not land. This is the same ordering rule the supabase job states above —
+  # never let one half of a release describe a state the other half never reached.
+  #
+  # The trade-off: a docs-only typo fix is now blocked by an unrelated Supabase or dashboard
+  # failure. That is the intended direction (correct beats current), but it is why this job is
+  # LAST — nothing depends on it, so `workflow_dispatch` re-runs it alone once the blocker clears.
+  #
+  # NOTE ON `--branch=dev`: unlike the dashboard's `--branch=main` above, this is NOT a mismatch.
+  # `--branch` must equal each Pages project's OWN production_branch, which is the alias wired to
+  # the custom domain: `paycraft` uses `main`, `paycraft-docs` uses `dev`. Getting it wrong
+  # publishes a PREVIEW and the live site silently stops changing while every run reports success
+  # — which is exactly what happened to this site between 2026-09-19 and 2026-09-23. Verify with:
+  #   GET /accounts/{account}/pages/projects/paycraft-docs  →  .result.production_branch
+  #
+  # TOKEN: this job uses CLOUDFLARE_API_TOKEN while deploy-dashboard uses
+  # CLOUDFLARE_PAGES_API_TOKEN. Both secrets exist and each is the one its job has been deploying
+  # with. They are NOT consolidated here because the scopes have not been confirmed equivalent,
+  # and swapping a working token for tidiness is how a green pipeline starts failing.
+  deploy-docs:
+    name: Deploy docs site to Cloudflare Pages
+    runs-on: ubuntu-latest
+    needs: [deploy-dashboard]
+    if: github.event.inputs.dry_run != 'true'
+    defaults:
+      run:
+        working-directory: docs-site
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 to match deploy-dashboard — wrangler enforces a hard v22 floor, and there is no
+      # reason for the two Cloudflare deploy jobs in one workflow to run different Node majors.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # `npm ci`, not `npm install` — it honours package-lock.json, so a CI build cannot silently
+      # resolve a dependency tree different from the one committed.
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Build site
+        run: npm run build
+
+      # Assert BEFORE deploying, matching the supabase job's pattern above: an unset repo secret
+      # interpolates to an empty string rather than erroring, and wrangler with an empty token
+      # fails in a way that reads as a Cloudflare problem rather than a missing-secret one.
+      # The standalone workflow warned and SKIPPED here, which meant a misconfigured deploy
+      # reported success and the site quietly stopped updating.
+      - name: Assert Cloudflare secrets are present
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          for v in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            [ -n "${!v}" ] || { echo "::error::$v repo secret is empty or unset"; exit 1; }
+          done
+
+      # PATH IS REPO-ROOT-RELATIVE, hence `docs-site/build` and not `build`.
+      # `defaults.run.working-directory` above applies ONLY to `run:` steps — a `uses:` step
+      # ignores it entirely, so this action starts at the repo root no matter what the job
+      # default says. Writing `build` here resolves to ./build, which does not exist, and the
+      # failure reads as a wrangler problem rather than a path one.
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy docs-site/build --project-name=paycraft-docs --branch=dev
 
   smoke:
     name: Run production smoke tests
