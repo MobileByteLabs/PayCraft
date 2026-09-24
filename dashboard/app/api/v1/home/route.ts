@@ -65,16 +65,24 @@ const HTML = `<!doctype html>
      The prefers-color-scheme media query used to drive this, which meant a reader on a dark-themed OS got a dark
      docs page they never chose, and the toggle had no way to say "actually, light". The theme is
      now an explicit choice: light unless the reader picks dark, remembered per browser. */
+  /* Palette aligned to idea-layer/design-system/design-tokens.yaml (2026-09-25). This page used
+     indigo #4f46e5 while the product, the docs site and the dashboard all use violet-700 #6d28d9,
+     so the API host read as a different product. The neutrals carry a slight violet bias for the
+     same reason a pure mid-grey looks unconsidered beside violet.
+     On the dark ground the accent shifts to violet-400: 700 does not hold contrast there.
+     FONTS STAY SYSTEM. The header comment above commits this page to being self-contained, and a
+     webfont would mean a landing page that cannot render when a CDN is slow. Colour alignment is
+     free; a font request is not. */
   :root {
-    --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --line:#e2e8f0; --soft:#f8fafc;
-    --accent:#4f46e5; --accent-soft:#eef2ff; --warn:#b45309; --warn-soft:#fef3c7;
-    --code:#0f172a; --code-fg:#e2e8f0;
+    --bg:#ffffff; --fg:#1c1a25; --muted:#635d78; --line:#e9e6f2; --soft:#faf9fd;
+    --accent:#6d28d9; --accent-soft:#f5f3ff; --warn:#b25e00; --warn-soft:#fdf0e3;
+    --code:#14121c; --code-fg:#e6e3ee;
     color-scheme: light;
   }
   :root[data-theme="dark"] {
-    --bg:#0b0f17; --fg:#e2e8f0; --muted:#94a3b8; --line:#1e293b; --soft:#111827;
-    --accent:#818cf8; --accent-soft:#1e1b4b; --warn:#fbbf24; --warn-soft:#292018;
-    --code:#020617; --code-fg:#e2e8f0;
+    --bg:#100e17; --fg:#e6e3ee; --muted:#a09ab5; --line:#262133; --soft:#17141f;
+    --accent:#a78bfa; --accent-soft:#1e1733; --warn:#fbbf24; --warn-soft:#292018;
+    --code:#0a0810; --code-fg:#e6e3ee;
     color-scheme: dark;
   }
   /* The toggle, top-right. Fixed so it stays reachable on a long page. */
