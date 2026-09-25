@@ -71,7 +71,7 @@ export function AiChat() {
               <button
                 key={s}
                 onClick={() => send(s)}
-                className="rounded-full border px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                className="rounded-full border px-3 py-1.5 text-left text-sm text-ink-700 hover:bg-ink-50"
               >
                 {s}
               </button>
@@ -85,7 +85,7 @@ export function AiChat() {
               className={
                 m.role === "user"
                   ? "inline-block max-w-[85%] whitespace-pre-wrap rounded-2xl bg-blue-600 px-4 py-2 text-left text-white"
-                  : "inline-block max-w-[90%] whitespace-pre-wrap rounded-2xl bg-gray-100 px-4 py-2 text-gray-900"
+                  : "inline-block max-w-[90%] whitespace-pre-wrap rounded-2xl bg-ink-100 px-4 py-2 text-ink-900"
               }
             >
               {m.content}
@@ -95,7 +95,7 @@ export function AiChat() {
           </div>
         ))}
 
-        {loading && <div className="text-sm text-gray-400">PayCraft AI is thinking…</div>}
+        {loading && <div className="text-sm text-ink-400">PayCraft AI is thinking…</div>}
         {error && <div className="text-sm text-red-600">⚠ {error}</div>}
       </div>
 
@@ -143,18 +143,18 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
           {high ? "HIGH risk" : "low risk"}
         </span>
       </div>
-      {proposal.expected_impact && <p className="mt-1 text-gray-700">📈 {proposal.expected_impact}</p>}
-      {proposal.reversal && <p className="mt-1 text-xs text-gray-500">↩ Reversal: {proposal.reversal}</p>}
+      {proposal.expected_impact && <p className="mt-1 text-ink-700">📈 {proposal.expected_impact}</p>}
+      {proposal.reversal && <p className="mt-1 text-xs text-ink-500">↩ Reversal: {proposal.reversal}</p>}
       <div className="mt-2 flex items-center gap-2">
         <button
           type="button"
           title="Applying proposals from chat ships in the next increment — for now, make this change on the relevant dashboard page."
-          className="cursor-not-allowed rounded-lg bg-gray-300 px-3 py-1 text-xs font-medium text-gray-600"
+          className="cursor-not-allowed rounded-lg bg-ink-300 px-3 py-1 text-xs font-medium text-ink-600"
           disabled
         >
           Confirm &amp; apply (coming soon)
         </button>
-        <span className="text-xs text-gray-400">{proposal.action_id}</span>
+        <span className="text-xs text-ink-400">{proposal.action_id}</span>
       </div>
     </div>
   )

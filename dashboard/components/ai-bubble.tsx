@@ -37,7 +37,7 @@ export function AiBubble() {
                 <Sparkles className="h-5 w-5 text-blue-600" />
                 <span className="font-semibold">PayCraft AI</span>
               </div>
-              <button onClick={() => setOpen(false)} aria-label="Close" className="text-gray-400 hover:text-gray-700">
+              <button onClick={() => setOpen(false)} aria-label="Close" className="text-ink-400 hover:text-ink-700">
                 <X className="h-5 w-5" />
               </button>
             </header>

@@ -48,6 +48,20 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit -p tsconfig.json
 
+      # Lint runs as a REAL gate as of 2026-09-24. Before that, `npm run lint` was `next lint`
+      # with no eslint installed and no config — running it dropped into Next's interactive
+      # "how would you like to configure ESLint?" prompt. A script that can only ever hang is
+      # worse than no script: it reads as covered.
+      #
+      # Gates on ERRORS only. The three surviving react-hooks/exhaustive-deps warnings are
+      # documented deliberate dependency arrays (see components/realtime-refresh.tsx, where
+      # `tables.join(",")` guards an inline array in a way eslint cannot statically verify).
+      # Failing the build on them would force either a false "fix" or a blanket disable; both
+      # are worse than a visible warning. Errors — including the security-shaped rules in
+      # .eslintrc.json — block.
+      - name: Lint
+        run: npx eslint . --ext .ts,.tsx --max-warnings=3
+
       # No `--passWithNoTests`. If a path filter means zero tests ran, that is a signal, not a pass.
       - name: Tests
         run: npx jest --ci

@@ -245,6 +245,7 @@ export default async function ProvidersPage({
             connected={tenantProviders.has("google_play")}
             connectionLabel={resolvedByProvider.get("google_play")?.label ?? null}
             viaDefault={resolvedByProvider.get("google_play")?.via_default ?? false}
+            readiness={readinessByProvider.get("google_play") ?? null}
           />
           <StoreCard
             name="App Store Connect"
@@ -254,6 +255,7 @@ export default async function ProvidersPage({
             connected={tenantProviders.has("app_store")}
             connectionLabel={resolvedByProvider.get("app_store")?.label ?? null}
             viaDefault={resolvedByProvider.get("app_store")?.via_default ?? false}
+            readiness={readinessByProvider.get("app_store") ?? null}
           />
         </div>
       </Section>
@@ -488,6 +490,7 @@ function StoreCard({
   connected,
   connectionLabel = null,
   viaDefault = false,
+  readiness = null,
 }: {
   name: string
   subtitle: string
@@ -498,6 +501,13 @@ function StoreCard({
   connectionLabel?: string | null
   /** True when this app inherits the account default rather than being pinned to a connection. */
   viaDefault?: boolean
+  /**
+   * PER-MODE readiness, added 2026-09-25. `tenant_providers_mode_readiness` was already being
+   * fetched on this page but never reached these cards, so a store rendered one "Connected" badge
+   * covering both modes. A provider is routinely live-ready and test-blocked at the same time,
+   * and that is the single most confusing state in the product, so the card now shows the pair.
+   */
+  readiness?: { live_ready?: boolean; test_ready?: boolean } | null
 }) {
   return (
     <Card
@@ -527,6 +537,41 @@ function StoreCard({
             {viaDefault ? "Using account default" : "Using"}{" "}
             <span className="font-bold text-ink-700">{connectionLabel}</span>
           </p>
+        )}
+
+        {/* ── Live and Test, always as a PAIR ──────────────────────────────
+            A store can be perfectly live-ready and permanently test-blocked,
+            because neither Google Play nor the App Store exposes an API to
+            enable sandbox. Test turns ready only when a real sandbox purchase
+            reaches the webhook from a device.
+
+            That row renders NEUTRAL with the words "manual step", never amber
+            and never red. It is an outstanding action for a human, not a fault
+            in the connection, and it can never clear from software: colouring
+            it as a warning would leave this board crying wolf forever. */}
+        {connected && (
+          <div className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-ink-200 bg-ink-200">
+            {[
+              { mode: "Live", ready: readiness?.live_ready ?? false, manual: false },
+              { mode: "Test", ready: readiness?.test_ready ?? false, manual: true },
+            ].map((m) => (
+              <div key={m.mode} className="bg-white px-3 py-2">
+                <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-400">
+                  {m.mode}
+                </div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      m.ready ? "bg-success-500" : "bg-ink-300"
+                    }`}
+                  />
+                  <span className="text-xs font-medium text-ink-700">
+                    {m.ready ? "Ready" : m.manual ? "Manual step" : "Not ready"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
 
         <p className="text-xs text-ink-700 leading-relaxed mb-4">{reason}</p>

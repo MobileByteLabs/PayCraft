@@ -37,8 +37,8 @@ export function AnalyticsCharts({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Subscriber Growth */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-sm font-medium text-gray-700 mb-4">Subscriber Growth</h3>
+      <div className="bg-white rounded-xl shadow-sm border border-ink-200 p-6">
+        <h3 className="text-sm font-medium text-ink-700 mb-4">Subscriber Growth</h3>
         <ResponsiveContainer width="100%" height={250}>
           <BarChart data={cohortData}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -51,8 +51,8 @@ export function AnalyticsCharts({
       </div>
 
       {/* Churn */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-sm font-medium text-gray-700 mb-4">Monthly Churn</h3>
+      <div className="bg-white rounded-xl shadow-sm border border-ink-200 p-6">
+        <h3 className="text-sm font-medium text-ink-700 mb-4">Monthly Churn</h3>
         <ResponsiveContainer width="100%" height={250}>
           <BarChart data={churnData}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -65,8 +65,8 @@ export function AnalyticsCharts({
       </div>
 
       {/* Status Breakdown */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-sm font-medium text-gray-700 mb-4">Status Breakdown</h3>
+      <div className="bg-white rounded-xl shadow-sm border border-ink-200 p-6">
+        <h3 className="text-sm font-medium text-ink-700 mb-4">Status Breakdown</h3>
         <ResponsiveContainer width="100%" height={250}>
           <PieChart>
             <Pie data={statusData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label>
@@ -81,8 +81,8 @@ export function AnalyticsCharts({
       </div>
 
       {/* Plan Distribution */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-sm font-medium text-gray-700 mb-4">Revenue by Plan</h3>
+      <div className="bg-white rounded-xl shadow-sm border border-ink-200 p-6">
+        <h3 className="text-sm font-medium text-ink-700 mb-4">Revenue by Plan</h3>
         <ResponsiveContainer width="100%" height={250}>
           <PieChart>
             <Pie data={planData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label>

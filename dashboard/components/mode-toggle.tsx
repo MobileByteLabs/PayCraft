@@ -33,7 +33,7 @@ export function ModeToggle({ initialMode }: { initialMode: Mode }) {
         "inline-flex items-center rounded-full border p-0.5 text-xs font-medium select-none transition-colors",
         isTest
           ? "border-amber-300 bg-amber-50"
-          : "border-gray-200 bg-white",
+          : "border-ink-200 bg-white",
         isPending && "opacity-60 pointer-events-none",
       )}
       title={
@@ -47,7 +47,7 @@ export function ModeToggle({ initialMode }: { initialMode: Mode }) {
         onClick={() => setMode("test")}
         className={clsx(
           "flex items-center gap-1 rounded-full px-3 py-1 transition-colors",
-          isTest ? "bg-amber-500 text-white" : "text-gray-600 hover:text-gray-900",
+          isTest ? "bg-amber-500 text-white" : "text-ink-600 hover:text-ink-900",
         )}
       >
         <FlaskConical className="h-3.5 w-3.5" />
@@ -58,7 +58,7 @@ export function ModeToggle({ initialMode }: { initialMode: Mode }) {
         onClick={() => setMode("live")}
         className={clsx(
           "flex items-center gap-1 rounded-full px-3 py-1 transition-colors",
-          !isTest ? "bg-emerald-600 text-white" : "text-gray-600 hover:text-gray-900",
+          !isTest ? "bg-emerald-600 text-white" : "text-ink-600 hover:text-ink-900",
         )}
       >
         <Zap className="h-3.5 w-3.5" />

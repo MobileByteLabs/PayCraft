@@ -32,7 +32,6 @@ jest.mock("@/lib/tenant", () => ({
 
 import { __clearLivenessCache } from "@/lib/store-liveness"
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { GET } = require("../../../app/api/providers/store-liveness/route")
 
 function installFetch(byUrl: (url: string) => any) {

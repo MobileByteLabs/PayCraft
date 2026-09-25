@@ -48,16 +48,22 @@ const HTML = `<!doctype html>
 </script>
 <style>
   /* Light by default, matching the API portal. The theme is an explicit choice, not the system's. */
+  /* Palette aligned to idea-layer/design-system/design-tokens.yaml (2026-09-25), matching the API
+     landing exactly: these two hosts are siblings and must not read as different products.
+     Violet-700 accent, violet-biased neutrals, violet-400 on the dark ground where 700 loses
+     contrast. The warn token stays amber and is spent ONLY on the two write tools, the one
+     distinction on this page worth colouring. Fonts stay system: this page is self-contained on
+     purpose, and an MCP landing that cannot render when a CDN is slow is worse than a plain one. */
   :root {
-    --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --line:#e2e8f0; --soft:#f8fafc;
-    --accent:#4f46e5; --accent-soft:#eef2ff; --warn:#b45309; --warn-soft:#fef3c7;
-    --ok:#047857; --ok-soft:#ecfdf5; --code:#0f172a; --code-fg:#e2e8f0;
+    --bg:#ffffff; --fg:#1c1a25; --muted:#635d78; --line:#e9e6f2; --soft:#faf9fd;
+    --accent:#6d28d9; --accent-soft:#f5f3ff; --warn:#b25e00; --warn-soft:#fdf0e3;
+    --ok:#0f9d58; --ok-soft:#e6f4ea; --code:#14121c; --code-fg:#e6e3ee;
     color-scheme: light;
   }
   :root[data-theme="dark"] {
-    --bg:#0b0f17; --fg:#e2e8f0; --muted:#94a3b8; --line:#1e293b; --soft:#111827;
-    --accent:#818cf8; --accent-soft:#1e1b4b; --warn:#fbbf24; --warn-soft:#292018;
-    --ok:#6ee7b7; --ok-soft:#052e23; --code:#020617; --code-fg:#e2e8f0;
+    --bg:#100e17; --fg:#e6e3ee; --muted:#a09ab5; --line:#262133; --soft:#17141f;
+    --accent:#a78bfa; --accent-soft:#1e1733; --warn:#fbbf24; --warn-soft:#292018;
+    --ok:#6ee7b7; --ok-soft:#052e23; --code:#0a0810; --code-fg:#e6e3ee;
     color-scheme: dark;
   }
   * { box-sizing:border-box; }

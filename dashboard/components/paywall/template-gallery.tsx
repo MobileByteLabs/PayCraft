@@ -83,7 +83,7 @@ export function TemplateGallery({ templates, hasExistingTree, currentRevision }:
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-400">
+      <div className="rounded-lg border border-ink-200 bg-ink-50 px-4 py-3 text-sm text-ink-600 dark:border-ink-800 dark:bg-ink-900/40 dark:text-ink-400">
         Applying a template writes your <strong>draft</strong>. Nothing reaches a customer&apos;s
         device until you publish.
         {currentRevision !== null && (
@@ -129,9 +129,9 @@ export function TemplateGallery({ templates, hasExistingTree, currentRevision }:
         // "Create" over an existing tree throws authored copy away. That is a legitimate thing to
         // want and a terrible thing to do by accident, so it is the one action behind a confirm.
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-zinc-900">
+          <div className="max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-ink-900">
             <h3 className="text-lg font-semibold">Replace your paywall copy?</h3>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="mt-2 text-sm text-ink-600 dark:text-ink-400">
               Starting fresh from <strong>{confirm.slug}</strong> discards the wording and
               translations in your current draft. Choose{" "}
               <strong>Update from this template</strong> instead to take the new layout and keep
@@ -140,7 +140,7 @@ export function TemplateGallery({ templates, hasExistingTree, currentRevision }:
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                className="rounded-md px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="rounded-md px-3 py-2 text-sm font-medium text-ink-600 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800"
                 onClick={() => setConfirm(null)}
               >
                 Cancel
@@ -174,8 +174,8 @@ function TemplateCard({
   onApply: (mode: "create" | "update") => void
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex h-[420px] items-start justify-center overflow-hidden bg-zinc-100 p-4 dark:bg-zinc-950">
+    <div className="overflow-hidden rounded-xl border border-ink-200 bg-white dark:border-ink-800 dark:bg-ink-900">
+      <div className="flex h-[420px] items-start justify-center overflow-hidden bg-ink-100 p-4 dark:bg-ink-950">
         {workflow ? (
           // Scaled, not screenshotted: the preview is the same tree the SDK renders, so it cannot
           // go stale the way a captured image does.
@@ -200,7 +200,7 @@ function TemplateCard({
             />
           </div>
         ) : (
-          <div className="self-center text-sm text-zinc-500">
+          <div className="self-center text-sm text-ink-500">
             This template could not be parsed by this dashboard build.
           </div>
         )}
@@ -210,12 +210,12 @@ function TemplateCard({
         <div>
           <div className="flex items-center gap-2">
             <h3 className="font-semibold">{meta.name}</h3>
-            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+            <span className="rounded-full bg-ink-100 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-ink-600 dark:bg-ink-800 dark:text-ink-400">
               {meta.category}
             </span>
           </div>
           {meta.description && (
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{meta.description}</p>
+            <p className="mt-1 text-sm text-ink-600 dark:text-ink-400">{meta.description}</p>
           )}
         </div>
 
@@ -232,7 +232,7 @@ function TemplateCard({
             <button
               type="button"
               disabled={busy || !workflow}
-              className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              className="rounded-md border border-ink-300 px-3 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50 disabled:opacity-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-800"
               onClick={() => onApply("update")}
               title="Take this layout, keep your wording and translations"
             >

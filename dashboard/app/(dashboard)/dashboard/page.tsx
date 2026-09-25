@@ -33,7 +33,12 @@ export default async function OverviewPage() {
     supabase.from("tenant_subscriber_count_view").select("tenant_id, active_count, trial_count, canceled_count"),
     supabase.from("tenant_webhook_delivery_view").select("tenant_id, total, success, success_rate"),
     supabase.from("tenant_products").select("tenant_id").eq("active", true),
-    supabase.from("tenant_providers").select("tenant_id"),
+    // `provider` and `is_active` come along now, not just tenant_id. The old select could only
+    // answer "how many providers does this app have"; the account view needs the INVERSE — for
+    // each provider, how many apps use it — because that count is what teaches the data model.
+    // provider_accounts keys on owner_user_id, so a connection is made once and shared, and a
+    // dashboard that never shows the sharing leaves the reader to infer it.
+    supabase.from("tenant_providers").select("tenant_id, provider, is_active"),
     supabase.from("tenant_audit_log").select("id, tenant_id, action, actor_type, ts").order("ts", { ascending: false }).limit(8),
     supabase.from("subscriptions").select("created_at, updated_at, trial_start, trial_end, status, email"),
   ])
@@ -54,6 +59,39 @@ export default async function OverviewPage() {
   const productsById = countBy(productsRes.data)
   const providersById = countBy(providersRes.data)
   const appName = new Map(apps.map((a) => [a.id, a.name]))
+
+  // ── Account-level provider roll-up ─────────────────────────────────────────
+  // One row per provider, carrying how many of the account's apps use it. Counted over DISTINCT
+  // tenant_ids: a provider row per app is the join table, so a naive length would double-count an
+  // app that has both a test and a live connection.
+  const PROVIDER_LABELS: Record<string, string> = {
+    stripe: "Stripe",
+    razorpay: "Razorpay",
+    cashfree: "Cashfree",
+    google_play: "Google Play",
+    app_store: "App Store",
+    upi: "UPI",
+  }
+  const providerApps = new Map<string, Set<string>>()
+  const providerActive = new Map<string, boolean>()
+  for (const r of (providersRes.data ?? []) as { tenant_id: string; provider: string; is_active: boolean }[]) {
+    if (!providerApps.has(r.provider)) providerApps.set(r.provider, new Set())
+    providerApps.get(r.provider)!.add(r.tenant_id)
+    // A provider counts as active for the account if ANY app's connection is active.
+    providerActive.set(r.provider, (providerActive.get(r.provider) ?? false) || !!r.is_active)
+  }
+  const accountProviders = [...providerApps.entries()]
+    .map(([provider, tenants]) => ({
+      provider,
+      label: PROVIDER_LABELS[provider] ?? provider,
+      appsUsing: tenants.size,
+      active: providerActive.get(provider) ?? false,
+      // Neither store exposes an API to enable sandbox, so their test state is a MANUAL step for
+      // a human with a device. That renders neutral, never amber: it is an incomplete step rather
+      // than a fault, and colouring it as a warning would make the board cry wolf permanently.
+      storeManualTest: provider === "google_play" || provider === "app_store",
+    }))
+    .sort((a, b) => b.appsUsing - a.appsUsing || a.label.localeCompare(b.label))
 
   const rows: AppMatrixRow[] = apps.map((a) => {
     const s = subsById.get(a.id)
@@ -140,8 +178,148 @@ export default async function OverviewPage() {
         }
       />
 
-      {/* Hero — real time-series metrics (RevenueCat-style cards + range + chart) */}
-      <section className="mb-10 animate-slide-up">
+      {/* ── Account metrics: FOUR EQUAL PEERS ────────────────────────────────
+          No gradient hero card. On a multi-app billing account no single number
+          is the story, so nothing dominates. Flat surfaces separated by a
+          hairline; the only card that carries semantic colour is one in a real
+          problem state, which is what makes it findable at a glance.
+          Per idea-layer/design-system/DESIGN.md. */}
+      <section className="mb-10">
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-ink-200 bg-ink-200 lg:grid-cols-4">
+          {[
+            {
+              label: "Active subscribers",
+              value: totalActive.toLocaleString(),
+              note: `${distinctCustomers.toLocaleString()} customers`,
+              bad: false,
+            },
+            {
+              label: "MRR",
+              value: `$${Math.round(totalMrr).toLocaleString()}`,
+              note: totalActive > 0 ? `$${arpu.toFixed(2)} ARPU` : "no active subscriptions",
+              bad: false,
+            },
+            {
+              label: "Apps",
+              value: String(apps.length),
+              note: `${liveApps} live · ${apps.length - liveApps} in setup`,
+              bad: false,
+            },
+            {
+              label: "Webhook delivery",
+              value: acctWebhookRate === null ? "—" : `${(acctWebhookRate * 100).toFixed(1)}%`,
+              note:
+                acctWebhookRate === null
+                  ? "no deliveries yet"
+                  : acctWebhookRate < 0.99
+                    ? "needs attention"
+                    : "healthy",
+              // Semantic red is spent here and nowhere else on the row. A healthy account shows
+              // four neutral tiles, so a red one is unambiguous.
+              bad: acctWebhookRate !== null && acctWebhookRate < 0.99,
+            },
+          ].map((m) => (
+            <div key={m.label} className="bg-white px-5 py-5">
+              <div className="font-mono text-2xs font-semibold uppercase tracking-[0.08em] text-ink-500">
+                {m.label}
+              </div>
+              <div
+                className={`mt-2 text-2xl font-semibold tabular-nums tracking-tight ${
+                  m.bad ? "text-danger-600" : "text-ink-950"
+                }`}
+              >
+                {m.value}
+              </div>
+              <div className={`mt-1 text-xs ${m.bad ? "text-danger-600" : "text-ink-500"}`}>
+                {m.note}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Providers: the section that teaches the model ────────────────────
+          Connected ONCE at account level and shared. The "Apps using" column is
+          the proof, and it is the reason this section exists at all. */}
+      {accountProviders.length > 0 && (
+        <section className="mb-10">
+          <div className="mb-3 flex items-baseline justify-between gap-4">
+            <div>
+              <h2 className="font-mono text-2xs font-semibold uppercase tracking-[0.08em] text-ink-500">
+                Providers
+              </h2>
+              <p className="mt-1 text-sm text-ink-500">
+                Connected once, at account level. Apps share these connections.
+              </p>
+            </div>
+            <Link
+              href="/settings/provider-accounts"
+              className="shrink-0 text-xs font-semibold text-brand-700 hover:underline"
+            >
+              Manage connections →
+            </Link>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-ink-200">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-ink-200 bg-ink-50">
+                  {["Provider", "Scope", "Status", "Apps using"].map((h, i) => (
+                    <th
+                      key={h}
+                      className={`px-5 py-2.5 font-mono text-2xs font-semibold uppercase tracking-[0.07em] text-ink-500 ${
+                        i === 3 ? "text-right" : "text-left"
+                      }`}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {accountProviders.map((p) => (
+                  <tr key={p.provider} className="border-b border-ink-200 last:border-0">
+                    <td className="px-5 py-3.5 font-medium text-ink-900">{p.label}</td>
+                    <td className="px-5 py-3.5">
+                      <span className="rounded-full border border-ink-200 px-2 py-0.5 font-mono text-2xs uppercase tracking-wider text-ink-500">
+                        Account
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            p.active ? "bg-success-500" : "bg-ink-300"
+                          }`}
+                        />
+                        <span className="text-ink-700">{p.active ? "Connected" : "Inactive"}</span>
+                        {p.storeManualTest && (
+                          <span
+                            className="ml-1.5 text-ink-500"
+                            title="Neither store exposes an API to enable sandbox testing. Test mode turns ready when a real sandbox purchase arrives."
+                          >
+                            · test: manual step
+                          </span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-right tabular-nums text-ink-700">
+                      {p.appsUsing}
+                      <span className="text-ink-400">
+                        {" "}
+                        / {apps.length}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* The real 365-day time series stays. It is computed from actual subscriptions rows, never
+          synthesized, and it answers a question the four peer cards cannot: which direction. */}
+      <section className="mb-10">
         <OverviewMetrics series={series} />
       </section>
 

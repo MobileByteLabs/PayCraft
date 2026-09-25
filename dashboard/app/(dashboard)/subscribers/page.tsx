@@ -50,6 +50,36 @@ function statusBadgeClass(status: string) {
   return "bg-ink-100 text-ink-500 ring-1 ring-ink-200"
 }
 
+/**
+ * Which canonical_state values mean the customer IS entitled right now.
+ *
+ * Taken from the CHECK constraint on entitlement_records. The three non-obvious members are the
+ * point of the whole column: `in_grace_period` and `on_billing_retry` are failing payments where
+ * access is deliberately preserved, and `active_non_renewing` is a cancelled subscription still
+ * inside its paid term. Treating any of them as "not entitled" would tell a support agent to
+ * revoke access a customer has paid for.
+ */
+const ENTITLED_STATES = new Set([
+  "trial",
+  "active",
+  "active_non_renewing",
+  "in_grace_period",
+  "on_billing_retry",
+])
+
+const ENTITLEMENT_LABELS: Record<string, string> = {
+  trial: "Trial",
+  active: "Active",
+  active_non_renewing: "Active, not renewing",
+  in_grace_period: "Active, in grace",
+  on_billing_retry: "Active, retrying",
+  paused: "Paused",
+  expired: "Expired",
+  cancelled: "Cancelled",
+  refunded: "Refunded",
+  pending: "Pending",
+}
+
 function statusLabel(status: string) {
   if (status === "trialing") return "Trial"
   if (status === "canceled" || status === "cancelled") return "Churned"
@@ -147,6 +177,44 @@ export default async function SubscribersPage({
 
   const totalPages = Math.max(1, Math.ceil((count ?? 0) / PER_PAGE))
   const rows = (data as Subscription[]) ?? []
+
+  // ── Entitlements for the rows on screen ────────────────────────────────────
+  //
+  // A SUBSCRIPTION is what the provider bills. An ENTITLEMENT is what PayCraft grants, and it is
+  // the one the app actually trusts. They disagree exactly when it matters most:
+  //   · past_due  subscription  → entitlement still active through in_grace_until
+  //   · cancelled subscription  → entitlement active_non_renewing until the paid term ends
+  //
+  // The table showed subscription status alone, so a support agent looking at "past due" had no
+  // way to answer "is this person still entitled right now", which is the actual question. Shown
+  // as two columns and never merged: collapsing them would hide the disagreement the agent needs.
+  //
+  // Scoped to the emails on THIS page rather than the whole tenant, so the extra read stays
+  // proportional to what is rendered.
+  const emails = rows.map((r) => r.email).filter(Boolean)
+  const { data: entRows } = emails.length
+    ? await supabase
+        .from("entitlement_records")
+        .select("app_user_id, canonical_state, expires_at, in_grace_until, will_renew, latest_event_ts")
+        .eq("tenant_id", tenant.id)
+        .in("app_user_id", emails)
+        .order("latest_event_ts", { ascending: false })
+    : { data: [] as never[] }
+
+  type EntRow = {
+    app_user_id: string
+    canonical_state: string
+    expires_at: string | null
+    in_grace_until: string | null
+    will_renew: boolean
+  }
+  // First row per user wins: the query is ordered by latest_event_ts descending, and
+  // latest_event_ts is the monotonic guard the webhook pipeline uses against out-of-order
+  // delivery. Taking the newest is therefore the same answer the SDK would resolve.
+  const entitlementByUser = new Map<string, EntRow>()
+  for (const e of (entRows ?? []) as EntRow[]) {
+    if (!entitlementByUser.has(e.app_user_id)) entitlementByUser.set(e.app_user_id, e)
+  }
 
   const activeCount = stats?.active_count ?? 0
   const trialCount = stats?.trial_count ?? 0
@@ -350,7 +418,12 @@ export default async function SubscribersPage({
                   Plan
                 </th>
                 <th className="px-6 py-4 text-[11px] font-bold text-ink-400 uppercase tracking-widest">
-                  Status
+                  Subscription
+                </th>
+                {/* Separate column, deliberately never merged with Subscription. This is the one
+                    the app trusts, and the two disagree exactly when support needs the answer. */}
+                <th className="px-6 py-4 text-[11px] font-bold text-ink-400 uppercase tracking-widest">
+                  Entitlement
                 </th>
                 <th className="px-6 py-4 text-[11px] font-bold text-ink-400 uppercase tracking-widest">
                   Provider
@@ -369,7 +442,10 @@ export default async function SubscribersPage({
             <tbody className="divide-y divide-ink-100">
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-6 py-16 text-center">
+                  {/* 9 columns since the Entitlement column landed. A short colSpan leaves the
+                      empty state misaligned under a wider header, which reads as a broken table
+                      rather than an empty one. */}
+                  <td colSpan={9} className="px-6 py-16 text-center">
                     <EmptyState
                       icon={<Users className="w-5 h-5" strokeWidth={2} />}
                       title={
@@ -419,6 +495,44 @@ export default async function SubscribersPage({
                     >
                       {statusLabel(r.status)}
                     </span>
+                  </td>
+                  {/* ENTITLEMENT — what the app actually grants right now.
+                      When it disagrees with the subscription the cell carries a NEUTRAL marker,
+                      not a warning: a cancelled sub that stays entitled until the paid term ends,
+                      or a past-due sub still inside its grace window, are both CORRECT states.
+                      Colouring them as problems would send support chasing non-issues. */}
+                  <td className="px-6 py-4">
+                    {(() => {
+                      const ent = entitlementByUser.get(r.email)
+                      if (!ent) {
+                        return <span className="text-[12px] text-ink-400">none</span>
+                      }
+                      const entitled = ENTITLED_STATES.has(ent.canonical_state)
+                      const disagrees = entitled !== (r.status === "active" || r.status === "trialing")
+                      return (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="inline-flex items-center gap-1.5">
+                            <span
+                              className={`h-1.5 w-1.5 rounded-full ${
+                                entitled ? "bg-success-500" : "bg-ink-300"
+                              }`}
+                            />
+                            <span className="text-[12px] font-medium text-ink-700">
+                              {ENTITLEMENT_LABELS[ent.canonical_state] ?? ent.canonical_state}
+                            </span>
+                          </span>
+                          {disagrees && (
+                            <span className="text-[10px] text-ink-500">
+                              {ent.in_grace_until
+                                ? `in grace to ${formatDate(ent.in_grace_until)}`
+                                : ent.expires_at
+                                  ? `until ${formatDate(ent.expires_at)}`
+                                  : "differs from subscription"}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </td>
                   <td className="px-6 py-4 text-[12px] text-ink-500 capitalize">
                     {r.provider ?? "—"}

@@ -105,7 +105,6 @@ jest.mock("stripe", () => ({ __esModule: true, default: class FakeStripe {} }))
 // the test env we fall back to a minimal shim.
 let POST: (req: any) => Promise<any>
 try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   POST = require("../../../app/api/products/route").POST
 } catch (e) {
   POST = (async () => {

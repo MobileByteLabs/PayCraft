@@ -19,6 +19,13 @@ interface Coupon {
   times_redeemed: number
   active: boolean
   created_at: string
+  /**
+   * Set by the Stripe sync. A coupon with no `stripe_coupon_id` exists in PayCraft and NOWHERE
+   * at the provider, so a customer typing it at checkout gets no discount and no error. That is
+   * the quietest failure on this screen, which is why it now has a column of its own.
+   */
+  stripe_coupon_id?: string | null
+  stripe_promotion_code_id?: string | null
 }
 
 interface ProductRef {
@@ -345,6 +352,7 @@ export function CouponsManager({
                 <th className="px-6 py-3">Duration</th>
                 <th className="px-6 py-3">Applies to</th>
                 <th className="px-6 py-3">Redemptions</th>
+                <th className="px-6 py-3">At provider</th>
                 <th className="px-6 py-3">Status</th>
                 <th className="px-6 py-3"></th>
               </tr>
@@ -381,6 +389,26 @@ export function CouponsManager({
                     <td className="px-6 py-3 text-ink-700 font-mono text-xs">
                       {c.times_redeemed}
                       {c.max_redemptions !== null && ` / ${c.max_redemptions}`}
+                    </td>
+                    {/* AT PROVIDER. A code with no stripe_coupon_id is inert at checkout: the
+                        customer types it, nothing happens, and no error is raised anywhere. An
+                        empty cell would hide that, so an unmapped coupon states it in words. It
+                        is NEUTRAL rather than red because an unsynced code is usually work not
+                        yet done rather than something broken. */}
+                    <td className="px-6 py-3">
+                      {c.stripe_coupon_id ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-ink-700">
+                          <span className="h-1.5 w-1.5 rounded-full bg-success-500" />
+                          Stripe
+                        </span>
+                      ) : (
+                        <span
+                          className="inline-flex items-center gap-1.5 rounded-full border border-ink-200 px-2 py-0.5 text-[11px] text-ink-500"
+                          title="This code exists in PayCraft but not at any provider, so it will not apply a discount at checkout."
+                        >
+                          Not synced
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-3">
                       <span

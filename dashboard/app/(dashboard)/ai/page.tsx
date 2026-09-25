@@ -9,7 +9,7 @@ export default function PayCraftAIPage() {
     <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-3xl flex-col p-4">
       <header className="mb-3">
         <h1 className="text-2xl font-bold">PayCraft AI</h1>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-ink-500">
           Your Growth Copilot — ask how to increase your MRR, or say &ldquo;automate everything&rdquo;.
           It answers from PayCraft&rsquo;s knowledge plus your live numbers.
         </p>

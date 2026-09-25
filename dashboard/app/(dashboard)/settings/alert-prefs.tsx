@@ -62,11 +62,11 @@ export function AlertPreferences({
             type="checkbox"
             checked={prefs[key]}
             onChange={() => setPrefs((p) => ({ ...p, [key]: !p[key] }))}
-            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+            className="mt-0.5 h-4 w-4 rounded border-ink-300 text-brand-600 focus:ring-brand-500"
           />
           <div>
-            <p className="text-sm font-medium text-gray-900">{label}</p>
-            <p className="text-xs text-gray-500">{desc}</p>
+            <p className="text-sm font-medium text-ink-900">{label}</p>
+            <p className="text-xs text-ink-500">{desc}</p>
           </div>
         </label>
       ))}
@@ -74,7 +74,7 @@ export function AlertPreferences({
       <button
         onClick={handleSave}
         disabled={saving}
-        className="mt-2 px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50"
+        className="mt-2 px-4 py-2 bg-ink-900 text-white text-sm rounded-lg hover:bg-ink-800 disabled:opacity-50"
       >
         {saving ? "Saving..." : saved ? "Saved" : "Save Preferences"}
       </button>

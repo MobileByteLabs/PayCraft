@@ -59,6 +59,7 @@ const sidebars: SidebarsConfig = {
       label: 'Architecture',
       items: [
         'ARCHITECTURE',
+        'ENGINEERING_STANDARDS',
         'MIGRATION_V2',
       ],
     },

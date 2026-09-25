@@ -192,11 +192,11 @@ export function PaywallTreeEditor({
           disabled={busy !== null || dirty}
           onClick={publish}
           title={dirty ? "Save your draft before publishing it" : "Make this draft live"}
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          className="rounded-md border border-ink-300 px-3 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50 disabled:opacity-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-800"
         >
           {busy === "publish" ? "Publishing…" : "Publish"}
         </button>
-        <span className="text-xs text-zinc-500">
+        <span className="text-xs text-ink-500">
           draft r{revision ?? "—"} · live r{live ?? "none"}
           {dirty && " · unsaved changes"}
         </span>
@@ -213,14 +213,14 @@ export function PaywallTreeEditor({
         </div>
       )}
 
-      <div className="flex min-h-[640px] overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
+      <div className="flex min-h-[640px] overflow-hidden rounded-xl border border-ink-200 dark:border-ink-800">
         {/* Layer tree */}
-        <div className="w-64 shrink-0 overflow-y-auto border-r border-zinc-200 dark:border-zinc-800">
+        <div className="w-64 shrink-0 overflow-y-auto border-r border-ink-200 dark:border-ink-800">
           {steps.length > 1 && (
             // Only shown for a multi-step paywall: one step needs no switcher, and a control that
             // does nothing is worse than no control.
-            <div className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
-              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            <div className="border-b border-ink-200 px-3 py-2 dark:border-ink-800">
+              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">
                 Steps
               </div>
               <div className="flex flex-wrap gap-1">
@@ -235,7 +235,7 @@ export function PaywallTreeEditor({
                     className={`rounded px-2 py-0.5 text-xs ${
                       s.id === activeStep
                         ? "bg-violet-600 text-white"
-                        : "border border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                        : "border border-ink-300 text-ink-600 hover:bg-ink-100 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-800"
                     }`}
                   >
                     {s.name}
@@ -244,23 +244,23 @@ export function PaywallTreeEditor({
               </div>
             </div>
           )}
-          <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
-            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Layers</span>
+          <div className="flex items-center justify-between border-b border-ink-200 px-3 py-2 dark:border-ink-800">
+            <span className="text-xs font-semibold uppercase tracking-wide text-ink-500">Layers</span>
             <div className="relative">
               <button
                 type="button"
-                className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="rounded border border-ink-300 px-2 py-0.5 text-xs text-ink-600 hover:bg-ink-100 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-800"
                 onClick={() => setAddOpen((v) => !v)}
               >
                 + Add
               </button>
               {addOpen && (
-                <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+                <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-ink-200 bg-white py-1 shadow-lg dark:border-ink-700 dark:bg-ink-900">
                   {NODE_PALETTE.map((entry) => (
                     <button
                       key={entry.type}
                       type="button"
-                      className="block w-full px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      className="block w-full px-3 py-1.5 text-left text-sm hover:bg-ink-100 dark:hover:bg-ink-800"
                       onClick={() => handleAdd(entry.make)}
                     >
                       {entry.label}
@@ -279,11 +279,11 @@ export function PaywallTreeEditor({
                   className={`flex w-full items-center gap-2 px-3 py-1 text-left text-sm ${
                     selected === r.path
                       ? "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-violet-100"
-                      : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      : "hover:bg-ink-100 dark:hover:bg-ink-800"
                   }`}
                   style={{ paddingLeft: 12 + r.depth * 12 }}
                 >
-                  <span className="w-14 shrink-0 truncate font-mono text-[10px] uppercase text-zinc-400">
+                  <span className="w-14 shrink-0 truncate font-mono text-[10px] uppercase text-ink-400">
                     {r.type}
                   </span>
                   <span className="truncate">{r.label}</span>
@@ -294,7 +294,7 @@ export function PaywallTreeEditor({
         </div>
 
         {/* Preview */}
-        <div className="flex flex-1 justify-center overflow-y-auto bg-zinc-100 p-6 dark:bg-zinc-950">
+        <div className="flex flex-1 justify-center overflow-y-auto bg-ink-100 p-6 dark:bg-ink-950">
           <div
             style={{
               width: 380,

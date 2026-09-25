@@ -69,7 +69,7 @@ export function UpgradeCards({
             className={`relative rounded-xl border-2 p-6 ${
               plan.popular
                 ? "border-brand-500 shadow-lg"
-                : "border-gray-200"
+                : "border-ink-200"
             }`}
           >
             {plan.popular && (
@@ -80,12 +80,12 @@ export function UpgradeCards({
             <h3 className="text-lg font-semibold">{plan.name}</h3>
             <div className="mt-2">
               <span className="text-3xl font-bold">{plan.price}</span>
-              <span className="text-gray-500">{plan.period}</span>
+              <span className="text-ink-500">{plan.period}</span>
             </div>
-            <p className="mt-1 text-sm text-gray-500">{plan.limit}</p>
+            <p className="mt-1 text-sm text-ink-500">{plan.limit}</p>
             <ul className="mt-4 space-y-2">
               {plan.features.map((f) => (
-                <li key={f} className="flex items-center gap-2 text-sm text-gray-600">
+                <li key={f} className="flex items-center gap-2 text-sm text-ink-600">
                   <span className="text-green-500">&#10003;</span> {f}
                 </li>
               ))}
@@ -95,10 +95,10 @@ export function UpgradeCards({
               disabled={isCurrent || loading === plan.id}
               className={`mt-6 w-full py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 isCurrent
-                  ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                  ? "bg-ink-100 text-ink-400 cursor-not-allowed"
                   : plan.popular
                     ? "bg-brand-600 text-white hover:bg-brand-700"
-                    : "bg-gray-900 text-white hover:bg-gray-800"
+                    : "bg-ink-900 text-white hover:bg-ink-800"
               } disabled:opacity-50`}
             >
               {isCurrent ? "Current Plan" : loading === plan.id ? "Redirecting..." : `Upgrade to ${plan.name}`}

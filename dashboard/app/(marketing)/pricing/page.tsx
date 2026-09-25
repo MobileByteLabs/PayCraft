@@ -1,9 +1,30 @@
 export const runtime = "edge"
 
+import type { Metadata } from "next"
 import Link from "next/link"
-import { Check, CheckCircle2 } from "lucide-react"
 import { createClient } from "@/lib/supabase-server"
 import { ButtonLink } from "@/components/ui/button"
+
+/**
+ * Pricing, rebuilt from idea-layer/screens/pricing/ui.yaml and its Stitch mockup.
+ *
+ * The page has an unusual burden for a billing product: it must make clear that PayCraft never
+ * takes a percentage of the revenue it processes. The subscription buys the hosted dashboard and
+ * its limits; the money itself always flows provider to your account. A reader who leaves unsure
+ * about that has not been sold the product, which is why the zero-revenue-share callout sits
+ * between the cards and the matrix where it cannot be scrolled past, and why the revenue-share
+ * row is the FIRST row of the comparison table.
+ *
+ * Tier figures still come from Supabase `tier_definitions`, exactly as before. Hardcoding them
+ * here would make this page a second source of truth for what a plan costs, and the two would
+ * drift the first time a price changed.
+ */
+
+export const metadata: Metadata = {
+  title: "PayCraft pricing",
+  description:
+    "PayCraft never takes a percentage. Your provider pays you directly, and the plan covers the hosted dashboard and its limits, nothing else.",
+}
 
 interface Tier {
   tier_name: "free" | "pro" | "enterprise"
@@ -19,6 +40,18 @@ interface Tier {
   base_price_cents: number
   base_currency: string
   metered_per_subscriber_cents: number
+}
+
+/** `null` means unlimited in tier_definitions. Render that, never a bare "null" or a 0. */
+const cap = (v: number | null | undefined) =>
+  v === null || v === undefined ? "Unlimited" : v.toLocaleString()
+
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="font-mono text-2xs font-semibold uppercase tracking-[0.08em] text-ink-500">
+      {children}
+    </div>
+  )
 }
 
 export default async function PricingPage() {
@@ -38,265 +71,231 @@ export default async function PricingPage() {
   const pro = tiersByName["pro"]
   const enterprise = tiersByName["enterprise"]
 
+  // 29 is the shipped fallback the previous page used when tier_definitions is unreachable.
+  const proPrice = pro ? Math.round(pro.base_price_cents / 100) : 29
+
+  const cards = [
+    {
+      name: "Free",
+      price: "$0",
+      cadence: "forever",
+      for: "Shipping your first app",
+      cta: { label: "Start free", href: "/auth/login" },
+      emphasis: false,
+      points: [
+        `${cap(free?.max_active_subscribers)} active subscribers`,
+        `${cap(free?.max_connected_providers)} connected providers`,
+        `${cap(free?.max_products)} products`,
+        "Every provider, including the stores",
+      ],
+    },
+    {
+      name: "Pro",
+      price: `$${proPrice}`,
+      cadence: "per month",
+      for: "Teams running several apps",
+      cta: { label: "Upgrade", href: "/auth/login" },
+      emphasis: true,
+      points: [
+        "Unlimited webhook events",
+        "Unlimited providers",
+        "Unlimited products",
+        "Unlimited dashboard users",
+      ],
+    },
+    {
+      name: "Enterprise",
+      price: "Custom",
+      cadence: "",
+      for: "Volume, procurement, support terms",
+      cta: { label: "Talk to us", href: "/docs" },
+      emphasis: false,
+      points: [
+        "Everything in Pro",
+        `${enterprise?.analytics_retention_days ?? 365} day analytics retention`,
+        "Support terms and invoicing",
+        "Self-host with support",
+      ],
+    },
+  ]
+
+  const matrix = [
+    { row: "Revenue share taken by PayCraft", free: "None", pro: "None", ent: "None" },
+    {
+      row: "Webhook events",
+      free: cap(free?.max_webhook_events_per_month),
+      pro: "Unlimited",
+      ent: "Unlimited",
+    },
+    {
+      row: "Connected providers",
+      free: cap(free?.max_connected_providers),
+      pro: "Unlimited",
+      ent: "Unlimited",
+    },
+    { row: "Products", free: cap(free?.max_products), pro: "Unlimited", ent: "Unlimited" },
+    {
+      row: "Dashboard users",
+      free: cap(free?.max_dashboard_users),
+      pro: "Unlimited",
+      ent: "Unlimited",
+    },
+    { row: "Self-host instead", free: "Yes", pro: "Yes", ent: "Yes" },
+  ]
+
+  const faq = [
+    {
+      q: "Do you take a cut of my subscription revenue?",
+      a: "No. Not on any tier, including free.",
+    },
+    {
+      q: "Where does the money actually go?",
+      a: "From the provider straight to your account. PayCraft is never in the money path.",
+    },
+    {
+      q: "What happens if I stop paying?",
+      a: "The hosted dashboard reverts to free limits. Your data stays yours and can be exported or self-hosted at any point.",
+    },
+    { q: "Is there a trial?", a: "Free is not a trial. It does not expire." },
+  ]
+
   return (
-    <main className="pt-24 pb-24 px-6">
-      {/* Hero */}
-      <section className="max-w-4xl mx-auto text-center mb-20">
-        <h1 className="text-5xl md:text-6xl font-extrabold text-ink-950 tracking-tighter mb-6">
-          Pricing
+    <div className="mx-auto max-w-6xl px-6">
+      <section className="border-b border-ink-200 py-16 text-center">
+        <Eyebrow>Pricing</Eyebrow>
+        <h1 className="mt-4 text-balance text-4xl font-semibold tracking-[-0.025em] text-ink-950 md:text-5xl">
+          Pay for the dashboard, not the revenue
         </h1>
-        <p className="text-xl text-ink-500">Start free. Pay as you grow.</p>
+        {/* The single differentiator of the whole product. Base text colour, never muted: a grey
+            subhead here would bury the one sentence the page exists to deliver. */}
+        <p className="mx-auto mt-5 max-w-[60ch] text-lg leading-relaxed text-ink-800">
+          PayCraft never takes a percentage. Your provider pays you directly, and the plan covers
+          the hosted dashboard and its limits, nothing else.
+        </p>
       </section>
 
-      {/* Pricing Cards */}
-      <section className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8 mb-24 items-center">
-        {/* Free */}
-        <div className="bg-white border border-ink-200 rounded-xl p-8 flex flex-col transition-all hover:shadow-md hover:-translate-y-1">
-          <div className="mb-8">
-            <h3 className="text-lg font-bold text-ink-950 mb-2">Free</h3>
-            <div className="flex items-baseline gap-1">
-              <span className="text-4xl font-extrabold text-ink-950">
-                {free ? "$0" : "$0"}
-              </span>
-            </div>
-            <p className="text-sm text-ink-500 mt-2">Forever, no card required</p>
-          </div>
-
-          <ul className="space-y-4 mb-10 flex-grow">
-            <FeatureItem>
-              {free?.max_active_subscribers ?? 100} active subscribers
-            </FeatureItem>
-            <FeatureItem>
-              {(free?.max_webhook_events_per_month ?? 10000).toLocaleString()} webhook events/month
-            </FeatureItem>
-            <FeatureItem>1 connected provider</FeatureItem>
-            <FeatureItem>1 product</FeatureItem>
-            <FeatureItem>
-              {free?.max_dashboard_users ?? 3} dashboard users
-            </FeatureItem>
-            <FeatureItem>
-              {free?.analytics_retention_days ?? 7}-day analytics retention
-            </FeatureItem>
-            <InfoItem>Attribution footer required</InfoItem>
-          </ul>
-
-          <ButtonLink
-            href="/auth/login"
-            variant="secondary"
-            size="lg"
-            className="w-full justify-center border-2 border-brand-600 !text-brand-600 hover:!bg-brand-600 hover:!text-white transition-all"
-          >
-            Start free
-          </ButtonLink>
-        </div>
-
-        {/* Pro — featured */}
-        <div className="relative bg-white border-2 border-brand-600 rounded-xl p-8 flex flex-col shadow-xl shadow-brand-500/10 scale-105 z-10">
-          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-600 text-white text-[10px] font-bold tracking-widest px-3 py-1 rounded-full">
-            MOST POPULAR
-          </div>
-
-          <div className="mb-8">
-            <h3 className="text-lg font-bold text-ink-950 mb-2">Pro</h3>
-            <div className="flex items-baseline gap-1">
-              <span className="text-4xl font-extrabold text-ink-950">
-                ${pro ? Math.round(pro.base_price_cents / 100) : 29}
-              </span>
-              <span className="text-sm text-ink-500">/month</span>
-            </div>
-            <p className="text-[12px] text-ink-500 mt-2 leading-tight">
-              + ${pro ? (pro.metered_per_subscriber_cents / 100).toFixed(2) : "0.10"} per subscriber over{" "}
-              {(pro?.max_active_subscribers ?? 1000).toLocaleString()}
-            </p>
-          </div>
-
-          <ul className="space-y-4 mb-10 flex-grow">
-            <ProFeatureItem>
-              {(pro?.max_active_subscribers ?? 1000).toLocaleString()} subscribers included
-            </ProFeatureItem>
-            <ProFeatureItem>Unlimited webhook events</ProFeatureItem>
-            <ProFeatureItem>Unlimited providers</ProFeatureItem>
-            <ProFeatureItem>Unlimited products</ProFeatureItem>
-            <ProFeatureItem>Unlimited dashboard users</ProFeatureItem>
-            <ProFeatureItem>
-              {pro?.analytics_retention_days ?? 90}-day analytics retention
-            </ProFeatureItem>
-            <ProFeatureItem>Remove attribution footer</ProFeatureItem>
-          </ul>
-
-          <ButtonLink
-            href="/auth/login"
-            size="lg"
-            className="w-full justify-center shadow-lg shadow-brand-500/25"
-          >
-            Start Pro trial
-          </ButtonLink>
-        </div>
-
-        {/* Enterprise */}
-        <div className="bg-white border border-ink-200 rounded-xl p-8 flex flex-col transition-all hover:shadow-md hover:-translate-y-1">
-          <div className="mb-8">
-            <h3 className="text-lg font-bold text-ink-950 mb-2">Enterprise</h3>
-            <div className="flex items-baseline gap-1">
-              <span className="text-4xl font-extrabold text-ink-950">Custom</span>
-            </div>
-            <p className="text-sm text-ink-500 mt-2">Self-host license included</p>
-          </div>
-
-          <ul className="space-y-4 mb-10 flex-grow">
-            <FeatureItem>Everything in Pro (unlimited)</FeatureItem>
-            <FeatureItem>Self-host (BSL license)</FeatureItem>
-            <FeatureItem>Custom paywall branding</FeatureItem>
-            <FeatureItem>
-              {enterprise?.analytics_retention_days ?? 365}-day analytics retention
-            </FeatureItem>
-            <FeatureItem>Priority support + SLA</FeatureItem>
-            <FeatureItem>SOC 2 / GDPR compliance package</FeatureItem>
-          </ul>
-
-          <ButtonLink
-            href="mailto:sales@paycraft.mobilebytesensei.com"
-            variant="secondary"
-            size="lg"
-            className="w-full justify-center border-2 border-ink-900 !text-ink-900 hover:!bg-ink-900 hover:!text-white transition-all"
-          >
-            Contact sales
-          </ButtonLink>
-        </div>
-      </section>
-
-      {/* Comparison Table */}
-      <section className="max-w-7xl mx-auto overflow-x-auto pb-8">
-        <h2 className="text-2xl font-bold text-ink-950 mb-8 text-center">
-          Feature comparison
-        </h2>
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="text-left border-b border-ink-100">
-              <th className="py-6 font-semibold text-ink-500 text-[11px] uppercase tracking-wider w-2/5">
-                Feature
-              </th>
-              <th className="py-6 font-semibold text-ink-500 text-[11px] uppercase tracking-wider text-center">
-                Free
-              </th>
-              <th className="py-6 font-semibold text-ink-500 text-[11px] uppercase tracking-wider text-center">
-                Pro
-              </th>
-              <th className="py-6 font-semibold text-ink-500 text-[11px] uppercase tracking-wider text-center">
-                Enterprise
-              </th>
-            </tr>
-          </thead>
-          <tbody className="text-[13px]">
-            {[
-              {
-                label: "Included Subscribers",
-                free: (free?.max_active_subscribers ?? 100).toLocaleString(),
-                pro: (pro?.max_active_subscribers ?? 1000).toLocaleString(),
-                enterprise: "Custom",
-              },
-              {
-                label: "Monthly Webhook Events",
-                free: (free?.max_webhook_events_per_month ?? 10000).toLocaleString(),
-                pro: "Unlimited",
-                enterprise: "Unlimited",
-              },
-              {
-                label: "Connected Providers",
-                free: String(free?.max_connected_providers ?? 1),
-                pro: "Unlimited",
-                enterprise: "Unlimited",
-              },
-              {
-                label: "Dashboard Users",
-                free: String(free?.max_dashboard_users ?? 3),
-                pro: "Unlimited",
-                enterprise: "Unlimited",
-              },
-              {
-                label: "Analytics Retention",
-                free: `${free?.analytics_retention_days ?? 7} days`,
-                pro: `${pro?.analytics_retention_days ?? 90} days`,
-                enterprise: `${enterprise?.analytics_retention_days ?? 365} days`,
-              },
-            ].map((row) => (
-              <tr
-                key={row.label}
-                className="border-b border-ink-100 hover:bg-ink-50 transition-colors"
+      {/* ── Tiers ────────────────────────────────────────────────────────────
+          Pro is raised by BORDER COLOUR and a small tag only. A violet fill
+          would shout on a page whose whole argument is restraint. */}
+      <section className="py-14">
+        <div className="grid gap-5 md:grid-cols-3">
+          {cards.map((t) => (
+            <div
+              key={t.name}
+              className={`flex flex-col rounded-xl border bg-white p-6 ${
+                t.emphasis ? "border-brand-500" : "border-ink-200"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-ink-900">{t.name}</h2>
+                {t.emphasis && (
+                  <span className="rounded-full border border-brand-300 px-2.5 py-0.5 font-mono text-2xs font-semibold uppercase tracking-[0.06em] text-brand-700">
+                    Most teams
+                  </span>
+                )}
+              </div>
+              <div className="mt-5 flex items-baseline gap-1.5">
+                <span className="text-4xl font-semibold tabular-nums tracking-tight text-ink-950">
+                  {t.price}
+                </span>
+                {t.cadence && <span className="text-sm text-ink-500">{t.cadence}</span>}
+              </div>
+              <p className="mt-2 text-sm text-ink-500">{t.for}</p>
+              <ul className="mt-6 flex-1 space-y-2.5 text-sm text-ink-700">
+                {t.points.map((p) => (
+                  <li key={p} className="flex gap-2.5">
+                    <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
+                    <span>{p}</span>
+                  </li>
+                ))}
+              </ul>
+              <ButtonLink
+                href={t.cta.href}
+                variant={t.emphasis ? "primary" : "secondary"}
+                className="mt-7 w-full justify-center"
               >
-                <td className="py-5 font-medium text-ink-950">{row.label}</td>
-                <td className="py-5 text-center text-ink-600">{row.free}</td>
-                <td className="py-5 text-center text-ink-600">{row.pro}</td>
-                <td className="py-5 text-center text-ink-600">{row.enterprise}</td>
-              </tr>
-            ))}
-
-            {/* Boolean feature rows */}
-            {[
-              { label: "Self-host Option", free: false, pro: false, enterprise: true },
-              { label: "Whitelabel Paywall", free: false, pro: true, enterprise: true },
-              { label: "Priority Support & SLA", free: false, pro: false, enterprise: true },
-            ].map((row) => (
-              <tr
-                key={row.label}
-                className="border-b border-ink-100 hover:bg-ink-50 transition-colors"
-              >
-                <td className="py-5 font-medium text-ink-950">{row.label}</td>
-                <td className="py-5 text-center">
-                  {row.free ? <Check className="inline-block w-4 h-4 text-green-500" strokeWidth={2.5} /> : <span className="text-ink-300">—</span>}
-                </td>
-                <td className="py-5 text-center">
-                  {row.pro ? <Check className="inline-block w-4 h-4 text-green-500" strokeWidth={2.5} /> : <span className="text-ink-300">—</span>}
-                </td>
-                <td className="py-5 text-center">
-                  {row.enterprise ? <Check className="inline-block w-4 h-4 text-green-500" strokeWidth={2.5} /> : <span className="text-ink-300">—</span>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                {t.cta.label}
+              </ButtonLink>
+            </div>
+          ))}
+        </div>
       </section>
 
-      <div className="text-center mt-12 text-xs text-ink-500">
-        Questions about pricing?{" "}
-        <Link
-          href="mailto:sales@paycraft.mobilebytesensei.com"
-          className="text-brand-600 hover:text-brand-700 font-medium"
-        >
-          sales@paycraft.mobilebytesensei.com
-        </Link>
-      </div>
-    </main>
-  )
-}
+      {/* ── The answer everyone arrives with ─────────────────────────────────
+          Placed between the cards and the matrix so it cannot be scrolled past. */}
+      <section className="pb-14">
+        <div className="rounded-xl border border-brand-200 bg-brand-50 p-6 md:p-8">
+          <h2 className="text-lg font-semibold text-ink-900">
+            Zero revenue share, on every tier
+          </h2>
+          <p className="mt-2 max-w-[70ch] text-ink-700">
+            Stripe, Razorpay, Play and the App Store settle directly to your account. PayCraft
+            never sits in the money path and never holds funds, which is also why it is out of PCI
+            scope.
+          </p>
+        </div>
+      </section>
 
-function FeatureItem({ children }: { children: React.ReactNode }) {
-  return (
-    <li className="flex items-start gap-3 text-sm text-ink-700">
-      <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-      <span>{children}</span>
-    </li>
-  )
-}
+      {/* ── Matrix. Revenue share is row one, reading None across. ───────── */}
+      <section className="border-t border-ink-200 py-14">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-ink-200">
+                {["", "Free", "Pro", "Enterprise"].map((h, i) => (
+                  <th
+                    key={h || i}
+                    className={`py-3 font-mono text-2xs font-semibold uppercase tracking-[0.07em] text-ink-500 ${
+                      i === 0 ? "text-left" : "text-center"
+                    }`}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {matrix.map((r) => (
+                <tr key={r.row} className="border-b border-ink-200 last:border-0">
+                  <td className="py-4 pr-4 text-ink-800">{r.row}</td>
+                  <td className="py-4 text-center tabular-nums text-ink-700">{r.free}</td>
+                  <td className="py-4 text-center tabular-nums text-ink-700">{r.pro}</td>
+                  <td className="py-4 text-center tabular-nums text-ink-700">{r.ent}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
-function ProFeatureItem({ children }: { children: React.ReactNode }) {
-  return (
-    <li className="flex items-start gap-3 text-sm text-ink-700">
-      <CheckCircle2 className="w-5 h-5 text-brand-600 shrink-0 mt-0.5" />
-      <span>{children}</span>
-    </li>
-  )
-}
+      <section className="border-t border-ink-200 py-14">
+        <div className="rounded-xl border border-ink-200 bg-ink-50 p-6 md:p-8">
+          <h2 className="text-lg font-semibold text-ink-900">Or host it yourself</h2>
+          <p className="mt-2 max-w-[70ch] text-ink-600">
+            Every tier can be replaced by your own Supabase project. The SDK is Apache-2.0 and the
+            schema and edge functions ship in the repo. Self-hosting costs nothing and is not a
+            downgrade: you lose the hosted dashboard, not the product.
+          </p>
+          <Link
+            href="/self-host"
+            className="mt-4 inline-block text-sm font-medium text-brand-700 underline underline-offset-4"
+          >
+            Self-hosting guide
+          </Link>
+        </div>
+      </section>
 
-function InfoItem({ children }: { children: React.ReactNode }) {
-  return (
-    <li className="flex items-start gap-3 text-sm text-ink-400">
-      <span className="w-5 h-5 shrink-0 flex items-center justify-center mt-0.5 text-ink-400">
-        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-        </svg>
-      </span>
-      <span>{children}</span>
-    </li>
+      <section className="border-t border-ink-200 py-14">
+        <h2 className="mb-8 text-2xl font-semibold tracking-tight text-ink-900">Questions</h2>
+        <div className="grid gap-x-10 gap-y-7 md:grid-cols-2">
+          {faq.map((f) => (
+            <div key={f.q}>
+              <h3 className="font-medium text-ink-900">{f.q}</h3>
+              <p className="mt-1.5 text-sm leading-relaxed text-ink-600">{f.a}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
   )
 }

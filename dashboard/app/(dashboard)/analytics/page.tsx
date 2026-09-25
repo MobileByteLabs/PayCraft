@@ -22,7 +22,7 @@ export default async function AnalyticsPage() {
   const { tenant } = await requireTenant()
   const supabase = createClient()
 
-  const [mrrRes, churnRes, subCountRes, revenueRes, webhookRes] =
+  const [mrrRes, churnRes, subCountRes, revenueRes, webhookRes, subsSeriesRes] =
     await Promise.all([
       supabase
         .from("tenant_mrr_view")
@@ -50,6 +50,13 @@ export default async function AnalyticsPage() {
         .select("total,success,success_rate")
         .eq("tenant_id", tenant.id)
         .maybeSingle(),
+      // Raw subscription rows for the REAL month-by-month series below. tenant_mrr_view is
+      // point-in-time, so a trend has to be derived from the rows themselves; the alternative
+      // this replaces was inventing the trend outright.
+      supabase
+        .from("subscriptions")
+        .select("created_at,updated_at,status")
+        .eq("tenant_id", tenant.id),
     ])
 
   const mrrToday = mrrRes.data?.mrr_dollars ?? 0
@@ -62,15 +69,77 @@ export default async function AnalyticsPage() {
   const webhookTotal = webhookRes.data?.total ?? 0
   const webhookFailed = webhookTotal - webhookSuccess
 
-  // tenant_mrr_view is point-in-time; synthesize a 6-month curve until we
-  // ship the snapshot history table.
-  const mrrSeries = synthesizeMRRSeries(mrrToday)
+  // ── REAL series, computed from subscriptions. Nothing here is synthesized. ────────────────────
+  //
+  // WHAT THIS REPLACES, because it matters more than the code does:
+  //
+  //   `synthesizeMRRSeries(mrrToday)` ran UNCONDITIONALLY and fabricated a six-month curve from
+  //   today's figure as `current * (0.55 + i * 0.075)` — a guaranteed upward slope, drawn whether
+  //   the business was growing, flat or shrinking. `synthesizeChurnSeries()` did the same for
+  //   churn whenever the view returned no rows, inventing a rate falling from 4.1% to 2.35%:
+  //   fabricated good news, on the exact chart an operator reads to decide whether retention is
+  //   working.
+  //
+  //   Neither was labelled as an estimate on screen. The overview page states in its own header
+  //   that its series is "computed from REAL subscriptions rows, never synthesized", so this page
+  //   was also contradicting the product's own documented standard.
+  //
+  // A missing window now renders an explicit empty state instead of a curve, because an invented
+  // trend and a real one are indistinguishable once drawn, and the invented one is always
+  // flattering.
+  const monthKey = (d: Date) => d.toISOString().slice(0, 7)
+  const monthLabel = (ym: string) =>
+    new Date(`${ym}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "short" })
+
+  const months: string[] = []
+  {
+    const cursor = new Date()
+    cursor.setUTCDate(1)
+    cursor.setUTCHours(0, 0, 0, 0)
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(cursor)
+      d.setUTCMonth(cursor.getUTCMonth() - i)
+      months.push(monthKey(d))
+    }
+  }
+
+  // Active-at-month-end, from real rows: created on or before the month end, and not dead by then.
+  // ARPU is today's MRR over today's actives, which is the only rate this page can honestly know;
+  // applying it backwards gives a revenue SHAPE that follows real subscriber counts rather than a
+  // formula. When there are no subscriptions at all the series is empty and the chart says so.
+  const DEAD_STATES = new Set(["canceled", "cancelled", "expired", "incomplete_expired", "unpaid"])
+  const subsForSeries = (subsSeriesRes.data ?? []) as {
+    created_at: string
+    updated_at: string | null
+    status: string
+  }[]
+  const arpuNow = activeSubs > 0 ? mrrToday / activeSubs : 0
+
+  const mrrSeries =
+    subsForSeries.length === 0
+      ? []
+      : months.map((ym) => {
+          const end = new Date(`${ym}-01T00:00:00Z`)
+          end.setUTCMonth(end.getUTCMonth() + 1)
+          const endMs = end.getTime() - 1
+          let active = 0
+          for (const s of subsForSeries) {
+            const created = Date.parse(s.created_at)
+            if (Number.isNaN(created) || created > endMs) continue
+            const updated = s.updated_at ? Date.parse(s.updated_at) : null
+            const deadByThen = DEAD_STATES.has(s.status) && updated !== null && updated <= endMs
+            if (!deadByThen) active++
+          }
+          return { month: monthLabel(ym), mrr: Math.round(active * arpuNow) }
+        })
+
   const churnSeries = (churnRes.data ?? []).map((r: any) => ({
     month: new Date(r.month).toLocaleDateString("en-US", { month: "short" }),
     churn_rate: r.churn_rate ?? 0,
   }))
-  const churnDisplay =
-    churnSeries.length === 0 ? synthesizeChurnSeries() : churnSeries
+  // No fallback. An empty churn view means there is no churn history yet, and saying so is the
+  // honest answer.
+  const churnDisplay = churnSeries
 
   const revenueByPlan = revenueRes.data ?? []
 
@@ -221,8 +290,18 @@ export default async function AnalyticsPage() {
               Last 90 days
             </span>
           </div>
+          {/* An empty series renders as an explicit statement, never as a flat line at zero.
+              A confident flat line and "we have no data" look identical once drawn, and the
+              reader cannot tell which one they are looking at. */}
           <div className="h-64">
-            <MRRChart data={mrrSeries} />
+            {mrrSeries.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center rounded-lg border border-dashed border-ink-200 px-6 text-center">
+              <p className="text-sm font-medium text-ink-700">"No revenue history yet"</p>
+              <p className="mt-1 text-xs text-ink-500">"This chart fills in as subscriptions are created. Nothing is estimated."</p>
+            </div>
+            ) : (
+              <MRRChart data={mrrSeries} />
+            )}
           </div>
           <div className="mt-4 flex justify-between text-[11px] text-ink-500 font-bold uppercase tracking-wider">
             {mrrSeries.map((s) => (
@@ -242,7 +321,14 @@ export default async function AnalyticsPage() {
             </p>
           </div>
           <div className="h-64">
-            <ChurnChart data={churnDisplay} />
+            {churnDisplay.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center rounded-lg border border-dashed border-ink-200 px-6 text-center">
+              <p className="text-sm font-medium text-ink-700">"No churn history yet"</p>
+              <p className="mt-1 text-xs text-ink-500">"Churn is measured once subscriptions have had a full period to renew or lapse."</p>
+            </div>
+            ) : (
+              <ChurnChart data={churnDisplay} />
+            )}
           </div>
         </div>
 
@@ -360,23 +446,4 @@ export default async function AnalyticsPage() {
       </div>
     </div>
   )
-}
-
-// ── helpers ──────────────────────────────────────────────────────────────
-
-function synthesizeMRRSeries(current: number) {
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
-  if (current === 0) return months.map((m) => ({ month: m, mrr: 0 }))
-  return months.map((m, i) => ({
-    month: m,
-    mrr: Math.round(current * (0.55 + i * 0.075)),
-  }))
-}
-
-function synthesizeChurnSeries() {
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
-  return months.map((m, i) => ({
-    month: m,
-    churn_rate: 0.041 - i * 0.0035,
-  }))
 }
