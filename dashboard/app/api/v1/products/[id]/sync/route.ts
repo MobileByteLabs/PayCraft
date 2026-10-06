@@ -34,6 +34,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       onlyProvider: provider as never,
       existingStripeProductId: loaded.product.stripe_product_id ?? undefined,
       existingPrices: loaded.product.stripe_price_id_by_currency ?? undefined,
+      existingStripeProductIdTest: loaded.product.stripe_product_id_test ?? undefined,
+      existingPricesTest: loaded.product.stripe_price_id_by_currency_test ?? undefined,
       existingRazorpayPlanIds: loaded.product.razorpay_plan_id_by_currency ?? undefined,
       existingRazorpayPlanIdsTest: loaded.product.razorpay_plan_id_by_currency_test ?? undefined,
       existingPlayProductId: loaded.product.play_product_id ?? undefined,

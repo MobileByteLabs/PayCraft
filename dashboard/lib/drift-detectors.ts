@@ -120,14 +120,29 @@ export async function detectProductMissingAtProvider(
           action_hint: `POST /api/products/${r.id}/sync?provider=stripe`,
         })
       }
-    } catch {
+    } catch (e: any) {
+      // KEEP the Stripe error. A bare `catch {}` collapsed "No such product" (deleted, or created
+      // under a different account), "Invalid API Key" (rotated/revoked) and a transient network
+      // fault into one indistinguishable "not readable" — so an operator reading this finding could
+      // not tell a data problem from a credential problem. Measured 2026-10-06: all 7 products
+      // across two tenants reported "not readable" and the output contained nothing to act on.
+      const code = e?.code ?? e?.rawType ?? e?.type ?? null
+      const why = e?.message ? ` — ${e.message}` : ""
       out.push({
         kind: "product-missing-at-provider",
         tenant_id: tenantId,
         subject: `product:${r.sku}`,
         subject_id: r.id,
-        detail: `stripe_product_id=${r.stripe_product_id} not readable at Stripe`,
-        action_hint: `POST /api/products/${r.id}/sync?provider=stripe`,
+        detail:
+          `stripe_product_id=${r.stripe_product_id} not readable at Stripe` +
+          (code ? ` [${code}]` : "") +
+          why,
+        action_hint:
+          code === "resource_missing"
+            ? `The id does not exist in the CONNECTED Stripe account — either it was deleted, or it ` +
+              `was created under a different account than the key now stored. Re-sync creates a new ` +
+              `product: POST /api/products/${r.id}/sync?provider=stripe`
+            : `POST /api/products/${r.id}/sync?provider=stripe`,
       })
     }
   }
@@ -501,7 +516,11 @@ export async function detectNoTestCredential(
       tenant_id: tenantId,
       subject: `provider:${r.provider}`,
       detail:
-        `${r.provider} has a live key (${liveKey}) and NO test key on its shared connection, so ` +
+        // Key IDENTITY, never the key: this `detail` is returned by /api/sync/drift and lands in
+        // logs, CI output and agent transcripts. Publishable keys are low-tier, but emitting any
+        // credential verbatim from an API response is the wrong default, and the same string shape
+        // is reused for providers whose key_id is not publishable.
+        `${r.provider} has a live key (…${String(liveKey).slice(-6)}) and NO test key on its shared connection, so ` +
         `product sync can only ` +
         `create LIVE products and \`test_payment_links\` stays empty. A \`pk_test_\` build resolves ` +
         `no link and cannot check out; testing this provider means transacting against REAL ` +

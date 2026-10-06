@@ -688,13 +688,26 @@ phase_6_smoke() {
         echo "  ⚠ /auth/login HTTP $result — may not contain expected markers"
     fi
 
-    # Edge Function reachability — /config is the SDK's critical endpoint. No-auth probe:
-    # 401 = function deployed & auth-gated (correct); 404 = NOT deployed.
+    # Edge Function reachability — /config is the SDK's critical endpoint. This probe sends NO
+    # apiKey, so the function's CORRECT answer is a rejection, not a 200. What it distinguishes is
+    # "deployed and validating" from "not there at all":
+    #
+    #   400 missing_apiKey  → deployed, validating its input      (the no-arg probe's real answer)
+    #   401 invalid_apiKey  → deployed, authenticating            (a wrong key)
+    #   200                 → deployed (only if a key were sent)
+    #   404 NOT_FOUND       → NOT deployed  ← the one real failure
+    #   000/5xx             → unreachable / broken runtime
+    #
+    # 400 was missing from the accept list, so phase 6 FAILED a deploy whose every other phase had
+    # passed and whose function was healthy — measured 2026-10-06, where the probe returned
+    # `{"error":"missing_apiKey"}` and the chain aborted. Verified the same day: a function that
+    # genuinely does not exist returns 404 `{"code":"NOT_FOUND"}`, so the distinction is real and
+    # 404 remains a hard failure.
     result=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 "https://${SUPABASE_REF}.supabase.co/functions/v1/config" 2>&1) || true
-    if [[ "$result" =~ ^(401|200)$ ]]; then
-        echo "  ✓ Edge Function /config reachable (HTTP $result — deployed)"
+    if [[ "$result" =~ ^(400|401|200)$ ]]; then
+        echo "  ✓ Edge Function /config reachable (HTTP $result — deployed + validating)"
     else
-        echo "  ✗ Edge Function /config → HTTP $result (404 = not deployed)"; fails=$((fails+1))
+        echo "  ✗ Edge Function /config → HTTP $result (404 = not deployed, 000 = unreachable)"; fails=$((fails+1))
     fi
     rm -f /tmp/.health.json /tmp/.login.html
 

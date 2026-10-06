@@ -140,7 +140,7 @@ async function loadFullProductBodies(
   const { data: products = [] } = await supabase
     .from("tenant_products")
     .select(
-      "id, sku, type, display_name, store_description, interval, base_price_cents, base_currency, trial_enabled, trial_duration_days, trial_per_platform, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency, play_product_id, app_store_product_id",
+      "id, sku, type, display_name, store_description, interval, base_price_cents, base_currency, trial_enabled, trial_duration_days, trial_per_platform, stripe_product_id, stripe_price_id_by_currency, stripe_product_id_test, stripe_price_id_by_currency_test, live_stripe_ids_verified, razorpay_plan_id_by_currency, play_product_id, app_store_product_id",
     )
     .eq("tenant_id", tenantId)
     .in("id", ids)
@@ -224,6 +224,8 @@ export async function POST() {
         body,
         existingStripeProductId: body.stripe_product_id ?? undefined,
         existingPrices: body.stripe_price_id_by_currency ?? undefined,
+        existingStripeProductIdTest: body.stripe_product_id_test ?? undefined,
+        existingPricesTest: body.stripe_price_id_by_currency_test ?? undefined,
       })
       // `stripeSyncProduct` returns structured status ({ok,skipped,error,reason}); the
       // return value used to be DISCARDED here and the outcome inferred from whether

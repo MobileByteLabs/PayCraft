@@ -53,8 +53,17 @@ describe("detectNoTestCredential", () => {
     expect(out).toHaveLength(1)
     expect(out[0].kind).toBe("no-test-credential")
     expect(out[0].subject).toBe("provider:stripe")
-    // QUOTES the offending value — a finding you cannot confirm is noise.
-    expect(out[0].detail).toContain("sk_live_abc")
+    // IDENTIFIES the offending value — a finding you cannot confirm is noise. It used to quote the
+    // key in full; it is now masked to the last 6 characters, which keeps the finding confirmable
+    // while keeping a credential out of an API response.
+    //
+    // The narrowing is deliberate, and this fixture is the reason: `key_id` is not always
+    // publishable. `sk_live_abc` here is SECRET tier, and this `detail` is returned by
+    // /api/sync/drift — it reaches logs, CI output and agent transcripts. One such detail leaked a
+    // live publishable key into a transcript on 2026-10-06; the same code path would have leaked a
+    // secret one for a provider whose key_id looks like this fixture.
+    expect(out[0].detail).toContain("ve_abc")
+    expect(out[0].detail).not.toContain("sk_live_abc")
     // And names a concrete next action, not a description of the problem.
     expect(out[0].action_hint).toMatch(/TEST-mode key/i)
     expect(out[0].subject_id).toBe("stripe")
