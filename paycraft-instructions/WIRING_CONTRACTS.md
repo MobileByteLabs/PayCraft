@@ -1,8 +1,8 @@
-example-provenance: 9cb5162c248fb9426d460f2328ffda6882c29462
+example-provenance: a13bceca0e39c8b82a41b342160b5fdc6140fef9
 
 # WIRING_CONTRACTS.md — DI, initialization order, and the repository seam
 
-> Consumed by `/idea-paycraft` chain step 5 (client wiring). Authored by `/paycraft-dev fold`.
+> Consumed by `/idea-paycraft` chain step 5 (client wiring). Authored by `/paycraft-corpus-fold`.
 
 ## The one initialization order that works
 
@@ -49,7 +49,8 @@ Platform-specific pieces are additive Koin modules layered on top, never a secon
 | `PayCraftRealtime` | wraps the qualified `SupabaseClient` | Broadcast invalidation pings |
 | `NativeBillingClient` | `platformDefaultNativeBillingClient() ?: WebCheckoutNativeBillingClient()` | Android **and iOS** resolve a real client automatically |
 | `EntitlementCache` | `EntitlementCache(service, SettingsEntitlementDao())` | Store5 read-through + offline last-known-good |
-| `EntitlementRepository` | `EntitlementRepository(cache, native, service)` | The repository seam |
+| `EntitlementRepository` | `EntitlementRepository(cache, native, service)` | The internal read seam — NOT what a consumer injects |
+| `PayCraftRepository` | `PayCraftRepositoryImpl(billing = get(), entitlements = get())` | **The one binding a consumer app injects** (PUBLIC_API.md) |
 | `BillingManager` | `PayCraftBillingManager(service, store, repo, nativeBillingClient)` | The headless surface |
 | `ConfigCache` | `ConfigCache(Settings())` | Persistent `SuiteConfig` cache — what makes a cold/offline start render real products |
 | `HttpClient` | Ktor + `ContentNegotiation(json)` | |
@@ -104,15 +105,31 @@ client. It is null-equivalent until the first config lands (cached or fetched), 
 
 ## The repository seam
 
-`EntitlementRepository(cache, native, service)` is the single place read paths converge:
-Store5 `EntitlementCache` for read-through + offline truth, `NativeBillingClient` for store-side
-purchases/restore, `PayCraftService` for server truth. A consumer that wants its own entitlement
-gating should read `BillingManager.isPremium` / `billingState`, not reach past it into the cache.
+Two layers, and a consumer binds only the outer one.
+
+**`PayCraftRepository` — what the app injects.** `PayCraftRepositoryImpl` composes `BillingManager`
++ `EntitlementRepository` + `PayCraft.suiteConfigFlow`, exposing `isPremium` / `entitlement` /
+`plans` / `checkout` / `restore` / `manageSubscription` / `refresh`. **A consumer app writes no
+repository, store, or API wrapper of its own** — doing so is the 670 LOC (measured on `mbs/cappy`:
+five modules, `PayCraftApiImpl` alone 233 lines over 12 SDK call sites) that this binding deletes.
+Gate UI on `entitlement` (which preserves tier across `Loading`/`PaymentPending`/`Error`) rather
+than on `billingState`.
+
+**`EntitlementRepository(cache, native, service)` — internal.** The single place read paths
+converge: Store5 `EntitlementCache` for read-through + offline truth, `NativeBillingClient` for
+store-side purchases/restore, `PayCraftService` for server truth. It threads an `appUserId` and
+speaks `StoreReadResponse<Entitlement>`; that is the plumbing the facade hides, so do not reach
+past the facade into it — and never into the cache.
+
+For tests and `@Preview`s, inject `FakePayCraftRepository` (it ships in the MAIN artifact, so it
+reaches `commonTest` with no extra wiring).
 
 ## Verification an integrator can run
 
 - `PayCraft.apiKey` non-null immediately after `initialize` (synchronous capture), and
   `PayCraft.isConfigured == true`.
+- `getKoin().get<PayCraftRepository>()` resolves without throwing, and `isPremium` / `entitlement`
+  emit immediately (Free before the first read, never empty).
 - `getKoin().get<BillingManager>()` resolves without throwing — **including before `initialize`**,
   where it must answer Free rather than crash.
 - `getKoin().get<NativeBillingClient>()` is NOT `WebCheckoutNativeBillingClient` on Android/iOS when

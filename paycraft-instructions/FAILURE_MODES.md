@@ -1,8 +1,8 @@
-example-provenance: 9cb5162c248fb9426d460f2328ffda6882c29462
+example-provenance: a13bceca0e39c8b82a41b342160b5fdc6140fef9
 
 # FAILURE_MODES.md — enumerated integration failures and their source-level remedies
 
-> Consumed by `/idea-paycraft`'s auto-heal loop. Authored by `/paycraft-dev fold`.
+> Consumed by `/idea-paycraft`'s auto-heal loop. Authored by `/paycraft-corpus-fold`.
 >
 > Every remedy below fixes the **source** of the failure. Weakening an assertion, deleting a check,
 > downgrading a probe, or stubbing a handler to make a step go green is forbidden — it hides the
@@ -16,7 +16,7 @@ never faked green and never spun on.
 
 | # | Symptom | Root cause | Class | Remedy |
 |---|---|---|:--:|---|
-| F1 | `IllegalArgumentException: apiKey must start with pk_test_ or pk_live_` | Placeholder/blank publishable key | heal | Materialize the `pk_` key for this build type (KEY_TIERING.md) and wire it into the shared init |
+| F1 | `IllegalArgumentException: apiKey must be a PayCraft publishable key (pk_…)` | A non-publishable value reached `initialize` — most often an `sk_` secret key, or a blank/garbled literal | heal | Materialize the app's ONE `pk_` key (KEY_TIERING.md) and wire it into the shared init. A `pk_YOUR…` placeholder does NOT throw — it surfaces as F2 instead |
 | F2 | Billing silently reports Free on a configured app | `startKoin` ran before `PayCraft.initialize`, so `PayCraftService` materialized with a null api key | heal | Reorder: `initialize` → `startKoin` (WIRING_CONTRACTS.md). This no longer crashes — it answers Free, which is harder to notice |
 | F3 | `requireConfig()` throws | `initialize` never ran on this platform | heal | Move init into the shared `commonMain` seam; a per-platform init silently skips other targets |
 | F4 | Billing works on Android only | `initialize` in the Android `Application` class | heal | Same as F3 — commonMain-first |
@@ -82,7 +82,8 @@ never faked green and never spun on.
 | # | Symptom | Root cause | Class | Remedy |
 |---|---|---|:--:|---|
 | F33 | An `sk_`-tier credential found in app source | Secret pasted into the client | heal + **rotate** | Remove, rotate the credential, re-materialize at the function/CI consumer |
-| F34 | Live buyers hit test payment links | `pk_test_` key in a release build | heal | Wire the `pk_live_` variant to the release build type |
+| F34 | Live buyers hit test payment links | A LEGACY `pk_test_` key in a release build (a mode-less `pk_` key cannot cause this — it resolves Live on a release build) | heal | Wire the app's one `pk_` key, or the `pk_live_` variant if the app is still on a legacy pair |
+| F35 | A debug build charges real money / a release build takes no payment | The app's one key is a legacy MODE-PREFIXED key, so resolution stops at step 2 and the build-type rule never applies — `provision_tenant` still mints a `pk_test_`/`pk_live_` pair, so this is the common case today | heal | Set `InitOptions.modeOverride` explicitly, or obtain a mode-less `pk_<hex>` key (KEY_TIERING.md provisioning caveat) |
 | F35 | A `pk_` key flagged as a leak | Publishable key mistaken for a secret | — | Not a defect. Verify vault origin and build-type variant instead (KEY_TIERING.md) |
 | F35b | A row in `account_api_keys` whose `key_hash` starts with `sk_acct_` | A code path stored the plaintext | heal + **rotate** | Hash through `_shared/account-key.ts`; the column's structural check should have refused it — find what bypassed it |
 
@@ -110,5 +111,5 @@ never faked green and never spun on.
 | F48 | A step reports green with no evidence | Verdict asserted, not observed | — | A pass requires a fresh capture/probe output; "should work" is not a verdict |
 | F49 | A step is green because its evidence counted rows | Existence evidence answering a completeness claim | — | Evidence EXISTS ≠ evidence is TRUE. `{count: 3, read_back: true}` was accurate while every product was unsellable |
 | F50 | One platform's verdict inherited by another | Per-platform verdicts collapsed | — | Verdicts are per-platform and never cross-inherit |
-| F51 | Corpus disagrees with the SDK | Corpus stale | heal | Re-fold via `/paycraft-dev fold` before integrating (PCA-4) |
+| F51 | Corpus disagrees with the SDK | Corpus stale | heal | Re-fold via `/paycraft-corpus-fold` before integrating (PCA-4) |
 | F52 | Corpus version ≠ resolved artifact version | `corpus-artifact-mismatch` | heal | Align the consumer's `cmp-paycraft` version, or re-fold + publish. On a `/lib-integrate` composite link there is no artifact version — the gate compares `sdk_head_commit` against source HEAD instead |
