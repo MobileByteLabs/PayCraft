@@ -44,12 +44,20 @@ blocks working integrations.
 > every host that did it could disagree with the SDK, and cappy shipped `pk_live_` in its debug
 > builds because the opt-in was never set. One key in; the SDK decides.
 
-> **Provisioning caveat (true at this commit).** `provision_tenant` still mints a PAIR —
-> `pk_test_<hex>` and `pk_live_<hex>` — and nothing mints a mode-less `pk_<hex>`. An app that takes
-> its single key from that pair therefore matches resolution **step 2**, so its mode is pinned by the
-> prefix and the build-type rule in step 3 never applies: a debug build carrying the `pk_live_` key
-> resolves **Live**. Until provisioning issues a mode-less key, a one-key app that wants the
-> build-type rule must either receive a `pk_<hex>` key or set `InitOptions.modeOverride` explicitly.
+> **Which key shape your app has, and why it matters.** Mode resolution stops at the first step
+> that answers, so a key carrying a mode segment **pins** mode and the build-type rule never runs.
+>
+> - **Mode-less `pk_<hex>` — the model.** Minted by `provision_app` and `rotate_api_key` as of
+>   **migration 148**, and by the dashboard's onboarding path. Resolution falls through to step 3, so
+>   debug builds take test payment links and release builds take live ones with no configuration.
+> - **Legacy `pk_test_`/`pk_live_` pair.** Every tenant provisioned BEFORE migration 148 has one, and
+>   those rows are deliberately left untouched — no backfill. Such an app matches **step 2**, so a
+>   debug build carrying the `pk_live_` key resolves **Live** and can take real money in development.
+>   That is `FAILURE_MODES.md` **F35**.
+>
+> On a legacy pair, either set `InitOptions.modeOverride` explicitly, or rotate to a mode-less key:
+> `rotate_api_key` issues `pk_<hex>` into BOTH columns once a tenant is one-key, and refuses to
+> re-split a one-key tenant back into a pair.
 
 **Governance, not secrecy.** A `pk_` key still originates from the vault so that rotation and
 ownership are tracked — it is materialized through `/secrets-handoff` at project level, lands in the

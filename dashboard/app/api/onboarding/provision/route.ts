@@ -35,8 +35,15 @@ export async function POST(req: NextRequest) {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
-  const apiKeyTest = "pk_test_" + randomHex(24)
-  const apiKeyLive = "pk_live_" + randomHex(24)
+  // ONE mode-less publishable key (migration 148). The SDK resolves test/live from the host build
+  // type, so a mode segment in the prefix would PIN mode at resolution step 2 and defeat that —
+  // a debug build carrying a `pk_live_` key takes real money. Same value in both NOT NULL columns:
+  // tenant lookup already matches either, and `api_key_test = api_key_live` is the signal that
+  // marks this tenant one-key for `rotate_api_key`.
+  //
+  // This path inserts the tenant DIRECTLY rather than calling provision_app, so it has to mint the
+  // key itself — which is exactly why the one-key change had to land in both places.
+  const apiKey = "pk_" + randomHex(24)
   const webhookSecretTest = "whsec_test_" + randomHex(24)
   const webhookSecretLive = "whsec_live_" + randomHex(24)
 
@@ -44,8 +51,8 @@ export async function POST(req: NextRequest) {
     .from("tenants")
     .insert({
       name: app_name,
-      api_key_test: apiKeyTest,
-      api_key_live: apiKeyLive,
+      api_key_test: apiKey,
+      api_key_live: apiKey,
       webhook_secret_test: webhookSecretTest,
       webhook_secret_live: webhookSecretLive,
       plan: "free",
