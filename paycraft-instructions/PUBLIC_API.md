@@ -132,13 +132,16 @@ interface PayCraftRepository {
 enum class EntitlementTier { FREE, TRIAL, PREMIUM }
 
 data class EntitlementSummary(
-    val tier: EntitlementTier,
+    val tier: EntitlementTier = EntitlementTier.FREE,
     val roleIdentifier: String? = null,   // package role — for an app with several paid tiers
     val planSku: String? = null,
     val entitlementId: String? = null,
     val trialEndsAt: String? = null,
-    val willRenew: Boolean = false,
-) { val isPremium: Boolean; val isInTrial: Boolean }
+    val willRenew: Boolean = true,
+) {
+    val isPremium: Boolean   // TRIAL counts as premium — trialing users have access
+    val isInTrial: Boolean
+}
 ```
 
 Prefer this over `billingState` for GATING. `BillingState` describes where a purchase IS (Loading /
