@@ -104,6 +104,8 @@ export async function PATCH(
     productName: body.display_name,
     existingStripeProductId: existing.stripe_product_id ?? undefined,
     existingPrices: existing.stripe_price_id_by_currency ?? undefined,
+    existingStripeProductIdTest: existing.stripe_product_id_test ?? undefined,
+    existingPricesTest: existing.stripe_price_id_by_currency_test ?? undefined,
     existingRazorpayPlanIds: existing.razorpay_plan_id_by_currency ?? undefined,
     existingRazorpayPlanIdsTest: existing.razorpay_plan_id_by_currency_test ?? undefined,
   })

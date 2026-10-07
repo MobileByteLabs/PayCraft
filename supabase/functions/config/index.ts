@@ -90,6 +90,12 @@ function storeBindingFor(
   p: Record<string, unknown>,
   method: string | null,
   currency: string | null,
+  /**
+   * TEST-mode caller? Stripe product/price ids are ACCOUNT-scoped, so a live id is meaningless to a
+   * test-mode client and vice versa (migration 147). Handing a `pk_test_` build the live price id is
+   * how a test checkout ends up transacting against live objects.
+   */
+  isTest = false,
 ): { provider: string; product_id: string } | null {
   if (!method) return null
   const nonBlank = (v: unknown): string | null => {
@@ -106,12 +112,18 @@ function storeBindingFor(
   }
   // Web PSPs: the transactable id is the per-currency price/plan id for the served currency.
   if (method.startsWith("stripe")) {
-    const byCur = (p.stripe_price_id_by_currency ?? {}) as Record<string, string>
+    const byCur = (isTest
+      ? p.stripe_price_id_by_currency_test ?? {}
+      : p.stripe_price_id_by_currency ?? {}) as Record<string, string>
     const id = nonBlank(currency ? byCur[currency] ?? byCur[currency.toUpperCase()] : null) ??
-      nonBlank(p.stripe_product_id)
+      nonBlank(isTest ? p.stripe_product_id_test : p.stripe_product_id)
     return id ? { provider: method, product_id: id } : null
   }
   if (method.startsWith("razorpay")) {
+    // KNOWN GAP, deliberately unchanged here: migration 141 mode-scoped these columns and fixed the
+    // read in `dashboard/lib/checkout-initiator.ts`, but this one still reads the LIVE map for a
+    // test caller. Same defect class as the Stripe branch above, different provider — it belongs to
+    // a razorpay change with its own canary, not to 147.
     const byCur = (p.razorpay_plan_id_by_currency ?? {}) as Record<string, string>
     const id = nonBlank(currency ? byCur[currency] ?? byCur[currency.toUpperCase()] : null)
     return id ? { provider: method, product_id: id } : null
@@ -139,15 +151,16 @@ function storeBindingForChain(
   methods: string[],
   currency: string | null,
   platform: string | null,
+  isTest = false,
 ): { provider: string; product_id: string } | null {
   for (const m of methods) {
-    const b = storeBindingFor(p, m, currency)
+    const b = storeBindingFor(p, m, currency, isTest)
     if (b) return b
   }
   // Last resort 1: the store that owns this platform's digital lane.
   const nativeTail = platform === "ios" ? "app_store" : platform === "android" ? "google_play" : null
   if (nativeTail && !methods.includes(nativeTail)) {
-    const b = storeBindingFor(p, nativeTail, currency)
+    const b = storeBindingFor(p, nativeTail, currency, isTest)
     if (b) return b
   }
 
@@ -164,7 +177,7 @@ function storeBindingForChain(
   // narrowing their chain; they were expressing a preference, not asking for the sale to be dropped.
   for (const tail of ["stripe_card", "razorpay"]) {
     if (methods.includes(tail) || tail === nativeTail) continue
-    const b = storeBindingFor(p, tail, currency)
+    const b = storeBindingFor(p, tail, currency, isTest)
     if (b) return b
   }
   return null
@@ -509,7 +522,7 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
           trial_duration_days: trialDurationDays,
           discount_percent: discountActive ? discountPercent : null,
           discount_ends_at: discountActive ? discountEndsAt : null,
-          store_binding: storeBindingForChain(p, methodChain, String(p.global_currency ?? ""), callerPlatform),
+          store_binding: storeBindingForChain(p, methodChain, String(p.global_currency ?? ""), callerPlatform, isTestMode),
           resolved_price: {
             amount_cents: p.global_price_cents,
             currency: p.global_currency,
@@ -545,7 +558,7 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
         trial_duration_days: trialDurationDays,
         discount_percent: discountActive ? discountPercent : null,
         discount_ends_at: discountActive ? discountEndsAt : null,
-        store_binding: storeBindingForChain(p, methodChain, String(resolved_price.currency ?? ""), callerPlatform),
+        store_binding: storeBindingForChain(p, methodChain, String(resolved_price.currency ?? ""), callerPlatform, isTestMode),
         resolved_price,
         // AC-16 — both chains travel on EVERY product row, always. A client that only ever sees
         // the served value cannot tell a correct price from a lucky one; carrying the shadow makes

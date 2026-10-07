@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
   const { data: product } = await supabase
     .from("tenant_products")
     .select(
-      "id, sku, type, display_name, interval, base_price_cents, base_currency, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency, razorpay_plan_id_by_currency_test",
+      "id, sku, type, display_name, interval, base_price_cents, base_currency, stripe_product_id, stripe_price_id_by_currency, stripe_product_id_test, stripe_price_id_by_currency_test, live_stripe_ids_verified, razorpay_plan_id_by_currency, razorpay_plan_id_by_currency_test",
     )
     .eq("tenant_id", tenant.id)
     .eq("id", productId)
@@ -105,6 +105,8 @@ export async function POST(req: NextRequest) {
         body: syncBody,
         existingStripeProductId: product.stripe_product_id ?? undefined,
         existingPrices: product.stripe_price_id_by_currency ?? undefined,
+        existingStripeProductIdTest: product.stripe_product_id_test ?? undefined,
+        existingPricesTest: product.stripe_price_id_by_currency_test ?? undefined,
       }),
       razorpaySyncProduct(supabase, {
         tenantId: tenant.id,

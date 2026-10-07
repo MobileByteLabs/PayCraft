@@ -43,7 +43,7 @@ export async function POST(
   const { data: product, error } = await supabase
     .from("tenant_products")
     .select(
-      "id, sku, type, display_name, store_description, interval, base_price_cents, base_currency, trial_enabled, trial_duration_days, trial_per_platform, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency, razorpay_plan_id_by_currency_test, play_product_id, app_store_product_id",
+      "id, sku, type, display_name, store_description, interval, base_price_cents, base_currency, trial_enabled, trial_duration_days, trial_per_platform, stripe_product_id, stripe_price_id_by_currency, stripe_product_id_test, stripe_price_id_by_currency_test, live_stripe_ids_verified, razorpay_plan_id_by_currency, razorpay_plan_id_by_currency_test, play_product_id, app_store_product_id",
     )
     .eq("tenant_id", tenant.id)
     .eq("id", params.id)
@@ -76,6 +76,8 @@ export async function POST(
     onlyProvider: providerParam ?? undefined,
     existingStripeProductId: product.stripe_product_id ?? undefined,
     existingPrices: product.stripe_price_id_by_currency ?? undefined,
+    existingStripeProductIdTest: product.stripe_product_id_test ?? undefined,
+    existingPricesTest: product.stripe_price_id_by_currency_test ?? undefined,
     existingRazorpayPlanIds: product.razorpay_plan_id_by_currency ?? undefined,
     existingRazorpayPlanIdsTest: product.razorpay_plan_id_by_currency_test ?? undefined,
     existingPlayProductId: product.play_product_id ?? undefined,

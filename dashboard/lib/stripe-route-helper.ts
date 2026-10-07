@@ -4,6 +4,7 @@ import { syncProductToCashfree } from "@/lib/cashfree-product-sync"
 import { syncProductToGooglePlay } from "@/lib/googleplay-product-sync"
 import { syncProductToAppStore } from "@/lib/appstore-product-sync"
 import { createClient } from "@/lib/supabase-server"
+import { getConnectedStripeClient } from "@/lib/stripe-client"
 
 interface SyncOptions {
   tenantId: string
@@ -11,6 +12,14 @@ interface SyncOptions {
   body: Record<string, any>
   existingStripeProductId?: string
   existingPrices?: Record<string, string>
+  /**
+   * TEST-mode product + price ids. Separate since 147, for the reason 141 records for Razorpay:
+   * handing the LIVE product id to a TEST sync asks Stripe to update a live object with a test key,
+   * which fails with "a similar object exists in test mode" — or, worse, succeeds against a
+   * same-named test object and re-registers it as live.
+   */
+  existingStripeProductIdTest?: string
+  existingPricesTest?: Record<string, string>
   existingRazorpayPlanIds?: Record<string, string>
   /** TEST-mode plan ids. Separate since 141 — reusing the live map in a test sync re-registers a live plan id as test. */
   existingRazorpayPlanIdsTest?: Record<string, string>
@@ -100,7 +109,11 @@ export async function stripeSyncProduct(
   supabase: ReturnType<typeof createClient>,
   opts: SyncOptions,
 ): Promise<{ ok?: boolean; skipped?: boolean; error?: string; reason?: string }> {
-  const { tenantId, productId, body, existingStripeProductId, existingPrices } = opts
+  const {
+    tenantId, productId, body,
+    existingStripeProductId, existingPrices,
+    existingStripeProductIdTest, existingPricesTest,
+  } = opts
   try {
     // Unified status check — recognizes BOTH the OAuth Connect path and the
     // Manual API keys path. The old code only checked tenant_stripe_connect
@@ -143,6 +156,10 @@ export async function stripeSyncProduct(
     if (modes.length === 0) modes.push(connect.livemode ? "live" : "test")
 
     let lastResult: Awaited<ReturnType<typeof syncProductToStripe>> | null = null
+    // Per-mode results, kept APART. `lastResult` alone is what produced the 147 defect: `modes` is
+    // live-first, so the final iteration is TEST, and recording "the last successful sync" wrote
+    // test product/price ids into the columns live checkout reads.
+    const stripeResultsByMode = new Map<"live" | "test", Awaited<ReturnType<typeof syncProductToStripe>>>()
     const modeErrors: string[] = []
     for (const mode of modes) {
       // One mode failing must not abandon the other — a missing test account is not a reason to
@@ -155,12 +172,18 @@ export async function stripeSyncProduct(
           body.type,
           toStripeInterval(body.interval),
           prices,
-          { stripeProductId: existingStripeProductId, existingPrices },
+          mode === "test"
+            ? { stripeProductId: existingStripeProductIdTest, existingPrices: existingPricesTest }
+            : { stripeProductId: existingStripeProductId, existingPrices },
           trialDays,
           connect.source === "oauth" ? undefined : mode,
           supabase,
         )
         lastResult = result
+        // OAuth tenants carry a single account whose livemode the token decides; `mode` is the loop
+        // variable in both cases and is the only thing that knows which Stripe account `result`
+        // came from, so attribute here rather than after the loop.
+        stripeResultsByMode.set(mode, result)
         // Nest under the product's SKU so multi-product tenants don't overwrite
         // each other's currency entries. Migration 070 introduced this RPC.
         await supabase.rpc("tenant_providers_merge_payment_links", {
@@ -188,13 +211,20 @@ export async function stripeSyncProduct(
       }
     }
 
-    // Product/price ids are account-scoped; record the last successful sync's ids, preferring live
-    // because that is the account the shipped app bills through.
-    await supabase.rpc("tenant_products_set_stripe_ids", {
-      p_id: productId,
-      p_stripe_product_id: lastResult.stripeProductId,
-      p_stripe_price_id_by_currency: lastResult.pricesByCurrency,
-    })
+    // Product/price ids are ACCOUNT-scoped, so each mode's ids are recorded against that mode
+    // (migration 147). This used to write `lastResult` into the live columns — and `modes` is
+    // live-first, so the last iteration is TEST. Measured 2026-10-06 on cappy + reels-downloader:
+    // 7 products whose live columns held test-mode ids, which Stripe rejected with "a similar
+    // object exists in test mode, but a live mode key was used". The RPC refuses a mode it does not
+    // recognise rather than defaulting to live.
+    for (const [m, res] of stripeResultsByMode) {
+      await supabase.rpc("tenant_products_set_stripe_ids", {
+        p_id: productId,
+        p_stripe_product_id: res.stripeProductId,
+        p_stripe_price_id_by_currency: res.pricesByCurrency,
+        p_mode: m,
+      })
+    }
     return { ok: true }
   } catch (e: any) {
     console.error("[products] stripe sync failed:", e.message)
@@ -680,7 +710,12 @@ async function renderTenantReviewScreenshot(
 }
 
 export interface ProviderSyncEntry {
-  status: "synced" | "draft" | "failed" | "skipped"
+  /**
+   * `syncing` is the IN-FLIGHT marker written before the provider call, so a run that dies
+   * mid-flight cannot leave the previous run's `synced` standing (see runProductSync). It is never
+   * a terminal value: every completed run overwrites it.
+   */
+  status: "synced" | "draft" | "failed" | "skipped" | "syncing"
   error?: string
   warning?: string
   /**
@@ -755,7 +790,7 @@ export async function loadProductSyncBody(
   const { data: product, error } = await supabase
     .from("tenant_products")
     .select(
-      "id, sku, type, display_name, store_description, interval, base_price_cents, base_currency, trial_enabled, trial_duration_days, trial_per_platform, stripe_product_id, stripe_price_id_by_currency, razorpay_plan_id_by_currency, razorpay_plan_id_by_currency_test, play_product_id, app_store_product_id",
+      "id, sku, type, display_name, store_description, interval, base_price_cents, base_currency, trial_enabled, trial_duration_days, trial_per_platform, stripe_product_id, stripe_price_id_by_currency, stripe_product_id_test, stripe_price_id_by_currency_test, live_stripe_ids_verified, razorpay_plan_id_by_currency, razorpay_plan_id_by_currency_test, play_product_id, app_store_product_id",
     )
     .eq("tenant_id", tenantId)
     .eq("id", productId)
@@ -786,12 +821,6 @@ export async function runProductSync(
 ): Promise<ProductSyncSummary> {
   const { productId, onlyProvider } = opts
 
-  await supabase.rpc("tenant_products_set_sync_state", {
-    p_id: productId,
-    p_status: "syncing",
-    p_state: null,
-  })
-
   const runners: Record<string, () => Promise<any>> = {
     stripe: () => stripeSyncProduct(supabase, opts),
     razorpay: () => razorpaySyncProduct(supabase, opts),
@@ -801,6 +830,28 @@ export async function runProductSync(
   }
   const keys = onlyProvider ? [onlyProvider] : Object.keys(runners)
   const product = opts.productName ?? "product"
+
+  // Stamp `syncing` AND overwrite the per-provider entries for the providers THIS run touches.
+  //
+  // The opening call used to pass `p_state: null`, and 078's RPC merges with
+  // `CASE WHEN p_state IS NULL THEN sync_state ELSE sync_state || p_state END` — so a null
+  // preserved the PREVIOUS run's map. When a run then died before its terminal write (serverless
+  // timeout), the row was left `sync_status='syncing'` over a `sync_state` that still read
+  // `{"stripe":{"status":"synced"}}` from weeks earlier. Measured on cappy's `cappy_plus_guardian`
+  // 2026-10-06: stranded `syncing` for 14+ minutes while its state payload claimed every provider
+  // had succeeded — a dead run that is indistinguishable from a complete one, which is worse than
+  // either a failure or an empty state.
+  //
+  // Only the keys in THIS run are reset; providers not being synced keep their recorded state,
+  // which is the merge semantics the RPC exists for (a single-provider retry must not wipe the rest).
+  const inFlight = Object.fromEntries(
+    keys.map((k) => [k, { status: "syncing", reason: "sync in progress" } as ProviderSyncEntry]),
+  )
+  await supabase.rpc("tenant_products_set_sync_state", {
+    p_id: productId,
+    p_status: "syncing",
+    p_state: inFlight,
+  })
   const emit = opts.runId
     ? (phase: string, provider: string | null, status: string | null, message: string) =>
         supabase
@@ -822,23 +873,53 @@ export async function runProductSync(
 
   // Emit a start + result event per provider so the dashboard renders a live log.
   const providers: Record<string, ProviderSyncEntry> = {}
-  await Promise.all(
-    keys.map(async (k) => {
-      const label = PROVIDER_LABEL[k] ?? k
-      if (emit) await emit("start", k, null, `Syncing ${product} → ${label}…`)
-      const entry = classifyProvider(await runners[k]())
-      providers[k] = entry
-      if (emit) {
-        const phase = entry.status === "failed" ? "failed" : entry.status === "skipped" ? "skipped" : "ok"
-        await emit(phase, k, entry.status, providerSyncMessage(label, product, entry))
+  try {
+    await Promise.all(
+      keys.map(async (k) => {
+        const label = PROVIDER_LABEL[k] ?? k
+        if (emit) await emit("start", k, null, `Syncing ${product} → ${label}…`)
+        const entry = classifyProvider(await runners[k]())
+        providers[k] = entry
+        if (emit) {
+          const phase = entry.status === "failed" ? "failed" : entry.status === "skipped" ? "skipped" : "ok"
+          await emit(phase, k, entry.status, providerSyncMessage(label, product, entry))
+        }
+      }),
+    )
+  } catch (e: any) {
+    // A throw out of the fan-out used to skip the terminal write entirely, leaving the row
+    // `syncing` forever. Record the failure, then rethrow so the caller still sees the error.
+    const reason = `sync aborted: ${e?.message ?? String(e)}`
+    for (const k of keys) {
+      if (!providers[k] || providers[k].status === "syncing") {
+        providers[k] = { status: "failed", error: reason, reason }
       }
-    }),
-  )
+    }
+    await supabase.rpc("tenant_products_set_sync_state", {
+      p_id: productId,
+      p_status: "failed",
+      p_state: providers,
+    })
+    if (emit) await emit("run_done", null, "failed", `${product}: ${reason}`)
+    throw e
+  }
+
+  // READ BACK before claiming `synced`. A provider helper reporting ok only proves the WRITE was
+  // accepted by the client we hold; it does not prove the object is retrievable afterwards.
+  // Measured on cappy + reels-downloader 2026-10-06: all 7 products carried
+  // `sync_state.stripe.status='synced'` and `sync_status='synced'` while every `stripe_product_id`
+  // was unreadable with the tenant's connected live key. The flag recorded what we believed.
+  // CHAIN.3/A5 of /idea-paycraft already warned about exactly this; the readback is what makes the
+  // flag mean something.
+  if (providers.stripe?.status === "synced") {
+    const verdict = await verifyStripeProduct(supabase, opts)
+    if (verdict) providers.stripe = verdict
+  }
 
   const values = Object.values(providers)
   const status: ProductSyncSummary["status"] = values.some((v) => v.status === "failed")
     ? "failed"
-    : values.some((v) => v.status === "draft")
+    : values.some((v) => v.status === "draft" || v.status === "syncing")
       ? "partial"
       : "synced"
 
@@ -851,4 +932,44 @@ export async function runProductSync(
   if (emit) await emit("run_done", null, status, `${product}: ${status}`)
 
   return { status, providers }
+}
+
+/**
+ * Post-write readback for Stripe: resolve the product id we just wrote and retrieve it with the
+ * tenant's connected client. Returns a replacement entry when the readback DISPROVES success, or
+ * `null` to leave the reported `synced` standing.
+ *
+ * The probe mirrors `detectProductsMissingAtProvider` in `./drift-detectors` deliberately — same
+ * `products.retrieve` + inactive check, so the sync path and the drift path cannot disagree about
+ * what "present at Stripe" means. Unlike that one it keeps the error MESSAGE: a bare
+ * `catch {}` collapses "deleted", "wrong account" and "revoked key" into one unreadable, which is
+ * what made the cappy/reels failure undiagnosable from the drift output alone.
+ */
+async function verifyStripeProduct(
+  supabase: ReturnType<typeof createClient>,
+  opts: SyncOptions,
+): Promise<ProviderSyncEntry | null> {
+  try {
+    const { data } = await supabase
+      .from("tenant_products")
+      .select("stripe_product_id")
+      .eq("id", opts.productId)
+      .maybeSingle()
+    const id = data?.stripe_product_id ?? opts.existingStripeProductId
+    if (!id) {
+      const reason = "stripe reported synced but no stripe_product_id was recorded"
+      return { status: "failed", error: reason, reason }
+    }
+    const stripe = await getConnectedStripeClient(opts.tenantId, "live")
+    if (!stripe) return null // no live client resolvable here — the live-readiness gate owns that
+    const remote = await stripe.products.retrieve(id)
+    if (!remote || remote.active === false) {
+      const reason = `stripe_product_id=${id} is inactive at Stripe immediately after sync`
+      return { status: "failed", error: reason, reason }
+    }
+    return null
+  } catch (e: any) {
+    const reason = `stripe readback failed after sync: ${e?.message ?? String(e)}`
+    return { status: "failed", error: reason, reason }
+  }
 }

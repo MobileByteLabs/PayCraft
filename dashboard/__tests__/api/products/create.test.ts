@@ -48,10 +48,13 @@ const stripeSyncSpy = jest.fn(async (supabase: any, opts: any) => {
   // Real helper short-circuits if tenant has no Stripe connection — we honor
   // the same gate here by checking the test-controlled flag.
   if (!(globalThis as any).__stripeConnected) return
+  // p_mode is required since migration 147 — the real helper writes once per synced mode. A mock
+  // that omits it would keep passing while the real call regressed to the mode-blind 3-arg shape.
   await supabase.rpc("tenant_products_set_stripe_ids", {
     p_id: opts.productId,
     p_stripe_product_id: "prod_synced",
     p_stripe_price_id_by_currency: { USD: "price_synced_USD" },
+    p_mode: "live",
   })
   await supabase.rpc("tenant_providers_set_payment_links", {
     p_tenant_id: opts.tenantId,
