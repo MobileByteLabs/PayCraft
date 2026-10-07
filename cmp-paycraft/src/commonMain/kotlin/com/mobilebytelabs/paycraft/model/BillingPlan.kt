@@ -65,6 +65,16 @@ data class BillingPlan(
      * this defaults to `true`.
      */
     val isDigital: Boolean = true,
+    /**
+     * The PACKAGE ROLE this plan is fronted by (`SuiteConfig.roleForSku`), or null when the tenant
+     * has no offerings / the sku is not in any package.
+     *
+     * This is how a consumer asks "which TIER is this?" without the SDK learning its product names:
+     * the role is tenant-defined in the dashboard, so an app derives its own tier notion from
+     * configuration rather than hardcoding it. Defaults to null so every existing construction site
+     * and consumer keeps compiling unchanged.
+     */
+    val roleIdentifier: String? = null,
 ) {
     init {
         require(trialDays == null || trialDays >= 1) {

@@ -46,6 +46,7 @@ import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.config.ConfigResult
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.config.productForRole
+import com.mobilebytelabs.paycraft.config.roleForSku
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Product
@@ -622,6 +623,11 @@ private fun Product.toBillingPlan(config: SuiteConfig?): BillingPlan {
             ?: (this as? Product.Lifetime)?.basePrice?.currency ?: "USD",
         interval = intervalLabel,
         rank = displayOrder,
+        // Carry the package ROLE so a consumer can ask which TIER this plan is without hardcoding
+        // the answer. `rank` is DISPLAY order and is not a tier — two plans can share a tier and
+        // differ in rank (monthly/annual of the same role), which is exactly why the two are
+        // separate fields rather than one.
+        roleIdentifier = config?.roleForSku(sku),
         trialDays = trialDays,
         // The CTA transacts on THIS plan, so the binding must travel with it. Omitting it here is
         // what made every native purchase impossible while the server, RPC, /config and DTO all
