@@ -1,8 +1,8 @@
-example-provenance: 9cb5162c248fb9426d460f2328ffda6882c29462
+example-provenance: a13bceca0e39c8b82a41b342160b5fdc6140fef9
 
 # BILLING_STATE_SEMANTICS.md — the billing state machine and realtime invalidation
 
-> Consumed by `/idea-paycraft` chain steps 6–7. Authored by `/paycraft-dev fold`.
+> Consumed by `/idea-paycraft` chain steps 6–7. Authored by `/paycraft-corpus-fold`.
 
 ## `sealed interface BillingState`
 
@@ -38,6 +38,31 @@ Resolving `BillingManager` before `PayCraft.initialize` no longer throws — `Pa
 nullable api key, the RPCs resolve no tenant, and the honest answer is Free (WIRING_CONTRACTS.md). A
 host that wants to distinguish "no entitlement" from "no key" asks `PayCraft.isConfigured`; a host
 that simply gates features needs no branch at all.
+
+## `EntitlementSummary` — gate on this, not on `BillingState`
+
+`BillingState` describes **where a purchase IS**. That is the right shape for a checkout flow and
+the wrong one for "can this user open the premium pack?", because four of its arms
+(`Loading`, `PaymentPending`, `Error`, `DeviceConflict`) carry **no entitlement answer at all**.
+Gating on them directly flashes a paying subscriber back to Free on every refresh.
+
+`EntitlementSummary.from(state, trialEndsAt, roleIdentifier, previous)` folds those arms to
+`previous`, so a transient state PRESERVES the last definitive tier:
+
+| `BillingState` | `EntitlementSummary.tier` |
+|---|---|
+| `Free` | `FREE` |
+| `Premium` (no trial) | `PREMIUM` |
+| `Premium` + trial | `TRIAL` |
+| `Loading` · `PaymentPending` · `Error` · `DeviceConflict` · `OwnershipVerified` | **`previous`** — unchanged |
+
+So: bind UI visibility to `PayCraftRepository.entitlement` (or `isPremium`), and use `billingState`
+only to drive checkout progress. `roleIdentifier` carries the package role for apps with several
+paid tiers, resolved from tenant config via `SuiteConfig.roleForSku(sku)` — never hardcode a
+product name to detect a tier.
+
+A payment settling must never show the paywall to someone who already paid; that invariant is why
+this type exists rather than a `map { it is Premium }`.
 
 ## Device-conflict gate ladder
 

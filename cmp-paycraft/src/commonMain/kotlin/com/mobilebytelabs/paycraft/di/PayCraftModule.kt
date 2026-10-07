@@ -14,6 +14,8 @@ import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.network.PayCraftServiceImpl
 import com.mobilebytelabs.paycraft.persistence.EntitlementCache
 import com.mobilebytelabs.paycraft.persistence.SettingsEntitlementDao
+import com.mobilebytelabs.paycraft.repository.PayCraftRepository
+import com.mobilebytelabs.paycraft.repository.PayCraftRepositoryImpl
 import com.mobilebytelabs.paycraft.ui.PayCraftPaywallViewModel
 import com.russhwolf.settings.Settings
 import io.github.jan.supabase.SupabaseClient
@@ -102,6 +104,16 @@ val PayCraftModule = module {
             cache = get(),
             native = get(),
             service = get(),
+        )
+    }
+
+    // The ONE data surface a consumer app resolves (RULE-PAYCRAFT-SINGLE-SURFACE-001). Bound here so
+    // an integrator wires `PayCraft.initialize` and nothing else — no consumer-authored repository,
+    // which is the 670 LOC/consumer this facade removes.
+    single<PayCraftRepository> {
+        PayCraftRepositoryImpl(
+            billing = get(),
+            entitlements = get(),
         )
     }
 

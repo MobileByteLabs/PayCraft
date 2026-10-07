@@ -1,8 +1,8 @@
-example-provenance: 9cb5162c248fb9426d460f2328ffda6882c29462
+example-provenance: a13bceca0e39c8b82a41b342160b5fdc6140fef9
 
 # PROVIDERS_AND_STORES.md — checkout lanes, provider adapters, store product sync
 
-> Consumed by `/idea-paycraft` chain steps 2 and 6. Authored by `/paycraft-dev fold`.
+> Consumed by `/idea-paycraft` chain steps 2 and 6. Authored by `/paycraft-corpus-fold`.
 
 ## The lane decision is the compliance keystone
 
@@ -128,7 +128,8 @@ The app **never** talks to a provider directly — it only reads Supabase; webho
 sync. A provider adapter exists only to produce checkout and manage URLs.
 
 `ProviderDto` carries `testPaymentLinksBySku` and `livePaymentLinksBySku`, each a
-`sku → currency → url` map; `PayCraft.mode` (derived from the `pk_` key prefix) selects which map is
+`sku → currency → url` map; `PayCraft.mode` (override → legacy key prefix → host build type, see
+KEY_TIERING.md) selects which map is
 read, `CurrencyResolver.checkoutCurrency` picks the currency within it, and `supportedLocales` /
 `platform` scope a provider to where it is valid. A missing link for the resolved
 `(sku, currency)` is an explicit error naming both — never a silent fall back to another currency.

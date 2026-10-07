@@ -1,8 +1,8 @@
-example-provenance: 9cb5162c248fb9426d460f2328ffda6882c29462
+example-provenance: a13bceca0e39c8b82a41b342160b5fdc6140fef9
 
 # PAYWALL_CUSTOMIZATION.md — the two supported paywall paths
 
-> Consumed by `/idea-paycraft` chain step 6. Authored by `/paycraft-dev fold`.
+> Consumed by `/idea-paycraft` chain step 6. Authored by `/paycraft-corpus-fold`.
 
 There are exactly **two** supported ways to ship a paywall. Both are first-class; a consumer picks one
 per app. There is no third "partially custom" path — mixing PayCraft rendering with hand-rolled

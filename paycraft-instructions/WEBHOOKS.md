@@ -1,8 +1,8 @@
-example-provenance: 9cb5162c248fb9426d460f2328ffda6882c29462
+example-provenance: a13bceca0e39c8b82a41b342160b5fdc6140fef9
 
 # WEBHOOKS.md — endpoints, verification discipline, reachability probe
 
-> Consumed by `/idea-paycraft` chain step 3. Authored by `/paycraft-dev fold`.
+> Consumed by `/idea-paycraft` chain step 3. Authored by `/paycraft-corpus-fold`.
 
 Webhooks are how Supabase learns the truth. The app never learns entitlement from a provider; it
 reads Supabase, and these functions keep Supabase correct.

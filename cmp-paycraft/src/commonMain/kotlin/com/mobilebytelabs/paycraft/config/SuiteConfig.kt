@@ -322,6 +322,34 @@ fun SuiteConfig.productForRole(role: String): ProductDto? {
 }
 
 /**
+ * The INVERSE of [productForRole]: which package role does this sku belong to?
+ *
+ * ## Why the inverse is needed
+ * A consumer frequently has to ask "which TIER is this plan?" — to render a superset badge, to gate
+ * a tier-only capability, or to map an SDK plan onto its own domain tier. The forward direction
+ * (role → product) already existed; the reverse did not, so consumers hardcoded the answer. Measured
+ * on `mbs/cappy` 2026-10-07: a local `SubscriptionPlan.isGuardian: Boolean`, set in an app-side
+ * catalogue — a tier fact duplicated in app source instead of read from the tenant's configuration,
+ * which means renaming or re-pricing the tier in the dashboard did not reach the app at all.
+ *
+ * Tier membership is a PACKAGE ROLE, which is tenant-defined and dashboard-configured. Returning it
+ * lets a consumer derive its own tier notion without the SDK ever learning an app's product names.
+ *
+ * Prefers the current offering, matching [productForRole]'s precedence so the two cannot disagree.
+ * Returns null when the tenant has no offerings or the sku is not fronted by any package — the
+ * caller then treats the plan as untiered rather than guessing a tier.
+ */
+fun SuiteConfig.roleForSku(sku: String): String? {
+    if (sku.isBlank()) return null
+    val ordered = offerings.sortedByDescending { it.isCurrent }
+    for (offering in ordered) {
+        offering.packages.firstOrNull { pkg -> pkg.productSkus.any { it == sku } }
+            ?.let { return it.roleIdentifier.ifBlank { null } }
+    }
+    return null
+}
+
+/**
  * Resolve a CANONICAL role against the product catalogue directly, with no offerings involved.
  *
  * ## Why this is not a shortcut

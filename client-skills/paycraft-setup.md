@@ -10,7 +10,7 @@ Fully automates adding PayCraft billing to this KMP app.
 4. Generates `PayCraft.configure()` in app initialization
 5. Adds `PayCraftModule` to Koin modules
 6. Adds `PayCraftSheet` + `PayCraftRestore` to SettingsScreen
-7. Replaces inline premium checks with `BillingManager`
+7. Replaces inline premium checks with `PayCraftRepository.entitlement` (the SDK is the SoT; no app-authored wrapper)
 8. Builds and verifies
 
 ## Steps
@@ -152,23 +152,45 @@ Search for existing premium checks (`isPremium`, `isSubscribed`, `hasPremium`, `
 For each file found, replace with:
 
 ```kotlin
-// Inject
-val billingManager: BillingManager by inject()  // or koinInject() in Composables
+// Inject THE ONE surface. No app-authored repository, api or store wrapper
+// (RULE-PAYCRAFT-SINGLE-SURFACE-001) — the SDK is the source of truth for these types.
+val paycraft: PayCraftRepository = koinInject()        // or `by inject()` outside Compose
 
-// Observe
-val isPremium by billingManager.isPremium.collectAsState()
+// Gate on the ENTITLEMENT summary
+val entitlement by paycraft.entitlement.collectAsState()
+if (entitlement.isPremium) { PremiumContent() } else { FreeContent() }
+
+// Shorthand when you only need the boolean
+val isPremium by paycraft.isPremium.collectAsState()
 ```
+
+**Gate on `entitlement`, not `billingState`.** `billingState` says where a PURCHASE is — seven
+variants, six of which mean "not right now, for process reasons". `entitlement` folds
+`Loading`/`Error`/`PaymentPending` so they PRESERVE the previous tier: a payment settling
+asynchronously must never show the paywall to someone who already paid
+(`BILLING_STATE_SEMANTICS.md`).
+
+`EntitlementSummary` carries `tier` (`FREE`/`TRIAL`/`PREMIUM`), `isPremium` (true during a trial
+too), `isInTrial`, `planSku`, `trialEndsAt`, and `roleIdentifier` — the tenant-configured package
+role, which is how an app with several paid tiers asks "is this the top tier?" without hardcoding a
+product name. A dashboard rename of the role then reaches the app with no release.
 
 Remove any existing:
 - `SupabaseSubscriptionService` or similar
 - `SubscriptionManager` (old interface)
 - Inline Supabase subscription queries
+- **an app-authored `*Api` / `*Repository` / `*Store` wrapping the SDK, and any local entitlement or
+  plan model** — measured on `mbs/cappy`: 670 LOC across five modules, ~95% type translation. Use
+  `PayCraftRepository` + `EntitlementSummary` + `BillingPlan` directly. For unit tests the SDK ships
+  `FakePayCraftRepository` in its MAIN artifact, so dropping the wrapper costs no testability.
+- a local plan catalogue — plans come from `paycraft.plans` (tenant config)
 
 ### Step 8: Build Verification
 
 Note any compilation errors. Common fixes:
 - Add import: `import com.mobilebytelabs.paycraft.ui.PayCraftBanner`
-- Add import: `import com.mobilebytelabs.paycraft.core.BillingManager`
+- Add import: `import com.mobilebytelabs.paycraft.repository.PayCraftRepository`
+- Add import: `import com.mobilebytelabs.paycraft.model.EntitlementTier`  (only if you switch on tier)
 - Add import: `import org.koin.compose.koinInject`
 
 Report: "PayCraft integration complete. Run the app to test the paywall."

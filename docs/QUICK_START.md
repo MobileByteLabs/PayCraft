@@ -154,15 +154,23 @@ fun SettingsScreen() {
 ### Step 7: Gate Premium Features
 
 ```kotlin
-val billingManager: BillingManager = koinInject()
-val isPremium by billingManager.isPremium.collectAsState()
+val paycraft: PayCraftRepository = koinInject()
+val entitlement by paycraft.entitlement.collectAsState()
 
-if (isPremium) {
+if (entitlement.isPremium) {       // true during a TRIAL too
     PremiumContent()
 } else {
     FreeContent()
 }
+
+// Several paid tiers? The role is tenant-configured, so no product name is hardcoded:
+if (entitlement.roleIdentifier == "guardian") { TopTierBadge() }
 ```
+
+Gate on `entitlement`, not `billingState`: the summary holds the previous tier across
+`Loading`/`Error`/`PaymentPending`, so a settling payment never shows the paywall to someone who
+already paid. `PayCraftRepository` is the only data surface you inject — no app-authored wrapper
+(RULE-PAYCRAFT-SINGLE-SURFACE-001), and `FakePayCraftRepository` ships in the main artifact for tests.
 
 ### Step 8: Set Up Webhook
 
@@ -184,7 +192,7 @@ supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_... --project-ref YOUR_REF
 3. User pays → Provider sends webhook to Supabase Edge Function
 4. Edge Function upserts `subscriptions` table
 5. App calls `is_premium(email)` RPC → returns `true`
-6. `BillingManager.isPremium` updates → UI unlocks premium features
+6. `PayCraftRepository.entitlement` updates → UI unlocks premium features
 
 ---
 

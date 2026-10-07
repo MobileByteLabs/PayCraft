@@ -1,8 +1,8 @@
-example-provenance: 9cb5162c248fb9426d460f2328ffda6882c29462
+example-provenance: a13bceca0e39c8b82a41b342160b5fdc6140fef9
 
 # PUBLIC_API.md — PayCraft SDK public integration surface
 
-> Consumed by `/idea-paycraft`. Authored by `/paycraft-dev fold` (RULE-PAYCRAFT-CORPUS-AUTHORSHIP-001
+> Consumed by `/idea-paycraft`. Authored by `/paycraft-corpus-fold` (RULE-PAYCRAFT-CORPUS-AUTHORSHIP-001
 > PCA-1); never hand-edited. Every symbol below is extracted from `cmp-paycraft/src/commonMain` at the
 > stamped commit — if a signature here disagrees with source, the corpus is stale and PCA-4 requires a
 > re-fold before integrating.
@@ -14,7 +14,7 @@ Artifact: `io.github.mobilebytelabs:cmp-paycraft`. Targets: `jvm`, `android`, `i
 
 ```kotlin
 fun initialize(
-    apiKey: String,                                    // "pk_test_…" | "pk_live_…" (see KEY_TIERING.md)
+    apiKey: String,                                    // ONE publishable "pk_…" key (see KEY_TIERING.md)
     backend: PayCraftBackend = PayCraftBackend.Cloud,
     options: InitOptions = InitOptions(),
     mode: MonetizationMode = MonetizationMode.AdSupported,
@@ -25,8 +25,12 @@ fun initialize(
   once (override → device region → `US`), resets `paywallPresentation` to `Hidden`, republishes the
   last-known-good `SuiteConfig` from disk (`ConfigCache`), then launches the `/config` revalidation
   fire-and-forget. It never awaits the network.
-- **Precondition (hard).** `apiKey` must start with `pk_test_` or `pk_live_`, unless `backend` is
-  `PayCraftBackend.Mock`. Anything else throws `IllegalArgumentException` at the call site.
+- **Precondition (hard).** `apiKey` must be PUBLISHABLE — `startsWith("pk_")` — unless `backend` is
+  `PayCraftBackend.Mock`. An `sk_…` secret key throws `IllegalArgumentException` at the call site.
+  Mode is NOT required in the prefix: one key per app, and `PayCraft.mode` resolves test/live from
+  `InitOptions.modeOverride` → a legacy `pk_test_`/`pk_live_` prefix → the host build type. A
+  `pk_YOUR…` placeholder passes this guard and surfaces as `isConfigured == false` (Free), rather
+  than throwing. See KEY_TIERING.md for the provisioning caveat.
 - **Idempotent-ish.** Re-invocation is supported (test re-init). It resets `paywallPresentation` to
   `Hidden` but deliberately does NOT reset the once-per-session auto-present debounce — the debounce
   clears on process death, the natural session boundary.
@@ -89,6 +93,74 @@ onResume/onCreate hook. It always updates `AdFreeEntitlement` first, then dispat
 - `TrialManaged` — auto-presents ONCE per process when the buyer is **not** premium **and** has an
   active or just-ended trial (`trial.isActiveOrNearExpiry`) **and** the session debounce is unmarked.
 - `AdSupported` — never auto-presents; the host owns the trigger and reads `isAdFree` to gate ads.
+
+## Data surface — `interface PayCraftRepository` (inject this)
+
+**The one data surface a consumer app needs.** Injected from Koin (`payCraftModule`); a consumer
+writes no repository, store, or API wrapper of its own.
+
+```kotlin
+interface PayCraftRepository {
+    val isPremium: StateFlow<Boolean>                    // THE gating signal
+    val billingState: StateFlow<BillingState>            // where a purchase IS
+    val subscriptionStatus: StateFlow<SubscriptionStatus>
+    val isInTrial: StateFlow<Boolean>
+    val entitlement: StateFlow<EntitlementSummary>       // tier + role + trial end — prefer for GATING
+    val plans: StateFlow<List<BillingPlan>>
+    fun checkout(plan: BillingPlan, email: String? = null)   // fire-and-observe, no synchronous verdict
+    suspend fun restore(): Entitlement                       // genuinely has an answer, so it suspends
+    fun manageSubscription(email: String)
+    fun refresh(force: Boolean = false)
+}
+```
+
+- **Why it exists.** Every consumer was hand-writing it. Measured on `mbs/cappy`: 670 LOC across five
+  modules, of which `PayCraftApiImpl` alone was 233 lines holding 12 SDK call sites — roughly 95%
+  type translation, not logic. A facade over `BillingManager` + `EntitlementRepository` + the config
+  flows; it introduces no new concept and owns no state.
+- **`checkout` returns `Unit` deliberately.** There is no synchronous verdict to return, so a
+  `Result<Unit>` would be a lie — observe `billingState` for the outcome.
+- **`plans` is a flow** where `PayCraft.plans` is a plain `List`, because a paywall opened before the
+  first `/config` lands would otherwise render empty forever with no way to recover.
+- **Still internal, deliberately:** `EntitlementRepository` (Store5) and `PayCraftService`
+  (networking). Both thread an `appUserId` and speak `StoreReadResponse<Entitlement>` — the plumbing
+  this facade exists to hide.
+
+### `EntitlementSummary` — the gating value
+
+```kotlin
+enum class EntitlementTier { FREE, TRIAL, PREMIUM }
+
+data class EntitlementSummary(
+    val tier: EntitlementTier = EntitlementTier.FREE,
+    val roleIdentifier: String? = null,   // package role — for an app with several paid tiers
+    val planSku: String? = null,
+    val entitlementId: String? = null,
+    val trialEndsAt: String? = null,
+    val willRenew: Boolean = true,
+) {
+    val isPremium: Boolean   // TRIAL counts as premium — trialing users have access
+    val isInTrial: Boolean
+}
+```
+
+Prefer this over `billingState` for GATING. `BillingState` describes where a purchase IS (Loading /
+PaymentPending / Error / DeviceConflict), which is right for a checkout flow and wrong for "can this
+user open the premium pack?". `EntitlementSummary.from(state, …, previous)` folds the process states
+so they PRESERVE the previous tier — a payment settling must never show the paywall to someone who
+already paid.
+
+`roleIdentifier` carries the package role (`BillingPlan.roleIdentifier`, resolved by
+`SuiteConfig.roleForSku(sku)`), so an app derives its own tier notion from tenant configuration
+instead of hardcoding product names.
+
+### `FakePayCraftRepository` — ships in the MAIN artifact
+
+Not a test fixture, on purpose. Removing the app-owned wrapper is only honest if testability moves
+with it, and a fake behind `testImplementation` would not reach a consumer's `commonTest` without
+extra wiring. `FakePayCraftRepository(premium = true)` plus `setPremium` / `setEntitlement` /
+`setPlans` mutators; `checkoutCalls` / `manageSubscriptionCalls` / `refreshCalls` record instead of
+performing, so a test can assert a tap reached the SDK without opening anything.
 
 ## Backend selection — `sealed interface PayCraftBackend`
 
@@ -223,6 +295,9 @@ tenant-configurable and localized.
 - Ship an `sk_` key in client source (KEY_TIERING.md).
 - Open a web checkout for a digital good on Android or iOS (PROVIDERS_AND_STORES.md).
 - Treat `BillingState.PaymentPending` as a failure (BILLING_STATE_SEMANTICS.md).
+- Hand-write a repository / store / API wrapper around this SDK. Inject `PayCraftRepository`
+  instead — that wrapper is the 670 LOC the facade exists to delete.
+- Re-derive test/live in the host from a key prefix or build config. `PayCraft.mode` owns it.
 
 ---
 

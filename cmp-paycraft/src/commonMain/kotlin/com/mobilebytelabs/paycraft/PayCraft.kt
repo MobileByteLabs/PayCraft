@@ -280,7 +280,9 @@ object PayCraft {
     /**
      * Boot the SDK with a publishable PayCraft API key.
      *
-     * @param apiKey   Publishable key from your PayCraft dashboard (`pk_test_…` or `pk_live_…`).
+     * @param apiKey   The ONE publishable key from your PayCraft dashboard (`pk_…`). Mode is not
+     *                 encoded in it — see [mode]. Legacy `pk_test_…`/`pk_live_…` keys still work
+     *                 and still pin their mode. A `sk_…` secret key is refused.
      * @param backend  Where to fetch SuiteConfig — defaults to PayCraft Cloud. Self-hosted
      *                 customers pass [PayCraftBackend.SelfHosted]; test code passes
      *                 [PayCraftBackend.Mock] with a static [SuiteConfig].
@@ -299,8 +301,26 @@ object PayCraft {
         options: InitOptions = InitOptions(),
         mode: MonetizationMode = MonetizationMode.AdSupported,
     ) {
-        require(apiKey.startsWith("pk_test_") || apiKey.startsWith("pk_live_") || backend is PayCraftBackend.Mock) {
-            "apiKey must start with pk_test_ or pk_live_"
+        // ANY publishable key. Under the one-key-per-app model the prefix no longer carries mode —
+        // [mode] resolves that from the build type (or [InitOptions.modeOverride]) — so a plain
+        // `pk_…` is the norm and `pk_test_`/`pk_live_` are honoured only as legacy.
+        //
+        // This guard used to demand `pk_test_` or `pk_live_`, which left the one-key migration
+        // HALF-LANDED: [isConfigured] and [mode] were rewritten to accept and interpret a plain
+        // `pk_…`, but nothing could get such a key past this line, so both of those paths were
+        // dead code and a correctly-provisioned one-key app crashed at boot.
+        //
+        // Still rejected, and this is the half that matters: anything that is not publishable. A
+        // `sk_…` secret key reaching client source is the leak [KEY_TIERING] exists to prevent, and
+        // it fails loudly here rather than shipping in a binary.
+        //
+        // A `pk_YOUR…` template placeholder now PASSES this guard and is caught one level up by
+        // [isConfigured], which reports the app unconfigured so the SDK serves a Free entitlement
+        // instead of throwing — the documented graceful path for a host that wires billing
+        // unconditionally. That placeholder branch in [isConfigured] was unreachable while this
+        // guard threw first.
+        require(apiKey.startsWith("pk_") || backend is PayCraftBackend.Mock) {
+            "apiKey must be a PayCraft publishable key (pk_…); got a non-publishable value"
         }
         this.apiKey = apiKey
         this.backend = backend
