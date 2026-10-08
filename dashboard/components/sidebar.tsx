@@ -71,6 +71,7 @@ const groups: NavGroup[] = [
       { href: "/settings/provider-accounts", label: "Provider connections", icon: Link2 },
       { href: "/settings/api-keys", label: "API keys", icon: KeyRound },
       { href: "/settings/developer-api", label: "Developer API", icon: Terminal },
+      { href: "/settings/account-tokens", label: "Access tokens", icon: ShieldCheck },
       { href: "/settings", label: "Settings", icon: Settings },
     ],
   },
