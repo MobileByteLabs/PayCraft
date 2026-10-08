@@ -9,10 +9,31 @@ actual object PlatformInfo {
     actual val country: String?
         get() = detectWebCountry().takeIf { it.isNotBlank() }
 
-    // Neither JS nor WasmJs can distinguish a development bundle from a production one at runtime
-    // without the host telling us. Defaults to LIVE per the expect-declaration; web hosts that want
-    // test mode pass initialize(mode = PayCraft.Mode.Test) explicitly.
-    actual val isDebugBuild: Boolean get() = false
+    // ── Build kind, from the SERVING ORIGIN ───────────────────────────────────────────────────
+    //
+    // A production web bundle is not served from loopback. `location.hostname` is therefore the
+    // honest structural signal the web has — there is no signature or package to inspect.
+    //
+    // Narrow on purpose: loopback and `.local` only. A staging host on a real domain reports
+    // Release, which is the safe direction — it keeps real money working and is visible the first
+    // time someone checks out, whereas a wrong "debug" silently takes no payments at all.
+    //
+    // Anything we cannot read (no `location`, e.g. a worker or SSR context) is Unknown, not Release.
+    private val verdict: Pair<BuildKind, String>
+        get() = runCatching {
+            val host = webHostname()
+            when {
+                host == null || host.isBlank() -> BuildKind.Unknown to "web:no-location"
+                host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]" ->
+                    BuildKind.Debug to "web:loopback-origin"
+                host.endsWith(".local") -> BuildKind.Debug to "web:mdns-local-origin"
+                else -> BuildKind.Release to "web:public-origin"
+            }
+        }.getOrElse { BuildKind.Unknown to "web:location-read-failed" }
+
+    actual val buildKind: BuildKind get() = verdict.first
+    actual val buildKindEvidence: String get() = verdict.second
+    actual val isDebugBuild: Boolean get() = buildKind == BuildKind.Debug
 }
 
 private fun detectWebCountry(): String = js(
@@ -52,3 +73,14 @@ private fun loadOrCreateWebDeviceId(): String = js(
     })()
 """,
 )
+
+private fun webHostname(): String? = js(
+    """
+    (function() {
+        try {
+            if (typeof location === 'undefined' || !location) return null;
+            return location.hostname || null;
+        } catch (e) { return null; }
+    })()
+    """,
+) as String?

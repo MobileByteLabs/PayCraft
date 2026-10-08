@@ -26,6 +26,7 @@ import com.mobilebytelabs.paycraft.network.CheckoutInitiateClient
 import com.mobilebytelabs.paycraft.network.CouponClient
 import com.mobilebytelabs.paycraft.network.PayCraftRealtime
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
+import com.mobilebytelabs.paycraft.platform.BuildKind
 import com.mobilebytelabs.paycraft.platform.DeviceFingerprint
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
@@ -171,7 +172,11 @@ object PayCraft {
         initOptions.modeOverride?.let { return it }
         return when {
             apiKey.isNullOrBlank() -> Mode.Unknown
-            PlatformInfo.isDebugBuild -> Mode.Test
+            // ONE signal, shared with key selection in [initialize], so the credential and the
+            // reported mode cannot disagree. BuildKind.Unknown resolves Live deliberately: a silent
+            // test-mode checkout charges nobody and the revenue loss is invisible, whereas a wrong
+            // Live is caught the first time anyone sees a real charge.
+            PlatformInfo.buildKind == BuildKind.Debug -> Mode.Test
             else -> Mode.Live
         }
     }
@@ -305,12 +310,27 @@ object PayCraft {
      *                 cloud [SuiteConfig.mode] — cloud wins when present (same precedence as
      *                 the theme pipeline). Trailing param with a default so every existing
      *                 caller (positional or named) keeps compiling unchanged.
+     * @param testApiKey  OPTIONAL second publishable key, used INSTEAD of [apiKey] on a debug
+     *                 build. Pass both when your dashboard issues a test/live pair and you want
+     *                 debug builds on the test credential; pass only [apiKey] for one key per app.
+     *
+     *                 **The SDK does the choosing, deliberately.** A host that selected between
+     *                 two keys itself is the anti-pattern this replaces — cappy carried
+     *                 `PAYCRAFT_API_KEY_TEST` + `PAYCRAFT_API_KEY_LIVE` + a `USE_TEST_BILLING`
+     *                 opt-in to express exactly this rule, the opt-in was never set, and its debug
+     *                 builds shipped the LIVE key. Handing both keys to [initialize] keeps the one
+     *                 decision in the one place that already knows the build type, and keeps key
+     *                 choice and [mode] in agreement by construction — they read the same signal.
+     *
+     *                 Selection is build-type only; [InitOptions.modeOverride] does NOT re-point it
+     *                 (it overrides the reported mode, not which credential identifies the tenant).
      */
     fun initialize(
         apiKey: String,
         backend: PayCraftBackend = PayCraftBackend.Cloud,
         options: InitOptions = InitOptions(),
         mode: MonetizationMode = MonetizationMode.AdSupported,
+        testApiKey: String? = null,
     ) {
         // ANY publishable key. Under the one-key-per-app model the prefix no longer carries mode —
         // [mode] resolves that from the build type (or [InitOptions.modeOverride]) — so a plain
@@ -330,10 +350,19 @@ object PayCraft {
         // instead of throwing — the documented graceful path for a host that wires billing
         // unconditionally. That placeholder branch in [isConfigured] was unreachable while this
         // guard threw first.
-        require(apiKey.startsWith("pk_") || backend is PayCraftBackend.Mock) {
+        // Resolve which of the (up to two) keys this build uses BEFORE validating, so the guard
+        // checks the credential that will actually be sent rather than whichever one was passed
+        // first. A blank testApiKey is treated as absent — an unprovisioned field in a generated
+        // build config arrives as "" far more often than as null, and falling through to the live
+        // key is the safe reading of "no test key configured".
+        val effectiveApiKey = testApiKey
+            ?.takeIf { it.isNotBlank() && PlatformInfo.buildKind == BuildKind.Debug }
+            ?: apiKey
+
+        require(effectiveApiKey.startsWith("pk_") || backend is PayCraftBackend.Mock) {
             "apiKey must be a PayCraft publishable key (pk_…); got a non-publishable value"
         }
-        this.apiKey = apiKey
+        this.apiKey = effectiveApiKey
         this.backend = backend
         this.initOptions = options
         // Capture the init-flag AND resolve against whatever SuiteConfig the previous
@@ -379,7 +408,25 @@ object PayCraft {
         // which is normally set by androidx-startup but may not be ready in
         // unusual test harnesses.
         runCatching {
-            PayCraftLogger.onFlow("initialize", "mode = $mode  device_id = $deviceId")
+            PayCraftLogger.onFlow(
+                "initialize",
+                "mode = $mode  build = ${PlatformInfo.buildKind} (${PlatformInfo.buildKindEvidence})  device_id = $deviceId",
+            )
+        }
+        // LOUD on an indeterminate build kind. Silence is what let F35 live: the old code answered
+        // "release" on every platform that could not tell, so a developer's desktop or web build
+        // took the LIVE credential and nothing said so. An unknown verdict with two keys configured
+        // means the test key can never be selected — worth one warning naming the missing evidence.
+        if (PlatformInfo.buildKind == BuildKind.Unknown && !testApiKey.isNullOrBlank()) {
+            runCatching {
+                PayCraftLogger.onError(
+                    "initialize",
+                    "build kind is UNKNOWN (${PlatformInfo.buildKindEvidence}) but a testApiKey was " +
+                        "supplied — falling back to the LIVE key, so the test key will NEVER be used " +
+                        "on this platform. Pass InitOptions(modeOverride = …) to state the mode, or " +
+                        "run on a platform whose build identity is readable (android/ios).",
+                )
+            }
         }
         if (backend is PayCraftBackend.Mock) {
             applySuiteConfig(backend.staticConfig)
