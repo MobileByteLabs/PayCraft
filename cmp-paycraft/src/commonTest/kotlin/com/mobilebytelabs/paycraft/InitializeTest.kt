@@ -82,8 +82,8 @@ class InitializeTest {
     // `PlatformInfo.isDebugBuild` is deliberately platform-specific — jdwp detection on JVM,
     // `isDebugBinary` on native, hardcoded `false` on js/wasmJs — so its value is not knowable
     // from commonTest and asserting it here would be a flake that varies by target, not a
-    // contract. The two paths that ARE deterministic (an explicit override, a legacy prefix) are
-    // the ones pinned below.
+    // contract. What IS deterministic is pinned below: an explicit override wins, and the key's
+    // prefix changes nothing (asserted as an equivalence across all three spellings).
 
     @Test
     fun initialize_accepts_plain_pk_key_against_cloud_backend() {
@@ -113,26 +113,36 @@ class InitializeTest {
     }
 
     @Test
-    fun legacy_mode_prefix_still_pins_mode() {
-        // Existing two-key apps keep working unchanged: a key that states its mode is honoured
-        // over the build type, because stating it was a deliberate act.
-        PayCraft.initialize(
-            apiKey = "pk_test_legacy",
-            backend = PayCraftBackend.Mock(staticConfig = minimalSuiteConfig()),
+    fun key_prefix_does_not_pin_mode() {
+        // INVERTED 2026-10-08. This test previously asserted that a `pk_test_`/`pk_live_` prefix
+        // pinned the mode, honouring legacy two-key apps. That behaviour WAS the F35 defect: a
+        // pinning prefix short-circuits the build-type rule, so an app shipping its one `pk_live_`
+        // key resolved LIVE in debug builds and could take real money in development. All nine
+        // production tenants held such keys, so every consumer app was affected.
+        //
+        // The prefix is now cosmetic — all three spellings resolve identically, from the build
+        // type alone. Asserting mode == Test/Live here would re-flake per target, so the contract
+        // under test is the EQUIVALENCE: whatever the build type yields, the spelling cannot change
+        // it. An app that wants live billing in debug says so via InitOptions.modeOverride.
+        val modes = listOf("pk_test_legacy", "pk_live_legacy", "pk_modeless").map { key ->
+            PayCraft.initialize(
+                apiKey = key,
+                backend = PayCraftBackend.Mock(staticConfig = minimalSuiteConfig()),
+            )
+            PayCraft.mode
+        }
+        assertEquals(1, modes.toSet().size, "key prefix must not change the resolved mode: $modes")
+        assertTrue(
+            modes.all { it == PayCraft.Mode.Test || it == PayCraft.Mode.Live },
+            "a configured SDK must never resolve Unknown: $modes",
         )
-        assertEquals(PayCraft.Mode.Test, PayCraft.mode)
-
-        PayCraft.initialize(
-            apiKey = "pk_live_legacy",
-            backend = PayCraftBackend.Mock(staticConfig = minimalSuiteConfig()),
-        )
-        assertEquals(PayCraft.Mode.Live, PayCraft.mode)
     }
 
     @Test
-    fun mode_override_outranks_a_legacy_prefix() {
-        // Precedence step 1 beats step 2 — exercising the live checkout from a debug build, or
-        // pinning a mode on a platform with no build-type signal at all.
+    fun mode_override_outranks_the_build_type() {
+        // Precedence step 1 beats step 2 (the build type) — exercising the live checkout from a
+        // debug build, or pinning a mode on a platform with no build-type signal at all. This is
+        // now the ONLY way to override, the prefix having stopped carrying mode.
         PayCraft.initialize(
             apiKey = "pk_test_legacy",
             backend = PayCraftBackend.Mock(staticConfig = minimalSuiteConfig()),

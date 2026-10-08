@@ -70,7 +70,7 @@ class ConfigClient(
                 // told which platform was asking.
                 header("x-paycraft-platform", PlatformInfo.platform)
                 // REQUIRED under the one-key-per-app model: the server used to infer test/live from
-                // the key's `pk_test_`/`pk_live_` prefix, which only works while every app carries
+                // the key's prefix (which the SDK no longer reads at all), and that only worked while every app carried
                 // two keys and picks between them itself. With a single key the prefix says nothing,
                 // so the CLIENT — the only party that knows whether it is a debug build — states the
                 // mode. The server still falls back to the prefix for legacy two-key apps.
