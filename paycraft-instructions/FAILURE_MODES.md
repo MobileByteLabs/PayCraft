@@ -1,4 +1,4 @@
-example-provenance: 399a26bf0ae5b641a3bb69b79646e7930eb4cf59
+example-provenance: 16f6926950bad26de159e9d87ec2ef9ba23ceef9
 
 # FAILURE_MODES.md — enumerated integration failures and their source-level remedies
 
@@ -83,7 +83,7 @@ never faked green and never spun on.
 |---|---|---|:--:|---|
 | F33 | An `sk_`-tier credential found in app source | Secret pasted into the client | heal + **rotate** | Remove, rotate the credential, re-materialize at the function/CI consumer |
 | F34 | Live buyers hit test payment links | A LEGACY `pk_test_` key in a release build (a mode-less `pk_` key cannot cause this — it resolves Live on a release build) | heal | Wire the app's one `pk_` key, or the `pk_live_` variant if the app is still on a legacy pair |
-| F35 | A debug build charges real money / a release build takes no payment | **FIXED 2026-10-08** — `PayCraft.mode` no longer reads the key prefix, so no key can pin mode. Was: a mode-prefixed key short-circuited the build-type rule. If seen on ≤2.4.4, upgrade; the key needs no rotation | heal | Upgrade the SDK. To deliberately force a mode (live checkout from a debug build, or JVM/web with no build signal), set `InitOptions.modeOverride` |
+| F35 | A debug build charges real money / a release build takes no payment | **FIXED** — key choice and `mode` both derive from `PlatformInfo.buildKind`, read from the artifact (signing certificate / provisioning profile), so they cannot diverge. Was: the key prefix pinned mode, or the host picked via a `USE_TEST_BILLING` flag it never set | heal | Upgrade the SDK; pass BOTH keys to `initialize`. On a platform reporting `BuildKind.Unknown` (desktop/web) set `InitOptions.modeOverride`, and check `buildKindEvidence` for why |
 | F35 | A `pk_` key flagged as a leak | Publishable key mistaken for a secret | — | Not a defect. Verify vault origin and build-type variant instead (KEY_TIERING.md) |
 | F35b | A row in `account_api_keys` whose `key_hash` starts with `sk_acct_` | A code path stored the plaintext | heal + **rotate** | Hash through `_shared/account-key.ts`; the column's structural check should have refused it — find what bypassed it |
 

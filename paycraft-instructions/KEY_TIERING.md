@@ -1,4 +1,4 @@
-example-provenance: 399a26bf0ae5b641a3bb69b79646e7930eb4cf59
+example-provenance: 16f6926950bad26de159e9d87ec2ef9ba23ceef9
 
 # KEY_TIERING.md — publishable vs secret, and how each reaches its consumer
 
@@ -11,19 +11,28 @@ blocks working integrations.
 
 ## Tier 1 — publishable (`pk_`), belongs in client source
 
-`PayCraft.initialize(apiKey = "pk_…")` — **ONE key per app.**
+`PayCraft.initialize(apiKey = <live>, testApiKey = <test>)` — **the dashboard's test/live PAIR.**
 
 - The guard at the call site admits any **publishable** key: `apiKey.startsWith("pk_")`, else
   `IllegalArgumentException("apiKey must be a PayCraft publishable key (pk_…)…")`. The sole exemption
   is `PayCraftBackend.Mock`. An `sk_…` secret key is refused here — that is the half of the guard
   that must never relax.
-- **The prefix is NOT the environment switch, and is not read at all.** `PayCraft.mode` resolves
-  test/live in TWO steps:
-  1. `InitOptions.modeOverride` — an explicit choice always wins
-  2. the host build type — `PlatformInfo.isDebugBuild` → `Mode.Test`, else `Mode.Live`
-  A `pk_test_`/`pk_live_` spelling is accepted and inert. Reading the prefix used to be step 2, and
-  that step WAS the F35 defect: it short-circuited the build-type rule, so an app shipping its one
-  `pk_live_` key resolved LIVE in debug builds. Removed 2026-10-08.
+- **Which key is used, and the reported mode, come from ONE signal: `PlatformInfo.buildKind`.**
+  It is read from the ARTIFACT, not declared by anyone:
+  | platform | evidence |
+  |---|---|
+  | Android | APK signing certificate vs `CN=Android Debug` |
+  | iOS | `embedded.mobileprovision` present/absent (+ receipt name) |
+  | JVM | code source — `build/classes` vs a packaged `.jar` |
+  | Web | `location.hostname` loopback vs public origin |
+  `Debug` → the `testApiKey`; anything else → `apiKey`. `mode` reads the same verdict, so credential
+  and mode cannot diverge — which is the point: F35 (live key in debug) and F34 (test key in
+  release) were both DIVERGENCE bugs. `InitOptions.modeOverride` still overrides the reported mode.
+  The key PREFIX is never read; a `pk_test_`/`pk_live_` spelling is accepted and inert.
+- **`BuildKind.Unknown` is a real answer**, reported with `buildKindEvidence`. Desktop and web have
+  packaging/origin heuristics rather than signatures, so they can be indeterminate; the SDK falls
+  back to `apiKey` (live — revenue-safe) and LOGS the missing evidence. Supplying a `testApiKey` on
+  such a platform emits an error saying the test key can never be selected.
   Resolved mode decides whether a provider's `testPaymentLinksBySku` or `livePaymentLinksBySku` map
   is read, and is sent to the server as the `x-paycraft-mode` header (the server falls back to the
   key prefix when the header is absent, so an older SDK keeps working).
@@ -41,10 +50,11 @@ blocks working integrations.
 - Scope is deliberately narrow: app-scoped and read-only against `/config` and the SDK's own
   key-authenticated endpoints (`checkout-initiate`, `coupon-validate`). It can never mutate a tenant.
 
-> **Do NOT reimplement the build-type branch in the host.** Carrying `PAYCRAFT_API_KEY_TEST` +
-> `PAYCRAFT_API_KEY_LIVE` and a `USE_TEST_BILLING` opt-in is the anti-pattern this model replaced:
-> every host that did it could disagree with the SDK, and cappy shipped `pk_live_` in its debug
-> builds because the opt-in was never set. One key in; the SDK decides.
+> **Two key FIELDS are correct; a third thing that CHOOSES between them is not.** Pass both to
+> `initialize` and the SDK selects. Carrying `PAYCRAFT_API_KEY_TEST` + `PAYCRAFT_API_KEY_LIVE` *plus*
+> a `USE_TEST_BILLING` opt-in is the anti-pattern: a second decision point that can disagree with the
+> SDK. cappy had exactly that, the opt-in was never set, and its debug builds shipped the LIVE key.
+> Supplying a build-type FACT (`InitOptions.hostIsDebugBuild`) is fine — a fact is not a decision.
 
 > **Key shape no longer affects behaviour.** Mode comes from the build type (or an explicit
 > override), so a mode-less `pk_<hex>`, a legacy `pk_test_…` and a legacy `pk_live_…` all behave

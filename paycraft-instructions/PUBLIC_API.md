@@ -1,4 +1,4 @@
-example-provenance: 399a26bf0ae5b641a3bb69b79646e7930eb4cf59
+example-provenance: 16f6926950bad26de159e9d87ec2ef9ba23ceef9
 
 # PUBLIC_API.md — PayCraft SDK public integration surface
 
@@ -14,10 +14,11 @@ Artifact: `io.github.mobilebytelabs:cmp-paycraft`. Targets: `jvm`, `android`, `i
 
 ```kotlin
 fun initialize(
-    apiKey: String,                                    // ONE publishable "pk_…" key (see KEY_TIERING.md)
+    apiKey: String,                                    // LIVE publishable key (see KEY_TIERING.md)
     backend: PayCraftBackend = PayCraftBackend.Cloud,
     options: InitOptions = InitOptions(),
     mode: MonetizationMode = MonetizationMode.AdSupported,
+    testApiKey: String? = null,                        // used INSTEAD of apiKey on a Debug build
 )
 ```
 
@@ -27,8 +28,9 @@ fun initialize(
   fire-and-forget. It never awaits the network.
 - **Precondition (hard).** `apiKey` must be PUBLISHABLE — `startsWith("pk_")` — unless `backend` is
   `PayCraftBackend.Mock`. An `sk_…` secret key throws `IllegalArgumentException` at the call site.
-  Mode is NOT in the prefix: one key per app, and `PayCraft.mode` resolves test/live from
-  `InitOptions.modeOverride` → the host build type, never reading the prefix. A
+  Mode is NOT in the prefix. `PayCraft.mode` AND the key choice both resolve from
+  `PlatformInfo.buildKind`, read from the artifact itself (APK signing certificate / embedded
+  provisioning profile / packaging / origin) — see KEY_TIERING.md. A
   `pk_YOUR…` placeholder passes this guard and surfaces as `isConfigured == false` (Free), rather
   than throwing. See KEY_TIERING.md for the provisioning caveat.
 - **Idempotent-ish.** Re-invocation is supported (test re-init). It resets `paywallPresentation` to
