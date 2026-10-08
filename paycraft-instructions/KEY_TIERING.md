@@ -1,4 +1,4 @@
-example-provenance: a13bceca0e39c8b82a41b342160b5fdc6140fef9
+example-provenance: 399a26bf0ae5b641a3bb69b79646e7930eb4cf59
 
 # KEY_TIERING.md — publishable vs secret, and how each reaches its consumer
 
@@ -17,11 +17,13 @@ blocks working integrations.
   `IllegalArgumentException("apiKey must be a PayCraft publishable key (pk_…)…")`. The sole exemption
   is `PayCraftBackend.Mock`. An `sk_…` secret key is refused here — that is the half of the guard
   that must never relax.
-- **The prefix is NOT the environment switch.** `PayCraft.mode` resolves test/live in three steps:
+- **The prefix is NOT the environment switch, and is not read at all.** `PayCraft.mode` resolves
+  test/live in TWO steps:
   1. `InitOptions.modeOverride` — an explicit choice always wins
-  2. a legacy `pk_test_`/`pk_live_` prefix — honoured, so existing two-key apps keep working
-     unchanged; a key that states its mode did so deliberately
-  3. the host build type — `PlatformInfo.isDebugBuild` → `Mode.Test`, else `Mode.Live`
+  2. the host build type — `PlatformInfo.isDebugBuild` → `Mode.Test`, else `Mode.Live`
+  A `pk_test_`/`pk_live_` spelling is accepted and inert. Reading the prefix used to be step 2, and
+  that step WAS the F35 defect: it short-circuited the build-type rule, so an app shipping its one
+  `pk_live_` key resolved LIVE in debug builds. Removed 2026-10-08.
   Resolved mode decides whether a provider's `testPaymentLinksBySku` or `livePaymentLinksBySku` map
   is read, and is sent to the server as the `x-paycraft-mode` header (the server falls back to the
   key prefix when the header is absent, so an older SDK keeps working).
@@ -44,20 +46,15 @@ blocks working integrations.
 > every host that did it could disagree with the SDK, and cappy shipped `pk_live_` in its debug
 > builds because the opt-in was never set. One key in; the SDK decides.
 
-> **Which key shape your app has, and why it matters.** Mode resolution stops at the first step
-> that answers, so a key carrying a mode segment **pins** mode and the build-type rule never runs.
+> **Key shape no longer affects behaviour.** Mode comes from the build type (or an explicit
+> override), so a mode-less `pk_<hex>`, a legacy `pk_test_…` and a legacy `pk_live_…` all behave
+> identically. New tenants get a mode-less key (`provision_app` / `rotate_api_key`, migration 148);
+> tenants provisioned earlier keep their pair and are deliberately NOT backfilled.
 >
-> - **Mode-less `pk_<hex>` — the model.** Minted by `provision_app` and `rotate_api_key` as of
->   **migration 148**, and by the dashboard's onboarding path. Resolution falls through to step 3, so
->   debug builds take test payment links and release builds take live ones with no configuration.
-> - **Legacy `pk_test_`/`pk_live_` pair.** Every tenant provisioned BEFORE migration 148 has one, and
->   those rows are deliberately left untouched — no backfill. Such an app matches **step 2**, so a
->   debug build carrying the `pk_live_` key resolves **Live** and can take real money in development.
->   That is `FAILURE_MODES.md` **F35**.
->
-> On a legacy pair, either set `InitOptions.modeOverride` explicitly, or rotate to a mode-less key:
-> `rotate_api_key` issues `pk_<hex>` into BOTH columns once a tenant is one-key, and refuses to
-> re-split a one-key tenant back into a pair.
+> This is why F35 was fixed in the SDK rather than by rotating keys: measured on production
+> 2026-10-08, ALL NINE tenants held `pk_live_`-prefixed keys, so every consumer app had the defect.
+> Rotating nine publishable keys would have invalidated them for every already-released build;
+> deleting one resolution step fixed all nine at once and broke nothing.
 
 **Governance, not secrecy.** A `pk_` key still originates from the vault so that rotation and
 ownership are tracked — it is materialized through `/secrets-handoff` at project level, lands in the
@@ -66,9 +63,9 @@ project's materialized-secrets tree, and is then compiled into client source as 
 costs a whole class of "works on my machine" failures.
 
 **Do not** treat a `pk_` key as a leak. Flagging one as an exposed secret is a false positive that
-stalls onboarding; the correct concern is whether it came from the vault, and — for a legacy
-mode-prefixed key — whether the variant that reached the build is the one that build should use.
-A mode-less `pk_` key has no "wrong variant" to get wrong, which is the point of the one-key model.
+stalls onboarding; the only correct concern is whether it came from the vault. There is no longer a
+"wrong variant" to get wrong for ANY key shape — mode comes from the build type, so a key cannot be
+mismatched to a build. That is the point of the one-key model.
 
 ## Tier 2 — secret (`sk_`, service accounts, signing keys), never in client source
 
@@ -119,7 +116,7 @@ failure:
 | Direction | Assertion | Failure it catches |
 |---|---|---|
 | **Forward** | No `sk_`-tier credential (`sk_live_`, `sk_test_`, `sk_acct_`, service-account JSON, `.p8`) appears anywhere in client source or app resources | A secret key shipped in a binary — full provider or account compromise |
-| **Reverse** | The `pk_` key the app initializes with is present, non-placeholder, publishable, and vault-originated. Mode-correctness applies only to a LEGACY mode-prefixed key, since a mode-less key pins nothing | A placeholder key (the app initializes but `isConfigured` is false, so every surface reports Free), or a legacy `pk_test_` key in a release build (live buyers hit test payment links) |
+| **Reverse** | The `pk_` key the app initializes with is present, non-placeholder, publishable, and vault-originated. There is no mode-correctness dimension: no key shape pins mode | A placeholder key (the app initializes but `isConfigured` is false, so every surface reports Free) |
 
 Neither direction alone is sufficient. A scan that only looks for leaked secrets passes an app whose
 paywall cannot load because the publishable key was never filled in.

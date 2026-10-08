@@ -1,4 +1,4 @@
-example-provenance: a13bceca0e39c8b82a41b342160b5fdc6140fef9
+example-provenance: 399a26bf0ae5b641a3bb69b79646e7930eb4cf59
 
 # PUBLIC_API.md — PayCraft SDK public integration surface
 
@@ -27,8 +27,8 @@ fun initialize(
   fire-and-forget. It never awaits the network.
 - **Precondition (hard).** `apiKey` must be PUBLISHABLE — `startsWith("pk_")` — unless `backend` is
   `PayCraftBackend.Mock`. An `sk_…` secret key throws `IllegalArgumentException` at the call site.
-  Mode is NOT required in the prefix: one key per app, and `PayCraft.mode` resolves test/live from
-  `InitOptions.modeOverride` → a legacy `pk_test_`/`pk_live_` prefix → the host build type. A
+  Mode is NOT in the prefix: one key per app, and `PayCraft.mode` resolves test/live from
+  `InitOptions.modeOverride` → the host build type, never reading the prefix. A
   `pk_YOUR…` placeholder passes this guard and surfaces as `isConfigured == false` (Free), rather
   than throwing. See KEY_TIERING.md for the provisioning caveat.
 - **Idempotent-ish.** Re-invocation is supported (test re-init). It resets `paywallPresentation` to

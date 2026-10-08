@@ -1,4 +1,4 @@
-example-provenance: a13bceca0e39c8b82a41b342160b5fdc6140fef9
+example-provenance: 399a26bf0ae5b641a3bb69b79646e7930eb4cf59
 
 # FAILURE_MODES.md — enumerated integration failures and their source-level remedies
 
@@ -83,7 +83,7 @@ never faked green and never spun on.
 |---|---|---|:--:|---|
 | F33 | An `sk_`-tier credential found in app source | Secret pasted into the client | heal + **rotate** | Remove, rotate the credential, re-materialize at the function/CI consumer |
 | F34 | Live buyers hit test payment links | A LEGACY `pk_test_` key in a release build (a mode-less `pk_` key cannot cause this — it resolves Live on a release build) | heal | Wire the app's one `pk_` key, or the `pk_live_` variant if the app is still on a legacy pair |
-| F35 | A debug build charges real money / a release build takes no payment | The app's key is a LEGACY mode-prefixed one, so mode resolution stops at step 2 and the build-type rule never applies. Affects every tenant provisioned before migration 148; those rows are deliberately not backfilled | heal | Rotate to a mode-less key (`rotate_api_key` issues `pk_<hex>` into both columns), or set `InitOptions.modeOverride` explicitly. See KEY_TIERING.md |
+| F35 | A debug build charges real money / a release build takes no payment | **FIXED 2026-10-08** — `PayCraft.mode` no longer reads the key prefix, so no key can pin mode. Was: a mode-prefixed key short-circuited the build-type rule. If seen on ≤2.4.4, upgrade; the key needs no rotation | heal | Upgrade the SDK. To deliberately force a mode (live checkout from a debug build, or JVM/web with no build signal), set `InitOptions.modeOverride` |
 | F35 | A `pk_` key flagged as a leak | Publishable key mistaken for a secret | — | Not a defect. Verify vault origin and build-type variant instead (KEY_TIERING.md) |
 | F35b | A row in `account_api_keys` whose `key_hash` starts with `sk_acct_` | A code path stored the plaintext | heal + **rotate** | Hash through `_shared/account-key.ts`; the column's structural check should have refused it — find what bypassed it |
 
