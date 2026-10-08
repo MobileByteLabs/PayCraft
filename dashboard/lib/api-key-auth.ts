@@ -21,12 +21,24 @@ import {
  *
  * THE THREE RULES THIS FILE ENFORCES, IN ORDER
  *
- * 1. IDENTITY COMES FROM THE KEY, NEVER FROM THE REQUEST.
- *    `verify` returns the tenant the key was issued for, and callers must use THAT — never a
- *    `tenant_id` in the body or query. A key is a bearer credential; if the payload could name the
- *    tenant, any valid key would be a key to every tenant. This is the single most important
- *    property here, which is why the context object exposes `tenantId` and the routes take no
- *    tenant parameter at all.
+ * 1. REACH COMES FROM THE KEY. A REQUEST MAY ONLY NARROW WITHIN IT, NEVER WIDEN IT.
+ *    `verify` returns the set of tenants a key reaches. A request may SELECT one of them; it can
+ *    never introduce one. If the payload could widen reach, any valid key would be a key to every
+ *    tenant — the property this file exists to hold.
+ *
+ *    Originally stated as "identity comes from the key, never from the request", because every key
+ *    reached exactly one tenant and routes took no tenant parameter at all. Migration 150 added
+ *    ACCOUNT-scoped keys, which reach every app their owner administers, so a request has to be
+ *    able to say which app it means. That is a narrowing, and the rule is extended rather than
+ *    relaxed:
+ *      • app-scoped key   → the set is its one tenant. A request naming a DIFFERENT tenant is 403,
+ *                           so the original guarantee is untouched for every existing key.
+ *      • account-scoped   → the set is resolved LIVE from tenant_admins at verify time. A request
+ *                           naming a tenant outside it is 403; naming NONE is 400, never a guess.
+ *
+ *    Refusing the no-tenant case matters: picking one silently is the same defect class as
+ *    `rotate_api_key`, which took an arbitrary row from a multi-row SELECT and could rotate the
+ *    wrong app's live credential.
  *
  * 2. SCOPE IS CHECKED PER ROUTE, NOT PER KEY.
  *    A key carries a closed set of scopes (constrained in the database, migration 136). Each route
@@ -45,7 +57,12 @@ import {
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-/** Scopes the API recognises. Mirrors the CHECK constraint in migration 136 — keep the two in step. */
+/**
+ * Scopes the API recognises. Mirrors the CHECK constraint in migrations 136 + 150 — keep in step.
+ *
+ * A scope absent from the DB constraint cannot be granted, so adding one here alone is inert; a
+ * scope absent HERE cannot be demanded by a route, so adding one there alone is unreachable.
+ */
 export type ApiScope =
   | "readiness:read"
   | "providers:read"
@@ -57,11 +74,31 @@ export type ApiScope =
   | "paywall:read"
   | "audit:read"
   | "webhooks:read"
+  // Added by migration 150 — the write side an end-to-end onboarding needs. Separate from the
+  // read scopes so a reporting token can never provision an app or rotate a credential.
+  | "products:write"
+  | "paywall:write"
+  | "providers:write"
+  | "apps:read"
+  | "apps:provision"
+  | "keys:rotate"
 
 export interface ApiKeyContext {
+  /**
+   * The tenant RESOLVED for this request — always a concrete id, never null.
+   *
+   * For an app-scoped key it is the key's own tenant. For an account-scoped key it is the one the
+   * request named, already validated against the key's reachable set. Routes use this exactly as
+   * before and cannot tell the two apart, which is the point: the widening question is settled
+   * here, once.
+   */
   tenantId: string
   keyId: string
   scopes: string[]
+  /** True when this key reaches more than its own app (migration 150). */
+  accountScoped: boolean
+  /** Every tenant this key may reach. One element for an app key. */
+  reachableTenantIds: string[]
   /** Service-role client. RLS does not apply to it, so every query MUST filter by `tenantId`. */
   admin: SupabaseClient<any>
 }
@@ -71,6 +108,23 @@ export type ApiKeyFailure = { failed: NextResponse }
 
 export function isFailure(v: ApiKeyContext | ApiKeyFailure): v is ApiKeyFailure {
   return (v as ApiKeyFailure).failed !== undefined
+}
+
+/**
+ * The tenant a request is asking to act on, read from `?tenant_id=`.
+ *
+ * Pass the result straight to `requireApiKey`. It is a REQUEST, not a grant: an app-scoped key
+ * naming anything but its own tenant is refused, and an account-scoped key naming a tenant outside
+ * its live reach is refused. Returning it here rather than letting each route parse the query keeps
+ * one spelling of the parameter, so a route cannot accidentally read a different field and bypass
+ * the check.
+ */
+export function requestedTenant(req: Request): string | null {
+  try {
+    return new URL(req.url).searchParams.get("tenant_id")
+  } catch {
+    return null
+  }
 }
 
 function fail(status: number, error: string, detail?: string): ApiKeyFailure {
@@ -99,6 +153,12 @@ function fail(status: number, error: string, detail?: string): ApiKeyFailure {
 export async function requireApiKey(
   req: Request,
   scope: ApiScope,
+  /**
+   * The tenant this request means. REQUIRED when the key is account-scoped, ignored-unless-equal
+   * when it is app-scoped. Routes that serve account keys read it from the payload or query and
+   * pass it here; this function decides whether the key may reach it.
+   */
+  requestedTenantId?: string | null,
 ): Promise<ApiKeyContext | ApiKeyFailure> {
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     // Detailed in the LOG, generic in the RESPONSE. Naming the variable matters for whoever is
@@ -148,7 +208,10 @@ export async function requireApiKey(
   // and they are reported identically on purpose — distinguishing them tells an attacker which of
   // their guesses was once real.
   const row = Array.isArray(data) ? data[0] : data
-  if (!row?.tenant_id) {
+  // Presence of a KEY ID is the success test, not tenant_id. An account-scoped key deliberately
+  // returns tenant_id = NULL (migration 150), and testing the old field would have rendered every
+  // valid account key a 401 — failing closed, but silently and confusingly.
+  if (!row?.key_id) {
     // A rejected KEY is the attempt worth counting. A valid key that merely lacks a scope is a
     // misconfigured client, not a guess, and throttling it would punish the honest case.
     recordAuthFailure(req)
@@ -162,6 +225,36 @@ export async function requireApiKey(
     return fail(401, "invalid_api_key")
   }
 
+  const accountScoped: boolean = row.account_scoped === true
+  const reachable: string[] = (row.tenant_ids ?? []).filter(Boolean)
+
+  // ── Resolve WHICH tenant this request acts on, within what the key already reaches ──────────
+  let tenantId: string
+  if (!accountScoped) {
+    tenantId = row.tenant_id
+    // An app key naming a different tenant is the exact attack rule 1 exists to stop. Refused even
+    // though the route would have used the key's own tenant anyway — a request that tried to widen
+    // reach is a bug or an probe, and silently succeeding teaches the caller it worked.
+    if (requestedTenantId && requestedTenantId !== tenantId) {
+      return fail(403, "tenant_not_reachable", "this key is scoped to a single app")
+    }
+  } else {
+    if (!requestedTenantId) {
+      // NEVER pick one. Same defect class as rotate_api_key taking an arbitrary row.
+      return fail(
+        400,
+        "tenant_required",
+        `this key reaches ${reachable.length} app(s); name the one you mean`,
+      )
+    }
+    if (!reachable.includes(requestedTenantId)) {
+      // Indistinguishable from "app does not exist" on purpose: telling a caller that an app
+      // exists but is out of reach enumerates the account's apps.
+      return fail(403, "tenant_not_reachable")
+    }
+    tenantId = requestedTenantId
+  }
+
   const scopes: string[] = row.scopes ?? []
   if (!scopes.includes(scope)) {
     // 403, not 401: the credential is valid, the permission is not. Retrying with the same key will
@@ -173,14 +266,23 @@ export async function requireApiKey(
   // against is a loop, not a human clicking fast: 120 requests with 1/s refill absorbs a burst and
   // then throttles to a rate a runaway script cannot outrun.
   const { data: allowed } = await admin.rpc("rate_limit_check", {
-    p_tenant_id: row.tenant_id,
+    // Per RESOLVED tenant. Budgeting an account key per-key instead would let one busy app starve
+    // the others that share it.
+    p_tenant_id: tenantId,
     p_bucket_name: "management_api",
     p_max_tokens: 120,
     p_refill_per_sec: 1,
   })
   if (allowed === false) return fail(429, "rate_limited")
 
-  return { tenantId: row.tenant_id, keyId: row.key_id, scopes, admin }
+  return {
+    tenantId,
+    keyId: row.key_id,
+    scopes,
+    accountScoped,
+    reachableTenantIds: accountScoped ? reachable : [tenantId],
+    admin,
+  }
 }
 
 /** Audit one management-API action against the key that performed it. */

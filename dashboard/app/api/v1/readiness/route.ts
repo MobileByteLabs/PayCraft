@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { requireApiKey, isFailure, auditApiAction } from "@/lib/api-key-auth"
+import { requireApiKey, requestedTenant, isFailure, auditApiAction } from "@/lib/api-key-auth"
 import { queryFailed, withSecurityHeaders } from "@/lib/api-security"
 
 export const dynamic = "force-dynamic"
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic"
  * No tenant parameter — the tenant comes from the key (see api-key-auth, rule 1).
  */
 export async function GET(req: Request) {
-  const ctx = await requireApiKey(req, "readiness:read")
+  const ctx = await requireApiKey(req, "readiness:read", requestedTenant(req))
   if (isFailure(ctx)) return ctx.failed
 
   const { data, error } = await ctx.admin.rpc("tenant_providers_mode_readiness", {

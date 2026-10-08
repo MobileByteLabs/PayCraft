@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { requireApiKey, isFailure, auditApiAction } from "@/lib/api-key-auth"
+import { requireApiKey, requestedTenant, isFailure, auditApiAction } from "@/lib/api-key-auth"
 import { bodyTooLarge, withSecurityHeaders } from "@/lib/api-security"
 import { runSyncDrain } from "@/lib/sync-drain"
 import { DRIFT_DETECTORS, type DriftFinding } from "@/lib/drift-detectors"
@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic"
  */
 
 export async function GET(req: Request) {
-  const ctx = await requireApiKey(req, "products:read")
+  const ctx = await requireApiKey(req, "products:read", requestedTenant(req))
   if (isFailure(ctx)) return ctx.failed
 
   const findings: DriftFinding[] = []
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
   const oversized = bodyTooLarge(req)
   if (oversized) return oversized
 
-  const ctx = await requireApiKey(req, "products:sync")
+  const ctx = await requireApiKey(req, "products:sync", requestedTenant(req))
   if (isFailure(ctx)) return ctx.failed
 
   const body = (await req.json().catch(() => ({}))) as { confirm_count?: number }

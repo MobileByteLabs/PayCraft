@@ -188,7 +188,17 @@ async function handle(msg: any, req: Request): Promise<unknown | null> {
         return { jsonrpc: "2.0", id, error: { code: INVALID_PARAMS, message: "arguments must be an object" } }
       }
 
-      const origin = new URL(req.url).origin
+      // Carry `tenant_id` on the origin so EVERY tool forwards it — `call()` copies the base's
+      // params onto the request URL, where route handlers read it via `requestedTenant(req)`. One
+      // edit instead of nine invoke bodies, and a tool added later inherits it rather than
+      // silently omitting it and 400ing for account-scoped callers.
+      //
+      // Only ever a REQUEST, never a grant: an app-scoped token naming another app is refused, and
+      // an account-scoped one naming a tenant outside its live reach is refused. Nothing here can
+      // widen what the key already reaches.
+      const base = new URL(req.url).origin
+      const tenantArg = typeof args.tenant_id === "string" ? args.tenant_id.trim() : ""
+      const origin = tenantArg ? `${base}/?tenant_id=${encodeURIComponent(tenantArg)}` : base
       let res: Response
       try {
         res = await tool.invoke(args as Record<string, any>, auth, origin)
