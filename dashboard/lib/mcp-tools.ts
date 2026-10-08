@@ -169,7 +169,7 @@ export const MCP_TOOLS: McpTool[] = [
       "paycraft_sync_report; a mismatch returns 409 rather than proceeding. A 200 does not mean " +
       "every provider succeeded — read the skipped and failed arrays. Requires products:sync.",
     inputSchema: obj(
-      {
+      { ...TENANT,
         confirm_count: {
           type: "integer",
           minimum: 0,
@@ -191,7 +191,7 @@ export const MCP_TOOLS: McpTool[] = [
       "Pushes a single product to its providers. No confirm_count — the subject is named explicitly. " +
       "Optionally narrow to one provider. Requires products:sync.",
     inputSchema: obj(
-      {
+      { ...TENANT,
         id: { type: "string", description: "Product UUID." },
         provider: {
           type: "string",
@@ -219,7 +219,7 @@ export const MCP_TOOLS: McpTool[] = [
     description:
       "Per-provider events for a sync run. Where a summary says a provider failed, these rows say " +
       "why. Pass run_id from a sync result. Requires products:read.",
-    inputSchema: obj({
+    inputSchema: obj({ ...TENANT,
       run_id: { type: "string" },
       provider: { type: "string" },
       status: { type: "string" },
@@ -233,7 +233,7 @@ export const MCP_TOOLS: McpTool[] = [
     description:
       "Subscription records, filterable by email, status, provider and mode. Filter by mode when " +
       "answering a live question — a test-mode row answers a different one. Requires subscribers:read.",
-    inputSchema: obj({
+    inputSchema: obj({ ...TENANT,
       email: { type: "string" },
       status: { type: "string" },
       provider: { type: "string" },
@@ -248,7 +248,7 @@ export const MCP_TOOLS: McpTool[] = [
     description:
       "What PayCraft GRANTS, as opposed to what a provider bills — the two disagree during grace " +
       "periods and refunds, and this is the one an app should trust. Requires subscribers:read.",
-    inputSchema: obj({
+    inputSchema: obj({ ...TENANT,
       app_user_id: { type: "string" },
       provider: { type: "string" },
       state: { type: "string" },
@@ -278,7 +278,7 @@ export const MCP_TOOLS: McpTool[] = [
     description:
       "Webhook deliveries with redacted payloads. Filter status=failed to answer whether anything " +
       "was dropped after a provider incident. Requires webhooks:read.",
-    inputSchema: obj({
+    inputSchema: obj({ ...TENANT,
       provider: { type: "string" },
       status: { type: "string" },
       event_type: { type: "string" },
