@@ -24,6 +24,10 @@ build/
 
 # Local configuration
 local.properties
+# Backups the vault sync writes beside it (`local.properties.vss-bak`). The bare `local.properties`
+# pattern does NOT cover a suffixed sibling, so a 5 KB file of live credentials sat untracked but
+# stageable — the SV32 commit guard caught it on 2026-10-09. Ignore the whole family.
+local.properties.*
 *.local
 
 # Logs
