@@ -88,21 +88,29 @@ COMMENT ON FUNCTION public.tenant_products_package_role(text, text) IS
   'cadence so callers RAISE rather than silently orphan a product — the forward-compatibility guard '
   'migration 088 documented. Adding an interval value means adding an arm HERE.';
 
--- ── 3. Backfill any product the widened vocabulary now makes mappable ───────
--- A no-op today (no weekly product can exist yet, because the CHECK forbade it until a moment ago).
--- Present so the migration is correct if replayed against a database where one was inserted between
--- the ALTER above and this statement.
+-- ── 3. Backfill every product that has no package ───────────────────────────
+-- SCOPE IS ALL UNPACKAGED PRODUCTS, not just weekly. `tenant_products_upsert` does not assign a
+-- package, so every product created since migration 088 ran has package_id NULL (measured: 6 of 21
+-- rows). Restricting this to `interval = 'week'` would fix the row that prompted the migration and
+-- leave the identical defect on the others — including the `quarter` tier the same catalogue seeds.
+--
+-- `p.type::text` — NOT `p.type`. tenant_products.type is the ENUM `product_type`, and Postgres does
+-- not implicitly cast an enum to text, so `tenant_products_package_role(p.type, …)` raises
+-- "function ... (product_type, text) does not exist". The first apply of this migration did not hit
+-- it because no weekly product existed yet and the loop body never executed — the bug was latent
+-- until the first weekly row was seeded, which is precisely what a "no-op today" comment hides.
 DO $backfill$
 DECLARE p RECORD; v_role text; off_id uuid; pkg_id uuid;
 BEGIN
   FOR p IN
     SELECT tp.id, tp.tenant_id, tp.type, tp."interval"
     FROM tenant_products tp
-    WHERE tp.package_id IS NULL AND tp."interval" = 'week'
+    WHERE tp.package_id IS NULL
   LOOP
-    v_role := tenant_products_package_role(p.type, p."interval");
+    v_role := tenant_products_package_role(p.type::text, p."interval");
     IF v_role IS NULL THEN
-      RAISE EXCEPTION 'unmappable weekly product tenant=% id=% — refuses silent drop', p.tenant_id, p.id;
+      RAISE EXCEPTION 'unmappable product tenant=% id=% type=% interval=% — refuses silent drop',
+        p.tenant_id, p.id, p.type, p."interval";
     END IF;
     SELECT id INTO off_id FROM tenant_offerings
       WHERE tenant_id = p.tenant_id AND identifier = 'default';
