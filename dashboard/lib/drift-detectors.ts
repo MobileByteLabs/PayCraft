@@ -480,7 +480,10 @@ export async function detectNoTestCredential(
   const { data: rows, error } = await supa
     .from("tenant_providers")
     .select(
-      "provider, is_active, live_key_id, test_key_id, test_payment_links, provider_accounts(config)",
+      // No provider_accounts(config) embed: RLS (service_role only) makes it always empty here,
+      // and an embed that silently returns nothing is what produced the false no-test-credential
+      // finding. Account-level key ids come from tenant_providers_status below.
+      "provider, is_active, live_key_id, test_key_id, test_payment_links",
     )
     .eq("tenant_id", tenantId)
 
@@ -495,17 +498,36 @@ export async function detectNoTestCredential(
     live_key_id: string | null
     test_key_id: string | null
     test_payment_links: unknown
-    // PostgREST types a to-one embed as an ARRAY even though it returns a single object here, and
-    // the two shapes are indistinguishable at the call site — so normalise rather than pick one.
-    provider_accounts:
-      | { config: Record<string, string> | null }
-      | { config: Record<string, string> | null }[]
-      | null
   }[]) {
-    const embedded = Array.isArray(r.provider_accounts) ? r.provider_accounts[0] : r.provider_accounts
-    const acct = embedded?.config ?? {}
-    const liveKey = acct.live_key_id ?? r.live_key_id
-    const testKey = acct.test_key_id ?? r.test_key_id
+    // RESOLVE through tenant_providers_status, do NOT read the embed.
+    //
+    // `provider_accounts` carries ONE RLS policy — service_role only — while every caller of this
+    // detector runs under an owner COOKIE session. So `provider_accounts(config)` above always
+    // embeds EMPTY here, `acct` is `{}`, and the `?? r.test_key_id` fallback lands on the tenant
+    // row, whose key columns are NULL by design for an account-attached app. Result: a confident
+    // "NO test key on its shared connection" for a connection that has one.
+    //
+    // Measured on mbs/cappy 2026-10-09: its stripe row is attached to account "mbs org stripe"
+    // (4 apps), whose config holds BOTH live_key_id and test_key_id — and the finding fired anyway.
+    // This is the exact class migration 132 fixed for `tenant_providers_status`, recurring here;
+    // that migration's NOTE ("check what the app RESOLVES to") was written about this trap.
+    //
+    // The fix is the shipped SECURITY DEFINER resolver, not a wider RLS policy: it re-checks
+    // tenant_admins, so it cannot widen access, and it already encodes the account-over-row
+    // precedence. Widening RLS to make an embed work would expose a config blob to every tenant
+    // admin to satisfy a read this function already answers.
+    const { data: st } = await supa.rpc("tenant_providers_status", {
+      p_tenant_id: tenantId,
+      p_provider: r.provider,
+    })
+    const resolved = (Array.isArray(st) ? st[0] : st) as
+      | { test_key_id: string | null; live_key_id: string | null }
+      | null
+      | undefined
+    // No row => inactive or unattached; `live_key_id` absent then falls through to the class-4
+    // detector below exactly as before.
+    const liveKey = resolved?.live_key_id ?? r.live_key_id
+    const testKey = resolved?.test_key_id ?? r.test_key_id
 
     if (!liveKey) continue              // class 4 owns "no credential at all"
     if (testKey) continue               // both modes present — nothing to say

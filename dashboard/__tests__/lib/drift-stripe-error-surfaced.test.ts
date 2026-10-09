@@ -37,7 +37,10 @@ function fakeSupabase(rows: unknown[]) {
     then: (res: (v: { data: unknown[] | null; error: unknown }) => unknown) =>
       res({ data: rows, error: null }),
   }
-  return { from: () => thenable } as never
+  // `.rpc` models tenant_providers_status. null = no resolver row, so the detector falls back to
+  // the tenant row exactly as this fixture intends (see drift-no-test-credential for why the
+  // embed it used to read is RLS-blocked and always empty).
+  return { from: () => thenable, rpc: async () => ({ data: null, error: null }) } as never
 }
 
 const product = {

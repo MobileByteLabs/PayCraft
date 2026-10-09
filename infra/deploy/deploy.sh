@@ -105,6 +105,9 @@ REQUIRE_STAGED=false            # --promote-to-prod: refuse unless staging was d
 SYNC_PROD=true                  # --local: mirror production into the local DB (--no-sync-prod skips)
 APPLY=false
 CONFIRM_PROD=false
+# The checkout is what deploys (phase 5 builds dashboard/ in place), so a dirty tree makes the
+# deploy unreproducible. Refused unless the operator says so explicitly; recorded in the ledger.
+ALLOW_DIRTY=false
 FROM_PHASE=0   # 0, not 1: --promote-to-prod's STAGED CHECK is phase 0, and a default of 1 made
                # the range check silently skip the one gate that guards production.
 TO_PHASE=6
@@ -151,6 +154,7 @@ while [[ $# -gt 0 ]]; do
         --apply)                APPLY=true; shift ;;
         --dry-run)              APPLY=false; shift ;;
         --confirm-production)   CONFIRM_PROD=true; shift ;;
+        --allow-dirty)          ALLOW_DIRTY=true; shift ;;
         --from-phase)           FROM_PHASE="$2"; shift 2 ;;
         --to-phase)             TO_PHASE="$2"; shift 2 ;;
         --only-phase)           ONLY_PHASE="$2"; FROM_PHASE="$2"; TO_PHASE="$2"; shift 2 ;;
@@ -237,14 +241,31 @@ phase_1_preflight() {
 
     cd "$PAYCRAFT_SRC"
 
-    # Warn on un-pushed local dev commits — prod deploys origin/dev, so any
-    # commit not pushed there will NOT deploy. (Warning only; you may be deploying intentionally.)
+    # THE CHECKOUT IS WHAT DEPLOYS. Phase 5 builds $PAYCRAFT_SRC/dashboard in place, so this tree
+    # ships — including uncommitted edits. The text here used to say the opposite ("those will NOT
+    # deploy"), which is how an uncommitted change reached production on 2026-10-09 while both the
+    # warning and the ledger pointed at origin/dev.
     git fetch origin dev 2>/dev/null || true
-    local unpushed
-    unpushed=$(git rev-list --count origin/dev..dev 2>/dev/null || echo 0)
-    if [[ "$unpushed" =~ ^[0-9]+$ && "$unpushed" -gt 0 ]]; then
-        echo "  ⚠ local 'dev' is $unpushed commit(s) ahead of origin/dev — those will NOT deploy."
-        echo "    Push them first (/git-session-commit) if you intend to ship them."
+    local head_sha dev_sha
+    head_sha=$(git rev-parse --short HEAD 2>/dev/null || echo "?")
+    dev_sha=$(git rev-parse --short origin/dev 2>/dev/null || echo "?")
+    [[ "$head_sha" = "$dev_sha" ]] \
+        || echo "  ⓘ deploying this CHECKOUT ($head_sha), which differs from origin/dev ($dev_sha)."
+
+    # A dirty tree is refused, not warned about: an unreproducible production deploy is the one
+    # thing a ledger can never repair afterwards. --allow-dirty is the operator's explicit override
+    # (it is recorded in the ledger as dirty:true), and CI is unaffected because CI trees are clean.
+    if ! git diff --quiet HEAD 2>/dev/null; then
+        if [[ "$ALLOW_DIRTY" = "true" ]]; then
+            echo "  ⚠ tree is DIRTY and --allow-dirty was passed — shipping uncommitted changes."
+            echo "    The ledger will record dirty:true; tree_sha alone will not reproduce this deploy."
+        else
+            echo "  ✗ working tree has uncommitted changes, and this tree is what deploys."
+            echo "    Commit them (/git-session-commit) so the deploy is reproducible,"
+            echo "    or pass --allow-dirty to ship them deliberately."
+            git status --short -- . | head -10 | sed 's/^/      /'
+            return 1
+        fi
     fi
 
     # Build verification — typecheck the dashboard BEFORE any mutation, so a broken build is caught
@@ -771,10 +792,20 @@ emit_status() {
     head_ref=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
     printf "origin/dev:  %s\n" "$dev_sha"
     printf "checkout:    %s @ %s\n" "$head_ref" "$head_sha"
-    if [[ "$dev_sha" = "$head_sha" ]]; then
+    # Report DIRTY too: it is the state that makes a deploy unreproducible, and it is invisible in
+    # a sha comparison. --prod refuses it unless --allow-dirty is passed.
+    local dirty="no"
+    git diff --quiet HEAD 2>/dev/null || dirty="yes"
+    printf "uncommitted: %s\n" "$dirty"
+    if [[ "$dirty" = "yes" ]]; then
+        # The checkout ships, so uncommitted edits ship — the claim this line used to make
+        # ("a --prod deploy ships origin/dev, not this checkout") was false and is why an
+        # uncommitted change reached production on 2026-10-09.
+        printf "deploy_state: DIRTY (this tree ships; --prod refuses it without --allow-dirty)\n"
+    elif [[ "$dev_sha" = "$head_sha" ]]; then
         printf "deploy_state: AT-DEV\n"
     else
-        printf "deploy_state: DIVERGED (a --prod deploy ships origin/dev, not this checkout)\n"
+        printf "deploy_state: DIVERGED (a --prod deploy ships THIS checkout, not origin/dev)\n"
     fi
     echo ""
 
@@ -1367,8 +1398,19 @@ run_phase 6   "SMOKE"            "phase_6_smoke"         || exit 1
 banner "PayCraft Deploy — done in $(($(date -u +%s) - START_TS))s"
 echo "  Live: $PROD_URL"
 
-printf '{"ts":"%s","env":"production","status":"success","duration_s":%d,"apply":%s,"dev_sha":"%s"}\n' \
+# Stamp what SHIPPED, which is the CHECKOUT — phase 5 runs `npm run pages:deploy` inside
+# $PAYCRAFT_SRC/dashboard, so the bytes come from the working tree, not from origin/dev.
+# This line used to record origin/dev's sha, which made the ledger misattribute every deploy whose
+# checkout differed from it: on 2026-10-09 an uncommitted drift-detector fix went live while the
+# ledger named an origin/dev sha that did not contain it. A ledger that cannot answer "what is
+# running right now" is worse than no ledger, because it is trusted.
+#
+# dirty=true means the tree had uncommitted changes, so tree_sha alone does NOT reproduce the
+# deploy. Recorded rather than hidden: the operator passed --allow-dirty to get here.
+printf '{"ts":"%s","env":"production","status":"success","duration_s":%d,"apply":%s,"tree_sha":"%s","dirty":%s,"origin_dev_sha":"%s"}\n' \
     "$(date -u +%FT%TZ)" "$(($(date -u +%s) - START_TS))" "$APPLY" \
+    "$(git -C $PAYCRAFT_SRC rev-parse --short HEAD 2>/dev/null)" \
+    "$(git -C $PAYCRAFT_SRC diff --quiet HEAD 2>/dev/null && echo false || echo true)" \
     "$(git -C $PAYCRAFT_SRC rev-parse --short origin/dev 2>/dev/null)" >> "$LEDGER"
 
 # cloudflare-deploy wired via /paycraft-deploy phase 5 (2026-08-23)
