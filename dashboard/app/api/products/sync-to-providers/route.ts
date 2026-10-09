@@ -9,6 +9,7 @@ import {
   googlePlaySyncProduct,
   appStoreSyncProduct,
   classifyProvider,
+  rollupSyncStatus,
 } from "@/lib/stripe-route-helper"
 
 /**
@@ -464,6 +465,57 @@ export async function POST() {
         message: e?.message ?? String(e),
       })
     }
+  }
+
+  // ── Write the TERMINAL sync status for every product this run touched ───────────────────────
+  //
+  // This route pushed each provider and recorded a per-provider outcome above, but never wrote
+  // `tenant_products.sync_status` — and `tenant_products_needs_sync` keys its "unsynced" predicate
+  // on exactly that column. So a row left `syncing` by a DIFFERENT path could never be cleared
+  // here, and the bridge looped forever: "1 unsynced" → sync → 200 OK with ops → "1 unsynced".
+  //
+  // Measured on cappy's `cappy_plus_monthly` 2026-10-09: stranded `syncing` for 16 days with all
+  // three store ids present. `syncProductToAllProviders` had stamped the opening in-flight map on
+  // 2026-10-07 and died before its terminal write (its app_store runner emitted `start` and no
+  // terminal event, so no `run_done`). Two runs of this route then reported `synced_ops: 1` per
+  // provider while changing nothing but `updated_at` — success reported, drift untouched.
+  //
+  // The status is DERIVED from the reports just collected, never assumed: a provider that failed
+  // keeps the row non-synced, so this cannot launder a broken sync into a green one. Only a run in
+  // which every touched provider came back ok/skipped reaches `synced`.
+  const perProduct = new Map<string, { statuses: string[]; state: Record<string, unknown> }>()
+  for (const [provider, reports] of [
+    ["stripe", stripeReports],
+    ["razorpay", razorpayReports],
+    ["google_play", googlePlayReports],
+    ["app_store", appStoreReports],
+  ] as const) {
+    for (const r of reports) {
+      const acc = perProduct.get(r.product_id) ?? { statuses: [], state: {} }
+      acc.statuses.push(r.status)
+      // "ok" is this route's report vocabulary; the sync_state map speaks "synced".
+      acc.state[provider] = {
+        status: r.status === "ok" ? "synced" : r.status,
+        ...(r.message ? { reason: r.message } : {}),
+      }
+      perProduct.set(r.product_id, acc)
+    }
+  }
+  for (const [productId, acc] of perProduct) {
+    const rollup = rollupSyncStatus(acc.statuses)
+    // Best-effort per product: one row failing to stamp must not abort the others or discard the
+    // provider work already done. A row that misses its stamp stays enumerated as unsynced, which
+    // is the safe direction — it gets retried, rather than silently reading as complete.
+    await supabase
+      .rpc("tenant_products_set_sync_state", {
+        p_id: productId,
+        p_status: rollup,
+        p_state: acc.state,
+      })
+      .then(
+        () => {},
+        () => {},
+      )
   }
 
   await supabase.rpc("audit_log_emit", {

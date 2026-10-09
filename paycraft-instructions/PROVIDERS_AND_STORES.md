@@ -1,4 +1,4 @@
-example-provenance: 16f6926950bad26de159e9d87ec2ef9ba23ceef9
+example-provenance: 7734ada8809b080b9021a9d958ca95b501d8dca4
 
 # PROVIDERS_AND_STORES.md — checkout lanes, provider adapters, store product sync
 

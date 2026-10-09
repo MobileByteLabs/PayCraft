@@ -241,10 +241,16 @@ export async function requireApiKey(
   } else {
     if (!requestedTenantId) {
       // NEVER pick one. Same defect class as rotate_api_key taking an arbitrary row.
+      //
+      // But DO name them. A bare count is a dead end: the caller is told to choose and given
+      // nothing to choose from, so the only way forward was a direct psql session — which is the
+      // superuser path this API exists to replace. Listing the tenants the key ALREADY reaches is
+      // not enumeration: the holder is authorized for every one of them. That is precisely why the
+      // 403 below stays opaque (it would reveal an app OUTSIDE the key's reach) while this does not.
       return fail(
         400,
         "tenant_required",
-        `this key reaches ${reachable.length} app(s); name the one you mean`,
+        `this key reaches ${reachable.length} app(s); name the one you mean via tenant_id: ${reachable.join(", ")}`,
       )
     }
     if (!reachable.includes(requestedTenantId)) {

@@ -326,9 +326,26 @@ describe("requireApiKey — account-scoped reach", () => {
     expect(await statusOf(r)).toBe(400)
   })
 
+  it("the 400 NAMES the reachable tenants — a bare count is a dead end", async () => {
+    // Telling a caller to choose and giving it nothing to choose from forced the one path this API
+    // replaces: a direct psql session as superuser. The key holder is already authorized for every
+    // id listed, so this is not enumeration — contrast the 403 test below, which must stay opaque.
+    mockVerify(accountRow(["readiness:read"], [TENANT, OTHER]))
+    const r = await requireApiKey(req(auth), "readiness:read")
+    expect(await statusOf(r)).toBe(400)
+    const body = await (r as { failed: Response }).failed.json()
+    expect(body.detail).toContain(TENANT)
+    expect(body.detail).toContain(OTHER)
+  })
+
   it("403s when an account key names a tenant outside its reach", async () => {
     mockVerify(accountRow(["readiness:read"], [TENANT, OTHER]))
-    expect(await statusOf(await requireApiKey(req(auth), "readiness:read", THIRD))).toBe(403)
+    const r = await requireApiKey(req(auth), "readiness:read", THIRD)
+    expect(await statusOf(r)).toBe(403)
+    // Must NOT list the reach here: the caller named an app OUTSIDE it, so echoing the set would
+    // enumerate the account to someone who just proved they do not know what it contains.
+    const body = await (r as { failed: Response }).failed.json()
+    expect(JSON.stringify(body)).not.toContain(OTHER)
   })
 
   it("selects within reach — the second tenant works exactly like the first", async () => {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { requireApiKey, isFailure, type ApiScope, type ApiKeyContext } from "@/lib/api-key-auth"
+import { requireApiKey, requestedTenant, isFailure, type ApiScope, type ApiKeyContext } from "@/lib/api-key-auth"
 import { queryFailed, withSecurityHeaders } from "@/lib/api-security"
 
 /**
@@ -50,7 +50,12 @@ export async function listResource(
     filters?: (q: URLSearchParams) => Record<string, string | null>
   },
 ) {
-  const ctx = await requireApiKey(req, scope)
+  // requestedTenant(req), not nothing: these two helpers back 15 of the 17 v1 routes, and omitting
+  // the argument made every one of them answer 400 `tenant_required` to an account-scoped token —
+  // the token could authenticate but could never name an app, so only the two routes that call
+  // requireApiKey directly (readiness, sync) were usable. Passing it here is NOT a widening: the
+  // value is a REQUEST that requireApiKey refuses unless the key already reaches that tenant.
+  const ctx = await requireApiKey(req, scope, requestedTenant(req))
   if (isFailure(ctx)) return ctx.failed
 
   const { limit, offset } = parsePage(req)
@@ -93,7 +98,12 @@ export async function withApiKey(
   scope: ApiScope,
   fn: (ctx: ApiKeyContext) => Promise<NextResponse>,
 ) {
-  const ctx = await requireApiKey(req, scope)
+  // requestedTenant(req), not nothing: these two helpers back 15 of the 17 v1 routes, and omitting
+  // the argument made every one of them answer 400 `tenant_required` to an account-scoped token —
+  // the token could authenticate but could never name an app, so only the two routes that call
+  // requireApiKey directly (readiness, sync) were usable. Passing it here is NOT a widening: the
+  // value is a REQUEST that requireApiKey refuses unless the key already reaches that tenant.
+  const ctx = await requireApiKey(req, scope, requestedTenant(req))
   if (isFailure(ctx)) return ctx.failed
   // Centralised so an endpoint cannot ship without the headers by forgetting to add them.
   return withSecurityHeaders(await fn(ctx)) as NextResponse
