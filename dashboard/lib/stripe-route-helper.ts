@@ -745,6 +745,26 @@ const NOT_CONNECTED_RE =
  * not-connected error → skipped; a `warning` (base synced, trial offer DRAFT) →
  * draft; any other error → failed; otherwise synced.
  */
+/**
+ * Roll a product's per-provider report statuses up into one `tenant_products.sync_status`.
+ *
+ * Exported and pure so it is testable: the bulk route derives the terminal status from the reports
+ * it collected, and the direction that matters is that a FAILURE never rolls up to `synced`. The
+ * bug this guards is not a wrong label, it is laundering a broken sync into a green row — the same
+ * family as the 2026-09-17 id-presence inference, one level up.
+ *
+ * `skipped` (provider not connected) is not a failure and must not hold a product non-synced
+ * forever: a tenant on Stripe only would never reach `synced` if an unconnected Play counted
+ * against it, and would be re-drained on every run.
+ */
+export function rollupSyncStatus(statuses: readonly string[]): "synced" | "partial" | "failed" {
+  if (statuses.length === 0) return "partial"
+  if (statuses.some((s) => s === "failed")) return "failed"
+  if (statuses.some((s) => s === "draft")) return "partial"
+  if (statuses.every((s) => s === "ok" || s === "skipped")) return "synced"
+  return "partial"
+}
+
 export function classifyProvider(
   r: { ok?: boolean; skipped?: boolean; error?: string; warning?: string; reason?: string } | undefined,
 ): ProviderSyncEntry {

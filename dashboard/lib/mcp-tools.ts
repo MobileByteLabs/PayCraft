@@ -50,7 +50,13 @@ function call(
   body?: unknown,
   routeParams?: Record<string, string>,
 ): Promise<Response> {
-  const url = new URL(path, origin)
+  // `origin` MAY carry query params (the dispatcher puts `tenant_id` there so every tool forwards
+  // it without each invoke having to remember). They must be copied explicitly: `new URL(path,
+  // base)` keeps only the base's ORIGIN and silently drops its query, so appending to the origin
+  // string alone would have looked right and sent nothing.
+  const base = new URL(origin)
+  const url = new URL(path, base.origin)
+  base.searchParams.forEach((v, k) => url.searchParams.set(k, v))
   for (const [k, v] of Object.entries(query ?? {})) {
     if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v))
   }
@@ -63,6 +69,24 @@ function call(
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   })
   return routeParams ? handler(req, { params: routeParams }) : handler(req)
+}
+
+/**
+ * Every tool takes an optional `tenant_id`.
+ *
+ * An APP-scoped token ignores it (naming a different app is refused), so single-app users never
+ * need it. An ACCOUNT-scoped token (migration 150) reaches several apps and therefore REQUIRES it:
+ * the API answers 400 `tenant_required` rather than picking one, so an agent is told which
+ * question it failed to ask instead of acting on an arbitrary app. Use `paycraft_apps` to list
+ * what the token reaches.
+ */
+const TENANT = {
+  tenant_id: {
+    type: "string",
+    description:
+      "Which app to act on. Required for account-scoped tokens (they reach several apps); " +
+      "ignored by app-scoped tokens. List reachable apps with paycraft_apps.",
+  },
 }
 
 const PAGING = {
@@ -86,7 +110,7 @@ export const MCP_TOOLS: McpTool[] = [
       "carry ordered manual_steps — Google Play and App Store test mode cannot be enabled through " +
       "any API and turn green only after a real sandbox purchase. Start here when asked 'can we " +
       "test payments yet'. Requires scope readiness:read.",
-    inputSchema: obj({}),
+    inputSchema: obj({ ...TENANT }),
     invoke: (_a, auth, origin) => call(readinessGET, "GET", "/api/v1/readiness", auth, origin),
   },
   {
@@ -95,7 +119,7 @@ export const MCP_TOOLS: McpTool[] = [
     description:
       "The account this key belongs to: plan, subscriber limit, and the calling key's own scopes. " +
       "Useful first call to discover what this credential is permitted to do. Requires tenant:read.",
-    inputSchema: obj({}),
+    inputSchema: obj({ ...TENANT }),
     invoke: (_a, auth, origin) => call(tenantGET, "GET", "/api/v1/tenant", auth, origin),
   },
   {
@@ -104,14 +128,14 @@ export const MCP_TOOLS: McpTool[] = [
     description:
       "The product catalogue with each provider's synced ids, so one call answers whether a product " +
       "landed at Stripe, Play and the App Store. Requires products:read.",
-    inputSchema: obj({ sku: { type: "string" }, type: { type: "string" }, ...PAGING }),
+    inputSchema: obj({ ...TENANT, sku: { type: "string" }, type: { type: "string" }, ...PAGING }),
     invoke: (a, auth, origin) => call(productsGET, "GET", "/api/v1/products", auth, origin, a),
   },
   {
     name: "paycraft_product",
     title: "Get one product",
     description: "One product with its per-currency pricing rows. Requires products:read.",
-    inputSchema: obj({ id: { type: "string", description: "Product UUID." } }, ["id"]),
+    inputSchema: obj({ ...TENANT, id: { type: "string", description: "Product UUID." } }, ["id"]),
     invoke: (a, auth, origin) =>
       call(productGET, "GET", `/api/v1/products/${a.id}`, auth, origin, undefined, undefined, {
         id: String(a.id),
@@ -123,7 +147,7 @@ export const MCP_TOOLS: McpTool[] = [
     description:
       "Connected providers and their payment-link maps. Never credentials — no endpoint returns a " +
       "provider secret. Requires providers:read.",
-    inputSchema: obj({ provider: { type: "string" }, ...PAGING }),
+    inputSchema: obj({ ...TENANT, provider: { type: "string" }, ...PAGING }),
     invoke: (a, auth, origin) => call(providersGET, "GET", "/api/v1/providers", auth, origin, a),
   },
   {
@@ -133,7 +157,7 @@ export const MCP_TOOLS: McpTool[] = [
       "What a sync WOULD change, plus the confirm_count that paycraft_sync_run requires. Always call " +
       "this before running a sync — the count is how the API knows you acted on a set someone saw. " +
       "Requires products:read.",
-    inputSchema: obj({}),
+    inputSchema: obj({ ...TENANT }),
     invoke: (_a, auth, origin) => call(syncGET, "GET", "/api/v1/sync", auth, origin),
   },
   {
@@ -145,7 +169,7 @@ export const MCP_TOOLS: McpTool[] = [
       "paycraft_sync_report; a mismatch returns 409 rather than proceeding. A 200 does not mean " +
       "every provider succeeded — read the skipped and failed arrays. Requires products:sync.",
     inputSchema: obj(
-      {
+      { ...TENANT,
         confirm_count: {
           type: "integer",
           minimum: 0,
@@ -167,7 +191,7 @@ export const MCP_TOOLS: McpTool[] = [
       "Pushes a single product to its providers. No confirm_count — the subject is named explicitly. " +
       "Optionally narrow to one provider. Requires products:sync.",
     inputSchema: obj(
-      {
+      { ...TENANT,
         id: { type: "string", description: "Product UUID." },
         provider: {
           type: "string",
@@ -195,7 +219,7 @@ export const MCP_TOOLS: McpTool[] = [
     description:
       "Per-provider events for a sync run. Where a summary says a provider failed, these rows say " +
       "why. Pass run_id from a sync result. Requires products:read.",
-    inputSchema: obj({
+    inputSchema: obj({ ...TENANT,
       run_id: { type: "string" },
       provider: { type: "string" },
       status: { type: "string" },
@@ -209,7 +233,7 @@ export const MCP_TOOLS: McpTool[] = [
     description:
       "Subscription records, filterable by email, status, provider and mode. Filter by mode when " +
       "answering a live question — a test-mode row answers a different one. Requires subscribers:read.",
-    inputSchema: obj({
+    inputSchema: obj({ ...TENANT,
       email: { type: "string" },
       status: { type: "string" },
       provider: { type: "string" },
@@ -224,7 +248,7 @@ export const MCP_TOOLS: McpTool[] = [
     description:
       "What PayCraft GRANTS, as opposed to what a provider bills — the two disagree during grace " +
       "periods and refunds, and this is the one an app should trust. Requires subscribers:read.",
-    inputSchema: obj({
+    inputSchema: obj({ ...TENANT,
       app_user_id: { type: "string" },
       provider: { type: "string" },
       state: { type: "string" },
@@ -237,7 +261,7 @@ export const MCP_TOOLS: McpTool[] = [
     name: "paycraft_coupons",
     title: "List coupons",
     description: "Discount codes with their per-provider counterparts. Requires coupons:read.",
-    inputSchema: obj({ code: { type: "string" }, ...PAGING }),
+    inputSchema: obj({ ...TENANT, code: { type: "string" }, ...PAGING }),
     invoke: (a, auth, origin) => call(couponsGET, "GET", "/api/v1/coupons", auth, origin, a),
   },
   {
@@ -245,7 +269,7 @@ export const MCP_TOOLS: McpTool[] = [
     title: "Paywall configuration",
     description:
       "What the SDK renders. Useful as a snapshot to diff between deploys. Requires paywall:read.",
-    inputSchema: obj({}),
+    inputSchema: obj({ ...TENANT }),
     invoke: (_a, auth, origin) => call(paywallGET, "GET", "/api/v1/paywall", auth, origin),
   },
   {
@@ -254,7 +278,7 @@ export const MCP_TOOLS: McpTool[] = [
     description:
       "Webhook deliveries with redacted payloads. Filter status=failed to answer whether anything " +
       "was dropped after a provider incident. Requires webhooks:read.",
-    inputSchema: obj({
+    inputSchema: obj({ ...TENANT,
       provider: { type: "string" },
       status: { type: "string" },
       event_type: { type: "string" },
@@ -268,7 +292,7 @@ export const MCP_TOOLS: McpTool[] = [
     title: "Audit trail",
     description:
       "Who changed what, including this API's own actions (actor_type=api_key). Requires audit:read.",
-    inputSchema: obj({ action: { type: "string" }, actor_type: { type: "string" }, ...PAGING }),
+    inputSchema: obj({ ...TENANT, action: { type: "string" }, actor_type: { type: "string" }, ...PAGING }),
     invoke: (a, auth, origin) => call(auditGET, "GET", "/api/v1/audit", auth, origin, a),
   },
 ]

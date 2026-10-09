@@ -130,9 +130,19 @@ describe("the auth layer wires the protections in the right order", () => {
   it("charges a rejected key but not a wrong scope", () => {
     // A valid key lacking a scope is a misconfigured client, not a guess; throttling it would
     // punish the honest case.
-    const invalidBlock = src.slice(src.indexOf('if (!row?.tenant_id)'), src.indexOf("const scopes"))
+    // Anchored on `!row?.key_id` since migration 150: an account-scoped key legitimately has a NULL
+    // tenant_id, so key presence — not tenant presence — is what distinguishes a real key from a
+    // rejected one. A stale anchor here silently sliced an EMPTY string and the assertion passed
+    // on nothing, which is why the slice bounds are asserted non-empty first.
+    const invalidStart = src.indexOf("if (!row?.key_id)")
+    expect(invalidStart).toBeGreaterThan(-1)
+    const invalidBlock = src.slice(invalidStart, src.indexOf("const accountScoped"))
+    expect(invalidBlock.length).toBeGreaterThan(0)
     expect(invalidBlock).toMatch(/recordAuthFailure/)
-    const scopeBlock = src.slice(src.indexOf("!scopes.includes(scope)"), src.indexOf("Token bucket"))
+    const scopeStart = src.indexOf("!scopes.includes(scope)")
+    expect(scopeStart).toBeGreaterThan(-1)
+    const scopeBlock = src.slice(scopeStart, src.indexOf("Token bucket"))
+    expect(scopeBlock.length).toBeGreaterThan(0)
     expect(scopeBlock).not.toMatch(/recordAuthFailure/)
   })
 

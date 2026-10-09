@@ -20,7 +20,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
-import { classifyProvider } from "@/lib/stripe-route-helper"
+import { classifyProvider, rollupSyncStatus } from "@/lib/stripe-route-helper"
 
 /** The exact mapping the route applies to a classifier entry. */
 function reportStatus(entry: ReturnType<typeof classifyProvider>): string {
@@ -107,4 +107,51 @@ test("the drain route classifies via classifyProvider in every provider branch",
   // The regression shape: pushing a hardcoded ok inside an id-presence branch. Every
   // status must now be derived from a classifier entry.
   expect(route).not.toMatch(/if \(after\?\.\w+\) \{\s*\w+Reports\.push\(\{[^}]*status: "ok",/)
+})
+
+/**
+ * Regression: the bulk drain must WRITE a terminal `sync_status`, and must derive it.
+ *
+ * The incident (mbs/cappy, 2026-10-09): `cappy_plus_monthly` sat at `sync_status: syncing` for 16
+ * days with all three store ids present. `syncProductToAllProviders` had stamped the opening
+ * in-flight map on 2026-10-07 and died before its terminal write — its app_store runner emitted
+ * `start` and no terminal event, so there was no `run_done`. This route then pushed every provider
+ * and wrote their ids, but never touched `sync_status`; since `tenant_products_needs_sync` keys its
+ * unsynced predicate on that column, the row reported unsynced forever and two runs answered
+ * `200 OK` with `synced_ops: 1` per provider while changing nothing but `updated_at`.
+ *
+ * A "re-run the sync" auto-heal therefore could not converge — it reported success indefinitely.
+ */
+describe("bulk drain writes a DERIVED terminal sync_status", () => {
+  const routeSrc = readFileSync(
+    join(process.cwd(), "app/api/products/sync-to-providers/route.ts"),
+    "utf8",
+  )
+
+  it("calls tenant_products_set_sync_state — without it the row can never leave `syncing`", () => {
+    expect(routeSrc).toContain("tenant_products_set_sync_state")
+  })
+
+  it("derives the status via the shared helper, never a hardcoded 'synced'", () => {
+    expect(routeSrc).toContain("rollupSyncStatus(acc.statuses)")
+    // The laundering shape: stamping success regardless of what the providers reported.
+    expect(routeSrc).not.toMatch(/p_status:\s*["']synced["']/)
+  })
+
+  it("a failed provider never rolls up to synced", () => {
+    expect(rollupSyncStatus(["ok", "failed"])).toBe("failed")
+    expect(rollupSyncStatus(["failed"])).toBe("failed")
+    // The 2026-09-17 class, one level up: a draft is not sellable, so it is not synced.
+    expect(rollupSyncStatus(["ok", "draft"])).toBe("partial")
+  })
+
+  it("an unconnected provider does not hold a product non-synced forever", () => {
+    // A Stripe-only tenant must reach `synced`, or it is re-drained on every single run.
+    expect(rollupSyncStatus(["ok", "skipped", "skipped"])).toBe("synced")
+    expect(rollupSyncStatus(["ok"])).toBe("synced")
+  })
+
+  it("no reports at all is not success", () => {
+    expect(rollupSyncStatus([])).toBe("partial")
+  })
 })

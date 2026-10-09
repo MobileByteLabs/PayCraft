@@ -26,6 +26,7 @@ import com.mobilebytelabs.paycraft.network.CheckoutInitiateClient
 import com.mobilebytelabs.paycraft.network.CouponClient
 import com.mobilebytelabs.paycraft.network.PayCraftRealtime
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
+import com.mobilebytelabs.paycraft.platform.BuildKind
 import com.mobilebytelabs.paycraft.platform.DeviceFingerprint
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
@@ -114,9 +115,10 @@ object PayCraft {
      * wire billing unconditionally and let the SDK decide what it can deliver.
      */
     // Accepts ANY `pk_` publishable key. Under the one-key-per-app model the prefix no longer
-    // carries mode — `pk_test_`/`pk_live_` remain valid (legacy two-key apps) but a plain `pk_…`
-    // is now the norm, and rejecting it here would report a correctly-provisioned app as
-    // unconfigured and silently drop it to local-first entitlements.
+    // carries mode AT ALL — see [mode], which no longer reads it. A plain `pk_…` is the norm;
+    // `pk_test_`/`pk_live_` spellings still work but mean nothing beyond being publishable.
+    // Rejecting a plain key here would report a correctly-provisioned app as unconfigured and
+    // silently drop it to local-first entitlements.
     val isConfigured: Boolean
         get() = apiKey?.startsWith("pk_") == true && apiKey?.startsWith("pk_YOUR") != true
 
@@ -146,10 +148,21 @@ object PayCraft {
      *
      * Resolution order:
      *   1. [InitOptions.modeOverride] — an explicit choice always wins (e.g. exercising the live
-     *      checkout from a debug build, or forcing test on JVM/web where no signal exists)
-     *   2. a legacy `pk_test_`/`pk_live_` prefix — honoured so existing two-key apps keep working
-     *      unchanged; a key that explicitly says which mode it is was a deliberate act
-     *   3. the host build type
+     *      checkout from a debug build, or forcing a mode on JVM/web where no signal exists)
+     *   2. the host build type
+     *
+     * **The key prefix is NOT consulted.** It used to be step 2, honoured so legacy two-key apps
+     * kept working — and that single line was the bug. A mode-pinning prefix SHORT-CIRCUITS the
+     * build-type rule, so an app shipping its one `pk_live_…` key resolved LIVE in debug builds and
+     * could take real money in development. Measured on production 2026-10-08: ALL NINE tenants
+     * held `pk_live_`-prefixed keys, so every consumer app had this defect, cappy included.
+     *
+     * Removing the step fixes all of them at once and needs no key rotation — which matters,
+     * because rotating a publishable key invalidates it for every already-released build. The
+     * prefix is now cosmetic: a `pk_test_…`, `pk_live_…` or bare `pk_…` key all behave identically,
+     * which is what "one key per app" has to mean to be true. An app that genuinely wants live
+     * billing from a debug build states so with [InitOptions.modeOverride] — explicitly, at the
+     * call site, instead of implicitly through a credential's spelling.
      *
      * Never [Mode.Unknown] once configured: an unrecognised key on a release build is LIVE, for the
      * same reason [PlatformInfo.isDebugBuild] defaults that way — a silent test-mode checkout
@@ -158,10 +171,12 @@ object PayCraft {
     val mode: Mode get() {
         initOptions.modeOverride?.let { return it }
         return when {
-            apiKey?.startsWith("pk_test_") == true -> Mode.Test
-            apiKey?.startsWith("pk_live_") == true -> Mode.Live
             apiKey.isNullOrBlank() -> Mode.Unknown
-            PlatformInfo.isDebugBuild -> Mode.Test
+            // ONE signal, shared with key selection in [initialize], so the credential and the
+            // reported mode cannot disagree. BuildKind.Unknown resolves Live deliberately: a silent
+            // test-mode checkout charges nobody and the revenue loss is invisible, whereas a wrong
+            // Live is caught the first time anyone sees a real charge.
+            PlatformInfo.buildKind == BuildKind.Debug -> Mode.Test
             else -> Mode.Live
         }
     }
@@ -281,8 +296,9 @@ object PayCraft {
      * Boot the SDK with a publishable PayCraft API key.
      *
      * @param apiKey   The ONE publishable key from your PayCraft dashboard (`pk_…`). Mode is not
-     *                 encoded in it — see [mode]. Legacy `pk_test_…`/`pk_live_…` keys still work
-     *                 and still pin their mode. A `sk_…` secret key is refused.
+     *                 encoded in it — see [mode], which resolves mode from the build type and
+     *                 never reads the prefix. A `pk_test_…`/`pk_live_…` spelling is accepted and
+     *                 carries no meaning. A `sk_…` secret key is refused.
      * @param backend  Where to fetch SuiteConfig — defaults to PayCraft Cloud. Self-hosted
      *                 customers pass [PayCraftBackend.SelfHosted]; test code passes
      *                 [PayCraftBackend.Mock] with a static [SuiteConfig].
@@ -294,16 +310,31 @@ object PayCraft {
      *                 cloud [SuiteConfig.mode] — cloud wins when present (same precedence as
      *                 the theme pipeline). Trailing param with a default so every existing
      *                 caller (positional or named) keeps compiling unchanged.
+     * @param testApiKey  OPTIONAL second publishable key, used INSTEAD of [apiKey] on a debug
+     *                 build. Pass both when your dashboard issues a test/live pair and you want
+     *                 debug builds on the test credential; pass only [apiKey] for one key per app.
+     *
+     *                 **The SDK does the choosing, deliberately.** A host that selected between
+     *                 two keys itself is the anti-pattern this replaces — cappy carried
+     *                 `PAYCRAFT_API_KEY_TEST` + `PAYCRAFT_API_KEY_LIVE` + a `USE_TEST_BILLING`
+     *                 opt-in to express exactly this rule, the opt-in was never set, and its debug
+     *                 builds shipped the LIVE key. Handing both keys to [initialize] keeps the one
+     *                 decision in the one place that already knows the build type, and keeps key
+     *                 choice and [mode] in agreement by construction — they read the same signal.
+     *
+     *                 Selection is build-type only; [InitOptions.modeOverride] does NOT re-point it
+     *                 (it overrides the reported mode, not which credential identifies the tenant).
      */
     fun initialize(
         apiKey: String,
         backend: PayCraftBackend = PayCraftBackend.Cloud,
         options: InitOptions = InitOptions(),
         mode: MonetizationMode = MonetizationMode.AdSupported,
+        testApiKey: String? = null,
     ) {
         // ANY publishable key. Under the one-key-per-app model the prefix no longer carries mode —
         // [mode] resolves that from the build type (or [InitOptions.modeOverride]) — so a plain
-        // `pk_…` is the norm and `pk_test_`/`pk_live_` are honoured only as legacy.
+        // `pk_…` is the norm; a `pk_test_`/`pk_live_` spelling is accepted but inert.
         //
         // This guard used to demand `pk_test_` or `pk_live_`, which left the one-key migration
         // HALF-LANDED: [isConfigured] and [mode] were rewritten to accept and interpret a plain
@@ -319,10 +350,19 @@ object PayCraft {
         // instead of throwing — the documented graceful path for a host that wires billing
         // unconditionally. That placeholder branch in [isConfigured] was unreachable while this
         // guard threw first.
-        require(apiKey.startsWith("pk_") || backend is PayCraftBackend.Mock) {
+        // Resolve which of the (up to two) keys this build uses BEFORE validating, so the guard
+        // checks the credential that will actually be sent rather than whichever one was passed
+        // first. A blank testApiKey is treated as absent — an unprovisioned field in a generated
+        // build config arrives as "" far more often than as null, and falling through to the live
+        // key is the safe reading of "no test key configured".
+        val effectiveApiKey = testApiKey
+            ?.takeIf { it.isNotBlank() && PlatformInfo.buildKind == BuildKind.Debug }
+            ?: apiKey
+
+        require(effectiveApiKey.startsWith("pk_") || backend is PayCraftBackend.Mock) {
             "apiKey must be a PayCraft publishable key (pk_…); got a non-publishable value"
         }
-        this.apiKey = apiKey
+        this.apiKey = effectiveApiKey
         this.backend = backend
         this.initOptions = options
         // Capture the init-flag AND resolve against whatever SuiteConfig the previous
@@ -368,7 +408,25 @@ object PayCraft {
         // which is normally set by androidx-startup but may not be ready in
         // unusual test harnesses.
         runCatching {
-            PayCraftLogger.onFlow("initialize", "mode = $mode  device_id = $deviceId")
+            PayCraftLogger.onFlow(
+                "initialize",
+                "mode = $mode  build = ${PlatformInfo.buildKind} (${PlatformInfo.buildKindEvidence})  device_id = $deviceId",
+            )
+        }
+        // LOUD on an indeterminate build kind. Silence is what let F35 live: the old code answered
+        // "release" on every platform that could not tell, so a developer's desktop or web build
+        // took the LIVE credential and nothing said so. An unknown verdict with two keys configured
+        // means the test key can never be selected — worth one warning naming the missing evidence.
+        if (PlatformInfo.buildKind == BuildKind.Unknown && !testApiKey.isNullOrBlank()) {
+            runCatching {
+                PayCraftLogger.onError(
+                    "initialize",
+                    "build kind is UNKNOWN (${PlatformInfo.buildKindEvidence}) but a testApiKey was " +
+                        "supplied — falling back to the LIVE key, so the test key will NEVER be used " +
+                        "on this platform. Pass InitOptions(modeOverride = …) to state the mode, or " +
+                        "run on a platform whose build identity is readable (android/ios).",
+                )
+            }
         }
         if (backend is PayCraftBackend.Mock) {
             applySuiteConfig(backend.staticConfig)
@@ -1445,7 +1503,7 @@ private fun formatMoney(amountCents: Int, currency: String): String = when (curr
 /**
  * Adapter that turns a cloud-fetched [com.mobilebytelabs.paycraft.config.ProviderDto] into the
  * existing PaymentProvider interface. The payment-link map is picked strictly by
- * [PayCraft.mode] — `pk_test_*` keys read `testPaymentLinksBySku`, `pk_live_*` keys read
+ * [PayCraft.mode] — a Test-mode build reads `testPaymentLinksBySku`, a Live one reads
  * `livePaymentLinksBySku`. No cross-mode fallback: using a test key with no test link
  * should fail loudly, not silently route through live.
  *

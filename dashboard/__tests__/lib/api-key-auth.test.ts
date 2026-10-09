@@ -287,3 +287,92 @@ describe("listResource — tenant scoping is centralised, so assert it here", ()
     expect(src).not.toMatch(/\.select\(["'`]\*/)
   })
 })
+
+/**
+ * ACCOUNT-SCOPED keys (migration 150).
+ *
+ * The property under test is the extension of rule 1: a key fixes the REACHABLE SET, and a request
+ * may only select within it. These are the tests that fail if that ever collapses back into
+ * "whatever tenant the payload says".
+ */
+describe("requireApiKey — account-scoped reach", () => {
+  const OTHER = "22222222-2222-2222-2222-222222222222"
+  const THIRD = "33333333-3333-3333-3333-333333333333"
+
+  /** An account key: tenant_id NULL by design, reach carried in tenant_ids. */
+  function accountRow(scopes: string[] = ["readiness:read"], reach = [TENANT, OTHER]) {
+    return { tenant_id: null, key_id: "acct-key", scopes, account_scoped: true, tenant_ids: reach }
+  }
+  function appRow(scopes: string[] = ["readiness:read"]) {
+    return { tenant_id: TENANT, key_id: "app-key", scopes, account_scoped: false, tenant_ids: [TENANT] }
+  }
+  const auth = { authorization: `Bearer ${VALID_KEY}` }
+
+  it("authenticates an account key at all (tenant_id is NULL, which must not read as invalid)", async () => {
+    // Guards the exact trap this change could have shipped: the old rejection test was
+    // `!row?.tenant_id`, which would render every valid account key a silent 401.
+    mockVerify(accountRow())
+    const r = await requireApiKey(req(auth), "readiness:read", TENANT)
+    expect(isFailure(r)).toBe(false)
+    expect((r as ApiKeyContext).tenantId).toBe(TENANT)
+    expect((r as ApiKeyContext).accountScoped).toBe(true)
+  })
+
+  it("400s when an account key names NO tenant — never picks one", async () => {
+    // Choosing silently is the rotate_api_key defect class: an arbitrary row from a multi-row set,
+    // acted on as if it were the intended one.
+    mockVerify(accountRow())
+    const r = await requireApiKey(req(auth), "readiness:read")
+    expect(await statusOf(r)).toBe(400)
+  })
+
+  it("the 400 NAMES the reachable tenants — a bare count is a dead end", async () => {
+    // Telling a caller to choose and giving it nothing to choose from forced the one path this API
+    // replaces: a direct psql session as superuser. The key holder is already authorized for every
+    // id listed, so this is not enumeration — contrast the 403 test below, which must stay opaque.
+    mockVerify(accountRow(["readiness:read"], [TENANT, OTHER]))
+    const r = await requireApiKey(req(auth), "readiness:read")
+    expect(await statusOf(r)).toBe(400)
+    const body = await (r as { failed: Response }).failed.json()
+    expect(body.detail).toContain(TENANT)
+    expect(body.detail).toContain(OTHER)
+  })
+
+  it("403s when an account key names a tenant outside its reach", async () => {
+    mockVerify(accountRow(["readiness:read"], [TENANT, OTHER]))
+    const r = await requireApiKey(req(auth), "readiness:read", THIRD)
+    expect(await statusOf(r)).toBe(403)
+    // Must NOT list the reach here: the caller named an app OUTSIDE it, so echoing the set would
+    // enumerate the account to someone who just proved they do not know what it contains.
+    const body = await (r as { failed: Response }).failed.json()
+    expect(JSON.stringify(body)).not.toContain(OTHER)
+  })
+
+  it("selects within reach — the second tenant works exactly like the first", async () => {
+    mockVerify(accountRow())
+    const r = await requireApiKey(req(auth), "readiness:read", OTHER)
+    expect((r as ApiKeyContext).tenantId).toBe(OTHER)
+  })
+
+  it("403s when an APP key names a different tenant — rule 1, unchanged", async () => {
+    // The original guarantee. An app key must never be usable against another tenant, even though
+    // the route would have used its own anyway: a request that tried to widen reach is refused,
+    // not quietly ignored.
+    mockVerify(appRow())
+    expect(await statusOf(await requireApiKey(req(auth), "readiness:read", OTHER))).toBe(403)
+  })
+
+  it("an app key naming its OWN tenant is accepted, and still reports one reachable id", async () => {
+    mockVerify(appRow())
+    const r = await requireApiKey(req(auth), "readiness:read", TENANT)
+    expect(isFailure(r)).toBe(false)
+    expect((r as ApiKeyContext).accountScoped).toBe(false)
+    expect((r as ApiKeyContext).reachableTenantIds).toEqual([TENANT])
+  })
+
+  it("scope is still enforced on an account key", async () => {
+    // Reaching every app must not mean doing anything to them.
+    mockVerify(accountRow(["readiness:read"]))
+    expect(await statusOf(await requireApiKey(req(auth), "apps:provision", TENANT))).toBe(403)
+  })
+})
