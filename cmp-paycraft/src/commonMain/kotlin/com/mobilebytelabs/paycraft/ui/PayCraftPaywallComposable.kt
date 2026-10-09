@@ -597,6 +597,7 @@ private fun Product.toBillingPlan(config: SuiteConfig?): BillingPlan {
     }
     val intervalLabel = when (this) {
         is Product.Subscription -> when (interval) {
+            Product.Subscription.Interval.WEEK -> "week"
             Product.Subscription.Interval.MONTH -> "month"
             Product.Subscription.Interval.QUARTER -> "quarter"
             Product.Subscription.Interval.SEMIANNUAL -> "6mo"

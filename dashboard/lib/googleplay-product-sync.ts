@@ -146,12 +146,14 @@ function playCadenceWords(interval: string | null): string {
     case "semiannual": return "Billed every 6 months"
     case "quarter": return "Billed quarterly"
     case "month": return "Billed monthly"
+    case "week": return "Billed weekly"
     default: return "One-time purchase"
   }
 }
 
 export function playBillingPeriod(interval: string | null | undefined): string {
   switch (interval) {
+    case "week": return "P1W"
     case "month": return "P1M"
     case "quarter": return "P3M"
     case "semiannual": return "P6M"

@@ -16,6 +16,11 @@ internal fun Product.monthlyEquivalentNote(): String? {
         Product.Subscription.Interval.YEAR -> 12
         Product.Subscription.Interval.SEMIANNUAL -> 6
         Product.Subscription.Interval.QUARTER -> 3
+        // WEEK: no monthly-equivalent and no saving to claim. A weekly plan costs MORE per
+        // month than monthly ($2.99/wk is ~$12.95/mo), so a "SAVE x%" chip or a /mo anchor
+        // here would be a false claim on a payment surface — which is the very thing the
+        // null-rather-than-zero rule above exists to prevent.
+        Product.Subscription.Interval.WEEK -> return null
         Product.Subscription.Interval.MONTH -> return null
     }
     // RESOLVED price, not basePrice. Device-observed 2026-09-18: this line rendered
@@ -30,6 +35,7 @@ internal fun Product.monthlyEquivalentNote(): String? {
         Product.Subscription.Interval.YEAR -> "annually"
         Product.Subscription.Interval.SEMIANNUAL -> "semiannually"
         Product.Subscription.Interval.QUARTER -> "quarterly"
+        Product.Subscription.Interval.WEEK -> return null
         Product.Subscription.Interval.MONTH -> return null
     }
     return "${per.format()} / mo billed $cadence"
@@ -58,6 +64,7 @@ internal fun Product.savingsVersusMonthly(all: List<Product>): Int? {
         Product.Subscription.Interval.YEAR -> 12
         Product.Subscription.Interval.SEMIANNUAL -> 6
         Product.Subscription.Interval.QUARTER -> 3
+        Product.Subscription.Interval.WEEK -> return null
         Product.Subscription.Interval.MONTH -> return null
     }
     val fullPrice = monthlyPrice.amountMinor * months

@@ -30,6 +30,8 @@ function cadence(interval: string | null): string {
       return "Billed quarterly"
     case "month":
       return "Billed monthly"
+    case "week":
+      return "Billed weekly"
     default:
       return "One-time"
   }

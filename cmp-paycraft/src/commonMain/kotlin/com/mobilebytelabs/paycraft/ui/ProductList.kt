@@ -465,6 +465,7 @@ private fun ProductRow.formatSecondary(): String = when (val p = product) {
 }
 
 private fun Product.Subscription.Interval.readable(): String = when (this) {
+    Product.Subscription.Interval.WEEK -> "week"
     Product.Subscription.Interval.MONTH -> "month"
     Product.Subscription.Interval.QUARTER -> "quarter"
     Product.Subscription.Interval.SEMIANNUAL -> "6 months"
@@ -529,6 +530,7 @@ private fun computeSavingsPercent(product: Product, monthlyBaselineMinor: Int?):
     if (monthlyBaselineMinor == null || monthlyBaselineMinor <= 0) return null
     val sub = product as? Product.Subscription ?: return null
     val monthsInInterval = when (sub.interval) {
+        Product.Subscription.Interval.WEEK -> return null  // costs more per month; no saving to claim
         Product.Subscription.Interval.MONTH -> return null // baseline itself
         Product.Subscription.Interval.QUARTER -> 3
         Product.Subscription.Interval.SEMIANNUAL -> 6
@@ -549,6 +551,7 @@ private fun computeSavingsPercent(product: Product, monthlyBaselineMinor: Int?):
 private fun computePerMonthAnchor(product: Product): String? {
     val sub = product as? Product.Subscription ?: return null
     val months = when (sub.interval) {
+        Product.Subscription.Interval.WEEK -> return null  // not a multi-month plan
         Product.Subscription.Interval.MONTH -> return null
         Product.Subscription.Interval.QUARTER -> 3
         Product.Subscription.Interval.SEMIANNUAL -> 6
@@ -564,6 +567,7 @@ private fun computePerMonthAnchor(product: Product): String? {
         Product.Subscription.Interval.QUARTER -> "billed quarterly"
         Product.Subscription.Interval.SEMIANNUAL -> "billed every 6 months"
         Product.Subscription.Interval.YEAR -> "billed annually"
+        Product.Subscription.Interval.WEEK -> ""
         Product.Subscription.Interval.MONTH -> ""
     }
     return "$perMonth / mo $periodLabel"

@@ -348,6 +348,10 @@ function ascCadenceWords(interval: string | null): string {
       return "Billed every 6 months"
     case "quarter":
       return "Billed quarterly"
+    case "week":
+      // Explicit: the default arm below says "Billed monthly", so without this a weekly plan
+      // would be advertised to the App Store with the wrong cadence.
+      return "Billed weekly"
     default:
       return "Billed monthly"
   }
@@ -809,6 +813,7 @@ function ascSubscriptionPeriod(interval: string | null | undefined): string {
   switch (interval) {
     case "month": return "ONE_MONTH"
     case "quarter": return "THREE_MONTHS"
+    case "week": return "ONE_WEEK"
     case "semiannual": return "SIX_MONTHS"
     case "year": return "ONE_YEAR"
     default:

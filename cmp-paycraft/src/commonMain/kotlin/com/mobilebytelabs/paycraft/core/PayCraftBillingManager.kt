@@ -45,8 +45,52 @@ class PayCraftBillingManager(
     private val nativeBillingClient: NativeBillingClient? = null,
 ) : BillingManager {
 
-    private val stripeMode: String
-        get() = if ((PayCraft.config?.provider as? StripeProvider)?.isTestMode == true) "test" else "live"
+    /**
+     * Which billing ENVIRONMENT the entitlement calls address — `"test"` or `"live"`.
+     *
+     * POSITIVE KNOWLEDGE IS REQUIRED TO RETURN "live". The previous form was
+     *
+     *     if ((PayCraft.config?.provider as? StripeProvider)?.isTestMode == true) "test" else "live"
+     *
+     * which reads "live" whenever the question cannot be answered — and at startup it cannot:
+     * `PayCraft.config` is null until the cloud `/config` fetch returns. Measured on mbs/cappy, a
+     * physical OnePlus CPH2423, 2026-10-09:
+     *
+     *     16:14:14.426  [initialize]  build = Debug (android:debug-keystore-signature)
+     *     16:14:14.481  [init]        stripeMode=live        <- 55 ms later, config still null
+     *     16:14:15.409  [loadConfig]  apiKey=pk_test_…  mode=Test
+     *
+     * So a DEBUG build registered its device and read entitlements against LIVE
+     * (`register_device(mode=live)` WRITES a row there) while its paywall came from TEST. That is
+     * the F35 failure shape exactly — "the old code answered release on every platform that could
+     * not tell, and nothing said so" — recurring in the one place BuildKind was not consulted.
+     *
+     * [PayCraft.mode] is the authority: it is derived from the build kind, which is known
+     * SYNCHRONOUSLY at `initialize()` and cannot race the network. It is also the same derivation
+     * `PayCraft.noLinkMessage` already uses, so this stops being a second implementation of
+     * "which mode string do we send".
+     *
+     * A debug build therefore never transacts live, whatever config later says. The provider flag
+     * can still select test on a release build — a host that deliberately configures a test-mode
+     * Stripe provider means it — but it can no longer escalate test to live.
+     *
+     * `internal`, not `private`, so the rule is directly testable. The behavioural route to it
+     * (`logIn` -> performRegisterAndLogin -> service.registerDevice) reads `DeviceTokenStore`, the
+     * filesystem/Keychain singleton this module's tests document as non-deterministic in
+     * commonTest — so asserting the resolved string is the only check that can actually run here,
+     * and an unrunnable test would have left this defect unguarded.
+     */
+    internal val stripeMode: String
+        get() = when {
+            // Build-kind says test: binding. No config load can override it.
+            PayCraft.mode == PayCraft.Mode.Test -> "test"
+            // Explicit host choice on a non-debug build.
+            (PayCraft.config?.provider as? StripeProvider)?.isTestMode == true -> "test"
+            // Only a POSITIVE Live verdict reaches live money.
+            PayCraft.mode == PayCraft.Mode.Live -> "live"
+            // Unknown (no api key yet / indeterminate): never guess live where money is involved.
+            else -> "test"
+        }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 

@@ -360,6 +360,10 @@ internal fun recommendedProviderKey(providers: List<ProviderDto>, plan: BillingP
 }
 
 internal fun planIntervalSuffix(interval: String): String = when (interval) {
+    // String-keyed, so the compiler cannot flag a missing cadence here the way it does for the
+    // Interval enum. The `else` arm echoes the raw value, which for "week" would read "/ week"
+    // by luck rather than design — stated explicitly so it stays correct if the wording changes.
+    "week" -> "week"
     "month" -> "month"
     "quarter" -> "quarter"
     "semiannual" -> "6 months"

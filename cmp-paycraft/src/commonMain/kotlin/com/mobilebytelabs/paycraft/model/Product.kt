@@ -22,7 +22,16 @@ sealed class Product {
         val interval: Interval,
         val basePrice: Money,
     ) : Product() {
-        enum class Interval { MONTH, QUARTER, SEMIANNUAL, YEAR }
+        /**
+         * Billing cadence. WEEK was added 2026-10-09 with the default catalogue
+         * (week/month/quarter/year). SEMIANNUAL stays: it is no longer seeded by default but
+         * remains storable server-side and tenants still sell it.
+         *
+         * Every `when` over this enum is exhaustive WITHOUT an `else` on purpose — that is what
+         * makes the compiler name each display site when a cadence is added, instead of a new
+         * interval silently rendering as whatever the fallback arm said.
+         */
+        enum class Interval { WEEK, MONTH, QUARTER, SEMIANNUAL, YEAR }
     }
 
     data class Trial(
@@ -74,6 +83,12 @@ object ProductMapper {
     }
 
     private fun parseInterval(s: String?): Product.Subscription.Interval = when (s) {
+        // The server's interval vocabulary, mirrored. This is the FIRST thing a weekly product
+        // meets: without a "week" arm the `else` below aborts config parsing with
+        // "unknown subscription interval: week", so the paywall shows nothing at all. Erroring is
+        // the right failure for an unknown cadence — a silent fallback to MONTH would bill a
+        // weekly subscriber monthly — but a cadence the server can legitimately send must be here.
+        "week" -> Product.Subscription.Interval.WEEK
         "month" -> Product.Subscription.Interval.MONTH
         "quarter" -> Product.Subscription.Interval.QUARTER
         "semiannual" -> Product.Subscription.Interval.SEMIANNUAL
