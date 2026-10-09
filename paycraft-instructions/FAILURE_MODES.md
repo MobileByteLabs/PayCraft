@@ -1,4 +1,4 @@
-example-provenance: 07518d00c98eff69d094763a09e8de0f72c4cff2
+example-provenance: 1fb0df63f3c9f1237d90b3bbc60c89e4162b29fb
 
 # FAILURE_MODES.md — enumerated integration failures and their source-level remedies
 

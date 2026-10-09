@@ -1,4 +1,4 @@
-example-provenance: 07518d00c98eff69d094763a09e8de0f72c4cff2
+example-provenance: 1fb0df63f3c9f1237d90b3bbc60c89e4162b29fb
 
 # PUBLIC_API.md — PayCraft SDK public integration surface
 
@@ -258,6 +258,18 @@ data class SuiteConfig(
 `basePriceCents`/`baseCurrency`, `resolvedPrice`, `trialEnabled`/`trialDurationDays`,
 `attachesToProductId`, `discountPercent`/`discountEndsAt`, `displayOrder`, `active`, and
 **`storeBinding`**.
+
+`interval` is `week | month | quarter | semiannual | year`, or absent for a non-recurring product.
+It parses to `Product.Subscription.Interval`, whose `when`s are exhaustive with **no `else` arm** —
+deliberately, so adding a cadence makes the compiler name every display site instead of a new value
+rendering as whatever the fallback said. `parseInterval` likewise `error()`s on an unrecognised
+string rather than defaulting: a silent fallback to `MONTH` would bill a weekly subscriber monthly.
+
+The DEFAULT CATALOGUE every consumer is seeded with is `week · month · quarter · year`, each with a
+14-day trial. `semiannual` is not seeded any more but remains fully valid — tenants still sell it,
+so the value was never revoked. Per-country prices are NOT in the DTO's base fields: `resolvedPrice`
+carries the band-resolved amount for the caller's country (32 countries, USD-relative multipliers,
+charm rounding), which is why a client must never convert `basePriceCents` itself.
 
 > **`storeBinding` replaced the `playProductId` / `appStoreProductId` pair.** It is
 > `StoreBinding(provider, productId)` — one binding, **resolved server-side** from

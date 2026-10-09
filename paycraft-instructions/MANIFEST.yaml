@@ -5,7 +5,7 @@ schema_version: 1
 corpus_root: workspaces/mbs/PayCraft/source/PayCraft/paycraft-instructions
 sdk_repo_path: workspaces/mbs/PayCraft/source/PayCraft
 sdk_version: 2.4.5                    # bumped by /paycraft-dev fold; consumed by the D12 corpus-vs-artifact gate
-sdk_head_commit: 07518d00c98eff69d094763a09e8de0f72c4cff2   # populated by fold; every doc's example-provenance must equal this or an ancestor
+sdk_head_commit: 1fb0df63f3c9f1237d90b3bbc60c89e4162b29fb   # populated by fold; every doc's example-provenance must equal this or an ancestor
 documents:
   - PUBLIC_API.md
   - WIRING_CONTRACTS.md
