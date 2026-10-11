@@ -71,7 +71,9 @@ never initiates messages, so it declines to hold open a stream that would only e
 | `paycraft_providers` | Connected providers | `providers:read` |
 | `paycraft_sync_report` | Drift report — what a sync would do | `products:read` |
 | `paycraft_sync_run` | **Runs the sync drain** | `products:sync` |
+| `paycraft_set_product_pricing` | **Sets a product's per-country prices** (upsert; does not reach a store) | `products:write` |
 | `paycraft_sync_product` | **Syncs one product** | `products:sync` |
+| `paycraft_retire_product` | **Stops sales at the live stores**, then deactivates the row | `products:write` |
 | `paycraft_sync_events` | Per-provider events for a run | `products:read` |
 | `paycraft_subscribers` | Subscription records | `subscribers:read` |
 | `paycraft_entitlements` | Canonical entitlement state | `subscribers:read` |

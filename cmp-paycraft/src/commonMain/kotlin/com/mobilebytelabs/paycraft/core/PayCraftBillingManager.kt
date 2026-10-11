@@ -19,6 +19,7 @@ import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import com.mobilebytelabs.paycraft.provider.StripeProvider
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -43,6 +44,18 @@ class PayCraftBillingManager(
     private val store: PayCraftStore,
     private val repo: EntitlementRepository? = null,
     private val nativeBillingClient: NativeBillingClient? = null,
+    /**
+     * Dispatcher for this manager's internal [scope]. Defaults to [Dispatchers.Default], which is
+     * what every production caller gets.
+     *
+     * Injectable so a test can control WHEN the `init` coroutine runs relative to a caller's
+     * actions. That ordering is not a detail — the init block resolves entitlement asynchronously,
+     * so anything a user does during that window races it, and the only way to pin such a race
+     * down deterministically is to drive the dispatcher. On `Dispatchers.Default` the interleaving
+     * is up to the scheduler, which is exactly how the clobber this guards against showed up as an
+     * intermittent test failure instead of a reproducible one.
+     */
+    dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : BillingManager {
 
     /**
@@ -92,7 +105,7 @@ class PayCraftBillingManager(
             else -> "test"
         }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
 
     private val _isPremium = MutableStateFlow(false)
     override val isPremium: StateFlow<Boolean> = _isPremium.asStateFlow()
@@ -159,8 +172,30 @@ class PayCraftBillingManager(
             val savedEmail = store.getEmail()
             PayCraftLogger.onFlow("init", "savedEmail=${savedEmail ?: "null"}, stripeMode=$stripeMode")
             if (savedEmail.isNullOrEmpty()) {
-                PayCraftLogger.onFlow("init", "No saved email → Free")
-                _billingState.value = BillingState.Free
+                // ONLY while still unresolved. This write used to be unconditional, which made init
+                // a late writer that could overwrite a more specific state resolved during its own
+                // async window:
+                //
+                //   · a caller's synchronous Error (e.g. the blank-productId / no-native-client
+                //     guards in purchaseViaPlayBilling) — the buyer watches the error disappear by
+                //     itself a moment later, with nothing explaining why;
+                //   · a cached Premium already applied by applyCachedStatus() above — a downgrade to
+                //     Free, which contradicts the never-downgrade-while-offline guarantee (NFR-011,
+                //     ADR-009).
+                //
+                // Loading is the initial value and means "no verdict yet", so gating on it writes
+                // Free exactly when init really is the thing that resolved the question. Same guard
+                // the post-purchase reconcile path below already uses, for the same reason.
+                if (_billingState.value is BillingState.Loading) {
+                    PayCraftLogger.onFlow("init", "No saved email → Free")
+                    _billingState.value = BillingState.Free
+                } else {
+                    PayCraftLogger.onFlow(
+                        "init",
+                        "No saved email, but state already resolved to " +
+                            "${_billingState.value::class.simpleName} — leaving it alone",
+                    )
+                }
                 return@launch
             }
 
@@ -573,6 +608,25 @@ class PayCraftBillingManager(
         }
 
         if (email == null) {
+            // This branch makes NO server call — with no identity there is nothing to look up, so it
+            // simply asserts Free. That is a fine way to RESOLVE an unresolved state, but it is not
+            // authoritative enough to erase an Error a specific user action produced: nothing was
+            // checked, so nothing was disproved. Without this guard a foreground or TTL refresh
+            // silently cleared a checkout error the buyer had not acknowledged — the same
+            // disappearing-error shape as the init clobber above.
+            //
+            // Deliberately NOT added to the `protectedFlow` / `loadingSkip` guards at the top: those
+            // govern whether a refresh runs at all, and widening them would change the forced-refresh
+            // path that a realtime entitlement push depends on (audit H5). Keeping the check here, in
+            // the no-identity branch only, leaves that interaction exactly as it was — a forced
+            // refresh still passes the Loading window and still resolves Free when there is no email.
+            if (currentState is BillingState.Error) {
+                PayCraftLogger.onFlow(
+                    "refreshStatus",
+                    "no email, but state is Error — leaving it; this branch checked nothing",
+                )
+                return
+            }
             _billingState.value = BillingState.Free
             return
         }

@@ -7,7 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
-import com.mobilebytelabs.paycraft.core.BillingManager
+import com.mobilebytelabs.paycraft.core.FakeBillingManager
 import com.mobilebytelabs.paycraft.core.SubscriptionActivated
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
@@ -35,67 +35,6 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class PayCraftRestoreContentTest {
 
-    // ── Fake BillingManager ───────────────────────────────────────────────────
-
-    /**
-     * Minimal in-memory [BillingManager] for Compose UI tests.
-     * Starts in [BillingState.Free] and never performs real network calls.
-     */
-    private class FakeBillingManager(initialState: BillingState = BillingState.Free) : BillingManager {
-
-        private val _billingState = MutableStateFlow<BillingState>(initialState)
-        override val billingState: StateFlow<BillingState> = _billingState
-
-        private val _isPremium = MutableStateFlow(initialState is BillingState.Premium)
-        override val isPremium: StateFlow<Boolean> = _isPremium
-
-        private val _subscriptionStatus = MutableStateFlow(SubscriptionStatus())
-        override val subscriptionStatus: StateFlow<SubscriptionStatus> = _subscriptionStatus
-
-        private val _userEmail = MutableStateFlow<String?>(null)
-        override val userEmail: StateFlow<String?> = _userEmail
-
-        private val _subscriptionActivated = MutableSharedFlow<SubscriptionActivated>(replay = 0)
-        override val subscriptionActivated: SharedFlow<SubscriptionActivated> = _subscriptionActivated
-
-        private val _isInTrial = MutableStateFlow(false)
-        override val isInTrial: StateFlow<Boolean> = _isInTrial
-
-        private val _trialEndsAt = MutableStateFlow<String?>(null)
-        override val trialEndsAt: StateFlow<String?> = _trialEndsAt
-
-        var registerAndLoginCallCount = 0
-        var lastRegisteredEmail: String? = null
-
-        override fun registerAndLogin(email: String) {
-            registerAndLoginCallCount++
-            lastRegisteredEmail = email
-        }
-
-        override fun logIn(email: String) = registerAndLogin(email)
-
-        override fun purchaseViaPlayBilling(plan: BillingPlan, email: String?) { /* no-op in tests */ }
-        override fun purchaseViaStoreKit(plan: BillingPlan, email: String?) { /* no-op in tests */ }
-
-        override suspend fun checkTrialEligibility(): Boolean = true
-
-        override fun refreshStatus(force: Boolean) { /* no-op in tests */ }
-
-        override suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String) { /* no-op */ }
-
-        override suspend fun confirmDeviceTransfer() { /* no-op */ }
-
-        override suspend fun transferToDevice() { /* no-op */ }
-
-        override suspend fun revokeCurrentDevice() { /* no-op */ }
-
-        override fun logOut() { /* no-op */ }
-
-        /** Test-only: drive the billing state to simulate a server response. */
-        fun emitState(state: BillingState) {
-            _billingState.value = state
-        }
-    }
 
     // ── Rendering — initial idle state ────────────────────────────────────────
 

@@ -553,6 +553,11 @@ private fun PayCraftPaywallSurface(
                                         // is the one error that costs money in both directions.
                                         perPeriodNote = product.monthlyEquivalentNote(),
                                         savingsPercent = product.savingsVersusMonthly(products),
+                                        // Same principle as perPeriodNote: DERIVED from the
+                                        // catalogue, never authored. The published cappy paywall
+                                        // spelled "7-day free trial" in its copy while the
+                                        // catalogue said 14 — and the copy is what the buyer read.
+                                        trialDays = dto.trialDurationDays?.takeIf { dto.trialEnabled },
                                     )
                                 }
                             }

@@ -143,6 +143,54 @@ export const OPENAPI_SPEC = {
         },
       },
     },
+    "/products/{id}/pricing": {
+      put: {
+        tags: ["Catalogue"],
+        operationId: "setProductPricing",
+        summary: "Set a product's per-country prices",
+        description:
+          "UPSERT per locale: an omitted locale keeps its current price, so a partial request cannot silently un-price a live region. " +
+          "Does NOT reach a store — call POST /products/{id}/sync afterwards and read its per-provider verdicts. " +
+          "A product with NO rows here syncs with its base currency alone, which is how a subscription reaches Google Play priced in one region and is unbuyable everywhere else. " +
+          "`amount_cents` is minor units (₹89.99 → 8999); zero-decimal currencies (JPY, KRW, …) are refused because that convention is ambiguous for them.",
+        security: [{ bearerAuth: ["products:write"] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["rows"],
+                properties: {
+                  rows: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 64,
+                    items: {
+                      type: "object",
+                      required: ["locale", "currency", "amount_cents"],
+                      properties: {
+                        locale: { type: "string", description: "ISO 3166-1 alpha-2 country, e.g. IN." },
+                        currency: { type: "string", description: "ISO 4217, e.g. INR." },
+                        amount_cents: { type: "integer", minimum: 1, description: "Minor units." },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "The pricing rows as they now stand, read back from the table. `synced: false` always — nothing reached a store.", content: { "application/json": { schema: { type: "object" } } } },
+          "400": { description: "A malformed row. The price is refused rather than coerced, because a coerced price is a charge nobody authorised.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "No such product on this tenant.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
     "/products/{id}/sync": {
       post: {
         tags: ["Sync"],
@@ -156,6 +204,27 @@ export const OPENAPI_SPEC = {
         ],
         responses: {
           "200": { description: "Per-provider verdicts. Inspect them — a provider can fail while the call succeeds.", content: { "application/json": { schema: { type: "object" } } } },
+          "404": { description: "No such product on this tenant.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/products/{id}/retire": {
+      post: {
+        tags: ["Catalogue"],
+        operationId: "retireProduct",
+        summary: "Stop selling a product, everywhere",
+        description:
+          "Deactivates the product's base plans at each connected store, THEN marks the PayCraft row inactive. " +
+          "Order matters: a row flipped inactive first drops out of `tenant_products_needs_sync` (which filters active=TRUE), so the storefront would never be told — that is how a retired plan stays on sale. " +
+          "Deactivate, never delete: existing subscribers keep renewing, as the stores require. " +
+          "Refuses with 409 when the product has active/trialing/past_due subscribers.",
+        security: [{ bearerAuth: ["products:write"] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Per-provider verdicts plus `retired_everywhere`. Inspect them — a store can refuse while the call succeeds.", content: { "application/json": { schema: { type: "object" } } } },
+          "409": { description: "The product has live subscribers; stopping sales on a live cohort is an operator decision.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "No such product on this tenant.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },

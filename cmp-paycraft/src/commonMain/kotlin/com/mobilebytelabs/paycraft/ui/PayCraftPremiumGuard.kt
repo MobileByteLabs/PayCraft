@@ -24,7 +24,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.collectAsState
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.model.BillingState
 import org.koin.compose.koinInject
@@ -49,19 +49,34 @@ fun PayCraftPremiumGuard(
     lockTitle: String = "Premium Feature",
     lockDescription: String = "Upgrade to unlock this feature and much more.",
     upgradeButtonLabel: String = "Upgrade to Premium",
-    billingManager: BillingManager = koinInject(),
+    billingManager: BillingManager? = null,
     content: @Composable () -> Unit,
 ) {
-    val billingState by billingManager.billingState.collectAsStateWithLifecycle()
+    val manager = billingManager ?: koinInject()
 
-    when (billingState) {
-        is BillingState.Premium -> {
+    // Gates on isPremium, and treats Loading as its own case. Both were bugs before:
+    //
+    //  - `is BillingState.Premium` is a SECOND derivation of gating truth. isPremium is what every
+    //    other surface reads, so a buyer in PaymentPending / offline grace / OwnershipVerified was
+    //    entitled everywhere else in the app and locked out HERE.
+    //  - Loading fell into `else`, so a paying customer got the lock screen for the first frames of
+    //    every cold start.
+    //
+    // Same reasoning as PayCraftPaywallGuardScreen; see its docs for the full rationale.
+    val isPremium by manager.isPremium.collectAsState()
+    val billingState by manager.billingState.collectAsState()
+
+    when {
+        isPremium -> {
             Box(
                 modifier = modifier.testTag(PayCraftTestTags.PREMIUM_GUARD_UNLOCKED),
             ) {
                 content()
             }
         }
+
+        // No verdict yet — show neither. A lock screen here would be a claim we cannot support.
+        billingState is BillingState.Loading -> Box(modifier = modifier)
 
         else -> {
             PremiumLockedContent(
@@ -152,31 +167,32 @@ private fun PremiumLockedContent(
  *                      button tap or viewmodel Dismissed event). Hosts usually
  *                      navigate away from the gated surface here.
  * @param modifier      Optional modifier applied to the root container.
- * @param billingManager Billing manager — Koin-injected by default.
+ * @param billingManager Billing manager — leave null to resolve from Koin.
  * @param content       Composable rendered when the user is Premium.
  */
+@Deprecated(
+    message = "Superseded by PayCraftPaywallGuardScreen, which does the same job and adds the two " +
+        "things this is missing: it gates on isPremium (so a buyer in PaymentPending or offline " +
+        "grace keeps access instead of seeing a paywall), and it treats Loading as its own state " +
+        "(so a paying customer does not get a paywall flash on every cold start). It also supports " +
+        "an ad-supported free tier via showAds + ads.",
+    replaceWith = ReplaceWith("PayCraftPaywallGuardScreen(onDismiss, modifier, content = content)"),
+    level = DeprecationLevel.WARNING,
+)
 @Composable
 fun PayCraftPremiumGuardInline(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
-    billingManager: BillingManager = koinInject(),
+    billingManager: BillingManager? = null,
     content: @Composable () -> Unit,
 ) {
-    val billingState by billingManager.billingState.collectAsStateWithLifecycle()
-
-    when (billingState) {
-        is BillingState.Premium -> {
-            Box(
-                modifier = modifier.testTag(PayCraftTestTags.PREMIUM_GUARD_UNLOCKED),
-            ) {
-                content()
-            }
-        }
-
-        else -> PayCraftPaywallComposable(
-            onDismiss = onDismiss,
-            displayMode = DisplayMode.FullScreen,
-            modifier = modifier.testTag(PayCraftTestTags.PREMIUM_GUARD_LOCKED),
-        )
-    }
+    // Delegates rather than keeping its own copy of the branch: two guards that decide entitlement
+    // independently is exactly how the isPremium/billingState disagreement got shipped in the first
+    // place. Kept only so existing call sites keep compiling.
+    PayCraftPaywallGuardScreen(
+        onDismiss = onDismiss,
+        modifier = modifier,
+        billingManager = billingManager,
+        content = content,
+    )
 }

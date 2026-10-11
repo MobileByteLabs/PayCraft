@@ -120,7 +120,20 @@ fun PaywallTreeContent(
  * [savingsPercent] and [perPeriodNote] are DERIVED from the catalogue rather than authored, so a
  * price change cannot leave a stale "SAVE 50%" chip behind on a live paywall.
  */
-data class PackagePrice(val display: String, val perPeriodNote: String? = null, val savingsPercent: Int? = null)
+/**
+ * What a package costs, as the paywall should SAY it.
+ *
+ * [trialDays] carries the catalogue's trial so authored copy can reference it as a variable rather
+ * than spelling the number. cappy's published paywall said "Best value · 7-day free trial" as a
+ * LITERAL while the catalogue promised 14 — the paywall copy was a second source of truth and it
+ * was the one the buyer read. A variable cannot drift from the catalogue; a sentence can.
+ */
+data class PackagePrice(
+    val display: String,
+    val perPeriodNote: String? = null,
+    val savingsPercent: Int? = null,
+    val trialDays: Int? = null,
+)
 
 @Composable
 private fun RenderNode(

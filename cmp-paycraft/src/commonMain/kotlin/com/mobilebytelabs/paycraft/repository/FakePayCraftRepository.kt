@@ -62,8 +62,14 @@ class FakePayCraftRepository(
         },
     ),
     plans: List<BillingPlan> = emptyList(),
-    /** What [restore] returns. Null → [restore] throws, so the unhappy path is testable too. */
-    private val restoreResult: Entitlement? = null,
+    /**
+     * What [restore] returns. Null → [restore] throws, so the unhappy path is testable too.
+     *
+     * A `var`, and settable mid-run via [setRestoreResult], because the retry wiring a host screen
+     * builds around restore (fail → show error → user taps Retry → succeed) cannot be exercised by
+     * a fake whose outcome is fixed at construction. Same reasoning as the state mutators below.
+     */
+    private var restoreResult: Entitlement? = null,
 ) : PayCraftRepository {
 
     private val _isPremium = MutableStateFlow(premium)
@@ -93,8 +99,15 @@ class FakePayCraftRepository(
         checkoutCalls += plan to email
     }
 
-    override suspend fun restore(): Entitlement =
-        restoreResult ?: error("FakePayCraftRepository: no restoreResult configured for this test")
+    /** Count of [restore] calls — assert a Retry actually re-fired it, not just re-rendered. */
+    var restoreCallCount: Int = 0
+        private set
+
+    override suspend fun restore(): Entitlement {
+        restoreCallCount++
+        return restoreResult
+            ?: error("FakePayCraftRepository: no restoreResult configured for this test")
+    }
 
     override fun manageSubscription(email: String) {
         manageSubscriptionCalls += email
@@ -121,6 +134,17 @@ class FakePayCraftRepository(
 
     fun setBillingState(value: BillingState) {
         _billingState.value = value
+    }
+
+    /**
+     * Change what the NEXT [restore] does. `null` makes it throw.
+     *
+     * The retry path needs this: a host shows an error on a failed restore and re-fires it when the
+     * user taps Retry, and proving the recovery means the second call must be able to succeed where
+     * the first failed.
+     */
+    fun setRestoreResult(value: Entitlement?) {
+        restoreResult = value
     }
 
     fun setInTrial(value: Boolean) {

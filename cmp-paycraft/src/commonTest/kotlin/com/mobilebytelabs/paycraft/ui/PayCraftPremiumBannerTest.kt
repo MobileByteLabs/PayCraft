@@ -12,7 +12,7 @@ import androidx.compose.ui.test.runComposeUiTest
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
-import com.mobilebytelabs.paycraft.core.BillingManager
+import com.mobilebytelabs.paycraft.core.FakeBillingManager
 import com.mobilebytelabs.paycraft.core.SubscriptionActivated
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
@@ -48,45 +48,6 @@ class PayCraftPremiumBannerTest {
     /** Free-state manager — the copy tests assert the upgrade card is rendered. */
     private fun freeManager(state: BillingState = BillingState.Free) = FakeBillingManager(state)
 
-    /**
-     * Minimal in-memory [BillingManager] for Compose UI tests — drives [billingState]
-     * without any Koin container or real network. Mirrors the fake in
-     * PayCraftRestoreContentTest.
-     */
-    private class FakeBillingManager(initialState: BillingState = BillingState.Free) : BillingManager {
-        private val _billingState = MutableStateFlow(initialState)
-        override val billingState: StateFlow<BillingState> = _billingState
-
-        private val _isPremium = MutableStateFlow(initialState is BillingState.Premium)
-        override val isPremium: StateFlow<Boolean> = _isPremium
-
-        private val _subscriptionStatus = MutableStateFlow(SubscriptionStatus())
-        override val subscriptionStatus: StateFlow<SubscriptionStatus> = _subscriptionStatus
-
-        private val _userEmail = MutableStateFlow<String?>(null)
-        override val userEmail: StateFlow<String?> = _userEmail
-
-        private val _subscriptionActivated = MutableSharedFlow<SubscriptionActivated>(replay = 0)
-        override val subscriptionActivated: SharedFlow<SubscriptionActivated> = _subscriptionActivated
-
-        private val _isInTrial = MutableStateFlow(false)
-        override val isInTrial: StateFlow<Boolean> = _isInTrial
-
-        private val _trialEndsAt = MutableStateFlow<String?>(null)
-        override val trialEndsAt: StateFlow<String?> = _trialEndsAt
-
-        override fun registerAndLogin(email: String) { /* no-op */ }
-        override fun logIn(email: String) = registerAndLogin(email)
-        override fun purchaseViaPlayBilling(plan: BillingPlan, email: String?) { /* no-op */ }
-        override fun purchaseViaStoreKit(plan: BillingPlan, email: String?) { /* no-op */ }
-        override suspend fun checkTrialEligibility(): Boolean = true
-        override fun refreshStatus(force: Boolean) { /* no-op */ }
-        override suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String) { /* no-op */ }
-        override suspend fun confirmDeviceTransfer() { /* no-op */ }
-        override suspend fun transferToDevice() { /* no-op */ }
-        override suspend fun revokeCurrentDevice() { /* no-op */ }
-        override fun logOut() { /* no-op */ }
-    }
 
     // ── DTO-driven copy ───────────────────────────────────────────────────────
 

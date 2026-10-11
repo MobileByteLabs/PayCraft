@@ -3,6 +3,8 @@ import { GET as syncGET, POST as syncPOST } from "@/app/api/v1/sync/route"
 import { GET as productsGET } from "@/app/api/v1/products/route"
 import { GET as productGET } from "@/app/api/v1/products/[id]/route"
 import { POST as productSyncPOST } from "@/app/api/v1/products/[id]/sync/route"
+import { PUT as productPricingPUT } from "@/app/api/v1/products/[id]/pricing/route"
+import { POST as productRetirePOST } from "@/app/api/v1/products/[id]/retire/route"
 import { GET as providersGET } from "@/app/api/v1/providers/route"
 import { GET as subscribersGET } from "@/app/api/v1/subscribers/route"
 import { GET as entitlementsGET } from "@/app/api/v1/entitlements/route"
@@ -42,7 +44,7 @@ export interface McpTool {
 /** Build a Request that looks to the handler exactly like the equivalent REST call. */
 function call(
   handler: Handler,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PUT",
   path: string,
   auth: string,
   origin: string,
@@ -185,6 +187,56 @@ export const MCP_TOOLS: McpTool[] = [
       }),
   },
   {
+    name: "paycraft_set_product_pricing",
+    title: "Set a product's per-locale prices",
+    description:
+      "Writes this product's per-country prices. UPSERT per locale: an omitted locale keeps its " +
+      "current price, so this can never silently un-price a live region. Does NOT reach any store " +
+      "— call paycraft_sync_product afterwards to push them, and read its per-provider verdicts. " +
+      "A product with no rows here syncs with its base currency ALONE, which is how a subscription " +
+      "reaches Google Play priced in one region and is unbuyable everywhere else. Requires " +
+      "products:write.",
+    inputSchema: obj(
+      {
+        ...TENANT,
+        id: { type: "string", description: "Product UUID." },
+        rows: {
+          type: "array",
+          minItems: 1,
+          maxItems: 64,
+          description:
+            "One row per country. amount_cents is MINOR units (₹89.99 → 8999). Zero-decimal " +
+            "currencies (JPY, KRW, …) are refused: the minor-unit convention is ambiguous for them " +
+            "and a 100x error here becomes a live store price.",
+          items: {
+            type: "object",
+            properties: {
+              locale: { type: "string", description: "ISO 3166-1 alpha-2 country, e.g. IN." },
+              currency: { type: "string", description: "ISO 4217, e.g. INR." },
+              amount_cents: { type: "integer", minimum: 1 },
+            },
+            required: ["locale", "currency", "amount_cents"],
+          },
+        },
+      },
+      ["id", "rows"],
+    ),
+    // Not `destructive`: this writes PayCraft's own catalogue, never a payment provider. The
+    // destructive flag is reserved for tools that reach a live store, so marking this one would
+    // blunt the signal on the tool that actually charges people.
+    invoke: (a, auth, origin) =>
+      call(
+        productPricingPUT,
+        "PUT",
+        `/api/v1/products/${a.id}/pricing`,
+        auth,
+        origin,
+        undefined,
+        { rows: a.rows },
+        { id: String(a.id) },
+      ),
+  },
+  {
     name: "paycraft_sync_product",
     title: "Sync one product (writes to live providers)",
     description:
@@ -209,6 +261,30 @@ export const MCP_TOOLS: McpTool[] = [
         auth,
         origin,
         { provider: a.provider },
+        undefined,
+        { id: String(a.id) },
+      ),
+  },
+  {
+    name: "paycraft_retire_product",
+    title: "Retire a product (stops sales at the live stores)",
+    description:
+      "Stops a product being sold: deactivates its base plans at each connected store, then marks " +
+      "the PayCraft row inactive — PROVIDERS FIRST, because a row flipped inactive first drops out " +
+      "of every sync and the storefront is never told (that is how a retired plan stayed on sale). " +
+      "Deactivate, never delete: existing subscribers keep renewing, as the stores require. " +
+      "REFUSES with 409 when the product has active/trialing/past_due subscribers — stopping sales " +
+      "on a live cohort is the operator's call. Requires products:write.",
+    inputSchema: obj({ ...TENANT, id: { type: "string", description: "Product UUID." } }, ["id"]),
+    destructive: true,
+    invoke: (a, auth, origin) =>
+      call(
+        productRetirePOST,
+        "POST",
+        `/api/v1/products/${a.id}/retire`,
+        auth,
+        origin,
+        undefined,
         undefined,
         { id: String(a.id) },
       ),
