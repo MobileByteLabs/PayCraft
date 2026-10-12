@@ -42,6 +42,16 @@ import org.koin.compose.koinInject
  * }
  * ```
  */
+@Deprecated(
+    message = "Superseded by PayCraftPremiumGate. This renders a HOST-AUTHORED lock screen: " +
+        "lockTitle/lockDescription/upgradeButtonLabel re-state the offer in app code, and " +
+        "`onUpgrade` makes the host own paywall navigation — so copy drifts from the dashboard the " +
+        "moment tiers, prices or trial length change, and only an app release can fix it. The gate " +
+        "presents the SDK's own paywall from the published workflow instead, and takes no " +
+        "`billingManager` (previews use LocalPayCraftEntitlementOverride).",
+    replaceWith = ReplaceWith("PayCraftPremiumGate(modifier, content = content)"),
+    level = DeprecationLevel.WARNING,
+)
 @Composable
 fun PayCraftPremiumGuard(
     onUpgrade: () -> Unit,
@@ -171,12 +181,14 @@ private fun PremiumLockedContent(
  * @param content       Composable rendered when the user is Premium.
  */
 @Deprecated(
-    message = "Superseded by PayCraftPaywallGuardScreen, which does the same job and adds the two " +
-        "things this is missing: it gates on isPremium (so a buyer in PaymentPending or offline " +
-        "grace keeps access instead of seeing a paywall), and it treats Loading as its own state " +
-        "(so a paying customer does not get a paywall flash on every cold start). It also supports " +
-        "an ad-supported free tier via showAds + ads.",
-    replaceWith = ReplaceWith("PayCraftPaywallGuardScreen(onDismiss, modifier, content = content)"),
+    message = "Superseded by PayCraftPremiumGate. Migrate straight there: the previous advice here " +
+        "was PayCraftPaywallGuardScreen, which is now itself deprecated, so following it cost two " +
+        "migrations instead of one. The gate drops `onDismiss` and `billingManager` (the paywall is " +
+        "presented through PayCraft's own internal path, so tiers/prices/copy stay dashboard-owned; " +
+        "previews use LocalPayCraftEntitlementOverride), and keeps what this was missing — gating " +
+        "on isPremium, and Loading as its own state rather than a paywall flash on cold start. " +
+        "For an ad-unlockable feature use PayCraftRewardedGate.",
+    replaceWith = ReplaceWith("PayCraftPremiumGate(modifier, content = content)"),
     level = DeprecationLevel.WARNING,
 )
 @Composable
