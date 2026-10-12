@@ -1,4 +1,4 @@
-example-provenance: ea83bd8de373c01a71e24dbdf1fe6de92ae39b95
+example-provenance: 0a353f53c55e8b2a0a69801e1ccce77ab6682bd2
 
 # PAYWALL_CUSTOMIZATION.md — the two supported paywall paths
 
@@ -25,10 +25,18 @@ The host renders a PayCraft composable; everything visual comes from `SuiteConfi
 | `PayCraftPaywallWithRestore(onDismiss, modifier)` | screen | paywall + restore in one surface |
 | `PayCraftBanner` / `PayCraftInlinePaywallBanner` / `BannerPaywall` | inline | contextual upsell |
 | `PayCraftPremiumBanner` | inline | already-premium state |
-| `PayCraftPremiumGuard` / `PayCraftPremiumGuardInline` | wrapper | gate a screen or a region |
+| `PayCraftPremiumGate` | wrapper | gate a screen or a region — REPLACES the content with the SDK's offer |
+| `PayCraftSoftGate` | wrapper | the content stays visible and readable; only the TAP is shielded |
+| `PayCraftRewardedGate` | wrapper | unlockable by watching an ad as well as by subscribing |
 | `PayCraftRestore` / `PayCraftRestoreContent` | screen / content | restore purchases |
 | `PayCraftCheckoutSuccessSheet` / `…OrPaywall` | sheet | post-purchase confirmation |
 | `ProductList(…)` | list | plan stack on its own |
+
+The three gates replace `PayCraftPremiumGuard`, `PayCraftPremiumGuardInline` and
+`PayCraftPaywallGuardScreen`, all now `@Deprecated` — see PUBLIC_API.md § Gates. A guard renders a
+HOST-authored lock screen, so its copy restates the offer in app code and drifts from the dashboard;
+a gate presents the SDK's own paywall from the published workflow. Do not wire a new integration to
+a guard.
 
 ### What actually renders: one state machine + a component tree
 

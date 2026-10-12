@@ -1195,11 +1195,55 @@ object PayCraft {
         return "$url${sep}prefilled_promo_code=$code"
     }
 
-    fun manageSubscription(email: String) {
-        val url = requireConfig().provider.getManageUrl(email)
+    /**
+     * Send the user to wherever THEIR subscription is actually managed.
+     *
+     * Resolution order, and both halves are load-bearing:
+     *
+     *  1. the provider's own portal (`provider.getManageUrl`) — Stripe's billing portal, Razorpay's
+     *     dashboard. Needs [email] to identify the customer.
+     *  2. failing that, the STORE's subscriptions page for the platform this build is running on.
+     *
+     * ## Why step 2 exists
+     *
+     * `getManageUrl` returns `null` for every native store, and correctly so: Play and the App
+     * Store have no per-tenant portal to point at. But a store-billed subscriber still has to be
+     * able to cancel, and before this fallback `manageSubscription` was simply a no-op for them —
+     * the button did nothing. So every host filled the gap itself, and the first one to try it
+     * hardcoded the Google Play URL for ALL platforms, which sent an iPhone subscriber to a page
+     * that cannot show their subscription, from the one screen whose whole job is cancelling it
+     * (measured on `mbs/cappy`, 2026-10-12).
+     *
+     * That is the reinvention this SDK exists to prevent: the need is universal — every consumer
+     * selling through a native store has it — so the SDK answers it once rather than each host
+     * answering it differently. [PlatformInfo] is the same signal that already decides key tier
+     * and checkout path, so this cannot disagree with the SDK about what it is running on.
+     *
+     * @param email identifies the customer at a web provider. Optional: a store-billed subscriber
+     *   is identified by their store account, not by anything PayCraft knows, so step 2 needs no
+     *   email and a host that has none can still call this.
+     */
+    fun manageSubscription(email: String? = null) {
+        val url = resolveManageUrl(email)
         PayCraftLogger.onManageSubscription(mode = "cloud", url = url)
         if (url != null) PayCraftPlatform.openUrl(url)
     }
+
+    /**
+     * The destination [manageSubscription] would open, without opening it.
+     *
+     * Exposed so a host can decide whether to SHOW a "Manage subscription" affordance at all —
+     * previously the only way to find out was to call it and watch nothing happen.
+     */
+    fun manageSubscriptionUrl(email: String? = null): String? = resolveManageUrl(email)
+
+    private fun resolveManageUrl(email: String?): String? {
+        val providerUrl = email?.let { runCatching { requireConfig().provider.getManageUrl(it) }.getOrNull() }
+        if (providerUrl != null) return providerUrl
+        return storeSubscriptionsUrl()
+    }
+
+    private fun storeSubscriptionsUrl(): String? = storeSubscriptionsUrlFor(PlatformInfo.platform)
 
     // ─── Phase-4 paywall-presentation API (AC-10, AC-11, AC-12) ─────────────
     //

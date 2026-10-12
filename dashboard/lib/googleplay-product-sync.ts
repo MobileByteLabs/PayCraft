@@ -460,14 +460,23 @@ async function ensureFreeTrialOffer(
     // The offer already exists. Extend it to any region the base plan has gained since it was
     // created — WITHOUT this, a trial created while the plan sold in one country stays a one-country
     // trial after the plan expands, so the paywall advertises a trial most buyers cannot get.
-    // Additive, exactly like the base-plan region fix: existing entries are copied through untouched.
+    // Regions are ADDITIVE (existing entries copied through untouched); the trial DURATION is
+    // reconciled to the catalogue, because that one is not additive — see the note below.
     const cur = await getRes.json().catch(() => null)
     if (cur) {
       const haveAvail = new Set<string>((cur.regionalConfigs ?? []).map((r: any) => r.regionCode))
       const missing = regions.filter((r) => !haveAvail.has(r))
-      if (missing.length > 0) {
-        const phases: any[] = Array.isArray(cur.phases) && cur.phases.length > 0 ? cur.phases : []
-        const phase0 = phases[0] ?? {}
+      const phases: any[] = Array.isArray(cur.phases) && cur.phases.length > 0 ? cur.phases : []
+      const phase0 = phases[0] ?? {}
+      // DURATION, not just regions. Spreading `...phase0` preserves whatever duration the offer was
+      // CREATED with, so without this the trial length is create-once: a product seeded at P7D stays
+      // at P7D through every later re-sync, no matter what the catalogue says. Measured on mbs/cappy
+      // 2026-10-12 — `cappy_plus_annual` advertised a 14-day trial in the dashboard and on the
+      // paywall while Play served P7D, and no re-sync could ever have closed the gap because the
+      // patch below only fired on a missing REGION.
+      const wantDuration = `P${trialDays}D`
+      const durationDrifted = typeof phase0.duration === "string" && phase0.duration !== wantDuration
+      if (missing.length > 0 || durationDrifted) {
         const havePhase = new Set<string>((phase0.regionalConfigs ?? []).map((r: any) => r.regionCode))
         const patchBody = {
           packageName: pkg,
@@ -481,6 +490,7 @@ async function ensureFreeTrialOffer(
           phases: [
             {
               ...phase0,
+              duration: wantDuration,
               regionalConfigs: [
                 ...(phase0.regionalConfigs ?? []),
                 ...missing.filter((r) => !havePhase.has(r)).map((regionCode) => ({ regionCode, free: {} })),
@@ -495,9 +505,13 @@ async function ensureFreeTrialOffer(
           { method: "PATCH", body: JSON.stringify(patchBody) },
         )
         if (!patchRes.ok) {
-          // Reported, not thrown: the trial still works where it already applied.
+          // Reported, not thrown: the trial still works where it already applied, at its old length.
+          const what = [
+            missing.length > 0 ? `regions +${missing.length}` : null,
+            durationDrifted ? `duration ${phase0.duration}->${wantDuration}` : null,
+          ].filter(Boolean).join(", ")
           console.warn(
-            `[googleplay-product-sync] offer region extension failed for ${offerId} (${patchRes.status}): ${await patchRes.text()}`,
+            `[googleplay-product-sync] offer patch failed for ${offerId} (${what}) (${patchRes.status}): ${await patchRes.text()}`,
           )
         }
       }

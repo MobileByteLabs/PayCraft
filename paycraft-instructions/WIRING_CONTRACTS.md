@@ -1,4 +1,4 @@
-example-provenance: ea83bd8de373c01a71e24dbdf1fe6de92ae39b95
+example-provenance: 0a353f53c55e8b2a0a69801e1ccce77ab6682bd2
 
 # WIRING_CONTRACTS.md — DI, initialization order, and the repository seam
 

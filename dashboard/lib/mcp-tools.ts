@@ -1,11 +1,12 @@
 import { GET as readinessGET } from "@/app/api/v1/readiness/route"
 import { GET as syncGET, POST as syncPOST } from "@/app/api/v1/sync/route"
-import { GET as productsGET } from "@/app/api/v1/products/route"
-import { GET as productGET } from "@/app/api/v1/products/[id]/route"
+import { GET as productsGET, POST as productsPOST } from "@/app/api/v1/products/route"
+import { GET as productGET, PATCH as productPATCH } from "@/app/api/v1/products/[id]/route"
 import { POST as productSyncPOST } from "@/app/api/v1/products/[id]/sync/route"
 import { PUT as productPricingPUT } from "@/app/api/v1/products/[id]/pricing/route"
 import { POST as productRetirePOST } from "@/app/api/v1/products/[id]/retire/route"
-import { GET as providersGET } from "@/app/api/v1/providers/route"
+import { GET as providersGET, POST as providersPOST } from "@/app/api/v1/providers/route"
+import { GET as appsGET, POST as appsPOST } from "@/app/api/v1/apps/route"
 import { GET as subscribersGET } from "@/app/api/v1/subscribers/route"
 import { GET as entitlementsGET } from "@/app/api/v1/entitlements/route"
 import { GET as couponsGET } from "@/app/api/v1/coupons/route"
@@ -44,7 +45,7 @@ export interface McpTool {
 /** Build a Request that looks to the handler exactly like the equivalent REST call. */
 function call(
   handler: Handler,
-  method: "GET" | "POST" | "PUT",
+  method: "GET" | "POST" | "PUT" | "PATCH",
   path: string,
   auth: string,
   origin: string,
@@ -185,6 +186,164 @@ export const MCP_TOOLS: McpTool[] = [
       call(syncPOST, "POST", "/api/v1/sync", auth, origin, undefined, {
         confirm_count: a.confirm_count,
       }),
+  },
+  {
+    name: "paycraft_create_product",
+    title: "Create a catalogue product",
+    description:
+      "Adds a product to the catalogue. This is the CREATE half of onboarding: without it a fresh " +
+      "app could only be given a catalogue by calling the database directly, which is how the " +
+      "product set ends up outside the API's scopes and audit log. Refuses a SKU that already " +
+      "exists (409) unless upsert:true, because the underlying write is an upsert on (tenant, sku) " +
+      "and a live SKU may already be synced to three storefronts. Writes PayCraft only — nothing " +
+      "reaches a store until paycraft_sync_product. Requires products:write.",
+    inputSchema: obj(
+      {
+        ...TENANT,
+        sku: { type: "string", description: "Stable catalogue id, unique per app. Immutable afterwards." },
+        display_name: { type: "string", description: "Customer-facing name, e.g. \"Cappy Weekly\"." },
+        interval: {
+          type: "string",
+          enum: ["week", "month", "quarter", "semiannual", "year"],
+          description: "Billing cadence. Required for a subscription.",
+        },
+        type: { type: "string", enum: ["subscription", "one_time", "consumable"], description: "Default: subscription." },
+        base_price_cents: { type: "integer", minimum: 0, description: "Reference price in MINOR units. Per-country prices go through paycraft_set_product_pricing." },
+        base_currency: { type: "string", description: "ISO 4217 for base_price_cents. Default USD." },
+        trial_enabled: { type: "boolean" },
+        trial_duration_days: { type: "integer", minimum: 0, maximum: 365, description: "Free-trial length applied to every platform." },
+        trial_per_platform: {
+          type: ["object", "null"],
+          description:
+            "PER-PLATFORM trial override ({android,ios,web,desktop} -> days). It BEATS " +
+            "trial_duration_days whenever non-empty, so a stale entry makes the product serve a " +
+            "trial length its own catalogue disowns. Send null to clear it.",
+        },
+        active: { type: "boolean", description: "Stop SELLING with paycraft_retire_product instead — it stops the storefronts first." },
+        display_order: { type: "integer" },
+        pricing_mode: { type: "string", enum: ["auto", "global", "manual"] },
+        discount_percent: { type: "integer", minimum: 0, maximum: 100 },
+        upsert: { type: "boolean", description: "Update the product if this SKU already exists, instead of 409." },
+      },
+      ["sku", "display_name"],
+    ),
+    invoke: (a, auth, origin) => {
+      const { tenant_id: _t, ...body } = a
+      return call(productsPOST, "POST", "/api/v1/products", auth, origin, undefined, body)
+    },
+  },
+  {
+    name: "paycraft_update_product",
+    title: "Update a product's catalogue fields",
+    description:
+      "Changes named fields on one product and leaves everything else exactly as it was. The " +
+      "underlying upsert overwrites twenty columns, so this reads the current row and merges " +
+      "server-side; store ids are preserved rather than nulled. sku is immutable (it is the " +
+      "conflict key — changing it would create a SECOND product and leave this one sellable). " +
+      "Send trial_per_platform:null to clear a per-platform trial override. Catalogue only: the " +
+      "storefronts keep serving the old values until paycraft_sync_product runs, and the response " +
+      "says so. Requires products:write.",
+    inputSchema: obj(
+      {
+        ...TENANT,
+        id: { type: "string", description: "Product UUID." },
+        display_name: { type: "string", description: "Customer-facing name, e.g. \"Cappy Weekly\"." },
+        interval: {
+          type: "string",
+          enum: ["week", "month", "quarter", "semiannual", "year"],
+          description: "Billing cadence. Required for a subscription.",
+        },
+        type: { type: "string", enum: ["subscription", "one_time", "consumable"], description: "Default: subscription." },
+        base_price_cents: { type: "integer", minimum: 0, description: "Reference price in MINOR units. Per-country prices go through paycraft_set_product_pricing." },
+        base_currency: { type: "string", description: "ISO 4217 for base_price_cents. Default USD." },
+        trial_enabled: { type: "boolean" },
+        trial_duration_days: { type: "integer", minimum: 0, maximum: 365, description: "Free-trial length applied to every platform." },
+        trial_per_platform: {
+          type: ["object", "null"],
+          description:
+            "PER-PLATFORM trial override ({android,ios,web,desktop} -> days). It BEATS " +
+            "trial_duration_days whenever non-empty, so a stale entry makes the product serve a " +
+            "trial length its own catalogue disowns. Send null to clear it.",
+        },
+        active: { type: "boolean", description: "Stop SELLING with paycraft_retire_product instead — it stops the storefronts first." },
+        display_order: { type: "integer" },
+        pricing_mode: { type: "string", enum: ["auto", "global", "manual"] },
+        discount_percent: { type: "integer", minimum: 0, maximum: 100 },
+      },
+      ["id"],
+    ),
+    invoke: (a, auth, origin) => {
+      const { tenant_id: _t, id, ...body } = a
+      return call(productPATCH, "PATCH", `/api/v1/products/${id}`, auth, origin, undefined, body, {
+        id: String(id),
+      })
+    },
+  },
+  {
+    name: "paycraft_apps",
+    title: "List the apps this key reaches",
+    description:
+      "Every app the calling key can act on, with the one currently selected. START HERE with an " +
+      "account-scoped key: every other tool needs a tenant_id, and before this existed the only " +
+      "way to learn one was to trigger the tenant_required error and read the ids out of its " +
+      "message. Requires apps:read.",
+    inputSchema: obj({ ...TENANT }),
+    invoke: (_a, auth, origin) => call(appsGET, "GET", "/api/v1/apps", auth, origin),
+  },
+  {
+    name: "paycraft_create_app",
+    title: "Create an app (account-scoped keys only)",
+    description:
+      "Provisions a new app under this account and returns its PUBLISHABLE key (pk_…, the one " +
+      "that ships in the client). Idempotent per (account, app_name) — re-running returns the " +
+      "existing app with created:false, so an interrupted onboarding chain is safe to retry. " +
+      "Refused for an app-scoped key: creating siblings is account-level reach. Requires apps:write.",
+    inputSchema: obj(
+      {
+        ...TENANT,
+        app_name: { type: "string", description: "Display name, e.g. \"Cappy\"." },
+        app_identifier: {
+          type: "string",
+          description:
+            "The app's STABLE id (Android applicationId / iOS bundle id, e.g. com.acme.app). " +
+            "Strongly recommended: it is the key reuse matches on, so passing it makes re-runs " +
+            "exact instead of depending on the display name, which drifts in case and wording.",
+        },
+      },
+      ["app_name"],
+    ),
+    invoke: (a, auth, origin) => {
+      const { tenant_id: _t, ...body } = a
+      return call(appsPOST, "POST", "/api/v1/apps", auth, origin, undefined, body)
+    },
+  },
+  {
+    name: "paycraft_attach_provider",
+    title: "Attach a payment provider to this app",
+    description:
+      "Points the app at a provider credential the ACCOUNT already holds. NO SECRET TRAVELS: you " +
+      "name an account_id (or omit it to take the account's default connection), never a key — " +
+      "provider secrets stay encrypted server-side and are read only by the sync. Credentials are " +
+      "added once, in the dashboard; every app thereafter just attaches. Attaching selects a " +
+      "credential, it does not prove the provider can transact — read paycraft_readiness after. " +
+      "Requires providers:write.",
+    inputSchema: obj(
+      {
+        ...TENANT,
+        provider: {
+          type: "string",
+          description: "stripe | razorpay | google_play | app_store | paddle | lemonsqueezy | paypal | paystack | flutterwave | cashfree | midtrans | btcpay",
+        },
+        account_id: { type: "string", description: "Which account connection to use. Omit for the account's default." },
+        package_name: { type: "string", description: "google_play only — this APP's Android package." },
+        bundle_id: { type: "string", description: "app_store only — this APP's iOS bundle id." },
+      },
+      ["provider"],
+    ),
+    invoke: (a, auth, origin) => {
+      const { tenant_id: _t, ...body } = a
+      return call(providersPOST, "POST", "/api/v1/providers", auth, origin, undefined, body)
+    },
   },
   {
     name: "paycraft_set_product_pricing",

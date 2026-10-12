@@ -98,6 +98,58 @@ export const OPENAPI_SPEC = {
       },
     },
     "/products": {
+      post: {
+        tags: ["Catalogue"],
+        operationId: "createProduct",
+        summary: "Create a catalogue product",
+        description:
+          "The CREATE half of the catalogue lifecycle. Writes PayCraft only — nothing reaches a storefront until POST /products/{id}/sync. " +
+          "Refuses a SKU that already exists with 409, because the underlying write is an upsert on (tenant, sku) and a live SKU may already be synced to several storefronts; send upsert:true to mean it. " +
+          "`play_product_id` / `app_store_product_id` are NOT writable — the sync sets them once a store has accepted the product.",
+        security: [{ bearerAuth: ["products:write"] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["sku", "display_name"],
+                properties: {
+                  sku: { type: "string", maxLength: 128, description: "Stable catalogue id, unique per app. Immutable afterwards." },
+                  display_name: { type: "string", maxLength: 120 },
+                  interval: { type: "string", enum: ["week", "month", "quarter", "semiannual", "year"] },
+                  type: { type: "string", enum: ["subscription", "one_time", "consumable"], default: "subscription" },
+                  base_price_cents: { type: "integer", minimum: 0, description: "Reference price in MINOR units. Per-country prices go through PUT /products/{id}/pricing." },
+                  base_currency: { type: "string", default: "USD" },
+                  trial_enabled: { type: "boolean", default: true },
+                  trial_duration_days: { type: "integer", minimum: 0, maximum: 365 },
+                  trial_per_platform: {
+                    type: "object",
+                    nullable: true,
+                    description:
+                      "Per-platform trial override (android/ios/web/desktop -> days). BEATS trial_duration_days whenever non-empty, " +
+                      "so a stale entry makes the product serve a trial length its own catalogue disowns. Send null to clear.",
+                    additionalProperties: { type: "integer", minimum: 0, maximum: 365 },
+                  },
+                  active: { type: "boolean" },
+                  display_order: { type: "integer" },
+                  pricing_mode: { type: "string", enum: ["auto", "global", "manual"] },
+                  discount_percent: { type: "integer", minimum: 0, maximum: 100 },
+                  upsert: { type: "boolean", description: "Update instead of 409 when the SKU exists." },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Created." },
+          "200": { description: "Existing SKU updated (upsert:true)." },
+          "400": { description: "Validation failed; the body names the field.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "409": { description: "SKU already exists and upsert was not requested.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
       get: {
         tags: ["Catalogue"],
         operationId: "listProducts",
@@ -129,6 +181,57 @@ export const OPENAPI_SPEC = {
       },
     },
     "/products/{id}": {
+      patch: {
+        tags: ["Catalogue"],
+        operationId: "updateProduct",
+        summary: "Update a product's catalogue fields",
+        description:
+          "Changes named fields and leaves everything else as it was. Implemented as read-merge-write: the underlying upsert overwrites twenty columns, so a partial row would null the rest — store ids included, which would detach a live listing from the row that syncs it. " +
+          "`sku` is immutable (it is the conflict key; changing it would create a SECOND product and leave this one sellable). " +
+          "Send `trial_per_platform: null` to clear a per-platform trial override. " +
+          "Catalogue only: storefronts keep serving the previous values until POST /products/{id}/sync, and the response says so.",
+        security: [{ bearerAuth: ["products:write"] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                minProperties: 1,
+                properties: {
+                  display_name: { type: "string", maxLength: 120 },
+                  interval: { type: "string", enum: ["week", "month", "quarter", "semiannual", "year"] },
+                  type: { type: "string", enum: ["subscription", "one_time", "consumable"], default: "subscription" },
+                  base_price_cents: { type: "integer", minimum: 0, description: "Reference price in MINOR units. Per-country prices go through PUT /products/{id}/pricing." },
+                  base_currency: { type: "string", default: "USD" },
+                  trial_enabled: { type: "boolean", default: true },
+                  trial_duration_days: { type: "integer", minimum: 0, maximum: 365 },
+                  trial_per_platform: {
+                    type: "object",
+                    nullable: true,
+                    description:
+                      "Per-platform trial override (android/ios/web/desktop -> days). BEATS trial_duration_days whenever non-empty, " +
+                      "so a stale entry makes the product serve a trial length its own catalogue disowns. Send null to clear.",
+                    additionalProperties: { type: "integer", minimum: 0, maximum: 365 },
+                  },
+                  active: { type: "boolean" },
+                  display_order: { type: "integer" },
+                  pricing_mode: { type: "string", enum: ["auto", "global", "manual"] },
+                  discount_percent: { type: "integer", minimum: 0, maximum: 100 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated; `updated` lists the fields that changed." },
+          "400": { description: "Validation failed, or an unknown/immutable field was sent.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "No such product on this tenant.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
       get: {
         tags: ["Catalogue"],
         operationId: "getProduct",
