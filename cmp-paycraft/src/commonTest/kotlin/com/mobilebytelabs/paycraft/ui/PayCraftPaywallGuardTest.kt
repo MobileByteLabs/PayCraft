@@ -40,7 +40,7 @@ class PayCraftPaywallGuardTest {
     }
 
     @Test
-    fun `a premium user is never shown ads, even with showAds on`() = runComposeUiTest {
+    fun `a premium user is never shown ads even with showAds on`() = runComposeUiTest {
         // Ad-free is the thing they paid for. A guard that renders the ad slot for a subscriber
         // because `showAds = true` was passed app-wide is a billing bug the compiler cannot see.
         setContent {
@@ -98,7 +98,7 @@ class PayCraftPaywallGuardTest {
     }
 
     @Test
-    fun `a free user with no ad slot is gated, never given the content for free`() = runComposeUiTest {
+    fun `a free user with no ad slot is gated rather than given the content for free`() = runComposeUiTest {
         // showAds = true but no `ads` slot is a MISCONFIGURATION. It must fail CLOSED: handing over
         // the gated content because the host forgot to pass an ad composable would be the worst
         // possible default, and it is the one a naive `if (showAds) content()` produces.
@@ -133,7 +133,7 @@ class PayCraftPaywallGuardTest {
     }
 
     @Test
-    fun `while the entitlement is resolving, neither content nor paywall is shown`() = runComposeUiTest {
+    fun `while the entitlement is resolving neither content nor paywall is shown`() = runComposeUiTest {
         // The regression this exists to stop: a paying customer seeing a paywall flash on every cold
         // start because Loading was folded into the not-premium branch.
         //
@@ -156,7 +156,7 @@ class PayCraftPaywallGuardTest {
     }
 
     @Test
-    fun `resolving with no loading slot renders an empty container, not the paywall`() = runComposeUiTest {
+    fun `resolving with no loading slot renders an empty container rather than the paywall`() = runComposeUiTest {
         // The default. Nothing is drawn, but the gate must still have taken the resolving branch —
         // asserted by existence, since an empty container has no size to display.
         setContent {
