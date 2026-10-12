@@ -8,15 +8,6 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
-import com.mobilebytelabs.paycraft.core.SubscriptionActivated
-import com.mobilebytelabs.paycraft.model.BillingPlan
-import com.mobilebytelabs.paycraft.model.BillingState
-import com.mobilebytelabs.paycraft.model.OAuthProvider
-import com.mobilebytelabs.paycraft.model.SubscriptionStatus
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -34,7 +25,6 @@ import kotlin.test.assertTrue
  */
 @OptIn(ExperimentalTestApi::class)
 class PayCraftRestoreContentTest {
-
 
     // ── Rendering — initial idle state ────────────────────────────────────────
 

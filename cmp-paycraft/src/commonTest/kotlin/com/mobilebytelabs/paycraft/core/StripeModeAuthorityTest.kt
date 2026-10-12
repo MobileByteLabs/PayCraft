@@ -3,11 +3,11 @@ package com.mobilebytelabs.paycraft.core
 import com.mobilebytelabs.paycraft.InitOptions
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.PayCraftBackend
+import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.network.PremiumCheckResult
 import com.mobilebytelabs.paycraft.network.RegisterDeviceResult
 import com.mobilebytelabs.paycraft.network.SubscriptionDto
-import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -65,9 +65,13 @@ class StripeModeAuthorityTest {
 
     private class StubStore : PayCraftStore {
         private var email: String? = null
-        override suspend fun saveEmail(email: String) { this.email = email }
+        override suspend fun saveEmail(email: String) {
+            this.email = email
+        }
         override suspend fun getEmail(): String? = email
-        override suspend fun clearEmail() { email = null }
+        override suspend fun clearEmail() {
+            email = null
+        }
     }
 
     private fun manager() = PayCraftBillingManager(service = StubService(), store = StubStore())

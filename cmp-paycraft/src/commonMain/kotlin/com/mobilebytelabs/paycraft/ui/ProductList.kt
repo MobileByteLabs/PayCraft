@@ -530,7 +530,7 @@ private fun computeSavingsPercent(product: Product, monthlyBaselineMinor: Int?):
     if (monthlyBaselineMinor == null || monthlyBaselineMinor <= 0) return null
     val sub = product as? Product.Subscription ?: return null
     val monthsInInterval = when (sub.interval) {
-        Product.Subscription.Interval.WEEK -> return null  // costs more per month; no saving to claim
+        Product.Subscription.Interval.WEEK -> return null // costs more per month; no saving to claim
         Product.Subscription.Interval.MONTH -> return null // baseline itself
         Product.Subscription.Interval.QUARTER -> 3
         Product.Subscription.Interval.SEMIANNUAL -> 6
@@ -551,7 +551,7 @@ private fun computeSavingsPercent(product: Product, monthlyBaselineMinor: Int?):
 private fun computePerMonthAnchor(product: Product): String? {
     val sub = product as? Product.Subscription ?: return null
     val months = when (sub.interval) {
-        Product.Subscription.Interval.WEEK -> return null  // not a multi-month plan
+        Product.Subscription.Interval.WEEK -> return null // not a multi-month plan
         Product.Subscription.Interval.MONTH -> return null
         Product.Subscription.Interval.QUARTER -> 3
         Product.Subscription.Interval.SEMIANNUAL -> 6

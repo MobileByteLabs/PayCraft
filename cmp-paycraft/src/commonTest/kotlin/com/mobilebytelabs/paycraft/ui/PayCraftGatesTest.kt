@@ -1,5 +1,6 @@
 package com.mobilebytelabs.paycraft.ui
 
+import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -12,12 +13,6 @@ import androidx.compose.ui.test.runComposeUiTest
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
 import com.mobilebytelabs.paycraft.core.PayCraftAdUnlock
-import androidx.compose.material3.Button
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
-import kotlin.test.Test
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -25,6 +20,11 @@ import kotlinx.coroutines.test.setMain
 import org.koin.compose.KoinApplication
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * [PayCraftPremiumGate] + [PayCraftRewardedGate].
@@ -61,7 +61,10 @@ class PayCraftGatesTest {
                 },
             )
         }) {
-            CompositionLocalProvider(LocalPayCraftEntitlementOverride provides if (entitled) PayCraftGateState.Entitled else PayCraftGateState.NotEntitled) { body() }
+            CompositionLocalProvider(
+                LocalPayCraftEntitlementOverride provides
+                    if (entitled) PayCraftGateState.Entitled else PayCraftGateState.NotEntitled,
+            ) { body() }
         }
     }
 
@@ -148,7 +151,7 @@ class PayCraftGatesTest {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.NotEntitled) {
                 PayCraftRewardedGate(
                     featureKey = feature,
-                    ads = { Text(adSurface) },   // never calls onRewardEarned
+                    ads = { Text(adSurface) }, // never calls onRewardEarned
                 ) { Text(gated) }
             }
         }
@@ -175,7 +178,7 @@ class PayCraftGatesTest {
             }
         }
         onNodeWithTag(PayCraftTestTags.GATE_WATCH_AD_BUTTON).performClick()
-        onNodeWithText(adSurface).performClick()   // the host reports the reward
+        onNodeWithText(adSurface).performClick() // the host reports the reward
 
         assertTrue(PayCraftAdUnlock.isUnlocked(feature))
         onNodeWithText(gated).assertIsDisplayed()

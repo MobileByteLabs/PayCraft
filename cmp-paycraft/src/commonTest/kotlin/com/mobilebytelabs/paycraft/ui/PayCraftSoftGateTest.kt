@@ -14,22 +14,17 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
-import com.mobilebytelabs.paycraft.core.BillingManager
-import com.mobilebytelabs.paycraft.core.FakeBillingManager
-import com.mobilebytelabs.paycraft.model.BillingState
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
-import kotlin.test.Test
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.core.PaywallPresentation
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
-import org.koin.compose.KoinApplication
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
-import org.koin.dsl.module
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * [PayCraftSoftGate] — the soft posture: content stays visible, only the ACTION is redirected.
@@ -45,8 +40,13 @@ class PayCraftSoftGateTest {
     private val item = "premium-soundscape"
 
     // The upsell sheet's ViewModel uses viewModelScope.
-    @BeforeTest fun setUp() { Dispatchers.setMain(UnconfinedTestDispatcher()) }
-    @AfterTest fun tearDown() { Dispatchers.resetMain() }
+    @BeforeTest fun setUp() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+    }
+
+    @AfterTest fun tearDown() {
+        Dispatchers.resetMain()
+    }
 
     /** Stand-in for a host tile whose whole surface is one clickable (cappy's SoundscapeTileCard). */
     @androidx.compose.runtime.Composable

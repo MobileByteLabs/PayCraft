@@ -33,11 +33,7 @@ import kotlin.test.assertTrue
  */
 class WeeklyCadenceTest {
 
-    private fun sub(
-        id: String,
-        interval: Product.Subscription.Interval,
-        minor: Int,
-    ) = Product.Subscription(
+    private fun sub(id: String, interval: Product.Subscription.Interval, minor: Int) = Product.Subscription(
         id = id,
         sku = id,
         displayName = id,

@@ -13,15 +13,8 @@ import com.mobilebytelabs.paycraft.LocalPayCraftConfig
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
-import com.mobilebytelabs.paycraft.core.SubscriptionActivated
-import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
-import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlin.test.Test
 
 /**
@@ -47,7 +40,6 @@ class PayCraftPremiumBannerTest {
 
     /** Free-state manager — the copy tests assert the upgrade card is rendered. */
     private fun freeManager(state: BillingState = BillingState.Free) = FakeBillingManager(state)
-
 
     // ── DTO-driven copy ───────────────────────────────────────────────────────
 
