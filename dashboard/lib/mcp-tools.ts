@@ -6,6 +6,7 @@ import { POST as productSyncPOST } from "@/app/api/v1/products/[id]/sync/route"
 import { PUT as productPricingPUT } from "@/app/api/v1/products/[id]/pricing/route"
 import { POST as productRetirePOST } from "@/app/api/v1/products/[id]/retire/route"
 import { GET as providersGET, POST as providersPOST } from "@/app/api/v1/providers/route"
+import { GET as providerAccountsGET } from "@/app/api/v1/provider-accounts/route"
 import { GET as appsGET, POST as appsPOST } from "@/app/api/v1/apps/route"
 import { GET as subscribersGET } from "@/app/api/v1/subscribers/route"
 import { GET as entitlementsGET } from "@/app/api/v1/entitlements/route"
@@ -316,6 +317,21 @@ export const MCP_TOOLS: McpTool[] = [
       const { tenant_id: _t, ...body } = a
       return call(appsPOST, "POST", "/api/v1/apps", auth, origin, undefined, body)
     },
+  },
+  {
+    name: "paycraft_provider_accounts",
+    title: "List attachable provider credentials",
+    description:
+      "The provider credentials this app CAN attach to, with which one is default and whether each " +
+      "is already wired here. Call this before paycraft_attach_provider so 'connect Stripe' has an " +
+      "answer to 'which Stripe?' — otherwise the only way to see the candidates is to attempt an " +
+      "attach and read them out of the 400. Credentials are masked to has_credential; no endpoint " +
+      "returns a provider secret. Empty means the account holds no connection for that provider — " +
+      "someone must add it in the dashboard first, which is the one onboarding step no API does. " +
+      "Requires providers:read.",
+    inputSchema: obj({ ...TENANT, provider: { type: "string", description: "Filter, e.g. stripe. Omit for all." } }),
+    invoke: (a, auth, origin) =>
+      call(providerAccountsGET, "GET", "/api/v1/provider-accounts", auth, origin, a),
   },
   {
     name: "paycraft_attach_provider",
