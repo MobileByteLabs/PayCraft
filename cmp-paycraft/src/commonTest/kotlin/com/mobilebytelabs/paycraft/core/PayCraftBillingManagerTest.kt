@@ -351,12 +351,18 @@ class PayCraftBillingManagerTest {
     // normal and no explanation.
 
     @Test
-    fun refreshStatus_doesNotClearAnError_whenThereIsNoEmailToCheck() {
+    fun refreshStatus_doesNotClearAnError_whenThereIsNoEmailToCheck() = runTest {
+        // Injected for the same reason as `init_doesNotOverwriteAnErrorResolvedBeforeItRuns`: on
+        // Dispatchers.Default the init coroutine resolves to Free at a moment of the scheduler's
+        // choosing and can overwrite the Error between the guard and the assertion. Queued on a
+        // test dispatcher, the window this test is about is the only thing that moves.
+        val dispatcher = StandardTestDispatcher(testScheduler)
         val native = FakeNativeBillingClient()
         val manager = PayCraftBillingManager(
             service = FakePayCraftService(),
             store = FakePayCraftStore(cached = null, lastSynced = 0L, email = null),
             nativeBillingClient = native,
+            dispatcher = dispatcher,
         )
 
         // Synchronous guard → Error, with no email ever set.
@@ -373,14 +379,16 @@ class PayCraftBillingManagerTest {
     }
 
     @Test
-    fun refreshStatus_forced_doesNotClearAnError_either() {
+    fun refreshStatus_forced_doesNotClearAnError_either() = runTest {
         // force=true is for realtime entitlement pushes. Even so, the no-email branch still checks
         // nothing, so it must not be the thing that silences an error.
+        val dispatcher = StandardTestDispatcher(testScheduler)
         val native = FakeNativeBillingClient()
         val manager = PayCraftBillingManager(
             service = FakePayCraftService(),
             store = FakePayCraftStore(cached = null, lastSynced = 0L, email = null),
             nativeBillingClient = native,
+            dispatcher = dispatcher,
         )
         manager.purchaseViaPlayBilling(digitalPlan(provider = "google_play", productId = "   "), email = null)
 
@@ -390,17 +398,27 @@ class PayCraftBillingManagerTest {
     }
 
     @Test
-    fun refreshStatus_forced_fromLoading_withNoEmail_stillResolvesFree() {
+    fun refreshStatus_forced_fromLoading_withNoEmail_stillResolvesFree() = runTest {
         // The behaviour that must NOT regress (audit H5 + the no-identity resolution): a FORCED
         // refresh is allowed through the Loading window, and with no email it settles on Free.
         // Only `Error` is newly protected; the force/Loading interaction is untouched.
+        //
+        // DRIVEN, not hoped for. `refreshStatus` resolves on the manager's own scope, so asserting
+        // the settled state on the next line races it: on an idle machine the coroutine wins and
+        // the test passes, on a loaded CI runner it does not and the state is still `Loading`.
+        // It failed exactly that way in CI on 2026-10-12 while passing 533/533 locally — the same
+        // class the comment above `init_doesNotOverwriteAnErrorResolvedBeforeItRuns` documents.
+        // The injected dispatcher plus `advanceUntilIdle()` makes completion the ONLY order.
+        val dispatcher = StandardTestDispatcher(testScheduler)
         val manager = PayCraftBillingManager(
             service = FakePayCraftService(),
             store = FakePayCraftStore(cached = null, lastSynced = 0L, email = null),
+            dispatcher = dispatcher,
         )
         assertIs<BillingState.Loading>(manager.billingState.value, "starts unresolved")
 
         manager.refreshStatus(force = true)
+        advanceUntilIdle()
 
         assertIs<BillingState.Free>(manager.billingState.value, "no identity → Free")
     }
