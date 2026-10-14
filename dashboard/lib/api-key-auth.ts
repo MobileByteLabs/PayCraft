@@ -80,6 +80,7 @@ export type ApiScope =
   | "paywall:write"
   | "providers:write"
   | "apps:read"
+  | "apps:write"
   | "apps:provision"
   | "keys:rotate"
 

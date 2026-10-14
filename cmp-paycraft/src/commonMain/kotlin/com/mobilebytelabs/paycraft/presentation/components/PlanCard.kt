@@ -116,6 +116,7 @@ fun PlanCard(product: Product, onClick: () -> Unit, modifier: Modifier = Modifie
 }
 
 private fun Product.Subscription.Interval.label(): String = when (this) {
+    Product.Subscription.Interval.WEEK -> "week"
     Product.Subscription.Interval.MONTH -> "month"
     Product.Subscription.Interval.QUARTER -> "quarter"
     Product.Subscription.Interval.SEMIANNUAL -> "6 months"

@@ -553,6 +553,11 @@ private fun PayCraftPaywallSurface(
                                         // is the one error that costs money in both directions.
                                         perPeriodNote = product.monthlyEquivalentNote(),
                                         savingsPercent = product.savingsVersusMonthly(products),
+                                        // Same principle as perPeriodNote: DERIVED from the
+                                        // catalogue, never authored. The published cappy paywall
+                                        // spelled "7-day free trial" in its copy while the
+                                        // catalogue said 14 — and the copy is what the buyer read.
+                                        trialDays = dto.trialDurationDays?.takeIf { dto.trialEnabled },
                                     )
                                 }
                             }
@@ -597,6 +602,7 @@ private fun Product.toBillingPlan(config: SuiteConfig?): BillingPlan {
     }
     val intervalLabel = when (this) {
         is Product.Subscription -> when (interval) {
+            Product.Subscription.Interval.WEEK -> "week"
             Product.Subscription.Interval.MONTH -> "month"
             Product.Subscription.Interval.QUARTER -> "quarter"
             Product.Subscription.Interval.SEMIANNUAL -> "6mo"

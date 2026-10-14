@@ -411,3 +411,109 @@ test("activation refused but the listing IS live → says publishing is NOT the 
   expect(result.activationError).not.toMatch(/App is not published on Play Store/i)
   expect(result.activationError).toMatch(/package name|permission|track/i)
 })
+
+/**
+ * Regression (mbs/cappy 2026-10-12): the trial DURATION of an already-existing offer was
+ * never reconciled, so trial length was create-once.
+ *
+ * `cappy_plus_annual` carried a `trial_per_platform` override of 7 days while the catalogue
+ * and the dashboard scalar both declared 14. Play served a P7D trial, the paywall advertised
+ * 14, and no re-sync could ever close the gap: `ensureFreeTrialOffer`'s exists-branch spread
+ * `...phase0` (carrying its original `duration`) and only issued a PATCH when a REGION was
+ * missing. Regions already matched, so nothing was ever patched.
+ *
+ * URL-aware mock rather than an ordered queue — the same lesson the create-path helper above
+ * records: a blind queue hands the wrong response to whichever call comes next.
+ */
+function mockExistingOfferPath(existingTrialDuration: string, regions: string[]) {
+  const offerRegional = regions.map((regionCode) => ({ regionCode, newSubscriberAvailability: true }))
+  const phaseRegional = regions.map((regionCode) => ({ regionCode, free: {} }))
+  // Explicit return type: without it tsc cannot infer the union of these branches (TS7023) because
+  // each carries its own async `text`/`json` closures.
+  type FakeRes = { ok: boolean; status: number; text: () => Promise<string>; json?: () => Promise<any> }
+  const fetchMock = jest.fn(async (url: unknown, init?: unknown): Promise<FakeRes> => {
+    const u = String(url)
+    const method = ((init as any)?.method ?? "GET").toUpperCase()
+    if (u.includes("play.google.com/store/apps/details")) {
+      return { ok: true, status: 200, text: async () => "<html>live</html>" }
+    }
+    // The free-trial offer already exists, at `existingTrialDuration`, in every region.
+    if (u.includes("/offers/") && method === "GET") {
+      return {
+        ok: true, status: 200,
+        text: async () => "{}",
+        json: async () => ({
+          offerId: "pro-annual-autorenew-freetrial",
+          regionalConfigs: offerRegional,
+          phases: [{ duration: existingTrialDuration, recurrenceCount: 1, regionalConfigs: phaseRegional }],
+        }),
+      }
+    }
+    // The subscription itself already exists, with its base plan priced in every region.
+    if (u.includes("/subscriptions/") && !u.includes("/offers") && method === "GET") {
+      return {
+        ok: true, status: 200,
+        text: async () => "{}",
+        json: async () => ({
+          productId: "pro_annual",
+          basePlans: [{
+            basePlanId: "pro-annual-autorenew",
+            state: "ACTIVE",
+            regionalConfigs: regions.map((regionCode) => ({
+              regionCode, price: { currencyCode: "USD", units: "10", nanos: 0 },
+            })),
+          }],
+        }),
+      }
+    }
+    return { ok: true, status: 200, text: async () => "{}", json: async () => ({}) }
+  })
+  ;(global as unknown as { fetch: unknown }).fetch = fetchMock
+  return fetchMock
+}
+
+/** The PATCH issued against the offers resource, if any. */
+function offerPatchBody(fetchMock: jest.Mock): any | null {
+  const call = fetchMock.mock.calls.find(
+    ([u, init]) =>
+      String(u).includes("/offers/") &&
+      ((init as any)?.method ?? "GET").toUpperCase() === "PATCH",
+  )
+  return call ? JSON.parse((call[1] as any).body as string) : null
+}
+
+it("reconciles an existing free-trial offer's duration to the catalogue value", async () => {
+  const fetchMock = mockExistingOfferPath("P7D", ["US", "IN"])
+
+  await syncProductToGooglePlay(
+    { serviceAccountJson: SA_JSON, packageName: "com.example.app" },
+    "prod-annual", "pro_annual", "Cappy Annual", "year",
+    [{ currency: "USD", amountCents: 1000 }, { currency: "INR", amountCents: 125999 }],
+    "pro_annual",
+    14, // the catalogue's declared trial — SoT says 14 on every tier
+    null,
+  )
+
+  const patched = offerPatchBody(fetchMock)
+  expect(patched).not.toBeNull()
+  // The whole point: the drifted duration is corrected, not carried through.
+  expect(patched.phases[0].duration).toBe("P14D")
+  // And the region set is preserved — the additive behaviour must not regress.
+  expect(patched.phases[0].regionalConfigs.map((r: any) => r.regionCode).sort()).toEqual(["IN", "US"])
+})
+
+it("does not patch an existing free-trial offer that already matches the catalogue", async () => {
+  const fetchMock = mockExistingOfferPath("P14D", ["US", "IN"])
+
+  await syncProductToGooglePlay(
+    { serviceAccountJson: SA_JSON, packageName: "com.example.app" },
+    "prod-annual", "pro_annual", "Cappy Annual", "year",
+    [{ currency: "USD", amountCents: 1000 }, { currency: "INR", amountCents: 125999 }],
+    "pro_annual",
+    14,
+    null,
+  )
+
+  // Idempotent: nothing drifted, so no live-store write.
+  expect(offerPatchBody(fetchMock)).toBeNull()
+})

@@ -26,6 +26,9 @@ internal val PAYWALL_VARIABLES = listOf(
     "product.price_per_period",
     "product.offer_savings",
     "product.offer_savings_label",
+    // Trial length from the CATALOGUE, so paywall copy never spells the number itself.
+    "product.trial_days",
+    "product.trial_label",
 )
 
 /**
@@ -69,6 +72,12 @@ internal fun substituteVariables(text: String, price: PackagePrice?): String = i
             // variable survives the variable: "SAVE {{ product.offer_savings }}" on a plan with no
             // saving renders the chip "SAVE" — a badge that promises a discount and names none.
             "product.offer_savings_label" -> price?.savingsPercent?.let { "SAVE $it%" }.orEmpty()
+            "product.trial_days" -> price?.trialDays?.takeIf { it > 0 }?.toString().orEmpty()
+            // The WHOLE phrase, for the same reason offer_savings_label is: a literal wrapped
+            // around an empty variable survives it, so "{{ product.trial_days }}-day free trial"
+            // on a plan with no trial renders "-day free trial" at a paying customer.
+            "product.trial_label" -> price?.trialDays?.takeIf { it > 0 }
+                ?.let { "$it-day free trial" }.orEmpty()
             else -> ""
         }
     }

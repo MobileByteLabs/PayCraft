@@ -98,6 +98,58 @@ export const OPENAPI_SPEC = {
       },
     },
     "/products": {
+      post: {
+        tags: ["Catalogue"],
+        operationId: "createProduct",
+        summary: "Create a catalogue product",
+        description:
+          "The CREATE half of the catalogue lifecycle. Writes PayCraft only — nothing reaches a storefront until POST /products/{id}/sync. " +
+          "Refuses a SKU that already exists with 409, because the underlying write is an upsert on (tenant, sku) and a live SKU may already be synced to several storefronts; send upsert:true to mean it. " +
+          "`play_product_id` / `app_store_product_id` are NOT writable — the sync sets them once a store has accepted the product.",
+        security: [{ bearerAuth: ["products:write"] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["sku", "display_name"],
+                properties: {
+                  sku: { type: "string", maxLength: 128, description: "Stable catalogue id, unique per app. Immutable afterwards." },
+                  display_name: { type: "string", maxLength: 120 },
+                  interval: { type: "string", enum: ["week", "month", "quarter", "semiannual", "year"] },
+                  type: { type: "string", enum: ["subscription", "one_time", "consumable"], default: "subscription" },
+                  base_price_cents: { type: "integer", minimum: 0, description: "Reference price in MINOR units. Per-country prices go through PUT /products/{id}/pricing." },
+                  base_currency: { type: "string", default: "USD" },
+                  trial_enabled: { type: "boolean", default: true },
+                  trial_duration_days: { type: "integer", minimum: 0, maximum: 365 },
+                  trial_per_platform: {
+                    type: "object",
+                    nullable: true,
+                    description:
+                      "Per-platform trial override (android/ios/web/desktop -> days). BEATS trial_duration_days whenever non-empty, " +
+                      "so a stale entry makes the product serve a trial length its own catalogue disowns. Send null to clear.",
+                    additionalProperties: { type: "integer", minimum: 0, maximum: 365 },
+                  },
+                  active: { type: "boolean" },
+                  display_order: { type: "integer" },
+                  pricing_mode: { type: "string", enum: ["auto", "global", "manual"] },
+                  discount_percent: { type: "integer", minimum: 0, maximum: 100 },
+                  upsert: { type: "boolean", description: "Update instead of 409 when the SKU exists." },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Created." },
+          "200": { description: "Existing SKU updated (upsert:true)." },
+          "400": { description: "Validation failed; the body names the field.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "409": { description: "SKU already exists and upsert was not requested.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
       get: {
         tags: ["Catalogue"],
         operationId: "listProducts",
@@ -129,6 +181,57 @@ export const OPENAPI_SPEC = {
       },
     },
     "/products/{id}": {
+      patch: {
+        tags: ["Catalogue"],
+        operationId: "updateProduct",
+        summary: "Update a product's catalogue fields",
+        description:
+          "Changes named fields and leaves everything else as it was. Implemented as read-merge-write: the underlying upsert overwrites twenty columns, so a partial row would null the rest — store ids included, which would detach a live listing from the row that syncs it. " +
+          "`sku` is immutable (it is the conflict key; changing it would create a SECOND product and leave this one sellable). " +
+          "Send `trial_per_platform: null` to clear a per-platform trial override. " +
+          "Catalogue only: storefronts keep serving the previous values until POST /products/{id}/sync, and the response says so.",
+        security: [{ bearerAuth: ["products:write"] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                minProperties: 1,
+                properties: {
+                  display_name: { type: "string", maxLength: 120 },
+                  interval: { type: "string", enum: ["week", "month", "quarter", "semiannual", "year"] },
+                  type: { type: "string", enum: ["subscription", "one_time", "consumable"], default: "subscription" },
+                  base_price_cents: { type: "integer", minimum: 0, description: "Reference price in MINOR units. Per-country prices go through PUT /products/{id}/pricing." },
+                  base_currency: { type: "string", default: "USD" },
+                  trial_enabled: { type: "boolean", default: true },
+                  trial_duration_days: { type: "integer", minimum: 0, maximum: 365 },
+                  trial_per_platform: {
+                    type: "object",
+                    nullable: true,
+                    description:
+                      "Per-platform trial override (android/ios/web/desktop -> days). BEATS trial_duration_days whenever non-empty, " +
+                      "so a stale entry makes the product serve a trial length its own catalogue disowns. Send null to clear.",
+                    additionalProperties: { type: "integer", minimum: 0, maximum: 365 },
+                  },
+                  active: { type: "boolean" },
+                  display_order: { type: "integer" },
+                  pricing_mode: { type: "string", enum: ["auto", "global", "manual"] },
+                  discount_percent: { type: "integer", minimum: 0, maximum: 100 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated; `updated` lists the fields that changed." },
+          "400": { description: "Validation failed, or an unknown/immutable field was sent.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "No such product on this tenant.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
       get: {
         tags: ["Catalogue"],
         operationId: "getProduct",
@@ -137,6 +240,54 @@ export const OPENAPI_SPEC = {
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "200": { description: "The product and its per-currency pricing.", content: { "application/json": { schema: { type: "object" } } } },
+          "404": { description: "No such product on this tenant.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/products/{id}/pricing": {
+      put: {
+        tags: ["Catalogue"],
+        operationId: "setProductPricing",
+        summary: "Set a product's per-country prices",
+        description:
+          "UPSERT per locale: an omitted locale keeps its current price, so a partial request cannot silently un-price a live region. " +
+          "Does NOT reach a store — call POST /products/{id}/sync afterwards and read its per-provider verdicts. " +
+          "A product with NO rows here syncs with its base currency alone, which is how a subscription reaches Google Play priced in one region and is unbuyable everywhere else. " +
+          "`amount_cents` is minor units (₹89.99 → 8999); zero-decimal currencies (JPY, KRW, …) are refused because that convention is ambiguous for them.",
+        security: [{ bearerAuth: ["products:write"] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["rows"],
+                properties: {
+                  rows: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 64,
+                    items: {
+                      type: "object",
+                      required: ["locale", "currency", "amount_cents"],
+                      properties: {
+                        locale: { type: "string", description: "ISO 3166-1 alpha-2 country, e.g. IN." },
+                        currency: { type: "string", description: "ISO 4217, e.g. INR." },
+                        amount_cents: { type: "integer", minimum: 1, description: "Minor units." },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "The pricing rows as they now stand, read back from the table. `synced: false` always — nothing reached a store.", content: { "application/json": { schema: { type: "object" } } } },
+          "400": { description: "A malformed row. The price is refused rather than coerced, because a coerced price is a charge nobody authorised.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "No such product on this tenant.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },
@@ -156,6 +307,27 @@ export const OPENAPI_SPEC = {
         ],
         responses: {
           "200": { description: "Per-provider verdicts. Inspect them — a provider can fail while the call succeeds.", content: { "application/json": { schema: { type: "object" } } } },
+          "404": { description: "No such product on this tenant.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/products/{id}/retire": {
+      post: {
+        tags: ["Catalogue"],
+        operationId: "retireProduct",
+        summary: "Stop selling a product, everywhere",
+        description:
+          "Deactivates the product's base plans at each connected store, THEN marks the PayCraft row inactive. " +
+          "Order matters: a row flipped inactive first drops out of `tenant_products_needs_sync` (which filters active=TRUE), so the storefront would never be told — that is how a retired plan stays on sale. " +
+          "Deactivate, never delete: existing subscribers keep renewing, as the stores require. " +
+          "Refuses with 409 when the product has active/trialing/past_due subscribers.",
+        security: [{ bearerAuth: ["products:write"] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Per-provider verdicts plus `retired_everywhere`. Inspect them — a store can refuse while the call succeeds.", content: { "application/json": { schema: { type: "object" } } } },
+          "409": { description: "The product has live subscribers; stopping sales on a live cohort is an operator decision.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "No such product on this tenant.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },

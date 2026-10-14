@@ -1,4 +1,4 @@
-example-provenance: 7734ada8809b080b9021a9d958ca95b501d8dca4
+example-provenance: 0a353f53c55e8b2a0a69801e1ccce77ab6682bd2
 
 # PUBLIC_API.md — PayCraft SDK public integration surface
 
@@ -259,6 +259,18 @@ data class SuiteConfig(
 `attachesToProductId`, `discountPercent`/`discountEndsAt`, `displayOrder`, `active`, and
 **`storeBinding`**.
 
+`interval` is `week | month | quarter | semiannual | year`, or absent for a non-recurring product.
+It parses to `Product.Subscription.Interval`, whose `when`s are exhaustive with **no `else` arm** —
+deliberately, so adding a cadence makes the compiler name every display site instead of a new value
+rendering as whatever the fallback said. `parseInterval` likewise `error()`s on an unrecognised
+string rather than defaulting: a silent fallback to `MONTH` would bill a weekly subscriber monthly.
+
+The DEFAULT CATALOGUE every consumer is seeded with is `week · month · quarter · year`, each with a
+14-day trial. `semiannual` is not seeded any more but remains fully valid — tenants still sell it,
+so the value was never revoked. Per-country prices are NOT in the DTO's base fields: `resolvedPrice`
+carries the band-resolved amount for the caller's country (32 countries, USD-relative multipliers,
+charm rounding), which is why a client must never convert `basePriceCents` itself.
+
 > **`storeBinding` replaced the `playProductId` / `appStoreProductId` pair.** It is
 > `StoreBinding(provider, productId)` — one binding, **resolved server-side** from
 > `tenant_routing_rules` for the platform in the `x-paycraft-platform` request header. The client no
@@ -280,11 +292,43 @@ PAYWALL_CUSTOMIZATION.md.
 ## Compose surface (optional)
 
 `PayCraftPaywall`, `PayCraftPaywallSheet`, `PayCraftSheet`, `PayCraftBanner`,
-`PayCraftInlinePaywallBanner`, `PayCraftPremiumBanner`, `PayCraftPremiumGuard`,
-`PayCraftPremiumGuardInline`, `PayCraftRestore`, `PayCraftRestoreContent`,
-`PayCraftPaywallWithRestore`, `PayCraftCheckoutSuccessSheet`,
+`PayCraftInlinePaywallBanner`, `PayCraftPremiumBanner`, `PayCraftRestore`,
+`PayCraftRestoreContent`, `PayCraftPaywallWithRestore`, `PayCraftCheckoutSuccessSheet`,
 `PayCraftCheckoutSuccessSheetOrPaywall`, `BannerPaywall`, `PayCraftPaywallComposable`,
 `ProductList`. Surface-mode contract in PAYWALL_CUSTOMIZATION.md.
+
+### Gates — how a consumer locks a surface
+
+Three composables, and the choice is about what the lock does to the CONTENT. A consumer does not
+author the chip, the lock state or the upsell surface: the SDK renders all three from live
+entitlement, so they cannot drift from the entitlement or from the offer.
+
+| Gate | Behaviour | Use when |
+|---|---|---|
+| `PayCraftPremiumGate` | REPLACES the gated content with the SDK's offer (`DisplayMode.FullScreen` / `.Banner`) | the gated thing is a TRANSACTION or a whole screen |
+| `PayCraftSoftGate` | content stays visible and readable; only the TAP is shielded, and the upsell sheet is raised in place over it | the user should still SEE what the subscription unlocks |
+| `PayCraftRewardedGate` | time-boxed unlock per feature key, via a consumer-supplied `ads` slot | the app monetises with ads as well as subscriptions |
+
+`PayCraftSoftGate` takes `enabled` for a list MIXING free and locked rows: pass the row's own
+catalogue flag, and the gate still decides whether to LOCK from live entitlement, so a subscriber
+gets the row ungated with no chip. `badge` and `lockedContentDescription` have usable defaults.
+
+**Do NOT keep a consumer-side entitlement flag beside a gate.** Measured 3/5 on `mbs/cappy`
+2026-10-10: each such flag was never supplied by DI (defaulted `false`, or derived with no
+entitlement input at all), so every one locked PAYING SUBSCRIBERS out of content they had bought.
+The gates read live entitlement; that is the point of using them.
+
+**Testability.** The gates' chip and shield carry stable tags (`paycraft_gate_plus_chip`,
+`paycraft_gate_soft_shield`, `paycraft_gate_locked`, `paycraft_gate_unlocked`). The wrapped
+content's OWN tags do NOT survive on device: the shield is a full-bleed clickable with bounds
+identical to the gate, and uiautomator prunes everything beneath it — so retarget device flows to
+the gate's tags. The inner tags stay valid for Compose `commonTest`, which does not prune
+occlusions. `LocalPayCraftEntitlementOverride` drives Entitled/NotEntitled/Resolving in unit tests
+without a Koin graph.
+
+**Deprecated predecessors:** `PayCraftPremiumGuard`, `PayCraftPremiumGuardInline` and
+`PayCraftPaywallGuardScreen` are `@Deprecated` and still exported for one release. New consumers
+wire a gate; existing ones migrate. Do not wire a new integration to a guard.
 
 `PayCraftTestTags` publishes the stable tags every one of those surfaces sets
 (`paycraft_paywall_screen`, `paycraft_plan_card_<planId>`, `paycraft_payment_pending`,

@@ -501,6 +501,40 @@ export async function POST() {
       perProduct.set(r.product_id, acc)
     }
   }
+  // Retire ORPHANED in-flight entries before stamping.
+  //
+  // `tenant_products_set_sync_state` merges (`sync_state || p_state`) so a provider this run did not
+  // touch keeps whatever it last recorded — correct for a single-provider retry, but it also means a
+  // DEAD run's `{"status":"syncing","reason":"sync in progress"}` survives forever on a provider
+  // nobody syncs. Measured on cappy's `cappy_plus_monthly` 2026-10-09: `cashfree` still read "sync
+  // in progress" from the 2026-10-07 run, 2 days later, for a provider that is not even connected.
+  //
+  // It is harmless to the machinery — the rollup only weighs providers this run reported, and the
+  // unsynced predicate does not match `syncing` inside `sync_state` — and that is exactly why it
+  // never got cleaned up. It is NOT harmless to a reader: the one place that says what each provider
+  // did was asserting an operation was underway when none was. A stale claim in the audit surface is
+  // the thing that made a 16-day strand look like a live sync.
+  const touched = new Set<string>()
+  for (const [pid, acc] of perProduct) for (const k of Object.keys(acc.state)) touched.add(`${pid}:${k}`)
+  const { data: priorStates } = await supabase
+    .from("tenant_products")
+    .select("id, sync_state")
+    .in("id", Array.from(perProduct.keys()))
+  for (const row of (priorStates ?? []) as { id: string; sync_state: Record<string, { status?: string }> | null }[]) {
+    const acc = perProduct.get(row.id)
+    if (!acc) continue
+    for (const [provider, entry] of Object.entries(row.sync_state ?? {})) {
+      if (touched.has(`${row.id}:${provider}`)) continue
+      if (entry?.status !== "syncing" && entry?.status !== "pending") continue
+      // `unknown`, not `synced` or `failed`: this run has no evidence either way about a provider it
+      // never ran. Inventing an outcome here would be the laundering this file guards against.
+      acc.state[provider] = {
+        status: "unknown",
+        reason: "left in-flight by an earlier run that did not finish; not synced by this run",
+      }
+    }
+  }
+
   for (const [productId, acc] of perProduct) {
     const rollup = rollupSyncStatus(acc.statuses)
     // Best-effort per product: one row failing to stamp must not abort the others or discard the

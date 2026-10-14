@@ -129,8 +129,10 @@ private val CtaShape = RoundedCornerShape(14.dp)
  *   [BillingManager.loginWithOAuth] after receiving the ID token.
  * @param onAppleSignInClick Provide this to show the "Continue with Apple" button.
  *   Same contract as [onGoogleSignInClick].
+ * @param billingManager Leave null to resolve from Koin when the sheet is actually shown. Pass one
+ *   explicitly in previews, screenshot tests, or any composition with no Koin graph — a hidden sheet
+ *   (`visible = false`) resolves nothing either way.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PayCraftRestore(
     visible: Boolean,
@@ -138,10 +140,37 @@ fun PayCraftRestore(
     onGoogleSignInClick: (() -> Unit)? = null,
     onAppleSignInClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    billingManager: BillingManager = koinInject(),
+    billingManager: BillingManager? = null,
 ) {
+    // The visibility check comes BEFORE anything is resolved from Koin, and `billingManager` is a
+    // nullable param rather than a `koinInject()` default, because a DEFAULT ARGUMENT IS EVALUATED
+    // AT THE CALL SITE — before this function body runs. With `billingManager: BillingManager =
+    // koinInject()` the inject happened even when `visible` was false, so merely HAVING a hidden
+    // restore sheet in a composable required a started Koin graph. That broke every @Preview and
+    // Roborazzi screenshot of any host screen containing one: cappy's settings previews all failed
+    // with "KoinApplication has not been started", pointing at a sheet that was not even shown.
+    //
+    // Resolution is deferred to the sub-composable below, which is only reached when visible.
     if (!visible) return
 
+    PayCraftRestoreSheet(
+        onDismiss = onDismiss,
+        onGoogleSignInClick = onGoogleSignInClick,
+        onAppleSignInClick = onAppleSignInClick,
+        modifier = modifier,
+        billingManager = billingManager ?: koinInject(),
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PayCraftRestoreSheet(
+    onDismiss: () -> Unit,
+    onGoogleSignInClick: (() -> Unit)?,
+    onAppleSignInClick: (() -> Unit)?,
+    modifier: Modifier,
+    billingManager: BillingManager,
+) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Re-apply the dashboard brand theme at the sheet boundary. Material3

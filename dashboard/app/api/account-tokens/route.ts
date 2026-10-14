@@ -44,6 +44,7 @@ const SCOPES = [
   "paywall:write",
   "providers:write",
   "apps:read",
+  "apps:write",
   "apps:provision",
   "keys:rotate",
 ] as const

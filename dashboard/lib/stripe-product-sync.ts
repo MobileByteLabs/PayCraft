@@ -16,13 +16,16 @@ export interface SyncProductOptions {
 
 /** Stripe-compatible billing interval. interval_count defaults to 1. */
 export interface StripeInterval {
-  interval: "month" | "year"
+  // "week" included: Stripe supports a weekly recurring interval natively, and the default
+  // catalogue ships a weekly tier. Longer cadences are expressed as month x interval_count.
+  interval: "month" | "year" | "week"
   interval_count?: number
 }
 
 /** Map app-layer interval names to Stripe recurring params. Returns null for one-time / trial products. */
 export function toStripeInterval(interval: string | null | undefined): StripeInterval | null {
   switch (interval) {
+    case "week": return { interval: "week" }
     case "month": return { interval: "month" }
     case "quarter": return { interval: "month", interval_count: 3 }
     case "semiannual": return { interval: "month", interval_count: 6 }

@@ -146,12 +146,14 @@ function playCadenceWords(interval: string | null): string {
     case "semiannual": return "Billed every 6 months"
     case "quarter": return "Billed quarterly"
     case "month": return "Billed monthly"
+    case "week": return "Billed weekly"
     default: return "One-time purchase"
   }
 }
 
 export function playBillingPeriod(interval: string | null | undefined): string {
   switch (interval) {
+    case "week": return "P1W"
     case "month": return "P1M"
     case "quarter": return "P3M"
     case "semiannual": return "P6M"
@@ -377,10 +379,18 @@ function freeTrialOfferIdFor(basePlanId: string): string {
 /**
  * Ensure a FREE_TRIAL offer exists (and is active) on the base plan so the Play
  * cart actually GRANTS the trial the paywall advertises. Idempotent: probes the
- * offer first; creates it only when absent (offer phases are immutable once live,
- * same as base-plan pricing). Best-effort activation, like [activateBasePlan] —
- * Play blocks offer activation until the app is published, so a DRAFT trial offer
- * is a warning, not a throw. Regions match the base plan's regions exactly.
+ * offer first, CREATES it when absent, and when it already exists EXTENDS it to any
+ * region the base plan has gained since — additively, exactly like
+ * [ensureBasePlanRegions]. Without that second half a trial created while the plan
+ * sold in one country stays a one-country trial after the plan expands to seven, so
+ * the paywall advertises a trial most buyers cannot get. (An earlier version of this
+ * comment said "creates it only when absent", which described the code before the
+ * extension branch existed and misread as a live gap on 2026-10-11.)
+ *
+ * Offer PHASES are immutable once live in the sense that an existing region's trial
+ * length cannot be rewritten — adding a region is an ordinary patch, which is what
+ * this does. Best-effort activation, like [activateBasePlan] — Play blocks offer
+ * activation until the app is published, so a DRAFT trial offer is a warning, not a throw.
  *
  * Schema per androidpublisher v3 monetization.subscriptions.basePlans.offers:
  *   phases[0] = { duration: P{days}D, recurrenceCount: 1, regionalConfigs:[{regionCode, free:{}}] }
@@ -450,14 +460,23 @@ async function ensureFreeTrialOffer(
     // The offer already exists. Extend it to any region the base plan has gained since it was
     // created — WITHOUT this, a trial created while the plan sold in one country stays a one-country
     // trial after the plan expands, so the paywall advertises a trial most buyers cannot get.
-    // Additive, exactly like the base-plan region fix: existing entries are copied through untouched.
+    // Regions are ADDITIVE (existing entries copied through untouched); the trial DURATION is
+    // reconciled to the catalogue, because that one is not additive — see the note below.
     const cur = await getRes.json().catch(() => null)
     if (cur) {
       const haveAvail = new Set<string>((cur.regionalConfigs ?? []).map((r: any) => r.regionCode))
       const missing = regions.filter((r) => !haveAvail.has(r))
-      if (missing.length > 0) {
-        const phases: any[] = Array.isArray(cur.phases) && cur.phases.length > 0 ? cur.phases : []
-        const phase0 = phases[0] ?? {}
+      const phases: any[] = Array.isArray(cur.phases) && cur.phases.length > 0 ? cur.phases : []
+      const phase0 = phases[0] ?? {}
+      // DURATION, not just regions. Spreading `...phase0` preserves whatever duration the offer was
+      // CREATED with, so without this the trial length is create-once: a product seeded at P7D stays
+      // at P7D through every later re-sync, no matter what the catalogue says. Measured on mbs/cappy
+      // 2026-10-12 — `cappy_plus_annual` advertised a 14-day trial in the dashboard and on the
+      // paywall while Play served P7D, and no re-sync could ever have closed the gap because the
+      // patch below only fired on a missing REGION.
+      const wantDuration = `P${trialDays}D`
+      const durationDrifted = typeof phase0.duration === "string" && phase0.duration !== wantDuration
+      if (missing.length > 0 || durationDrifted) {
         const havePhase = new Set<string>((phase0.regionalConfigs ?? []).map((r: any) => r.regionCode))
         const patchBody = {
           packageName: pkg,
@@ -471,6 +490,7 @@ async function ensureFreeTrialOffer(
           phases: [
             {
               ...phase0,
+              duration: wantDuration,
               regionalConfigs: [
                 ...(phase0.regionalConfigs ?? []),
                 ...missing.filter((r) => !havePhase.has(r)).map((regionCode) => ({ regionCode, free: {} })),
@@ -485,9 +505,13 @@ async function ensureFreeTrialOffer(
           { method: "PATCH", body: JSON.stringify(patchBody) },
         )
         if (!patchRes.ok) {
-          // Reported, not thrown: the trial still works where it already applied.
+          // Reported, not thrown: the trial still works where it already applied, at its old length.
+          const what = [
+            missing.length > 0 ? `regions +${missing.length}` : null,
+            durationDrifted ? `duration ${phase0.duration}->${wantDuration}` : null,
+          ].filter(Boolean).join(", ")
           console.warn(
-            `[googleplay-product-sync] offer region extension failed for ${offerId} (${patchRes.status}): ${await patchRes.text()}`,
+            `[googleplay-product-sync] offer patch failed for ${offerId} (${what}) (${patchRes.status}): ${await patchRes.text()}`,
           )
         }
       }
@@ -740,4 +764,82 @@ export async function syncProductToGooglePlay(
     activated: act.activated,
     activationError: act.error,
   })
+}
+
+/**
+ * RETIRE a Play subscription: make it unpurchasable without destroying its history.
+ *
+ * THE GAP THIS CLOSES. `tenant_products_needs_sync` filters `AND p.active = TRUE`, so the moment a
+ * product is deactivated in PayCraft it drops out of every drain — and nothing had ever told the
+ * store. Measured on cappy 2026-10-11: `cappy_plus_guardian` sat `active=false` in PayCraft while
+ * Google Play still listed `com.mobilebytesensei.cappy.sub.guardian` ACTIVE, priced across 7
+ * regions and sellable. Retiring a plan in the catalogue did nothing at all to the storefront.
+ *
+ * DEACTIVATE THE BASE PLANS, do not delete the subscription. Play refuses to delete a subscription
+ * with purchase history, and a deleted product would orphan the entitlement rows that reference it.
+ * Deactivating every base plan is the reversible verb that actually stops new purchases: existing
+ * subscribers keep renewing (which is the law — you may not strand someone mid-term), and a later
+ * :activate brings the same plan back with its prices intact.
+ *
+ * Idempotent and best-effort, like every other write here: a 404 product is a no-op, an
+ * already-inactive plan is a no-op, and a failure is reported rather than thrown so one stubborn
+ * plan cannot abort a catalogue-wide reconcile.
+ */
+export async function retireGooglePlaySubscription(
+  creds: GooglePlayCreds,
+  playProductId: string,
+): Promise<{ retired: boolean; alreadyInactive: boolean; basePlans: string[]; error?: string }> {
+  const sa = JSON.parse(creds.serviceAccountJson) as PlayServiceAccountJson
+  const token = await playAccessToken(sa)
+  const pkg = creds.packageName
+  if (!pkg) throw new Error("googleplay-product-sync: missing package_name in tenant store config")
+
+  const path = `/applications/${pkg}/subscriptions/${encodeURIComponent(playProductId)}`
+  const getRes = await playFetch(token, path)
+  // Never created, or already gone — nothing to retire, and that is a success not a failure.
+  if (getRes.status === 404) return { retired: true, alreadyInactive: true, basePlans: [] }
+  if (!getRes.ok) {
+    return {
+      retired: false,
+      alreadyInactive: false,
+      basePlans: [],
+      error: `subscriptions.get failed (${getRes.status}): ${shortPlayError(await getRes.text())}`,
+    }
+  }
+
+  const sub = await getRes.json().catch(() => null)
+  const plans: Array<{ basePlanId?: string; state?: string }> = sub?.basePlans ?? []
+  const active = plans.filter((p) => p?.basePlanId && p.state === "ACTIVE")
+  if (active.length === 0) {
+    return { retired: true, alreadyInactive: true, basePlans: plans.map((p) => p.basePlanId ?? "") }
+  }
+
+  const failures: string[] = []
+  const done: string[] = []
+  for (const plan of active) {
+    const basePlanId = plan.basePlanId as string
+    const res = await playFetch(
+      token,
+      `${path}/basePlans/${encodeURIComponent(basePlanId)}:deactivate`,
+      { method: "POST", body: JSON.stringify({ packageName: pkg, productId: playProductId, basePlanId }) },
+    )
+    if (res.ok) {
+      done.push(basePlanId)
+      continue
+    }
+    const body = await res.text()
+    // Play phrases "already not active" several ways; each means the desired end state holds.
+    if (/not active|already (inactive|cancelled|canceled)/i.test(body)) {
+      done.push(basePlanId)
+      continue
+    }
+    failures.push(`${basePlanId}: ${shortPlayError(body)}`)
+  }
+
+  return {
+    retired: failures.length === 0,
+    alreadyInactive: false,
+    basePlans: done,
+    ...(failures.length > 0 ? { error: `base plan deactivate failed — ${failures.join("; ")}` } : {}),
+  }
 }

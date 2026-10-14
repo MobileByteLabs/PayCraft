@@ -28,7 +28,7 @@ export interface RazorpaySyncResult {
 }
 
 // PayCraft billing intervals as stored on tenant_products.interval.
-export type BillingInterval = "month" | "quarter" | "semiannual" | "year"
+export type BillingInterval = "week" | "month" | "quarter" | "semiannual" | "year"
 
 /**
  * Map a PayCraft billing interval to a Razorpay Plan cadence.
@@ -47,8 +47,10 @@ export type BillingInterval = "month" | "quarter" | "semiannual" | "year"
  */
 function razorpayPlanCadence(
   interval: BillingInterval | string | null,
-): { period: "monthly" | "yearly"; multiplier: number } {
+): { period: "weekly" | "monthly" | "yearly"; multiplier: number } {
   switch (interval) {
+    case "week":
+      return { period: "weekly", multiplier: 1 }
     case "month":
       return { period: "monthly", multiplier: 1 }
     case "quarter":
