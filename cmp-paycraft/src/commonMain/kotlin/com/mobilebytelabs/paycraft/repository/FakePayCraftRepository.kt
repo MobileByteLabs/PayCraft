@@ -7,6 +7,10 @@
  */
 package com.mobilebytelabs.paycraft.repository
 
+import com.mobilebytelabs.paycraft.config.CouponDto
+import com.mobilebytelabs.paycraft.core.EntitlementSnapshot
+import com.mobilebytelabs.paycraft.core.PaywallPresentation
+import com.mobilebytelabs.paycraft.core.TrialSnapshot
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Entitlement
@@ -14,6 +18,7 @@ import com.mobilebytelabs.paycraft.model.EntitlementSummary
 import com.mobilebytelabs.paycraft.model.EntitlementTier
 import com.mobilebytelabs.paycraft.model.SubscriptionState
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import com.mobilebytelabs.paycraft.network.CouponClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -90,7 +95,7 @@ class FakePayCraftRepository(
     val checkoutCalls: MutableList<Pair<BillingPlan, String?>> = mutableListOf()
 
     /** Every [manageSubscription] call, in order. */
-    val manageSubscriptionCalls: MutableList<String> = mutableListOf()
+    val manageSubscriptionCalls: MutableList<String?> = mutableListOf()
 
     /** Count of [refresh] calls, with the `force` flag each time. */
     val refreshCalls: MutableList<Boolean> = mutableListOf()
@@ -109,8 +114,29 @@ class FakePayCraftRepository(
             ?: error("FakePayCraftRepository: no restoreResult configured for this test")
     }
 
-    override fun manageSubscription(email: String) {
+    override fun manageSubscription(email: String?) {
         manageSubscriptionCalls += email
+    }
+
+    /** The URL a test wants [manageSubscriptionUrl] to report. Null models "nowhere to send them". */
+    var manageSubscriptionUrlResult: String? = null
+    override fun manageSubscriptionUrl(email: String?): String? = manageSubscriptionUrlResult
+
+    /** Ad-free is a SEPARATE grant from premium (AC-12), so a test must be able to set it alone. */
+    val adFreeFlow = MutableStateFlow(false)
+    override val isAdFree: StateFlow<Boolean> get() = adFreeFlow
+
+    /** Coupon verdict a test wants returned; the calls are recorded for assertion. */
+    var couponResult: CouponClient.Result? = null
+    val applyCouponCalls = mutableListOf<Pair<String, String>>()
+    override suspend fun applyCoupon(planId: String, code: String): CouponClient.Result {
+        applyCouponCalls += planId to code
+        return couponResult ?: error("FakePayCraftRepository.couponResult was not set for this test")
+    }
+
+    val setAppliedCouponCalls = mutableListOf<Pair<String, CouponDto?>>()
+    override fun setAppliedCoupon(planId: String, coupon: CouponDto?) {
+        setAppliedCouponCalls += planId to coupon
     }
 
     override fun refresh(force: Boolean) {
@@ -171,5 +197,29 @@ class FakePayCraftRepository(
             willRenew = true,
             latestEventTs = 0L,
         )
+    }
+
+    /** Drives the paywall branches without a Koin graph or a real presentation state machine. */
+    val paywallPresentationFlow = MutableStateFlow<PaywallPresentation>(PaywallPresentation.Hidden)
+    override val paywallPresentation: StateFlow<PaywallPresentation> get() = paywallPresentationFlow
+
+    var presentPaywallCalls = 0
+    override fun presentPaywall() {
+        presentPaywallCalls++
+    }
+
+    val presentPaywallIfNeededCalls = mutableListOf<String?>()
+    override fun presentPaywallIfNeeded(entitlement: String?) {
+        presentPaywallIfNeededCalls += entitlement
+    }
+
+    var dismissPaywallCalls = 0
+    override fun dismissPaywall() {
+        dismissPaywallCalls++
+    }
+
+    val onAppOpenCalls = mutableListOf<Pair<EntitlementSnapshot, TrialSnapshot>>()
+    override fun onAppOpen(entitlement: EntitlementSnapshot, trial: TrialSnapshot) {
+        onAppOpenCalls += entitlement to trial
     }
 }

@@ -7,11 +7,16 @@
  */
 package com.mobilebytelabs.paycraft.repository
 
+import com.mobilebytelabs.paycraft.config.CouponDto
+import com.mobilebytelabs.paycraft.core.EntitlementSnapshot
+import com.mobilebytelabs.paycraft.core.PaywallPresentation
+import com.mobilebytelabs.paycraft.core.TrialSnapshot
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.model.EntitlementSummary
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import com.mobilebytelabs.paycraft.network.CouponClient
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -110,9 +115,90 @@ interface PayCraftRepository {
      */
     suspend fun restore(): Entitlement
 
-    /** Open the provider's manage-subscription surface. Fire-and-observe, as the SDK's own. */
-    fun manageSubscription(email: String)
+    /**
+     * Open wherever this user's subscription is actually managed: the provider's portal when one
+     * exists, else the platform's own store subscriptions page.
+     *
+     * [email] is OPTIONAL and must stay optional. A store-billed subscriber is identified by their
+     * store account, which PayCraft knows nothing about — so a non-null parameter here made the
+     * commonest case inexpressible through this facade and sent every caller back to the singleton.
+     */
+    fun manageSubscription(email: String? = null)
+
+    /**
+     * The destination [manageSubscription] would open, or `null` when there is nowhere to send this
+     * user (a desktop/web build with no store page and no provider portal).
+     *
+     * Exposed so a host can decide whether to SHOW a "Manage subscription" affordance at all,
+     * rather than rendering a row that does nothing when tapped.
+     */
+    fun manageSubscriptionUrl(email: String? = null): String?
 
     /** Re-read entitlement. `force = true` bypasses the cache — use on foreground and post-purchase. */
     fun refresh(force: Boolean = false)
+
+    // ── Ad-free entitlement ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Whether ads should be suppressed for this user.
+     *
+     * A SEPARATE signal from [isPremium] on purpose: a host may grant an ad-free cohort that never
+     * subscribed (AC-12). Gate ad rendering on this, never on [isPremium], or a granted user still
+     * sees ads. The SDK's own gates already treat `isPremium || isAdFree` as entitled.
+     */
+    val isAdFree: StateFlow<Boolean>
+
+    // ── Coupons ──────────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Validate a coupon code against a plan, returning the server's verdict.
+     *
+     * Suspending and result-bearing because a coupon genuinely has a synchronous answer — unlike
+     * checkout, whose outcome only arrives through [billingState]. Validating does NOT apply it;
+     * pass the accepted coupon to [setAppliedCoupon] for the paywall to price with it.
+     */
+    suspend fun applyCoupon(planId: String, code: String): CouponClient.Result
+
+    /**
+     * Attach an already-validated coupon to a plan so the paywall prices it with the discount.
+     *
+     * `null` clears it. Separate from [applyCoupon] because validation and application are distinct
+     * steps: a host may validate once and apply to several plans, or clear without re-validating.
+     */
+    fun setAppliedCoupon(planId: String, coupon: CouponDto?)
+
+    // ── Paywall presentation ─────────────────────────────────────────────────────────────────────
+    //
+    // On the DATA facade, not the network one: a feature observes this to render a paywall, and a
+    // feature talks to core/data. Nothing here reaches the server — the SDK's gates and
+    // PayCraftPaywallComposable drive these same members internally, so a host using them needs
+    // none of this directly.
+
+    /** Whether the SDK currently wants a paywall on screen, and why. */
+    val paywallPresentation: StateFlow<PaywallPresentation>
+
+    /** Present the paywall now — the manual/contextual trigger (a "Get Premium" button). */
+    fun presentPaywall()
+
+    /**
+     * Present the paywall only if the user is not already entitled.
+     *
+     * A no-op for an entitled buyer, which is what makes it safe to call from a gate without
+     * checking first — and what stops a paying customer seeing a paywall on a race.
+     */
+    fun presentPaywallIfNeeded(entitlement: String? = null)
+
+    /** Dismiss it. Pair with whatever the host used to show it. */
+    fun dismissPaywall()
+
+    /**
+     * Report app-foreground state: resync the ad-free flag and present the paywall if the tenant's
+     * monetization mode says this is the moment.
+     *
+     * ONE call rather than two because the two must not disagree. It sets [isAdFree] from the
+     * snapshot up-front, then decides about the paywall — so a host cannot resync entitlement and
+     * forget the presentation half, or present a paywall against a stale ad-free flag. A premium
+     * user is never nagged regardless of trial state.
+     */
+    fun onAppOpen(entitlement: EntitlementSnapshot, trial: TrialSnapshot)
 }

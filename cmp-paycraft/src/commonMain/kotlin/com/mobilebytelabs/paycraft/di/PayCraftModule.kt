@@ -110,6 +110,11 @@ val PayCraftModule = module {
     // The ONE data surface a consumer app resolves (RULE-PAYCRAFT-SINGLE-SURFACE-001). Bound here so
     // an integrator wires `PayCraft.initialize` and nothing else — no consumer-authored repository,
     // which is the 670 LOC/consumer this facade removes.
+    // The APP-level facade. Stateless delegation, so a plain singleton is right — see PayCraftApiImpl.
+    single<com.mobilebytelabs.paycraft.repository.PayCraftApi> {
+        com.mobilebytelabs.paycraft.repository.PayCraftApiImpl()
+    }
+
     single<PayCraftRepository> {
         PayCraftRepositoryImpl(
             billing = get(),

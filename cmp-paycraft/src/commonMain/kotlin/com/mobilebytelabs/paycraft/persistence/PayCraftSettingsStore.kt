@@ -64,6 +64,55 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
         settings.remove(KEY_CACHED_LAST_SYNCED)
     }
 
+    // ── Ad-unlock grants ─────────────────────────────────────────────────────────────────────────
+    //
+    // Stored as absolute expiry millis, one key per featureKey. Absolute, not a remaining duration:
+    // a duration would silently extend itself on every process restart, so an ad watched once would
+    // unlock the feature forever.
+    //
+    // An EXPIRED grant is treated as absent AND removed on read, so the key set cannot grow without
+    // bound for an app that gates many features.
+
+    override fun getAdUnlockExpiry(featureKey: String): Long? {
+        val at = settings.getLong(adUnlockKey(featureKey), 0L)
+        if (at <= 0L) return null
+        if (at <= currentTimeMillis()) {
+            settings.remove(adUnlockKey(featureKey))
+            settings.remove(KEY_AD_UNLOCK_INDEX + featureKey)
+            return null
+        }
+        return at
+    }
+
+    override fun saveAdUnlock(featureKey: String, expiresAtEpochMillis: Long) {
+        settings.putLong(adUnlockKey(featureKey), expiresAtEpochMillis)
+        // multiplatform-settings has no portable key enumeration, so the index is what makes
+        // getAllAdUnlocks() and the sign-out wipe possible at all.
+        settings.putBoolean(KEY_AD_UNLOCK_INDEX + featureKey, true)
+    }
+
+    override fun clearAdUnlock(featureKey: String) {
+        settings.remove(adUnlockKey(featureKey))
+        settings.remove(KEY_AD_UNLOCK_INDEX + featureKey)
+    }
+
+    override fun getAllAdUnlocks(): Map<String, Long> = settings.keys
+        .asSequence()
+        .filter { it.startsWith(KEY_AD_UNLOCK_INDEX) }
+        .map { it.removePrefix(KEY_AD_UNLOCK_INDEX) }
+        .mapNotNull { key -> getAdUnlockExpiry(key)?.let { key to it } }
+        .toMap()
+
+    // ── Device token ─────────────────────────────────────────────────────────────────────────────
+
+    override fun getDeviceToken(): String? = settings.getStringOrNull(KEY_DEVICE_TOKEN)
+
+    override fun saveDeviceToken(token: String) = settings.putString(KEY_DEVICE_TOKEN, token)
+
+    override fun clearDeviceToken() = settings.remove(KEY_DEVICE_TOKEN)
+
+    private fun adUnlockKey(featureKey: String) = KEY_AD_UNLOCK_PREFIX + featureKey
+
     companion object {
         private const val KEY_EMAIL = "paycraft_subscription_email"
         private const val KEY_CACHED_IS_PREMIUM = "paycraft_cached_is_premium"
@@ -72,5 +121,8 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
         private const val KEY_CACHED_EXPIRES_AT = "paycraft_cached_expires_at"
         private const val KEY_CACHED_WILL_RENEW = "paycraft_cached_will_renew"
         private const val KEY_CACHED_LAST_SYNCED = "paycraft_cached_last_synced"
+        private const val KEY_AD_UNLOCK_PREFIX = "paycraft_ad_unlock_"
+        private const val KEY_AD_UNLOCK_INDEX = "paycraft_ad_unlock_idx_"
+        private const val KEY_DEVICE_TOKEN = "paycraft_device_token"
     }
 }
