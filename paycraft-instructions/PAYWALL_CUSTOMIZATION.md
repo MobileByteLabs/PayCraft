@@ -1,4 +1,4 @@
-example-provenance: 0a353f53c55e8b2a0a69801e1ccce77ab6682bd2
+example-provenance: 7430e44c4066474f316b5bf3ee40cc63c2cd0dda
 
 # PAYWALL_CUSTOMIZATION.md — the two supported paywall paths
 
