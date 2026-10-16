@@ -48,15 +48,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * Drop-in Settings-tab premium upsell banner — the consumer-app entry point to
  * the PayCraft paywall.
  *
- * Defaults match reels-downloader's existing hand-coded banner copy exactly so
- * that a consumer dropping in `PayCraftPremiumBanner()` with NO overrides
- * produces the same look it had before (purple/yellow card, "Upgrade to
- * Premium", "Enjoy ad-free experience, HD downloads, and exclusive features",
- * "Get Premium" button, "Restore Your Premium" link). Every piece of copy
- * comes from [PaywallDto] (v2 — migration 071), but explicit `*Override`
- * parameters take precedence over the dashboard config when the consumer
- * wants to pin a string (e.g. while migrating before the dashboard's
- * Content tab is populated).
+ * Every piece of copy comes from [PaywallDto] (v2 — migration 071) — the same published config
+ * that drives the paywall modal, so one dashboard edit moves both.
+ *
+ * It used to also accept `titleOverride` / `subtitleOverride` / `ctaOverride` / `restoreOverride`,
+ * which pinned a string in app code ahead of the dashboard's Content tab being populated (the D8
+ * 90-day migration grace). That grace is long expired and nothing outside this SDK's own tests ever
+ * passed one, so they are gone: a public parameter that only tests use is a test seam living in
+ * public API, and a host pinning copy is how a banner drifts from the paywall it links to.
  *
  * Color + typography pull from [PayCraftTheme] so the same accent + font
  * that drive the paywall modal also drive this banner — consistent visual
@@ -75,26 +74,37 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * the existing `strings.xml` keys stay during the transition so consumers can
  * roll back without churn. See `docs/MIGRATING-TO-PAYCRAFT-PREMIUM-BANNER.md`.
  *
- * State-aware: the banner observes [BillingManager.billingState] (via
- * [billingManager], defaulting to the SDK's live manager) and renders accordingly —
- * a shimmer card while the status is still resolving (or before init, when the
- * manager is null), NOTHING when the buyer is already premium (never upsell a paying
- * user), and the upgrade card only for a free/non-premium buyer.
- *
- * @param billingManager Billing manager to observe; defaults to [PayCraft.billingManager]
- *                       (null before [PayCraft.initialize] — treated as Loading). Tests
- *                       inject a fake to drive a specific [BillingState].
+ * State-aware: the banner observes the SDK's own billing state and renders accordingly — a shimmer
+ * card while the status is still resolving (or before init), NOTHING when the buyer is already
+ * premium (never upsell a paying user), and the upgrade card only for a free/non-premium buyer.
  */
 @Composable
-fun PayCraftPremiumBanner(
+fun PayCraftPremiumBanner(onGetPremiumTap: () -> Unit, onRestoreTap: () -> Unit, modifier: Modifier = Modifier) {
+    // `PayCraft.billingManager`, not `koinInject()`: it is null before PayCraft.initialize() and
+    // that null is MEANINGFUL here — it means "status unknown", which renders the shimmer. A
+    // koinInject() would throw on a composition with no graph instead of degrading.
+    PayCraftPremiumBannerContent(
+        onGetPremiumTap = onGetPremiumTap,
+        onRestoreTap = onRestoreTap,
+        modifier = modifier,
+        billingManager = PayCraft.billingManager,
+    )
+}
+
+/**
+ * The banner body, with the billing manager as an explicit seam.
+ *
+ * Internal, and the only reason it is a separate function: tests must drive a specific
+ * [BillingState] (shimmer / premium-collapse / free-card), and the alternative was leaving a
+ * `billingManager` parameter in public API for their benefit. Same split as
+ * [PayCraftRestore] / [PayCraftRestoreContent], for the same reason.
+ */
+@Composable
+internal fun PayCraftPremiumBannerContent(
     onGetPremiumTap: () -> Unit,
     onRestoreTap: () -> Unit,
     modifier: Modifier = Modifier,
-    titleOverride: String? = null,
-    subtitleOverride: String? = null,
-    ctaOverride: String? = null,
-    restoreOverride: String? = null,
-    billingManager: BillingManager? = PayCraft.billingManager,
+    billingManager: BillingManager?,
 ) {
     val tokens = PayCraftTheme
 
@@ -123,10 +133,10 @@ fun PayCraftPremiumBanner(
     val paywall = LocalPayCraftConfig.current?.paywall
         ?: PayCraft.suiteConfigFlow.collectAsState().value?.paywall
         ?: PaywallDto()
-    val title = titleOverride ?: paywall.heroTitle
-    val subtitle = subtitleOverride ?: paywall.heroSubtitle
-    val cta = ctaOverride ?: paywall.ctaGetPremium
-    val restore = restoreOverride ?: paywall.restoreLabel
+    val title = paywall.heroTitle
+    val subtitle = paywall.heroSubtitle
+    val cta = paywall.ctaGetPremium
+    val restore = paywall.restoreLabel
 
     // Brand color is dashboard-driven: the same `primary_color` that themes the paywall
     // modal also paints this Settings-tab card, so a single dashboard edit drives both

@@ -252,4 +252,32 @@ interface PayCraftRepository {
      * this tells you they JUST became premium.
      */
     val subscriptionActivated: SharedFlow<SubscriptionActivated>
+
+    // ── Device conflict ──────────────────────────────────────────────────────────────────────────
+    //
+    // One subscription, one active device. When a user signs in on a second phone the SDK emits
+    // [BillingState.OwnershipVerified] — ownership is proven, but the entitlement still lives on
+    // the OLD device — and the host must ask before moving it.
+    //
+    // These two were the LAST reason a consumer had to reach past this facade to BillingManager: the
+    // conflict is a state a host necessarily renders, and resolving it was unreachable from here. A
+    // facade missing the actions for a state it exposes is not a facade.
+
+    /**
+     * Move the subscription to THIS device, after the user confirms.
+     *
+     * Call only in response to [BillingState.OwnershipVerified] and only on an explicit
+     * confirmation — it DEACTIVATES the other device, so a user who taps by accident loses access
+     * on the phone in their other hand. On success [billingState] emits [BillingState.Premium].
+     */
+    suspend fun confirmDeviceTransfer()
+
+    /**
+     * Un-register this device, releasing the subscription slot.
+     *
+     * The other half of the conflict flow: a user who decides the OTHER device should keep the
+     * subscription. Also what a "sign out of this device" affordance calls. The user must
+     * re-register to become entitled here again.
+     */
+    suspend fun revokeCurrentDevice()
 }

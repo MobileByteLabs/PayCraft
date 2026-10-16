@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
 
 private const val TAG = "PayCraftPaywallViewModel"
 
-class PayCraftPaywallViewModel(private val billingManager: BillingManager) : ViewModel() {
+internal class PayCraftPaywallViewModel(private val billingManager: BillingManager) : ViewModel() {
 
     private val _state = MutableStateFlow(PayCraftPaywallState())
     val state: StateFlow<PayCraftPaywallState> = _state.asStateFlow()

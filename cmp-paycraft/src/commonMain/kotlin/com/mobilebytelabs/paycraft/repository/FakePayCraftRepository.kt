@@ -259,4 +259,20 @@ class FakePayCraftRepository(
 
     val subscriptionActivatedFlow = MutableSharedFlow<SubscriptionActivated>(replay = 1)
     override val subscriptionActivated: SharedFlow<SubscriptionActivated> get() = subscriptionActivatedFlow
+
+    var confirmDeviceTransferCalls = 0
+    override suspend fun confirmDeviceTransfer() {
+        confirmDeviceTransferCalls++
+        // The real one moves the entitlement HERE, so the fake must too. A fake that counted the
+        // call without flipping premium would let a conflict-resolution test pass while the real
+        // screen stayed locked after a successful transfer.
+        setPremium(true)
+    }
+
+    var revokeCurrentDeviceCalls = 0
+    override suspend fun revokeCurrentDevice() {
+        revokeCurrentDeviceCalls++
+        // Releasing the slot drops the entitlement on THIS device, same reasoning as logOut.
+        setPremium(false)
+    }
 }

@@ -87,10 +87,10 @@ val LocalPayCraftEntitlementOverride = compositionLocalOf<PayCraftGateState?> { 
  * derivation of the same truth and locks out a buyer in `PaymentPending`, in offline grace, or in
  * `OwnershipVerified`.
  */
-private class GateVerdict(val entitled: Boolean, val resolving: Boolean)
+internal class GateVerdict(val entitled: Boolean, val resolving: Boolean)
 
 @Composable
-private fun rememberGateVerdict(): GateVerdict {
+internal fun rememberGateVerdict(): GateVerdict {
     when (LocalPayCraftEntitlementOverride.current) {
         PayCraftGateState.Entitled -> return GateVerdict(entitled = true, resolving = false)
         PayCraftGateState.NotEntitled -> return GateVerdict(entitled = false, resolving = false)
@@ -102,14 +102,34 @@ private fun rememberGateVerdict(): GateVerdict {
     val isPremium by manager.isPremium.collectAsState()
     val billingState by manager.billingState.collectAsState()
     val isAdFree by PayCraft.isAdFree.collectAsState()
+    return gateVerdictOf(isPremium = isPremium, isAdFree = isAdFree, billingState = billingState)
+}
 
-    // `resolving` is checked AFTER entitlement by every caller: a warm cache can report premium while
-    // a refresh is in flight, and an entitled user must not be made to wait behind a spinner.
-    return GateVerdict(
+/**
+ * The derivation itself, with no Compose and no Koin.
+ *
+ * Split out because this is the part that can be WRONG, and testing it through a composable meant
+ * standing up a Koin graph — which made those tests hostage to whether another test in the same JVM
+ * had started a global Koin context. It is also now the single derivation shared by the live gates
+ * AND the deprecated guards, so it is worth asserting directly rather than twice over indirectly.
+ *
+ * `entitled` is `isPremium || isAdFree`, NOT `billingState is BillingState.Premium`:
+ *
+ *  - [BillingState.PaymentPending] is not a `Premium` instance, so matching on the state locks out
+ *    someone the store has already taken money from.
+ *  - an offline buyer in grace, and one in `OwnershipVerified`, are entitled everywhere else in the
+ *    app — a gate disagreeing with `isPremium` is a gate disagreeing with the rest of the SDK.
+ *  - [PayCraft.isAdFree] is the SDK's own ad-gating signal (AC-12). A host-granted ad-free cohort
+ *    (a promo, a grandfathered tier, `AdFreeEntitlement.set`) counts as entitled here too.
+ *
+ * `resolving` is checked AFTER entitlement by every caller: a warm cache can report premium while a
+ * refresh is in flight, and an entitled user must not be made to wait behind a spinner.
+ */
+internal fun gateVerdictOf(isPremium: Boolean, isAdFree: Boolean, billingState: BillingState): GateVerdict =
+    GateVerdict(
         entitled = isPremium || isAdFree,
         resolving = billingState is BillingState.Loading,
     )
-}
 
 /**
  * Wraps a premium-only feature. Two arguments in the common case — the modifier and the content.

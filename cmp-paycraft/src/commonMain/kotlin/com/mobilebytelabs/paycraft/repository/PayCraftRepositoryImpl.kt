@@ -156,4 +156,12 @@ internal class PayCraftRepositoryImpl(
     override suspend fun checkTrialEligibility(): Boolean = billing.checkTrialEligibility()
 
     override val subscriptionActivated: SharedFlow<SubscriptionActivated> get() = billing.subscriptionActivated
+
+    override suspend fun confirmDeviceTransfer() = billing.confirmDeviceTransfer()
+
+    // `revokeCurrentDevice`, NOT `transferToDevice`. BillingManager has both, and only this one
+    // belongs on a consumer facade: transferToDevice is documented there as "internal — called by
+    // confirmDeviceTransfer", so exposing it would hand a host the half-step that skips the
+    // deactivation of the other device.
+    override suspend fun revokeCurrentDevice() = billing.revokeCurrentDevice()
 }

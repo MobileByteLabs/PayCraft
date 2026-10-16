@@ -21,16 +21,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
+import com.mobilebytelabs.paycraft.repository.PayCraftRepository
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
+/**
+ * Drives the SDK through [PayCraftRepository], the public data facade — NOT through BillingManager,
+ * which is now internal.
+ *
+ * That is the point of this panel being in the sample: everything a host could want from the billing
+ * layer, including the device-conflict transfer, is reachable from the one injectable facade. If
+ * something here needed the internal manager, the facade would be incomplete.
+ */
 @Composable
-fun BillingStateDebugPanel(modifier: Modifier = Modifier, billingManager: BillingManager = koinInject()) {
-    val billingState by billingManager.billingState.collectAsState()
-    val userEmail by billingManager.userEmail.collectAsState()
+fun BillingStateDebugPanel(modifier: Modifier = Modifier, repository: PayCraftRepository = koinInject()) {
+    val billingState by repository.billingState.collectAsState()
+    val userEmail by repository.userEmail.collectAsState()
     val scope = rememberCoroutineScope()
     var emailInput by remember { mutableStateOf("") }
 
@@ -126,21 +134,21 @@ fun BillingStateDebugPanel(modifier: Modifier = Modifier, billingManager: Billin
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Button(
-                    onClick = { billingManager.registerAndLogin(emailInput) },
+                    onClick = { repository.logIn(emailInput) },
                     modifier = Modifier.testTag("btn_login"),
                 ) {
                     Text("Login")
                 }
 
                 OutlinedButton(
-                    onClick = { billingManager.logOut() },
+                    onClick = { repository.logOut() },
                     modifier = Modifier.testTag("btn_logout"),
                 ) {
                     Text("Logout")
                 }
 
                 OutlinedButton(
-                    onClick = { billingManager.refreshStatus(force = true) },
+                    onClick = { repository.refresh(force = true) },
                     modifier = Modifier.testTag("btn_refresh"),
                 ) {
                     Text("Refresh")
@@ -153,7 +161,7 @@ fun BillingStateDebugPanel(modifier: Modifier = Modifier, billingManager: Billin
             ) {
                 Button(
                     onClick = {
-                        scope.launch { billingManager.confirmDeviceTransfer() }
+                        scope.launch { repository.confirmDeviceTransfer() }
                     },
                     modifier = Modifier.testTag("btn_confirm_transfer"),
                 ) {
@@ -163,7 +171,7 @@ fun BillingStateDebugPanel(modifier: Modifier = Modifier, billingManager: Billin
                 Button(
                     onClick = {
                         scope.launch {
-                            billingManager.loginWithOAuth(OAuthProvider.GOOGLE, "fake-id-token")
+                            repository.loginWithOAuth(OAuthProvider.GOOGLE, "fake-id-token")
                         }
                     },
                     modifier = Modifier.testTag("btn_login_oauth"),
