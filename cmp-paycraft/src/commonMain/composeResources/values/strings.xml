@@ -221,4 +221,29 @@
     <string name="paycraft_builtin_trial_label">%1$s — %2$d-day trial</string>
     <string name="paycraft_builtin_priced_label">%1$s — %2$s</string>
     <string name="paycraft_builtin_reload">Reload plans</string>
+
+    <!-- Subscription settings section (PayCraftSubscriptionSettings).
+         These are the FALLBACKS for the dashboard-driven settings_* copy (migration 156): the SDK
+         renders a tenant's value when they set one and these when they have not, so a tenant who
+         never opens the paywall designer still gets localised wording rather than English baked
+         into the server.
+
+         The three templates use {days}/{date} rather than %1$s, matching the token convention the
+         server columns use — one substitution path for both layers instead of two. The one-day form
+         is its own string because no token can pluralise; "Trial — 1 days left" is the bug that
+         ships when a count is always routed through one template.
+
+         Manage / Upgrade / Restore deliberately reuse the existing paywall strings: an app should
+         not say "Restore Your Premium" on the paywall and "Restore purchases" in settings. -->
+    <string name="paycraft_settings_free">Free</string>
+    <string name="paycraft_settings_trial">Trial</string>
+    <string name="paycraft_settings_premium">Premium</string>
+    <string name="paycraft_settings_free_supporting">Free plan — no active subscription</string>
+    <string name="paycraft_settings_trial_supporting">Free trial active</string>
+    <string name="paycraft_settings_trial_ending_today">Trial ends today</string>
+    <string name="paycraft_settings_trial_one_day_left">Trial — 1 day left</string>
+    <string name="paycraft_settings_trial_days_left">Trial — {days} days left</string>
+    <string name="paycraft_settings_premium_supporting">Subscription active</string>
+    <string name="paycraft_settings_renews_on">Renews {date}</string>
+    <string name="paycraft_settings_expires_on">Expires {date}</string>
 </resources>

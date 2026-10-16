@@ -311,6 +311,194 @@ export function PaywallDesigner({
               </div>
             </details>
 
+            {/* Settings section copy (migration 156). Separate <details> because this is the only
+                group in the designer that does NOT describe the paywall — it is the subscription
+                section the SDK draws inside the HOST's settings screen. */}
+            <details className="text-sm">
+              <summary className="cursor-pointer text-ink-600 font-medium select-none">
+                In-app subscription settings
+              </summary>
+              <div className="space-y-3 mt-3 pl-2 border-l-2 border-ink-100">
+                <p className="text-[11px] text-ink-500">
+                  Wording for the subscription section the SDK renders inside your app&apos;s
+                  settings screen (<code>PayCraftSubscriptionSettings</code>) — the tier name, the
+                  line under it, and the row labels.{" "}
+                  <strong>Leave a field empty to use the SDK&apos;s own translated text.</strong>{" "}
+                  An empty field is not a blank label: it means &quot;you have not set this&quot;, so
+                  a localised app keeps showing its own language here. Only fill one in to override
+                  it everywhere. Tokens <code>{"{days}"}</code> and <code>{"{date}"}</code> are
+                  substituted by the SDK.
+                </p>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-ink-600">Free tier name</label>
+                    <input
+                      value={cfg.settings_free_label}
+                      onChange={(e) => setCfg({ ...cfg, settings_free_label: e.target.value })}
+                      placeholder="Free"
+                      className="input"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-ink-600">Trial tier name</label>
+                    <input
+                      value={cfg.settings_trial_label}
+                      onChange={(e) => setCfg({ ...cfg, settings_trial_label: e.target.value })}
+                      placeholder="Trial"
+                      className="input"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-ink-600">Paid tier name</label>
+                    <input
+                      value={cfg.settings_premium_label}
+                      onChange={(e) => setCfg({ ...cfg, settings_premium_label: e.target.value })}
+                      placeholder="Premium"
+                      className="input"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink-600">Free — supporting line</label>
+                  <input
+                    value={cfg.settings_free_supporting}
+                    onChange={(e) => setCfg({ ...cfg, settings_free_supporting: e.target.value })}
+                    placeholder="Free plan — no active subscription"
+                    className="input"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink-600">
+                    Subscribed — supporting line
+                  </label>
+                  <input
+                    value={cfg.settings_premium_supporting}
+                    onChange={(e) =>
+                      setCfg({ ...cfg, settings_premium_supporting: e.target.value })
+                    }
+                    placeholder="Subscription active"
+                    className="input"
+                  />
+                  <p className="text-[11px] text-ink-500">
+                    Shown when there is no renewal date to display. With a date, the two lines below
+                    are used instead.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-ink-600">Will renew</label>
+                    <input
+                      value={cfg.settings_renews_on}
+                      onChange={(e) => setCfg({ ...cfg, settings_renews_on: e.target.value })}
+                      placeholder="Renews {date}"
+                      className="input"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-ink-600">Will NOT renew</label>
+                    <input
+                      value={cfg.settings_expires_on}
+                      onChange={(e) => setCfg({ ...cfg, settings_expires_on: e.target.value })}
+                      placeholder="Expires {date}"
+                      className="input"
+                    />
+                  </div>
+                </div>
+                <p className="text-[11px] text-ink-500">
+                  Keep these two distinct. A subscriber who has cancelled but is still inside their
+                  paid period sees the second one — telling them their subscription
+                  &quot;renews&quot; is the wording mistake that generates support mail.
+                </p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-ink-600">Trial — countdown</label>
+                    <input
+                      value={cfg.settings_trial_days_left}
+                      onChange={(e) => setCfg({ ...cfg, settings_trial_days_left: e.target.value })}
+                      placeholder="Trial — {days} days left"
+                      className="input"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-ink-600">Trial — one day left</label>
+                    <input
+                      value={cfg.settings_trial_one_day_left}
+                      onChange={(e) =>
+                        setCfg({ ...cfg, settings_trial_one_day_left: e.target.value })
+                      }
+                      placeholder="Trial — 1 day left"
+                      className="input"
+                    />
+                  </div>
+                </div>
+                <p className="text-[11px] text-ink-500">
+                  The final day is its own field on purpose: no token can pluralise, so a countdown
+                  of &quot;{"{days}"} days left&quot; would read &quot;1 days left&quot; on the last
+                  day.
+                </p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-ink-600">Trial — last day</label>
+                    <input
+                      value={cfg.settings_trial_ending_today}
+                      onChange={(e) =>
+                        setCfg({ ...cfg, settings_trial_ending_today: e.target.value })
+                      }
+                      placeholder="Trial ends today"
+                      className="input"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-ink-600">Trial — no end date</label>
+                    <input
+                      value={cfg.settings_trial_supporting}
+                      onChange={(e) =>
+                        setCfg({ ...cfg, settings_trial_supporting: e.target.value })
+                      }
+                      placeholder="Free trial active"
+                      className="input"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-ink-600">Row · Manage</label>
+                    <input
+                      value={cfg.settings_manage_label}
+                      onChange={(e) => setCfg({ ...cfg, settings_manage_label: e.target.value })}
+                      placeholder="Manage Subscription"
+                      className="input"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-ink-600">Row · Upgrade</label>
+                    <input
+                      value={cfg.settings_upgrade_label}
+                      onChange={(e) => setCfg({ ...cfg, settings_upgrade_label: e.target.value })}
+                      placeholder="Get Premium"
+                      className="input"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-ink-600">Row · Restore</label>
+                    <input
+                      value={cfg.settings_restore_label}
+                      onChange={(e) => setCfg({ ...cfg, settings_restore_label: e.target.value })}
+                      placeholder="Restore Purchases"
+                      className="input"
+                    />
+                  </div>
+                </div>
+              </div>
+            </details>
+
             <details className="text-sm">
               <summary className="cursor-pointer text-ink-600 font-medium select-none">
                 Hero icon (SVG path or URL)

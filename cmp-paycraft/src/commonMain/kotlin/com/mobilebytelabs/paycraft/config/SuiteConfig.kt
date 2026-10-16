@@ -258,6 +258,45 @@ data class PaywallDto(
      */
     @SerialName("hero_icon_url") val heroIconUrl: String? = null,
     @SerialName("support_email") val supportEmail: String? = null,
+    // ── Subscription-settings section copy (migration 156) ──────────────
+    // Wording for PayCraftSubscriptionSettings, so the settings section and the paywall are edited
+    // in the same place and cannot disagree about what a tier is called.
+    //
+    // Every one defaults to "" and the SDK reads them as `.ifBlank { stringResource(…) }`. Blank
+    // means "this tenant has not spoken" — NOT "show nothing" — so an un-configured tenant renders
+    // the SDK's own bundled translations. That is why migration 156 defaults these columns to blank
+    // rather than to English the way 071/077 did: an English column value would override a
+    // localised bundled string for every tenant who never opened the designer.
+    //
+    // Three carry a `{…}` token, following the convention 077 set with trial_terms_template.
+    /** Tier name for a FREE user, e.g. "Free". */
+    @SerialName("settings_free_label") val settingsFreeLabel: String = "",
+    /** Tier name during a trial, e.g. "Trial". */
+    @SerialName("settings_trial_label") val settingsTrialLabel: String = "",
+    /** Tier name for a subscriber, e.g. "Premium". */
+    @SerialName("settings_premium_label") val settingsPremiumLabel: String = "",
+    /** Supporting line for a FREE user. */
+    @SerialName("settings_free_supporting") val settingsFreeSupporting: String = "",
+    /** Supporting line during a trial whose end date is unknown. */
+    @SerialName("settings_trial_supporting") val settingsTrialSupporting: String = "",
+    /** Supporting line on the trial's final day. Distinct from a `{days}`=0 render, which reads as expired. */
+    @SerialName("settings_trial_ending_today") val settingsTrialEndingToday: String = "",
+    /** Supporting line with exactly one day left. Separate because no token can pluralise. */
+    @SerialName("settings_trial_one_day_left") val settingsTrialOneDayLeft: String = "",
+    /** Trial countdown template. Token `{days}`. */
+    @SerialName("settings_trial_days_left") val settingsTrialDaysLeft: String = "",
+    /** Supporting line for a subscriber with no known renewal date. */
+    @SerialName("settings_premium_supporting") val settingsPremiumSupporting: String = "",
+    /** Renewal line template for a subscription that WILL renew. Token `{date}`. */
+    @SerialName("settings_renews_on") val settingsRenewsOn: String = "",
+    /** Expiry line template for a cancelled-but-live subscription. Token `{date}`. */
+    @SerialName("settings_expires_on") val settingsExpiresOn: String = "",
+    /** Row label opening the store or provider subscription page. */
+    @SerialName("settings_manage_label") val settingsManageLabel: String = "",
+    /** Row label shown to a FREE user in place of Manage. */
+    @SerialName("settings_upgrade_label") val settingsUpgradeLabel: String = "",
+    /** Row label opening the SDK restore flow. */
+    @SerialName("settings_restore_label") val settingsRestoreLabel: String = "",
 )
 
 /**

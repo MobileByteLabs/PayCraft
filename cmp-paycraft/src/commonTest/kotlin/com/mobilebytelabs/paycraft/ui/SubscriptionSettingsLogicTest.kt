@@ -1,5 +1,6 @@
 package com.mobilebytelabs.paycraft.ui
 
+import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -10,9 +11,11 @@ import kotlin.test.assertTrue
  * The arithmetic behind the settings section — the part that is wrong in every hand-rolled version.
  *
  * Tested as pure functions rather than through the composable, because what can actually be wrong
- * here is the counting and the parsing, not the layout. A host that uses
- * [rememberSubscriptionSettingsState] and draws its own rows gets exactly this logic, so this is
- * the contract both entry points share.
+ * here is the counting, the parsing, and which of three copy sources wins — not the layout.
+ *
+ * `mergedWith` is the half worth testing hardest: it decides whether a device shows the tenant's
+ * wording, the tenant's paywall wording, or the SDK's bundled translation, and the failure mode is
+ * silent (a blank label, or English where a translation existed).
  */
 class SubscriptionSettingsLogicTest {
 
@@ -88,36 +91,102 @@ class SubscriptionSettingsLogicTest {
         assertEquals("2026-13-99T00:00:00Z", formatDate("2026-13-99T00:00:00Z"))
     }
 
-    // ── copy defaults ────────────────────────────────────────────────────────────────────────────
+    // ── copy resolution: dashboard over bundled ──────────────────────────────────────────────────
+
+    /** Stands in for what `rememberSettingsCopy` reads out of the SDK's own strings.xml. */
+    private val bundled = SubscriptionSettingsCopy(
+        freeLabel = "Free",
+        trialLabel = "Trial",
+        premiumLabel = "Premium",
+        freeSupporting = "Free plan — no active subscription",
+        trialSupporting = "Free trial active",
+        trialEndingToday = "Trial ends today",
+        trialOneDayLeft = "Trial — 1 day left",
+        trialDaysLeftTemplate = "Trial — {days} days left",
+        premiumSupporting = "Subscription active",
+        renewsOnTemplate = "Renews {date}",
+        expiresOnTemplate = "Expires {date}",
+        manageLabel = "Manage Subscription",
+        upgradeLabel = "Get Premium",
+        restoreLabel = "Restore Purchases",
+    )
 
     @Test
-    fun copy_pluralisesTheTrialCountdown() {
-        val c = SubscriptionSettingsCopy()
-        assertEquals("Trial — 1 day left", c.trialOneDayLeft)
-        assertEquals("Trial — 6 days left", c.trialDaysLeft(6))
+    fun copy_fallsBackToBundledWhenTheTenantConfiguredNothing() {
+        // The common case by a wide margin: a tenant who never opened the designer. Every column is
+        // blank, and the SDK must render its own localised strings rather than empty labels — which
+        // is why migration 156 defaults those columns to '' instead of to English.
+        val resolved = bundled.mergedWith(PaywallDto())
+        assertEquals(bundled, resolved)
+    }
+
+    @Test
+    fun copy_prefersTheDashboardValue() {
+        val resolved = bundled.mergedWith(PaywallDto(settingsPremiumLabel = "Cappy Pro"))
+        assertEquals("Cappy Pro", resolved.premiumLabel)
+        // and leaves everything the tenant did NOT set alone
+        assertEquals("Free", resolved.freeLabel)
+    }
+
+    @Test
+    fun copy_substitutesTheDaysToken() {
+        val resolved = bundled.mergedWith(PaywallDto(settingsTrialDaysLeft = "Essai — {days} jours"))
+        assertEquals("Essai — 6 jours", resolved.trialDaysLeft(6))
+    }
+
+    @Test
+    fun copy_substitutesTheDateToken() {
+        val resolved = bundled.mergedWith(
+            PaywallDto(
+                settingsRenewsOn = "Renouvelle le {date}",
+                settingsExpiresOn = "Expire le {date}",
+            ),
+        )
+        assertEquals("Renouvelle le 14 Nov 2026", resolved.renewsOn("14 Nov 2026"))
+        assertEquals("Expire le 14 Nov 2026", resolved.expiresOn("14 Nov 2026"))
+    }
+
+    @Test
+    fun copy_keepsTheOneDayFormSeparateFromTheTemplate() {
+        // A tenant who sets only the plural template must not get "1 days left" on the final day.
+        // No token substitution can pluralise, which is why this is its own field and its own column.
+        val resolved = bundled.mergedWith(PaywallDto(settingsTrialDaysLeft = "{days} days to go"))
+        assertEquals("Trial — 1 day left", resolved.trialOneDayLeft)
+        assertEquals("6 days to go", resolved.trialDaysLeft(6))
     }
 
     @Test
     fun copy_distinguishesRenewalFromExpiry() {
         // A subscription that will NOT renew says "Expires", not "Renews". Telling a cancelling
         // user their subscription renews is the wording error that generates support mail.
-        val c = SubscriptionSettingsCopy()
+        val c = bundled.mergedWith(PaywallDto())
         assertEquals("Renews 14 Nov 2026", c.renewsOn("14 Nov 2026"))
         assertEquals("Expires 14 Nov 2026", c.expiresOn("14 Nov 2026"))
     }
 
     @Test
-    fun copy_isFullyOverridableForLocalisation() {
-        // Until copy comes from the dashboard, a localising host must be able to replace every
-        // string without forking the component.
-        val c = SubscriptionSettingsCopy(
-            freeLabel = "Gratuit",
-            trialDaysLeft = { "Essai — $it jours" },
-            renewsOn = { "Renouvelle le $it" },
+    fun copy_doesNotInheritPaywallWordingForUpgradeOrRestore() {
+        // Regression. An earlier version fell through the tenant's PAYWALL cta/restore before
+        // reaching the bundled string, as a convenience. But PaywallDto defaults those two to
+        // NON-BLANK English and the server always sends them, so the middle rung always hit and the
+        // bundled LOCALISED rung became unreachable — a French app would show English here while
+        // every other label was translated. Only `settings_*` may override.
+        val resolved = bundled.mergedWith(
+            PaywallDto(ctaGetPremium = "Go Pro", restoreLabel = "Restore Your Pro"),
         )
-        assertEquals("Gratuit", c.freeLabel)
-        assertEquals("Essai — 3 jours", c.trialDaysLeft(3))
-        assertEquals("Renouvelle le 14 Nov 2026", c.renewsOn("14 Nov 2026"))
+        assertEquals("Get Premium", resolved.upgradeLabel)
+        assertEquals("Restore Purchases", resolved.restoreLabel)
+
+        val explicit = bundled.mergedWith(PaywallDto(settingsUpgradeLabel = "Subscribe"))
+        assertEquals("Subscribe", explicit.upgradeLabel)
+    }
+
+    @Test
+    fun copy_treatsWhitespaceAsUnset() {
+        // `ifBlank`, not `ifEmpty`: a designer field that got a stray space must not blank the label
+        // on every device. A row of spaces is not copy.
+        val resolved = bundled.mergedWith(PaywallDto(settingsPremiumLabel = "   "))
+        assertEquals("Premium", resolved.premiumLabel)
     }
 }
 

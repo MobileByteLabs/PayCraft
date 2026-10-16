@@ -46,9 +46,10 @@ import com.mobilebytelabs.paycraft.model.EntitlementTier
  * prominence, not colour. Five skins of one layout would be five things to maintain and one real
  * choice; these answer different questions about where the section sits.
  *
- * A host whose design system is specific enough that none of these fit should use
- * [rememberSubscriptionSettingsState] and draw its own. That is not a fallback — for an app with
- * its own row components it is the better path, and it still never writes the tier mapping.
+ * A host whose design system is specific enough that none of these quite fit adjusts
+ * [PayCraftSettingsTheme] rather than drawing its own rows. The computed state is internal
+ * deliberately: handing it out and asking a consumer to assemble a section is the work this
+ * component exists to remove.
  */
 enum class SubscriptionSettingsStyle {
     /**

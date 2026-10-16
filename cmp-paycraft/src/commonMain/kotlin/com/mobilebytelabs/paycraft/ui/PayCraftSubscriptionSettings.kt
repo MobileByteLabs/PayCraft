@@ -19,9 +19,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.core.SyncPolicy
+import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_get_premium
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_manage_subscription
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_button
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_expires_on
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_free
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_free_supporting
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_premium
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_premium_supporting
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_renews_on
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_trial
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_trial_days_left
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_trial_ending_today
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_trial_one_day_left
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_trial_supporting
 import com.mobilebytelabs.paycraft.model.EntitlementTier
 import com.mobilebytelabs.paycraft.repository.PayCraftRepository
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
 /**
@@ -101,13 +118,15 @@ internal data class SubscriptionSettingsState(
  *   as a default argument: a default is evaluated at the CALL SITE, so `repository: PayCraftRepository
  *   = koinInject()` would inject even when the caller never uses the result — the exact defect
  *   [PayCraftRestore] documents, which broke every `@Preview` of a host screen containing one.
- * @param copy wording. Defaults are English; a host that localises supplies its own. Dashboard-driven
- *   copy is deliberately NOT read here yet — see the note on [SubscriptionSettingsCopy].
+ *   Internal, and a test seam only: a consumer never supplies this, because the SDK owning its own
+ *   data access is the reason the facades exist.
+ * @param copy resolved wording — see [rememberSettingsCopy], which merges the tenant's dashboard
+ *   values over the SDK's bundled strings.
  */
 @Composable
 internal fun rememberSubscriptionSettingsState(
     repository: PayCraftRepository? = null,
-    copy: SubscriptionSettingsCopy = SubscriptionSettingsCopy(),
+    copy: SubscriptionSettingsCopy,
 ): SubscriptionSettingsState {
     val repo = repository ?: koinInject()
     val entitlement by repo.entitlement.collectAsState()
@@ -161,35 +180,130 @@ internal fun rememberSubscriptionSettingsState(
 }
 
 /**
- * Wording for the subscription section.
+ * Resolved wording for the subscription section.
  *
- * ## Why these are NOT read from the dashboard yet
+ * ## Why this is internal and server-sourced
  *
- * The paywall's copy comes from the published workflow, and this should too — otherwise the strings
- * are merely hardcoded one layer lower, and a host that localises still cannot. That needs a
- * `settings:` block in the tenant config, which is a backend change rather than a composable.
+ * It shipped as a PUBLIC type with English defaults, overridable by the host. That made the strings
+ * hardcoded one layer lower rather than configurable: renaming "Premium" to "Cappy Pro" was an app
+ * release, while the same word on the paywall is a dashboard edit — two sources of truth for one
+ * product's vocabulary, which is how an app ends up calling the same tier two different things on
+ * two screens.
  *
- * Shipping English defaults first lets a consumer delete its mapping immediately instead of waiting
- * on a config schema. A localising host passes its own values today, and the dashboard-driven
- * version will populate the same type — so nothing a consumer writes now has to change.
+ * So the copy comes from the dashboard, through [PaywallDto]'s `settings_*` fields (migration 156),
+ * and this type is the resolved RESULT rather than an input. There is nothing for a consumer to
+ * pass.
+ *
+ * ## Templates, not lambdas
+ *
+ * The three variable lines hold a TEMPLATE with a `{days}` / `{date}` token and substitute in a
+ * method, where the earlier public version held `(Long) -> String` lambdas. A lambda cannot come off
+ * a wire, and it also made `@Immutable` a lie. Tokens are the convention migration 077 set for
+ * `trial_terms_template`, so server-authored copy works the same way everywhere.
  */
 @Immutable
-data class SubscriptionSettingsCopy(
-    val freeLabel: String = "Free",
-    val trialLabel: String = "Trial",
-    val premiumLabel: String = "Premium",
-    val freeSupporting: String = "Free plan — no active subscription",
-    val trialSupporting: String = "Free trial active",
-    val trialEndingToday: String = "Trial ends today",
-    val trialOneDayLeft: String = "Trial — 1 day left",
-    val trialDaysLeft: (Long) -> String = { "Trial — $it days left" },
-    val premiumSupporting: String = "Subscription active",
-    val renewsOn: (String) -> String = { "Renews $it" },
-    val expiresOn: (String) -> String = { "Expires $it" },
-    val manageLabel: String = "Manage subscription",
-    val upgradeLabel: String = "Upgrade",
-    val restoreLabel: String = "Restore purchases",
+internal data class SubscriptionSettingsCopy(
+    val freeLabel: String,
+    val trialLabel: String,
+    val premiumLabel: String,
+    val freeSupporting: String,
+    val trialSupporting: String,
+    val trialEndingToday: String,
+    /** Exactly one day left. Its own field because no token substitution can pluralise. */
+    val trialOneDayLeft: String,
+    /** Token `{days}`. */
+    val trialDaysLeftTemplate: String,
+    val premiumSupporting: String,
+    /** Token `{date}`. */
+    val renewsOnTemplate: String,
+    /** Token `{date}`. */
+    val expiresOnTemplate: String,
+    val manageLabel: String,
+    val upgradeLabel: String,
+    val restoreLabel: String,
+) {
+    fun trialDaysLeft(days: Long): String = trialDaysLeftTemplate.replace(TOKEN_DAYS, days.toString())
+    fun renewsOn(date: String): String = renewsOnTemplate.replace(TOKEN_DATE, date)
+    fun expiresOn(date: String): String = expiresOnTemplate.replace(TOKEN_DATE, date)
+
+    internal companion object {
+        const val TOKEN_DAYS = "{days}"
+        const val TOKEN_DATE = "{date}"
+    }
+}
+
+/**
+ * The tenant's dashboard copy laid over the SDK's bundled strings (the receiver).
+ *
+ * Blank means "this tenant has not configured it", never "render nothing" — so an un-configured
+ * tenant gets the SDK's own localised strings instead of English baked into a database column. That
+ * is why migration 156 defaults those columns to `''` rather than to English the way the earlier
+ * copy columns did.
+ *
+ * Every field follows the SAME two rungs — the tenant's `settings_*` value, then the bundled
+ * string. An earlier version let [SubscriptionSettingsCopy.upgradeLabel] and
+ * [SubscriptionSettingsCopy.restoreLabel] fall through the tenant's PAYWALL equivalent first, so an
+ * app that renamed its paywall CTA to "Go Pro" would inherit it here for free.
+ *
+ * That was wrong, and a test caught it: `PaywallDto.restoreLabel` and `ctaGetPremium` default to
+ * NON-BLANK English, and the server always sends them (their columns have carried English defaults
+ * since migration 071). The middle rung therefore always hit, making the bundled rung — the
+ * LOCALISED one — unreachable for those two fields. A French app would have shown English "Restore
+ * Your Premium" in its settings while every other label was translated.
+ *
+ * A tenant who wants different settings wording types it in the settings field. One rule, no
+ * exceptions, and localisation survives.
+ */
+internal fun SubscriptionSettingsCopy.mergedWith(paywall: PaywallDto) = SubscriptionSettingsCopy(
+    freeLabel = paywall.settingsFreeLabel.ifBlank { freeLabel },
+    trialLabel = paywall.settingsTrialLabel.ifBlank { trialLabel },
+    premiumLabel = paywall.settingsPremiumLabel.ifBlank { premiumLabel },
+    freeSupporting = paywall.settingsFreeSupporting.ifBlank { freeSupporting },
+    trialSupporting = paywall.settingsTrialSupporting.ifBlank { trialSupporting },
+    trialEndingToday = paywall.settingsTrialEndingToday.ifBlank { trialEndingToday },
+    trialOneDayLeft = paywall.settingsTrialOneDayLeft.ifBlank { trialOneDayLeft },
+    trialDaysLeftTemplate = paywall.settingsTrialDaysLeft.ifBlank { trialDaysLeftTemplate },
+    premiumSupporting = paywall.settingsPremiumSupporting.ifBlank { premiumSupporting },
+    renewsOnTemplate = paywall.settingsRenewsOn.ifBlank { renewsOnTemplate },
+    expiresOnTemplate = paywall.settingsExpiresOn.ifBlank { expiresOnTemplate },
+    manageLabel = paywall.settingsManageLabel.ifBlank { manageLabel },
+    upgradeLabel = paywall.settingsUpgradeLabel.ifBlank { upgradeLabel },
+    restoreLabel = paywall.settingsRestoreLabel.ifBlank { restoreLabel },
 )
+
+/**
+ * Bundled strings, then the tenant's dashboard copy over the top.
+ *
+ * Manage / Upgrade / Restore reuse the existing paywall strings rather than introducing settings
+ * variants: an app should not say "Restore Your Premium" on its paywall and "Restore purchases" in
+ * its settings.
+ */
+@Composable
+internal fun rememberSettingsCopy(): SubscriptionSettingsCopy {
+    // stringResource must be read in composition, so every fallback resolves up front — which is
+    // also why the type holds templates: a `(Long) -> String` lambda could not call stringResource
+    // from inside the non-composable function type the renderers invoke it through.
+    val bundled = SubscriptionSettingsCopy(
+        freeLabel = stringResource(Res.string.paycraft_settings_free),
+        trialLabel = stringResource(Res.string.paycraft_settings_trial),
+        premiumLabel = stringResource(Res.string.paycraft_settings_premium),
+        freeSupporting = stringResource(Res.string.paycraft_settings_free_supporting),
+        trialSupporting = stringResource(Res.string.paycraft_settings_trial_supporting),
+        trialEndingToday = stringResource(Res.string.paycraft_settings_trial_ending_today),
+        trialOneDayLeft = stringResource(Res.string.paycraft_settings_trial_one_day_left),
+        trialDaysLeftTemplate = stringResource(Res.string.paycraft_settings_trial_days_left),
+        premiumSupporting = stringResource(Res.string.paycraft_settings_premium_supporting),
+        renewsOnTemplate = stringResource(Res.string.paycraft_settings_renews_on),
+        expiresOnTemplate = stringResource(Res.string.paycraft_settings_expires_on),
+        manageLabel = stringResource(Res.string.paycraft_manage_subscription),
+        upgradeLabel = stringResource(Res.string.paycraft_get_premium),
+        restoreLabel = stringResource(Res.string.paycraft_restore_button),
+    )
+    val paywall = PayCraft.suiteConfigFlow.collectAsState().value?.paywall
+    // Null until the first config lands, and on every offline cold start with no cache. The section
+    // renders in the host's language either way rather than waiting on a network round trip.
+    return remember(bundled, paywall) { paywall?.let(bundled::mergedWith) ?: bundled }
+}
 
 /**
  * Whole days from now until [iso], or `null` when it cannot be read.
@@ -212,8 +326,8 @@ private const val DAY_MS = 24L * 60 * 60 * 1000
  * `2026-11-14T10:30:00Z` -> `14 Nov 2026`.
  *
  * Deliberately NOT locale-aware: commonMain has no date formatter, and inventing one here would be
- * a worse answer than a stable unambiguous format. A host that needs localised dates renders its
- * own from [SubscriptionSettingsState.tier] and the raw status.
+ * a worse answer than a stable unambiguous format. A tenant who needs a different shape controls the
+ * surrounding sentence through `settings_renews_on`.
  */
 internal fun formatDate(iso: String): String {
     val date = iso.substringBefore('T').split('-')
@@ -238,10 +352,14 @@ private val MONTHS = listOf(
  * PayCraftSubscriptionSettings(header = { SectionHeader("Subscription") })
  * ```
  *
- * A host whose list has its own row components should use [rememberSubscriptionSettingsState]
- * instead and draw them itself — it still gets every label and decision, and an SDK-drawn row
- * inside someone else's list looks foreign no matter how it is styled.
+ * Every parameter is presentation. The wording comes from the dashboard and the data from the SDK's
+ * own facades, so there is no copy or repository to pass — which is the point of the component
+ * existing at all.
  *
+ * @param style one of five presets. [SubscriptionSettingsStyle.Rows] suits a conventional settings
+ *   list; the others exist for hosts whose settings screen is not a list.
+ * @param theme design tokens. Defaults read from the ambient `MaterialTheme`, so a themed app needs
+ *   to pass nothing; override where your design system exposes something Material does not.
  * @param header drawn above the rows when the section is visible. Omitted when it is not, so a host
  *   never renders a heading over nothing.
  * @param onUpgrade optional: shown for a FREE user instead of Manage. `null` presents the SDK
@@ -252,12 +370,11 @@ fun PayCraftSubscriptionSettings(
     modifier: Modifier = Modifier,
     style: SubscriptionSettingsStyle = SubscriptionSettingsStyle.Rows,
     theme: PayCraftSettingsTheme = PayCraftSettingsTheme.defaults(),
-    copy: SubscriptionSettingsCopy = SubscriptionSettingsCopy(),
     header: (@Composable () -> Unit)? = null,
     onUpgrade: (() -> Unit)? = null,
-    repository: PayCraftRepository? = null,
 ) {
-    val state = rememberSubscriptionSettingsState(repository, copy)
+    val copy = rememberSettingsCopy()
+    val state = rememberSubscriptionSettingsState(copy = copy)
     if (!state.visible) return
 
     val upgrade: () -> Unit = { onUpgrade?.invoke() ?: PayCraft.presentPaywall() }
