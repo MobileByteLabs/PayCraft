@@ -43,20 +43,20 @@ import org.koin.compose.koinInject
  * That is a consumer defending itself against an SDK change it should never have to know about.
  * Adding a tier should not be a breaking change for every app that shows a settings row.
  *
- * ## Two ways in, deliberately
+ * ## One way in
  *
- * [PayCraftSubscriptionSettings] draws the whole section. Convenient, and foreign-looking inside a
- * host list that has its own row components — cappy's uses `PrefsGroup` / `ActionRow` / `RowDivider`
- * with tertiary-container tints, and an SDK-drawn row would not match.
+ * [PayCraftSubscriptionSettings] draws the whole section, and that is the only entry point. The
+ * computed state below is INTERNAL on purpose.
  *
- * So the state is also exposed on its own: [rememberSubscriptionSettingsState] gives a host every
- * decision and label with none of the drawing, and the host renders it with its own components. A
- * consumer still never writes the tier mapping, the renewal arithmetic, or the "should this row
- * exist" logic — which is where the bugs are. The paywall gets to own its look because it is a
- * full-bleed surface; a settings row is a guest in someone else's list.
+ * An earlier draft exposed it so a host could draw the rows itself. That inverted the point: handing
+ * a consumer `statusLabel` / `canManage` / `onManage` and asking them to assemble a section is the
+ * work they were already doing, minus a tier `when`. The actual objection to an SDK-drawn row is
+ * that it looks foreign in someone else's list — which is a THEMING problem, so
+ * [PayCraftSettingsTheme] solves it instead. Its defaults read from the ambient `MaterialTheme`, so
+ * a host that themes its app at all already gets its own palette, shape and type here.
  */
 @Immutable
-data class SubscriptionSettingsState(
+internal data class SubscriptionSettingsState(
     /**
      * Whether a billing section should appear AT ALL.
      *
@@ -105,7 +105,7 @@ data class SubscriptionSettingsState(
  *   copy is deliberately NOT read here yet — see the note on [SubscriptionSettingsCopy].
  */
 @Composable
-fun rememberSubscriptionSettingsState(
+internal fun rememberSubscriptionSettingsState(
     repository: PayCraftRepository? = null,
     copy: SubscriptionSettingsCopy = SubscriptionSettingsCopy(),
 ): SubscriptionSettingsState {
@@ -251,10 +251,11 @@ private val MONTHS = listOf(
 fun PayCraftSubscriptionSettings(
     modifier: Modifier = Modifier,
     style: SubscriptionSettingsStyle = SubscriptionSettingsStyle.Rows,
-    repository: PayCraftRepository? = null,
+    theme: PayCraftSettingsTheme = PayCraftSettingsTheme.defaults(),
     copy: SubscriptionSettingsCopy = SubscriptionSettingsCopy(),
     header: (@Composable () -> Unit)? = null,
     onUpgrade: (() -> Unit)? = null,
+    repository: PayCraftRepository? = null,
 ) {
     val state = rememberSubscriptionSettingsState(repository, copy)
     if (!state.visible) return
@@ -267,11 +268,11 @@ fun PayCraftSubscriptionSettings(
         if (style != SubscriptionSettingsStyle.Compact) header?.invoke()
 
         when (style) {
-            SubscriptionSettingsStyle.Minimal -> MinimalSettings(state, copy, upgrade)
-            SubscriptionSettingsStyle.Rows -> RowsSettings(state, copy, upgrade)
-            SubscriptionSettingsStyle.Card -> CardSettings(state, copy, upgrade)
-            SubscriptionSettingsStyle.Hero -> HeroSettings(state, copy, upgrade)
-            SubscriptionSettingsStyle.Compact -> CompactSettings(state, upgrade)
+            SubscriptionSettingsStyle.Minimal -> MinimalSettings(state, copy, theme, upgrade)
+            SubscriptionSettingsStyle.Rows -> RowsSettings(state, copy, theme, upgrade)
+            SubscriptionSettingsStyle.Card -> CardSettings(state, copy, theme, upgrade)
+            SubscriptionSettingsStyle.Hero -> HeroSettings(state, copy, theme, upgrade)
+            SubscriptionSettingsStyle.Compact -> CompactSettings(state, theme, upgrade)
         }
     }
 
