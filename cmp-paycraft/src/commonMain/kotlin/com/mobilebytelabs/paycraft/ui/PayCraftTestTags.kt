@@ -42,6 +42,15 @@ object PayCraftTestTags {
     const val LOGIN_BUTTON = "paycraft_login_button"
     const val LOGOUT_BUTTON = "paycraft_logout_button"
     const val MANAGE_SUBSCRIPTION_BUTTON = "paycraft_manage_subscription_button"
+
+    // ── Subscription settings section (PayCraftSubscriptionSettings) ─────────────────────────────
+    // A host that renders the section with its OWN row components should reuse these tags, so a
+    // device flow asserting "the user can reach cancel" works the same across every consumer.
+    const val SUBSCRIPTION_SETTINGS = "paycraft_subscription_settings"
+    const val SUBSCRIPTION_STATUS_ROW = "paycraft_subscription_status_row"
+    const val SUBSCRIPTION_MANAGE_ROW = "paycraft_subscription_manage_row"
+    const val SUBSCRIPTION_UPGRADE_ROW = "paycraft_subscription_upgrade_row"
+    const val SUBSCRIPTION_RESTORE_ROW = "paycraft_subscription_restore_row"
     const val CONTACT_SUPPORT_BUTTON = "paycraft_contact_support_button"
     const val REFRESH_BUTTON = "paycraft_refresh_button"
     const val DISMISS_BUTTON = "paycraft_dismiss_button"
