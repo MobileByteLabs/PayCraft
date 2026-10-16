@@ -1,4 +1,4 @@
-example-provenance: 7430e44c4066474f316b5bf3ee40cc63c2cd0dda
+example-provenance: 5f6be4cc1908fefb303f50c517e30234efe29a29
 
 # PUBLIC_API.md — PayCraft SDK public integration surface
 
@@ -108,10 +108,19 @@ consumer already has, so billing does not need a home invented for it:
 | `PayCraftRepository` | `core/data` | what does THIS USER have, let them transact, drive the paywall |
 | `PayCraftStore` | `core/store` | what is cached on this device |
 
-Four singleton members are deliberately on NO facade — `initialize`, `requireConfig`,
-`billingManager`, `deviceId` — plus the raw `configResultFlow` / `suiteConfigFlow` transport. They
-are bootstrap: a feature module that can re-initialize the SDK can repoint it at another tenant
-mid-session. `G-PAYCRAFT-FACADE-COVERAGE` asserts the split, because it had already drifted once —
+Three singleton members are deliberately on NO facade — `initialize`, `requireConfig`, `deviceId`
+— plus the raw `configResultFlow` / `suiteConfigFlow` transport. They are bootstrap: a feature
+module that can re-initialize the SDK can repoint it at another tenant mid-session.
+
+**`PayCraft.billingManager` is `internal`.** It was public, and the only thing consumers used it for
+was a one-line identity bind — `PayCraft.billingManager?.logIn(email)`, the single usage across
+every consumer. To get that, a host was handed the whole engine: purchase launching, device
+transfer, OAuth, revocation. Nothing stopped a feature module calling `purchaseViaPlayBilling`
+directly and bypassing lane resolution. The identity capability is on `PayCraftRepository` instead;
+the device-transfer trio stays internal because the SDK's own device-conflict UI is the only correct
+caller.
+
+`G-PAYCRAFT-FACADE-COVERAGE` asserts the split, because it had already drifted once —
 `manageSubscriptionUrl` was added to the singleton and to no facade, and the first consumer wrote a
 delegate file to reach it.
 
@@ -140,6 +149,13 @@ interface PayCraftRepository {
     fun presentPaywallIfNeeded(entitlement: String? = null)   // no-op when already entitled
     fun dismissPaywall()
     fun onAppOpen(entitlement: EntitlementSnapshot, trial: TrialSnapshot)
+
+    val userEmail: StateFlow<String?>                    // identity — an entitlement has an owner
+    fun logIn(email: String)                             // call on EVERY identity change
+    fun logOut()                                         // drops the entitlement with the identity
+    suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String)
+    suspend fun checkTrialEligibility(): Boolean         // ask BEFORE advertising a trial
+    val subscriptionActivated: SharedFlow<SubscriptionActivated>  // JUST became premium
 }
 ```
 
