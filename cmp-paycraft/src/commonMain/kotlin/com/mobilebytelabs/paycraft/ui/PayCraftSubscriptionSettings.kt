@@ -352,18 +352,18 @@ private val MONTHS = listOf(
  * PayCraftSubscriptionSettings(header = { SectionHeader("Subscription") })
  * ```
  *
- * Every parameter is presentation. The wording comes from the dashboard and the data from the SDK's
- * own facades, so there is no copy or repository to pass — which is the point of the component
- * existing at all.
+ * Every parameter is presentation. The wording comes from the dashboard, the data from the SDK's
+ * own facades, and both actions — Manage and Upgrade — are resolved internally, so there is no
+ * copy, repository or callback to pass. That is the point of the component existing at all: it is
+ * a VIEW of live subscription state, not a kit for assembling one.
  *
  * @param style one of five presets. [SubscriptionSettingsStyle.Rows] suits a conventional settings
  *   list; the others exist for hosts whose settings screen is not a list.
  * @param theme design tokens. Defaults read from the ambient `MaterialTheme`, so a themed app needs
  *   to pass nothing; override where your design system exposes something Material does not.
  * @param header drawn above the rows when the section is visible. Omitted when it is not, so a host
- *   never renders a heading over nothing.
- * @param onUpgrade optional: shown for a FREE user instead of Manage. `null` presents the SDK
- *   paywall, which is what most apps want; supply one to route somewhere specific.
+ *   never renders a heading over nothing. The only slot, because a heading is the host's own
+ *   typography — its casing, colour and leading — and no theme token expresses that.
  */
 @Composable
 fun PayCraftSubscriptionSettings(
@@ -371,13 +371,17 @@ fun PayCraftSubscriptionSettings(
     style: SubscriptionSettingsStyle = SubscriptionSettingsStyle.Rows,
     theme: PayCraftSettingsTheme = PayCraftSettingsTheme.defaults(),
     header: (@Composable () -> Unit)? = null,
-    onUpgrade: (() -> Unit)? = null,
 ) {
     val copy = rememberSettingsCopy()
     val state = rememberSubscriptionSettingsState(copy = copy)
     if (!state.visible) return
 
-    val upgrade: () -> Unit = { onUpgrade?.invoke() ?: PayCraft.presentPaywall() }
+    // Where a free user's tap goes is NOT a host decision. An earlier version took an `onUpgrade`
+    // callback so a host could route somewhere of its own — but the SDK owns the paywall, which is
+    // dashboard-configured, so a host overriding it is a host rebuilding what it just adopted. The
+    // same reasoning that removed `copy` and `repository`: if the SDK has the answer, it does not
+    // ask. Manage already worked this way — it has never been overridable.
+    val upgrade: () -> Unit = { PayCraft.presentPaywall() }
 
     Column(modifier = modifier.fillMaxWidth().testTag(PayCraftTestTags.SUBSCRIPTION_SETTINGS)) {
         // Compact is a single inline row by definition — a section header above a one-liner is the
