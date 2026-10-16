@@ -25,7 +25,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.ui.components.skeleton.BannerShimmerRow
-import org.koin.compose.viewmodel.koinViewModel
 
 /**
  * Compact, state-aware billing strip designed to live on a host screen — typically the
@@ -125,21 +124,18 @@ fun BannerPaywall(state: BillingState, onTap: () -> Unit, modifier: Modifier = M
  * @param onTap    Called when the user taps the banner. Hosts usually open the full
  *                 paywall here.
  * @param modifier Optional modifier applied to the root surface.
- * @param viewModel ViewModel — Koin-injected by default.
  */
 @Composable
-fun BannerPaywall(
-    onTap: () -> Unit,
-    modifier: Modifier = Modifier,
-    viewModel: PayCraftPaywallViewModel = koinViewModel(),
-) {
+fun BannerPaywall(onTap: () -> Unit, modifier: Modifier = Modifier) {
     // Route through the single paywall path so a future template-side banner
-    // redesign lands in ONE place instead of forking between v1/v2.
+    // redesign lands in ONE place instead of forking between v1/v2. No ViewModel is threaded
+    // through: PayCraftPaywallComposable resolves the SDK's own, which is why that parameter is
+    // gone from here too — a consumer substituting the MVI engine would be reimplementing the
+    // paywall rather than configuring it.
     PayCraftPaywallComposable(
         onDismiss = onTap,
         displayMode = DisplayMode.Banner,
         modifier = modifier,
-        viewModel = viewModel,
     )
 }
 

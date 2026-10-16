@@ -3,14 +3,10 @@ package com.mobilebytelabs.paycraft.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.core.BillingManager
-import com.mobilebytelabs.paycraft.model.BillingState
-import org.koin.compose.koinInject
 
 /**
  * Wraps a screen in an entitlement gate. The consumer writes one composable and the SDK decides
@@ -66,7 +62,7 @@ import org.koin.compose.koinInject
  * @param ads The consumer's ad composable. PayCraft never loads, requests, or measures an ad — it only
  *   decides whether this slot is rendered, so no ad SDK enters the SDK's dependency graph.
  * @param loading Rendered while the entitlement is still resolving. Default: nothing.
- * @param billingManager Leave null to resolve from Koin. Pass one explicitly in previews and
+ * @param loading Shown while entitlement is still resolving.
  *   screenshot tests, which have no Koin graph.
  * @param paywall What a non-premium user sees instead of [content]. Leave null for the SDK's own
  *   full-screen paywall, which is the right answer for nearly every host. Supply it when the gated
@@ -92,22 +88,16 @@ fun PayCraftPaywallGuardScreen(
     showAds: Boolean = false,
     ads: (@Composable () -> Unit)? = null,
     loading: (@Composable () -> Unit)? = null,
-    billingManager: BillingManager? = null,
     paywall: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    // Nullable param + resolve-in-body rather than `= koinInject()`, because a default argument is
-    // evaluated at the CALL SITE: with a default, every @Preview of every screen wrapped in this
-    // guard would need a started Koin graph. Same bug class as PayCraftRestore's, fixed the same way.
-    val manager = billingManager ?: koinInject()
-
-    // collectAsState, not collectAsStateWithLifecycle: both are StateFlows whose current value is
-    // free to read, so the lifecycle-aware variant buys nothing — and it drags LocalLifecycleOwner
-    // plus a Main dispatcher into every composable that wraps itself in this guard, which breaks
-    // commonTest and previews. Matches PayCraftPremiumBanner, the SDK's existing precedent.
-    val isPremium by manager.isPremium.collectAsState()
-    val billingState by manager.billingState.collectAsState()
-    val isAdFree by PayCraft.isAdFree.collectAsState()
+    // Entitlement comes from the SAME resolver the replacement gates use, which honours
+    // LocalPayCraftEntitlementOverride before touching Koin. Two things fall out of that: the
+    // deprecation message's promise that "previews use LocalPayCraftEntitlementOverride" is now
+    // true here too, and this guard stops deriving entitlement a second way — it used to read
+    // `isPremium` + `billingState` + `isAdFree` itself and could disagree with the gate replacing it.
+    val verdict = rememberGateVerdict()
+    val isPremium = verdict.entitled
 
     when {
         isPremium -> Box(modifier = modifier.testTag(PayCraftTestTags.PAYWALL_GUARD_UNLOCKED)) {
@@ -116,31 +106,23 @@ fun PayCraftPaywallGuardScreen(
 
         // Only BEFORE a verdict. Checked after `isPremium` on purpose: a warm cache can report
         // premium while a refresh is in flight, and an entitled user must not be made to wait.
-        billingState is BillingState.Loading ->
+        verdict.resolving ->
             Box(modifier = modifier.testTag(PayCraftTestTags.PAYWALL_GUARD_RESOLVING)) {
                 loading?.invoke()
             }
 
-        // `isAdFree` is the SDK's OWN ad-gating signal (AC-12, AdFreeEntitlement), not a second
-        // derivation of it. It mirrors premium, and the premium branch above already returned, so in
-        // practice it is false here — but reading it keeps this guard on the same flow a host is told
-        // to gate its ads with (`PayCraft.isAdFree`). A host that pushes ad-free for its own reason
-        // (a promo, a grandfathered cohort, an entitlement resolved elsewhere via
-        // AdFreeEntitlement.set) therefore stops seeing ads here too, rather than having this guard
-        // quietly disagree with every other ad check in the app.
-        showAds && ads != null && !isAdFree -> Column(
+        // No `&& !isAdFree` guard any more, and no ad-free branch below: `verdict.entitled` is
+        // `isPremium || isAdFree`, so a host-pushed ad-free cohort (a promo, a grandfathered tier,
+        // AdFreeEntitlement.set) already took the unlocked branch at the top. Reaching here means
+        // NOT entitled by either signal, which is exactly who should see ads. The previous version
+        // checked ad-free twice — once to skip this branch and once in a branch below that rendered
+        // the same unlocked Box as the top — because entitlement was derived here rather than by the
+        // shared resolver.
+        showAds && ads != null -> Column(
             modifier = modifier.testTag(PayCraftTestTags.PAYWALL_GUARD_AD_SUPPORTED),
         ) {
             content()
             ads()
-        }
-
-        // Ad-free but not premium — a host-pushed ad-free cohort. They get the content, no ads, and
-        // no paywall: charging at them would contradict the ad-free grant they were just given.
-        showAds && ads != null -> Box(
-            modifier = modifier.testTag(PayCraftTestTags.PAYWALL_GUARD_UNLOCKED),
-        ) {
-            content()
         }
 
         paywall != null -> Box(modifier = modifier.testTag(PayCraftTestTags.PAYWALL_GUARD_LOCKED)) {

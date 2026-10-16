@@ -135,8 +135,11 @@ fun PayCraftBanner(
     onManageClick: () -> Unit,
     modifier: Modifier = Modifier,
     onRestoreClick: (() -> Unit)? = null,
-    billingManager: BillingManager = koinInject(),
 ) {
+    // Resolved inside the body, never as a `billingManager: BillingManager = koinInject()`
+    // parameter. Which manager drives entitlement is the SDK's concern, not a host's — and the type
+    // is on its way to `internal`, so it must not appear in a public signature.
+    val billingManager: BillingManager = koinInject()
     val billingState by billingManager.billingState.collectAsStateWithLifecycle()
 
     // Retain last stable (non-loading) state — avoids jarring free → premium flash on navigation

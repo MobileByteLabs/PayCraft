@@ -1,4 +1,4 @@
-example-provenance: 0a353f53c55e8b2a0a69801e1ccce77ab6682bd2
+example-provenance: 5f6be4cc1908fefb303f50c517e30234efe29a29
 
 # PUBLIC_API.md — PayCraft SDK public integration surface
 
@@ -96,10 +96,35 @@ onResume/onCreate hook. It always updates `AdFreeEntitlement` first, then dispat
   active or just-ended trial (`trial.isActiveOrNearExpiry`) **and** the session debounce is unmarked.
 - `AdSupported` — never auto-presents; the host owns the trigger and reads `isAdFree` to gate ads.
 
-## Data surface — `interface PayCraftRepository` (inject this)
+## The three injectable facades — one per consumer layer
 
-**The one data surface a consumer app needs.** Injected from Koin (`payCraftModule`); a consumer
-writes no repository, store, or API wrapper of its own.
+**Everything a consumer needs is injected from Koin (`payCraftModule`); a consumer writes no
+repository, store, or API wrapper of its own.** The three surfaces line up with the layers a KMP
+consumer already has, so billing does not need a home invented for it:
+
+| facade | consumer layer | answers |
+|---|---|---|
+| `PayCraftApi` | `core/network` | how is this app configured, where is the buyer, refresh from the server |
+| `PayCraftRepository` | `core/data` | what does THIS USER have, let them transact, drive the paywall |
+| `PayCraftStore` | `core/store` | what is cached on this device |
+
+Three singleton members are deliberately on NO facade — `initialize`, `requireConfig`, `deviceId`
+— plus the raw `configResultFlow` / `suiteConfigFlow` transport. They are bootstrap: a feature
+module that can re-initialize the SDK can repoint it at another tenant mid-session.
+
+**`PayCraft.billingManager` is `internal`.** It was public, and the only thing consumers used it for
+was a one-line identity bind — `PayCraft.billingManager?.logIn(email)`, the single usage across
+every consumer. To get that, a host was handed the whole engine: purchase launching, device
+transfer, OAuth, revocation. Nothing stopped a feature module calling `purchaseViaPlayBilling`
+directly and bypassing lane resolution. The identity capability is on `PayCraftRepository` instead;
+the device-transfer trio stays internal because the SDK's own device-conflict UI is the only correct
+caller.
+
+`G-PAYCRAFT-FACADE-COVERAGE` asserts the split, because it had already drifted once —
+`manageSubscriptionUrl` was added to the singleton and to no facade, and the first consumer wrote a
+delegate file to reach it.
+
+### `core/data` — `interface PayCraftRepository`
 
 ```kotlin
 interface PayCraftRepository {
@@ -111,8 +136,26 @@ interface PayCraftRepository {
     val plans: StateFlow<List<BillingPlan>>
     fun checkout(plan: BillingPlan, email: String? = null)   // fire-and-observe, no synchronous verdict
     suspend fun restore(): Entitlement                       // genuinely has an answer, so it suspends
-    fun manageSubscription(email: String)
+    fun manageSubscription(email: String? = null)             // email OPTIONAL: a store-billed
+    fun manageSubscriptionUrl(email: String? = null): String? //   subscriber has no email we know
     fun refresh(force: Boolean = false)
+
+    val isAdFree: StateFlow<Boolean>                     // SEPARATE from isPremium (AC-12)
+    suspend fun applyCoupon(planId: String, code: String): CouponClient.Result
+    fun setAppliedCoupon(planId: String, coupon: CouponDto?)
+
+    val paywallPresentation: StateFlow<PaywallPresentation>
+    fun presentPaywall()
+    fun presentPaywallIfNeeded(entitlement: String? = null)   // no-op when already entitled
+    fun dismissPaywall()
+    fun onAppOpen(entitlement: EntitlementSnapshot, trial: TrialSnapshot)
+
+    val userEmail: StateFlow<String?>                    // identity — an entitlement has an owner
+    fun logIn(email: String)                             // call on EVERY identity change
+    fun logOut()                                         // drops the entitlement with the identity
+    suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String)
+    suspend fun checkTrialEligibility(): Boolean         // ask BEFORE advertising a trial
+    val subscriptionActivated: SharedFlow<SubscriptionActivated>  // JUST became premium
 }
 ```
 
@@ -155,6 +198,64 @@ already paid.
 `roleIdentifier` carries the package role (`BillingPlan.roleIdentifier`, resolved by
 `SuiteConfig.roleForSku(sku)`), so an app derives its own tier notion from tenant configuration
 instead of hardcoding product names.
+
+### `core/network` — `interface PayCraftApi`
+
+```kotlin
+interface PayCraftApi {
+    val isConfigured: Boolean          // false = unprovisioned; runs local-first, gates read free
+    val mode: PayCraft.Mode            // test|live, derived from the ARTIFACT — never branch billing on it
+    val monetizationMode: MonetizationMode
+    val activeRegion: ResolvedRegion   // DISPLAY only — never compute a price from it
+    val activeCountry: String
+    val activeCurrency: String
+    fun refreshConfig()
+    suspend fun prefetchProducts()     // warm the store cache before a paywall opens
+}
+```
+
+`activeCurrency` is for showing "prices in ₹", never for deriving an amount: the authoritative price
+is on the plan, already resolved per-country server-side. Computing one locally from a currency code
+is how a ¥400 plan became ¥32,900.
+
+### `core/store` — `interface PayCraftStore`
+
+```kotlin
+interface PayCraftStore {
+    suspend fun saveEmail(email: String); suspend fun getEmail(): String?; suspend fun clearEmail()
+
+    fun cacheSubscriptionStatus(status: SubscriptionStatus) {}   // non-suspend: read during
+    fun getCachedSubscriptionStatus(): SubscriptionStatus? = null //   construction, before frame 1
+    fun getLastSyncedAt(): Long = 0L
+    fun clearCache() {}
+
+    fun getAdUnlockExpiry(featureKey: String): Long? = null       // ABSOLUTE expiry, per feature
+    fun saveAdUnlock(featureKey: String, expiresAtEpochMillis: Long) {}
+    fun clearAdUnlock(featureKey: String) {}
+    fun getAllAdUnlocks(): Map<String, Long> = emptyMap()
+
+    fun getDeviceToken(): String? = null                          // identity when there is no email
+    fun saveDeviceToken(token: String) {}
+    fun clearDeviceToken() {}
+
+    suspend fun clearAll()                                        // the sign-out call
+}
+```
+
+**Read it; think hard before writing it.** Most apps never call this — the SDK writes it, and
+`PayCraftRepository`'s flows are offline-tolerant precisely BECAUSE this cache exists. Writing it
+directly asserts an entitlement the server has not confirmed. The one write a host legitimately owns
+is `clearAll()` on sign-out; a sign-out that leaves a cached entitlement shows the next user the
+previous user's premium state.
+
+**Every added member carries a default** because this is HOST-IMPLEMENTABLE: an app may supply its
+own storage, and an abstract member would break it on upgrade. The shipped `PayCraftSettingsStore`
+implements all of them for real — a default that no implementation overrides is a declared
+capability that silently does nothing.
+
+Ad-unlock expiry is stored ABSOLUTE, not as a remaining duration: a duration silently extends itself
+on every process restart, so one watched ad would unlock the feature forever. An expired grant reads
+as absent and is evicted on read, so the key set cannot grow unbounded.
 
 ### `FakePayCraftRepository` — ships in the MAIN artifact
 

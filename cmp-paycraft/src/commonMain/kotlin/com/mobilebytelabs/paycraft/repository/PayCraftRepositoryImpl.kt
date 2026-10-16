@@ -8,17 +8,25 @@
 package com.mobilebytelabs.paycraft.repository
 
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.config.CouponDto
 import com.mobilebytelabs.paycraft.config.roleForSku
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.EntitlementRepository
+import com.mobilebytelabs.paycraft.core.EntitlementSnapshot
+import com.mobilebytelabs.paycraft.core.PaywallPresentation
+import com.mobilebytelabs.paycraft.core.SubscriptionActivated
+import com.mobilebytelabs.paycraft.core.TrialSnapshot
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.model.EntitlementSummary
+import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import com.mobilebytelabs.paycraft.network.CouponClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -111,7 +119,49 @@ internal class PayCraftRepositoryImpl(
         return entitlements.restore(appUserId)
     }
 
-    override fun manageSubscription(email: String) = PayCraft.manageSubscription(email)
+    override fun manageSubscription(email: String?) = PayCraft.manageSubscription(email)
+
+    override fun manageSubscriptionUrl(email: String?): String? = PayCraft.manageSubscriptionUrl(email)
 
     override fun refresh(force: Boolean) = billing.refreshStatus(force)
+
+    // Read through, never mirrored: AdFreeEntitlement owns this and a copy here could disagree.
+    override val isAdFree: StateFlow<Boolean> get() = PayCraft.isAdFree
+
+    override suspend fun applyCoupon(planId: String, code: String): CouponClient.Result =
+        PayCraft.applyCoupon(planId, code)
+
+    override fun setAppliedCoupon(planId: String, coupon: CouponDto?) = PayCraft.setAppliedCoupon(planId, coupon)
+
+    override val paywallPresentation: StateFlow<PaywallPresentation> get() = PayCraft.paywallPresentation
+
+    override fun presentPaywall() = PayCraft.presentPaywall()
+
+    override fun presentPaywallIfNeeded(entitlement: String?) = PayCraft.presentPaywallIfNeeded(entitlement)
+
+    override fun dismissPaywall() = PayCraft.dismissPaywall()
+
+    override fun onAppOpen(entitlement: EntitlementSnapshot, trial: TrialSnapshot) =
+        PayCraft.onAppOpen(entitlement, trial)
+
+    override val userEmail: StateFlow<String?> get() = billing.userEmail
+
+    override fun logIn(email: String) = billing.logIn(email)
+
+    override fun logOut() = billing.logOut()
+
+    override suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String) =
+        billing.loginWithOAuth(provider, idToken)
+
+    override suspend fun checkTrialEligibility(): Boolean = billing.checkTrialEligibility()
+
+    override val subscriptionActivated: SharedFlow<SubscriptionActivated> get() = billing.subscriptionActivated
+
+    override suspend fun confirmDeviceTransfer() = billing.confirmDeviceTransfer()
+
+    // `revokeCurrentDevice`, NOT `transferToDevice`. BillingManager has both, and only this one
+    // belongs on a consumer facade: transferToDevice is documented there as "internal — called by
+    // confirmDeviceTransfer", so exposing it would hand a host the half-step that skips the
+    // deactivation of the other device.
+    override suspend fun revokeCurrentDevice() = billing.revokeCurrentDevice()
 }

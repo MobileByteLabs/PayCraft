@@ -111,7 +111,6 @@ import org.koin.compose.viewmodel.koinViewModel
  *                    [DisplayMode.Banner] renders the compact status-strip [BannerPaywall]
  *                    that shares the same [PayCraftPaywallViewModel] state.
  * @param modifier   Optional modifier applied to the root surface.
- * @param viewModel  ViewModel — Koin-injected by default so consumers rarely pass one.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,8 +119,12 @@ fun PayCraftPaywallComposable(
     displayMode: DisplayMode = DisplayMode.FullScreen,
     modifier: Modifier = Modifier,
     surfaceMode: PayCraftSurfaceMode = PayCraftSurfaceMode.FullScreen,
-    viewModel: PayCraftPaywallViewModel = koinViewModel(),
 ) {
+    // Resolved here, not as a `viewModel: … = koinViewModel()` parameter. The ViewModel is the
+    // SDK's own MVI engine — paywall state, checkout dispatch, restore sheet — and a consumer
+    // substituting one would be reimplementing the paywall, not configuring it. It is `internal` for
+    // the same reason, so the type no longer appears in public API at all.
+    val viewModel: PayCraftPaywallViewModel = koinViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 

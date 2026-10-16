@@ -50,14 +50,12 @@ import org.koin.compose.viewmodel.koinViewModel
  *                    banner tap). Hosts wire this to close their sheet/dialog wrapper.
  * @param modifier    Optional modifier applied to the root surface.
  * @param displayMode [DisplayMode.FullScreen] (default) or [DisplayMode.Banner].
- * @param viewModel   ViewModel — Koin-injected by default so consumers rarely pass one.
  */
 @Composable
 fun PayCraftPaywall(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     displayMode: DisplayMode = DisplayMode.FullScreen,
-    viewModel: PayCraftPaywallViewModel = koinViewModel(),
 ) {
     // Removed: v1 hand-built content branch(state = …, onDismiss = …, …) hand-built branch.
     // Single paywall path — PayCraftPaywallComposable resolves BrandedStackTemplate.
@@ -65,7 +63,6 @@ fun PayCraftPaywall(
         onDismiss = onDismiss,
         displayMode = displayMode,
         modifier = modifier,
-        viewModel = viewModel,
     )
 }
 
@@ -89,11 +86,12 @@ fun PayCraftPaywall(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PayCraftPaywallSheet(
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-    viewModel: PayCraftPaywallViewModel = koinViewModel(),
-) {
+fun PayCraftPaywallSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    // Resolved here rather than taken as a parameter: the sheet needs the SDK's own MVI engine to
+    // dispatch RefreshStatus on close, and a consumer-supplied one would be reimplementing the
+    // paywall rather than configuring it. Koin scopes this to the same instance the nested
+    // PayCraftPaywallComposable resolves, so dispatching here still reaches the rendered state.
+    val viewModel: PayCraftPaywallViewModel = koinViewModel()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Material3 hosts sheet content in a separate window layer that does NOT inherit the
@@ -119,7 +117,6 @@ fun PayCraftPaywallSheet(
                 onDismiss = onDismiss,
                 displayMode = DisplayMode.FullScreen,
                 surfaceMode = PayCraftSurfaceMode.Sheet,
-                viewModel = viewModel,
             )
         }
     }

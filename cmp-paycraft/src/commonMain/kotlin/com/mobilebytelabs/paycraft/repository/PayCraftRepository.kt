@@ -7,11 +7,19 @@
  */
 package com.mobilebytelabs.paycraft.repository
 
+import com.mobilebytelabs.paycraft.config.CouponDto
+import com.mobilebytelabs.paycraft.core.EntitlementSnapshot
+import com.mobilebytelabs.paycraft.core.PaywallPresentation
+import com.mobilebytelabs.paycraft.core.SubscriptionActivated
+import com.mobilebytelabs.paycraft.core.TrialSnapshot
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.model.EntitlementSummary
+import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import com.mobilebytelabs.paycraft.network.CouponClient
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -110,9 +118,166 @@ interface PayCraftRepository {
      */
     suspend fun restore(): Entitlement
 
-    /** Open the provider's manage-subscription surface. Fire-and-observe, as the SDK's own. */
-    fun manageSubscription(email: String)
+    /**
+     * Open wherever this user's subscription is actually managed: the provider's portal when one
+     * exists, else the platform's own store subscriptions page.
+     *
+     * [email] is OPTIONAL and must stay optional. A store-billed subscriber is identified by their
+     * store account, which PayCraft knows nothing about — so a non-null parameter here made the
+     * commonest case inexpressible through this facade and sent every caller back to the singleton.
+     */
+    fun manageSubscription(email: String? = null)
+
+    /**
+     * The destination [manageSubscription] would open, or `null` when there is nowhere to send this
+     * user (a desktop/web build with no store page and no provider portal).
+     *
+     * Exposed so a host can decide whether to SHOW a "Manage subscription" affordance at all,
+     * rather than rendering a row that does nothing when tapped.
+     */
+    fun manageSubscriptionUrl(email: String? = null): String?
 
     /** Re-read entitlement. `force = true` bypasses the cache — use on foreground and post-purchase. */
     fun refresh(force: Boolean = false)
+
+    // ── Ad-free entitlement ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Whether ads should be suppressed for this user.
+     *
+     * A SEPARATE signal from [isPremium] on purpose: a host may grant an ad-free cohort that never
+     * subscribed (AC-12). Gate ad rendering on this, never on [isPremium], or a granted user still
+     * sees ads. The SDK's own gates already treat `isPremium || isAdFree` as entitled.
+     */
+    val isAdFree: StateFlow<Boolean>
+
+    // ── Coupons ──────────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Validate a coupon code against a plan, returning the server's verdict.
+     *
+     * Suspending and result-bearing because a coupon genuinely has a synchronous answer — unlike
+     * checkout, whose outcome only arrives through [billingState]. Validating does NOT apply it;
+     * pass the accepted coupon to [setAppliedCoupon] for the paywall to price with it.
+     */
+    suspend fun applyCoupon(planId: String, code: String): CouponClient.Result
+
+    /**
+     * Attach an already-validated coupon to a plan so the paywall prices it with the discount.
+     *
+     * `null` clears it. Separate from [applyCoupon] because validation and application are distinct
+     * steps: a host may validate once and apply to several plans, or clear without re-validating.
+     */
+    fun setAppliedCoupon(planId: String, coupon: CouponDto?)
+
+    // ── Paywall presentation ─────────────────────────────────────────────────────────────────────
+    //
+    // On the DATA facade, not the network one: a feature observes this to render a paywall, and a
+    // feature talks to core/data. Nothing here reaches the server — the SDK's gates and
+    // PayCraftPaywallComposable drive these same members internally, so a host using them needs
+    // none of this directly.
+
+    /** Whether the SDK currently wants a paywall on screen, and why. */
+    val paywallPresentation: StateFlow<PaywallPresentation>
+
+    /** Present the paywall now — the manual/contextual trigger (a "Get Premium" button). */
+    fun presentPaywall()
+
+    /**
+     * Present the paywall only if the user is not already entitled.
+     *
+     * A no-op for an entitled buyer, which is what makes it safe to call from a gate without
+     * checking first — and what stops a paying customer seeing a paywall on a race.
+     */
+    fun presentPaywallIfNeeded(entitlement: String? = null)
+
+    /** Dismiss it. Pair with whatever the host used to show it. */
+    fun dismissPaywall()
+
+    /**
+     * Report app-foreground state: resync the ad-free flag and present the paywall if the tenant's
+     * monetization mode says this is the moment.
+     *
+     * ONE call rather than two because the two must not disagree. It sets [isAdFree] from the
+     * snapshot up-front, then decides about the paywall — so a host cannot resync entitlement and
+     * forget the presentation half, or present a paywall against a stale ad-free flag. A premium
+     * user is never nagged regardless of trial state.
+     */
+    fun onAppOpen(entitlement: EntitlementSnapshot, trial: TrialSnapshot)
+
+    // ── Identity ─────────────────────────────────────────────────────────────────────────────────
+    //
+    // An entitlement belongs to a PERSON, so a host with accounts must tell the SDK who is signed
+    // in. This used to require reaching for `PayCraft.billingManager`, which handed a consumer the
+    // whole internal engine — purchase launching, device transfer, OAuth — to accomplish a one-line
+    // identity bind. `billingManager` is now `internal`; this is the sanctioned surface.
+
+    /** Who the SDK currently believes is signed in. `null` before any [logIn]. */
+    val userEmail: StateFlow<String?>
+
+    /**
+     * Bind the entitlement to this person, and re-resolve it.
+     *
+     * Call on sign-in AND on every identity change — a sign-out/sign-in as a different user must
+     * re-point the entitlement, or the second user inherits the first one's premium.
+     */
+    fun logIn(email: String)
+
+    /**
+     * Clear the signed-in identity and drop to anonymous.
+     *
+     * The entitlement goes with it: a sign-out that leaves a cached premium state shows the next
+     * user something they did not buy.
+     */
+    fun logOut()
+
+    /**
+     * Bind identity from an OAuth provider's id token, for hosts that never see an email.
+     *
+     * Suspending because it round-trips to verify the token before the identity is trusted.
+     */
+    suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String)
+
+    /**
+     * Whether this user may still start a free trial.
+     *
+     * Ask BEFORE advertising one: a returning user who already consumed their trial is shown the
+     * offer, taps it, and the store refuses — a dead end the host could have avoided.
+     */
+    suspend fun checkTrialEligibility(): Boolean
+
+    /**
+     * One-shot purchase-success events, for an effect a flow of state cannot express: a thank-you
+     * sheet, a confetti burst, an analytics conversion. [isPremium] tells you the user IS premium;
+     * this tells you they JUST became premium.
+     */
+    val subscriptionActivated: SharedFlow<SubscriptionActivated>
+
+    // ── Device conflict ──────────────────────────────────────────────────────────────────────────
+    //
+    // One subscription, one active device. When a user signs in on a second phone the SDK emits
+    // [BillingState.OwnershipVerified] — ownership is proven, but the entitlement still lives on
+    // the OLD device — and the host must ask before moving it.
+    //
+    // These two were the LAST reason a consumer had to reach past this facade to BillingManager: the
+    // conflict is a state a host necessarily renders, and resolving it was unreachable from here. A
+    // facade missing the actions for a state it exposes is not a facade.
+
+    /**
+     * Move the subscription to THIS device, after the user confirms.
+     *
+     * Call only in response to [BillingState.OwnershipVerified] and only on an explicit
+     * confirmation — it DEACTIVATES the other device, so a user who taps by accident loses access
+     * on the phone in their other hand. On success [billingState] emits [BillingState.Premium].
+     */
+    suspend fun confirmDeviceTransfer()
+
+    /**
+     * Un-register this device, releasing the subscription slot.
+     *
+     * The other half of the conflict flow: a user who decides the OTHER device should keep the
+     * subscription. Also what a "sign out of this device" affordance calls. The user must
+     * re-register to become entitled here again.
+     */
+    suspend fun revokeCurrentDevice()
 }

@@ -108,6 +108,27 @@ export interface PaywallConfig {
   trial_terms_template: string
   trial_disclosure_title: string
   trial_disclosure_body: string
+  // Subscription-settings section copy (migration 156).
+  //
+  // These default to "" rather than to English, unlike every copy field above. Blank is what tells
+  // the SDK "this tenant has not configured it, use my own bundled translation" — an English value
+  // here would override a localised string for every tenant who never opened this section.
+  //
+  // {days} / {date} tokens are substituted by the SDK, the same convention trial_terms_template uses.
+  settings_free_label: string
+  settings_trial_label: string
+  settings_premium_label: string
+  settings_free_supporting: string
+  settings_trial_supporting: string
+  settings_trial_ending_today: string
+  settings_trial_one_day_left: string
+  settings_trial_days_left: string
+  settings_premium_supporting: string
+  settings_renews_on: string
+  settings_expires_on: string
+  settings_manage_label: string
+  settings_upgrade_label: string
+  settings_restore_label: string
 }
 
 export const PAYWALL_CONFIG_DEFAULTS: Omit<PaywallConfig, "tenant_id"> = {
@@ -136,6 +157,22 @@ export const PAYWALL_CONFIG_DEFAULTS: Omit<PaywallConfig, "tenant_id"> = {
   trial_disclosure_title: "{days}-day free trial included",
   trial_disclosure_body:
     "Your free trial converts to a paid subscription automatically when it ends. Cancel anytime before then in your store subscription settings to avoid being charged.",
+  // Deliberately blank — see the note on the interface. Blank means "use the SDK's own localised
+  // string", so an untouched tenant ships translated copy rather than English from a column.
+  settings_free_label: "",
+  settings_trial_label: "",
+  settings_premium_label: "",
+  settings_free_supporting: "",
+  settings_trial_supporting: "",
+  settings_trial_ending_today: "",
+  settings_trial_one_day_left: "",
+  settings_trial_days_left: "",
+  settings_premium_supporting: "",
+  settings_renews_on: "",
+  settings_expires_on: "",
+  settings_manage_label: "",
+  settings_upgrade_label: "",
+  settings_restore_label: "",
 }
 
 /**

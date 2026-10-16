@@ -7,14 +7,23 @@
  */
 package com.mobilebytelabs.paycraft.repository
 
+import com.mobilebytelabs.paycraft.config.CouponDto
+import com.mobilebytelabs.paycraft.core.EntitlementSnapshot
+import com.mobilebytelabs.paycraft.core.PaywallPresentation
+import com.mobilebytelabs.paycraft.core.SubscriptionActivated
+import com.mobilebytelabs.paycraft.core.TrialSnapshot
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.model.EntitlementSummary
 import com.mobilebytelabs.paycraft.model.EntitlementTier
+import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionState
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import com.mobilebytelabs.paycraft.network.CouponClient
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -90,7 +99,7 @@ class FakePayCraftRepository(
     val checkoutCalls: MutableList<Pair<BillingPlan, String?>> = mutableListOf()
 
     /** Every [manageSubscription] call, in order. */
-    val manageSubscriptionCalls: MutableList<String> = mutableListOf()
+    val manageSubscriptionCalls: MutableList<String?> = mutableListOf()
 
     /** Count of [refresh] calls, with the `force` flag each time. */
     val refreshCalls: MutableList<Boolean> = mutableListOf()
@@ -109,8 +118,29 @@ class FakePayCraftRepository(
             ?: error("FakePayCraftRepository: no restoreResult configured for this test")
     }
 
-    override fun manageSubscription(email: String) {
+    override fun manageSubscription(email: String?) {
         manageSubscriptionCalls += email
+    }
+
+    /** The URL a test wants [manageSubscriptionUrl] to report. Null models "nowhere to send them". */
+    var manageSubscriptionUrlResult: String? = null
+    override fun manageSubscriptionUrl(email: String?): String? = manageSubscriptionUrlResult
+
+    /** Ad-free is a SEPARATE grant from premium (AC-12), so a test must be able to set it alone. */
+    val adFreeFlow = MutableStateFlow(false)
+    override val isAdFree: StateFlow<Boolean> get() = adFreeFlow
+
+    /** Coupon verdict a test wants returned; the calls are recorded for assertion. */
+    var couponResult: CouponClient.Result? = null
+    val applyCouponCalls = mutableListOf<Pair<String, String>>()
+    override suspend fun applyCoupon(planId: String, code: String): CouponClient.Result {
+        applyCouponCalls += planId to code
+        return couponResult ?: error("FakePayCraftRepository.couponResult was not set for this test")
+    }
+
+    val setAppliedCouponCalls = mutableListOf<Pair<String, CouponDto?>>()
+    override fun setAppliedCoupon(planId: String, coupon: CouponDto?) {
+        setAppliedCouponCalls += planId to coupon
     }
 
     override fun refresh(force: Boolean) {
@@ -171,5 +201,78 @@ class FakePayCraftRepository(
             willRenew = true,
             latestEventTs = 0L,
         )
+    }
+
+    /** Drives the paywall branches without a Koin graph or a real presentation state machine. */
+    val paywallPresentationFlow = MutableStateFlow<PaywallPresentation>(PaywallPresentation.Hidden)
+    override val paywallPresentation: StateFlow<PaywallPresentation> get() = paywallPresentationFlow
+
+    var presentPaywallCalls = 0
+    override fun presentPaywall() {
+        presentPaywallCalls++
+    }
+
+    val presentPaywallIfNeededCalls = mutableListOf<String?>()
+    override fun presentPaywallIfNeeded(entitlement: String?) {
+        presentPaywallIfNeededCalls += entitlement
+    }
+
+    var dismissPaywallCalls = 0
+    override fun dismissPaywall() {
+        dismissPaywallCalls++
+    }
+
+    val onAppOpenCalls = mutableListOf<Pair<EntitlementSnapshot, TrialSnapshot>>()
+    override fun onAppOpen(entitlement: EntitlementSnapshot, trial: TrialSnapshot) {
+        onAppOpenCalls += entitlement to trial
+    }
+
+    // ── Identity ─────────────────────────────────────────────────────────────────────────────────
+
+    val userEmailFlow = MutableStateFlow<String?>(null)
+    override val userEmail: StateFlow<String?> get() = userEmailFlow
+
+    /** Recorded AND applied: a test asserting re-binding needs userEmail to actually change. */
+    val logInCalls = mutableListOf<String>()
+    override fun logIn(email: String) {
+        logInCalls += email
+        userEmailFlow.value = email
+    }
+
+    var logOutCalls = 0
+    override fun logOut() {
+        logOutCalls++
+        userEmailFlow.value = null
+        // Sign-out drops the entitlement with the identity — a fake that kept premium would let a
+        // test pass while the real app showed the next user the previous user's state.
+        setPremium(false)
+    }
+
+    val loginWithOAuthCalls = mutableListOf<Pair<OAuthProvider, String>>()
+    override suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String) {
+        loginWithOAuthCalls += provider to idToken
+    }
+
+    /** What [checkTrialEligibility] should answer. Defaults to eligible, the commonest case. */
+    var trialEligible: Boolean = true
+    override suspend fun checkTrialEligibility(): Boolean = trialEligible
+
+    val subscriptionActivatedFlow = MutableSharedFlow<SubscriptionActivated>(replay = 1)
+    override val subscriptionActivated: SharedFlow<SubscriptionActivated> get() = subscriptionActivatedFlow
+
+    var confirmDeviceTransferCalls = 0
+    override suspend fun confirmDeviceTransfer() {
+        confirmDeviceTransferCalls++
+        // The real one moves the entitlement HERE, so the fake must too. A fake that counted the
+        // call without flipping premium would let a conflict-resolution test pass while the real
+        // screen stayed locked after a successful transfer.
+        setPremium(true)
+    }
+
+    var revokeCurrentDeviceCalls = 0
+    override suspend fun revokeCurrentDevice() {
+        revokeCurrentDeviceCalls++
+        // Releasing the slot drops the entitlement on THIS device, same reasoning as logOut.
+        setPremium(false)
     }
 }

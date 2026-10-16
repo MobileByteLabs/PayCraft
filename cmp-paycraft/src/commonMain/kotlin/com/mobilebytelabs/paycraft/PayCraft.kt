@@ -235,22 +235,35 @@ object PayCraft {
     val paywallPresentation: StateFlow<PaywallPresentation> = _paywallPresentation.asStateFlow()
 
     /**
-     * The [BillingManager] — the entry point for HEADLESS integration (mode 2).
-     * Instead of the drop-in [com.mobilebytelabs.paycraft.ui.PayCraftPaywall], observe
-     * [BillingManager.billingState] / [BillingManager.isPremium] / [BillingManager.isInTrial]
-     * and drive [checkout] from your OWN UI:
+     * The internal billing engine. **NOT public API** — inject
+     * [com.mobilebytelabs.paycraft.repository.PayCraftRepository] instead.
      *
      * ```kotlin
-     * val state by PayCraft.billingManager!!.billingState.collectAsState()
-     * when (state) {
-     *     is BillingState.Free    -> UpgradeButton { PayCraft.checkout(plan) }
-     *     is BillingState.Premium -> PremiumContent()
-     *     else                    -> Loading()
+     * // HEADLESS integration — observe the facade, drive checkout from your own UI:
+     * class MyViewModel(private val billing: PayCraftRepository) : ViewModel() {
+     *     val state = billing.billingState
+     *     fun upgrade(plan: BillingPlan) = billing.checkout(plan)
+     *     fun signIn(email: String) = billing.logIn(email)
      * }
      * ```
+     *
+     * ## Why this is internal
+     *
+     * It was public, and the one thing consumers actually used it for was a one-line identity bind
+     * (`PayCraft.billingManager?.logIn(email)` — the single usage across every consumer, measured
+     * 2026-10-16). To get that, a host was handed the whole engine: purchase launching, device
+     * transfer, OAuth, revocation. Nothing stopped a feature module calling
+     * `purchaseViaPlayBilling` directly and bypassing lane resolution, or `revokeCurrentDevice`
+     * outside the conflict flow the SDK's own UI owns.
+     *
+     * Every capability a consumer legitimately reached for is on [PayCraftRepository] —
+     * `logIn` / `logOut` / `userEmail` / `loginWithOAuth` / `checkTrialEligibility` /
+     * `subscriptionActivated`. The device-transfer trio stays here because the SDK's
+     * device-conflict UI is the only correct caller.
+     *
      * Null until [initialize] has run (the Koin graph isn't up yet).
      */
-    val billingManager: BillingManager?
+    internal val billingManager: BillingManager?
         get() = KoinPlatform.getKoinOrNull()?.getOrNull<BillingManager>()
 
     /**
