@@ -14,16 +14,19 @@ import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.EntitlementRepository
 import com.mobilebytelabs.paycraft.core.EntitlementSnapshot
 import com.mobilebytelabs.paycraft.core.PaywallPresentation
+import com.mobilebytelabs.paycraft.core.SubscriptionActivated
 import com.mobilebytelabs.paycraft.core.TrialSnapshot
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.model.EntitlementSummary
+import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.network.CouponClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -140,4 +143,17 @@ internal class PayCraftRepositoryImpl(
 
     override fun onAppOpen(entitlement: EntitlementSnapshot, trial: TrialSnapshot) =
         PayCraft.onAppOpen(entitlement, trial)
+
+    override val userEmail: StateFlow<String?> get() = billing.userEmail
+
+    override fun logIn(email: String) = billing.logIn(email)
+
+    override fun logOut() = billing.logOut()
+
+    override suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String) =
+        billing.loginWithOAuth(provider, idToken)
+
+    override suspend fun checkTrialEligibility(): Boolean = billing.checkTrialEligibility()
+
+    override val subscriptionActivated: SharedFlow<SubscriptionActivated> get() = billing.subscriptionActivated
 }

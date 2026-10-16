@@ -10,13 +10,16 @@ package com.mobilebytelabs.paycraft.repository
 import com.mobilebytelabs.paycraft.config.CouponDto
 import com.mobilebytelabs.paycraft.core.EntitlementSnapshot
 import com.mobilebytelabs.paycraft.core.PaywallPresentation
+import com.mobilebytelabs.paycraft.core.SubscriptionActivated
 import com.mobilebytelabs.paycraft.core.TrialSnapshot
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.model.EntitlementSummary
+import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.network.CouponClient
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -201,4 +204,52 @@ interface PayCraftRepository {
      * user is never nagged regardless of trial state.
      */
     fun onAppOpen(entitlement: EntitlementSnapshot, trial: TrialSnapshot)
+
+    // ── Identity ─────────────────────────────────────────────────────────────────────────────────
+    //
+    // An entitlement belongs to a PERSON, so a host with accounts must tell the SDK who is signed
+    // in. This used to require reaching for `PayCraft.billingManager`, which handed a consumer the
+    // whole internal engine — purchase launching, device transfer, OAuth — to accomplish a one-line
+    // identity bind. `billingManager` is now `internal`; this is the sanctioned surface.
+
+    /** Who the SDK currently believes is signed in. `null` before any [logIn]. */
+    val userEmail: StateFlow<String?>
+
+    /**
+     * Bind the entitlement to this person, and re-resolve it.
+     *
+     * Call on sign-in AND on every identity change — a sign-out/sign-in as a different user must
+     * re-point the entitlement, or the second user inherits the first one's premium.
+     */
+    fun logIn(email: String)
+
+    /**
+     * Clear the signed-in identity and drop to anonymous.
+     *
+     * The entitlement goes with it: a sign-out that leaves a cached premium state shows the next
+     * user something they did not buy.
+     */
+    fun logOut()
+
+    /**
+     * Bind identity from an OAuth provider's id token, for hosts that never see an email.
+     *
+     * Suspending because it round-trips to verify the token before the identity is trusted.
+     */
+    suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String)
+
+    /**
+     * Whether this user may still start a free trial.
+     *
+     * Ask BEFORE advertising one: a returning user who already consumed their trial is shown the
+     * offer, taps it, and the store refuses — a dead end the host could have avoided.
+     */
+    suspend fun checkTrialEligibility(): Boolean
+
+    /**
+     * One-shot purchase-success events, for an effect a flow of state cannot express: a thank-you
+     * sheet, a confetti burst, an analytics conversion. [isPremium] tells you the user IS premium;
+     * this tells you they JUST became premium.
+     */
+    val subscriptionActivated: SharedFlow<SubscriptionActivated>
 }

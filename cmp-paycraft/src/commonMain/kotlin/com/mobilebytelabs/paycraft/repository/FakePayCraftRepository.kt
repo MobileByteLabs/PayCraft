@@ -10,16 +10,20 @@ package com.mobilebytelabs.paycraft.repository
 import com.mobilebytelabs.paycraft.config.CouponDto
 import com.mobilebytelabs.paycraft.core.EntitlementSnapshot
 import com.mobilebytelabs.paycraft.core.PaywallPresentation
+import com.mobilebytelabs.paycraft.core.SubscriptionActivated
 import com.mobilebytelabs.paycraft.core.TrialSnapshot
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.model.EntitlementSummary
 import com.mobilebytelabs.paycraft.model.EntitlementTier
+import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionState
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.network.CouponClient
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -222,4 +226,37 @@ class FakePayCraftRepository(
     override fun onAppOpen(entitlement: EntitlementSnapshot, trial: TrialSnapshot) {
         onAppOpenCalls += entitlement to trial
     }
+
+    // ── Identity ─────────────────────────────────────────────────────────────────────────────────
+
+    val userEmailFlow = MutableStateFlow<String?>(null)
+    override val userEmail: StateFlow<String?> get() = userEmailFlow
+
+    /** Recorded AND applied: a test asserting re-binding needs userEmail to actually change. */
+    val logInCalls = mutableListOf<String>()
+    override fun logIn(email: String) {
+        logInCalls += email
+        userEmailFlow.value = email
+    }
+
+    var logOutCalls = 0
+    override fun logOut() {
+        logOutCalls++
+        userEmailFlow.value = null
+        // Sign-out drops the entitlement with the identity — a fake that kept premium would let a
+        // test pass while the real app showed the next user the previous user's state.
+        setPremium(false)
+    }
+
+    val loginWithOAuthCalls = mutableListOf<Pair<OAuthProvider, String>>()
+    override suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String) {
+        loginWithOAuthCalls += provider to idToken
+    }
+
+    /** What [checkTrialEligibility] should answer. Defaults to eligible, the commonest case. */
+    var trialEligible: Boolean = true
+    override suspend fun checkTrialEligibility(): Boolean = trialEligible
+
+    val subscriptionActivatedFlow = MutableSharedFlow<SubscriptionActivated>(replay = 1)
+    override val subscriptionActivated: SharedFlow<SubscriptionActivated> get() = subscriptionActivatedFlow
 }
