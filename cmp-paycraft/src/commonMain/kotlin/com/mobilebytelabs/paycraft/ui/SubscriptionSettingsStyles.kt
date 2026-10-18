@@ -100,8 +100,18 @@ internal fun MinimalSettings(
     onUpgrade: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = theme.horizontalPadding, vertical = theme.rowSpacing)) {
+        // The tier NAME leads, then the supporting line, on one line.
+        //
+        // This used to render `supportingText` alone and ignore `state.statusLabel` — which a
+        // screenshot test caught the first time these styles were ever rendered. For a subscriber
+        // the supporting line is a date ("Renews 14 Nov 2026"), so the row read as "renews WHAT?":
+        // self-describing only if the host passed a `header`, which is optional. Minimal is the
+        // style for a long settings list, which is exactly where an unlabelled date is ambiguous.
+        //
+        // Still ONE line — the point of this preset — and the separator is dropped when there is no
+        // supporting text to join, rather than leaving a dangling "Premium ·".
         Text(
-            state.supportingText,
+            listOf(state.statusLabel, state.supportingText).filter { it.isNotBlank() }.joinToString(" · "),
             style = theme.supportingTextStyle,
             color = theme.supportingColor,
             modifier = Modifier.testTag(PayCraftTestTags.SUBSCRIPTION_STATUS_ROW),
