@@ -64,11 +64,6 @@ object PayCraftTestTags {
     const val PREMIUM_PROVIDER_LABEL = "paycraft_premium_provider_label"
     const val PREMIUM_EMAIL_LABEL = "paycraft_premium_email_label"
 
-    // Premium guard
-    const val PREMIUM_GUARD_LOCKED = "paycraft_premium_guard_locked"
-    const val PREMIUM_GUARD_UNLOCKED = "paycraft_premium_guard_unlocked"
-    const val PREMIUM_GUARD_UPGRADE_BUTTON = "paycraft_premium_guard_upgrade_button"
-
     // PayCraftGate / PayCraftAdGate. One tag per OUTCOME, because a test must be able
     // to tell "resolving" from "locked" and "ad grant" from "subscribed" — and a gate that silently
     // serves gated content reads as a pass if two outcomes share a tag.
@@ -87,12 +82,9 @@ object PayCraftTestTags {
     const val GATE_SOFT_SHIELD = "paycraft_gate_soft_shield"
     const val GATE_PLUS_CHIP = "paycraft_gate_plus_chip"
 
-    // Superseded by the GATE_* tags above; kept so the deprecated PayCraftPaywallGuardScreen and any
-    // existing assertion against it still compile.
-    const val PAYWALL_GUARD_UNLOCKED = "paycraft_paywall_guard_unlocked"
-    const val PAYWALL_GUARD_LOCKED = "paycraft_paywall_guard_locked"
-    const val PAYWALL_GUARD_AD_SUPPORTED = "paycraft_paywall_guard_ad_supported"
-    const val PAYWALL_GUARD_RESOLVING = "paycraft_paywall_guard_resolving"
+    // PREMIUM_GUARD_* and PAYWALL_GUARD_* lived here, superseded by the GATE_* tags above and
+    // kept only so the deprecated guards compiled. Those guards are gone (2026-10-18), and a tag
+    // nothing emits is a tag a test can assert forever without ever rendering it.
 
     // Banner paywall (DisplayMode.Banner)
     const val BANNER_PAYWALL = "paycraft_banner_paywall"

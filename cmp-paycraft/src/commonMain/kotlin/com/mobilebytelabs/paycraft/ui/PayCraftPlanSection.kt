@@ -359,8 +359,10 @@ private val MONTHS = listOf(
  *
  * @param style one of five presets. [PayCraftPlanSectionStyle.Rows] suits a conventional settings
  *   list; the others exist for hosts whose settings screen is not a list.
- * @param theme design tokens. Defaults read from the ambient `MaterialTheme`, so a themed app needs
- *   to pass nothing; override where your design system exposes something Material does not.
+ * @param theme design tokens. Defaults to the app-wide theme supplied via
+ *   [ProvidePayCraftPlanSectionTheme], falling back to the ambient `MaterialTheme`. Pass one here
+ *   only for a screen that differs from the app-wide answer — otherwise provide it once and let
+ *   every surface pick it up.
  * @param header drawn above the rows when the section is visible. Omitted when it is not, so a host
  *   never renders a heading over nothing. The only slot, because a heading is the host's own
  *   typography — its casing, colour and leading — and no theme token expresses that.
@@ -369,9 +371,22 @@ private val MONTHS = listOf(
 fun PayCraftPlanSection(
     modifier: Modifier = Modifier,
     style: PayCraftPlanSectionStyle = PayCraftPlanSectionStyle.Rows,
-    theme: PayCraftPlanSectionTheme = PayCraftPlanSectionTheme.defaults(),
+    theme: PayCraftPlanSectionTheme = rememberPayCraftPlanSectionTheme(),
     header: (@Composable () -> Unit)? = null,
 ) {
+    // The configured check comes FIRST, before anything resolves from Koin.
+    //
+    // It used to live inside the state function, AFTER `repository ?: koinInject()` — so merely
+    // HAVING this section on a screen required a started Koin graph, and every @Preview and
+    // Roborazzi capture of a host screen containing one died with "KoinApplication has not been
+    // started". cappy's settings preview test caught it the day this was adopted.
+    //
+    // This is the SAME defect [PayCraftRestore] documents and fixed the same way: check the cheap
+    // thing that can short-circuit, and only then reach for DI. It is also the correct PRODUCTION
+    // order — an app with no publishable key has no billing to resolve, so resolving one is work
+    // done to render nothing.
+    if (!PayCraft.isConfigured) return
+
     val copy = rememberSettingsCopy()
     val state = rememberSubscriptionSettingsState(copy = copy)
     if (!state.visible) return
