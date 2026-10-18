@@ -43,7 +43,7 @@ object PayCraftTestTags {
     const val LOGOUT_BUTTON = "paycraft_logout_button"
     const val MANAGE_SUBSCRIPTION_BUTTON = "paycraft_manage_subscription_button"
 
-    // ── Subscription settings section (PayCraftSubscriptionSettings) ─────────────────────────────
+    // ── Subscription settings section (PayCraftPlanSection) ─────────────────────────────
     // A host that renders the section with its OWN row components should reuse these tags, so a
     // device flow asserting "the user can reach cancel" works the same across every consumer.
     const val SUBSCRIPTION_SETTINGS = "paycraft_subscription_settings"
@@ -69,7 +69,7 @@ object PayCraftTestTags {
     const val PREMIUM_GUARD_UNLOCKED = "paycraft_premium_guard_unlocked"
     const val PREMIUM_GUARD_UPGRADE_BUTTON = "paycraft_premium_guard_upgrade_button"
 
-    // PayCraftPremiumGate / PayCraftRewardedGate. One tag per OUTCOME, because a test must be able
+    // PayCraftGate / PayCraftAdGate. One tag per OUTCOME, because a test must be able
     // to tell "resolving" from "locked" and "ad grant" from "subscribed" — and a gate that silently
     // serves gated content reads as a pass if two outcomes share a tag.
     const val GATE_UNLOCKED = "paycraft_gate_unlocked"
@@ -80,7 +80,7 @@ object PayCraftTestTags {
     const val GATE_WATCH_AD_BUTTON = "paycraft_gate_watch_ad_button"
     const val GATE_UPGRADE_BUTTON = "paycraft_gate_upgrade_button"
 
-    // PayCraftSoftGate. SOFT_LOCKED is distinct from GATE_LOCKED on purpose: a soft gate still
+    // PayCraftTeaseGate. SOFT_LOCKED is distinct from GATE_LOCKED on purpose: a soft gate still
     // renders the content, so a test asserting "locked" must be able to tell "content hidden behind a
     // paywall" from "content visible but its tap redirected" — the two have opposite requirements.
     const val GATE_SOFT_LOCKED = "paycraft_gate_soft_locked"

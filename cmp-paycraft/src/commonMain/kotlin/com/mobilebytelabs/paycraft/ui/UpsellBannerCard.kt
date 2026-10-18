@@ -45,10 +45,10 @@ import com.mobilebytelabs.paycraft.ui.theme.parseHexColor
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
- * The [PayCraftBannerStyle.Upsell] body: a flat brand-coloured card that renders NOTHING for a
+ * The [PayCraftPlanBannerStyle.Upsell] body: a flat brand-coloured card that renders NOTHING for a
  * subscriber.
  *
- * This was the public `PayCraftPremiumBanner`. It is internal now because it and `PayCraftBanner`
+ * This was the public `PayCraftPremiumBanner`. It is internal now because it and `PayCraftPlanBanner`
  * were two public names for one job — observe entitlement, draw a card, offer upgrade and restore —
  * differing only in what a paying user sees. That difference is a style, so it became one.
  *

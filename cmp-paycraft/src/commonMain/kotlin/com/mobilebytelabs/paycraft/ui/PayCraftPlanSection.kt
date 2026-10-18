@@ -48,7 +48,7 @@ import org.koin.compose.koinInject
  *
  * Every consumer rebuilds it. Measured on `mbs/cappy` 2026-10-16: 67 subscription-related lines in
  * a 411-line settings ViewModel, plus the section UI, plus its own `EntitlementTier -> String`
- * mapping. The pieces were already HERE — [PayCraftRestore] ships the restore flow, [PayCraftBanner]
+ * mapping. The pieces were already HERE — [PayCraftRestore] ships the restore flow, [PayCraftPlanBanner]
  * the status card — and what was missing is the one thing a host actually wants: the section.
  *
  * cappy's tier mapping carried this comment:
@@ -61,18 +61,18 @@ import org.koin.compose.koinInject
  *
  * ## One way in
  *
- * [PayCraftSubscriptionSettings] draws the whole section, and that is the only entry point. The
+ * [PayCraftPlanSection] draws the whole section, and that is the only entry point. The
  * computed state below is INTERNAL on purpose.
  *
  * An earlier draft exposed it so a host could draw the rows itself. That inverted the point: handing
  * a consumer `statusLabel` / `canManage` / `onManage` and asking them to assemble a section is the
  * work they were already doing, minus a tier `when`. The actual objection to an SDK-drawn row is
  * that it looks foreign in someone else's list — which is a THEMING problem, so
- * [PayCraftSettingsTheme] solves it instead. Its defaults read from the ambient `MaterialTheme`, so
+ * [PayCraftPlanSectionTheme] solves it instead. Its defaults read from the ambient `MaterialTheme`, so
  * a host that themes its app at all already gets its own palette, shape and type here.
  */
 @Immutable
-internal data class SubscriptionSettingsState(
+internal data class PlanSectionState(
     /**
      * Whether a billing section should appear AT ALL.
      *
@@ -114,7 +114,7 @@ internal data class SubscriptionSettingsState(
 )
 
 /**
- * Compute [SubscriptionSettingsState] from live entitlement.
+ * Compute [PlanSectionState] from live entitlement.
  *
  * @param repository the data facade. Nullable with a Koin fallback resolved INSIDE the body, never
  *   as a default argument: a default is evaluated at the CALL SITE, so `repository: PayCraftRepository
@@ -128,8 +128,8 @@ internal data class SubscriptionSettingsState(
 @Composable
 internal fun rememberSubscriptionSettingsState(
     repository: PayCraftRepository? = null,
-    copy: SubscriptionSettingsCopy,
-): SubscriptionSettingsState {
+    copy: PlanSectionCopy,
+): PlanSectionState {
     val repo = repository ?: koinInject()
     val entitlement by repo.entitlement.collectAsState()
     val status by repo.subscriptionStatus.collectAsState()
@@ -164,7 +164,7 @@ internal fun rememberSubscriptionSettingsState(
         }
     }
 
-    return SubscriptionSettingsState(
+    return PlanSectionState(
         visible = configured,
         tier = entitlement.tier,
         statusLabel = when (entitlement.tier) {
@@ -202,7 +202,7 @@ internal fun rememberSubscriptionSettingsState(
  * `trial_terms_template`, so server-authored copy works the same way everywhere.
  */
 @Immutable
-internal data class SubscriptionSettingsCopy(
+internal data class PlanSectionCopy(
     val freeLabel: String,
     val trialLabel: String,
     val premiumLabel: String,
@@ -241,8 +241,8 @@ internal data class SubscriptionSettingsCopy(
  * copy columns did.
  *
  * Every field follows the SAME two rungs — the tenant's `settings_*` value, then the bundled
- * string. An earlier version let [SubscriptionSettingsCopy.upgradeLabel] and
- * [SubscriptionSettingsCopy.restoreLabel] fall through the tenant's PAYWALL equivalent first, so an
+ * string. An earlier version let [PlanSectionCopy.upgradeLabel] and
+ * [PlanSectionCopy.restoreLabel] fall through the tenant's PAYWALL equivalent first, so an
  * app that renamed its paywall CTA to "Go Pro" would inherit it here for free.
  *
  * That was wrong, and a test caught it: `PaywallDto.restoreLabel` and `ctaGetPremium` default to
@@ -254,7 +254,7 @@ internal data class SubscriptionSettingsCopy(
  * A tenant who wants different settings wording types it in the settings field. One rule, no
  * exceptions, and localisation survives.
  */
-internal fun SubscriptionSettingsCopy.mergedWith(paywall: PaywallDto) = SubscriptionSettingsCopy(
+internal fun PlanSectionCopy.mergedWith(paywall: PaywallDto) = PlanSectionCopy(
     freeLabel = paywall.settingsFreeLabel.ifBlank { freeLabel },
     trialLabel = paywall.settingsTrialLabel.ifBlank { trialLabel },
     premiumLabel = paywall.settingsPremiumLabel.ifBlank { premiumLabel },
@@ -279,11 +279,11 @@ internal fun SubscriptionSettingsCopy.mergedWith(paywall: PaywallDto) = Subscrip
  * its settings.
  */
 @Composable
-internal fun rememberSettingsCopy(): SubscriptionSettingsCopy {
+internal fun rememberSettingsCopy(): PlanSectionCopy {
     // stringResource must be read in composition, so every fallback resolves up front — which is
     // also why the type holds templates: a `(Long) -> String` lambda could not call stringResource
     // from inside the non-composable function type the renderers invoke it through.
-    val bundled = SubscriptionSettingsCopy(
+    val bundled = PlanSectionCopy(
         freeLabel = stringResource(Res.string.paycraft_settings_free),
         trialLabel = stringResource(Res.string.paycraft_settings_trial),
         premiumLabel = stringResource(Res.string.paycraft_settings_premium),
@@ -349,7 +349,7 @@ private val MONTHS = listOf(
  *
  * ```kotlin
  * // Settings screen
- * PayCraftSubscriptionSettings(header = { SectionHeader("Subscription") })
+ * PayCraftPlanSection(header = { SectionHeader("Subscription") })
  * ```
  *
  * Every parameter is presentation. The wording comes from the dashboard, the data from the SDK's
@@ -357,7 +357,7 @@ private val MONTHS = listOf(
  * copy, repository or callback to pass. That is the point of the component existing at all: it is
  * a VIEW of live subscription state, not a kit for assembling one.
  *
- * @param style one of five presets. [SubscriptionSettingsStyle.Rows] suits a conventional settings
+ * @param style one of five presets. [PayCraftPlanSectionStyle.Rows] suits a conventional settings
  *   list; the others exist for hosts whose settings screen is not a list.
  * @param theme design tokens. Defaults read from the ambient `MaterialTheme`, so a themed app needs
  *   to pass nothing; override where your design system exposes something Material does not.
@@ -366,10 +366,10 @@ private val MONTHS = listOf(
  *   typography — its casing, colour and leading — and no theme token expresses that.
  */
 @Composable
-fun PayCraftSubscriptionSettings(
+fun PayCraftPlanSection(
     modifier: Modifier = Modifier,
-    style: SubscriptionSettingsStyle = SubscriptionSettingsStyle.Rows,
-    theme: PayCraftSettingsTheme = PayCraftSettingsTheme.defaults(),
+    style: PayCraftPlanSectionStyle = PayCraftPlanSectionStyle.Rows,
+    theme: PayCraftPlanSectionTheme = PayCraftPlanSectionTheme.defaults(),
     header: (@Composable () -> Unit)? = null,
 ) {
     val copy = rememberSettingsCopy()
@@ -386,14 +386,14 @@ fun PayCraftSubscriptionSettings(
     Column(modifier = modifier.fillMaxWidth().testTag(PayCraftTestTags.SUBSCRIPTION_SETTINGS)) {
         // Compact is a single inline row by definition — a section header above a one-liner is the
         // thing it exists to avoid, so it does not get one.
-        if (style != SubscriptionSettingsStyle.Compact) header?.invoke()
+        if (style != PayCraftPlanSectionStyle.Compact) header?.invoke()
 
         when (style) {
-            SubscriptionSettingsStyle.Minimal -> MinimalSettings(state, copy, theme, upgrade)
-            SubscriptionSettingsStyle.Rows -> RowsSettings(state, copy, theme, upgrade)
-            SubscriptionSettingsStyle.Card -> CardSettings(state, copy, theme, upgrade)
-            SubscriptionSettingsStyle.Hero -> HeroSettings(state, copy, theme, upgrade)
-            SubscriptionSettingsStyle.Compact -> CompactSettings(state, theme, upgrade)
+            PayCraftPlanSectionStyle.Minimal -> MinimalSettings(state, copy, theme, upgrade)
+            PayCraftPlanSectionStyle.Rows -> RowsSettings(state, copy, theme, upgrade)
+            PayCraftPlanSectionStyle.Card -> CardSettings(state, copy, theme, upgrade)
+            PayCraftPlanSectionStyle.Hero -> HeroSettings(state, copy, theme, upgrade)
+            PayCraftPlanSectionStyle.Compact -> CompactSettings(state, theme, upgrade)
         }
     }
 }

@@ -27,7 +27,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * [PayCraftSoftGate] — the soft posture: content stays visible, only the ACTION is redirected.
+ * [PayCraftTeaseGate] — the soft posture: content stays visible, only the ACTION is redirected.
  *
  * The decisive test is [softGate_locked_absorbsTheTap_soTheHostActionNeverFires]. A badge-only helper
  * passes every other assertion here and still lets premium audio play, because the host's own
@@ -35,7 +35,7 @@ import kotlin.test.assertTrue
  * COUNTING host-action invocations rather than by looking at pixels.
  */
 @OptIn(ExperimentalTestApi::class)
-class PayCraftSoftGateTest {
+class PayCraftTeaseGateTest {
 
     private val item = "premium-soundscape"
 
@@ -63,7 +63,7 @@ class PayCraftSoftGateTest {
     fun softGate_entitled_rendersContentWithNoChipAndNoShield() = runComposeUiTest {
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.Entitled) {
-                PayCraftSoftGate { HostTile(onPlay = {}) }
+                PayCraftTeaseGate { HostTile(onPlay = {}) }
             }
         }
         onNodeWithText(item).assertIsDisplayed()
@@ -76,7 +76,7 @@ class PayCraftSoftGateTest {
         var plays = 0
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.Entitled) {
-                PayCraftSoftGate { HostTile(onPlay = { plays++ }) }
+                PayCraftTeaseGate { HostTile(onPlay = { plays++ }) }
             }
         }
         onNodeWithTag("host_tile").performClick()
@@ -85,11 +85,11 @@ class PayCraftSoftGateTest {
 
     @Test
     fun softGate_locked_stillShowsTheContent() = runComposeUiTest {
-        // THE soft contract, and the difference from PayCraftPremiumGate: a free player must still see
+        // THE soft contract, and the difference from PayCraftGate: a free player must still see
         // what Plus unlocks. Hiding it here would be the hard wall this gate exists to avoid.
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.NotEntitled) {
-                PayCraftSoftGate { HostTile(onPlay = {}) }
+                PayCraftTeaseGate { HostTile(onPlay = {}) }
             }
         }
         onNodeWithTag(PayCraftTestTags.GATE_SOFT_LOCKED).assertIsDisplayed()
@@ -104,7 +104,7 @@ class PayCraftSoftGateTest {
         var plays = 0
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.NotEntitled) {
-                PayCraftSoftGate { HostTile(onPlay = { plays++ }) }
+                PayCraftTeaseGate { HostTile(onPlay = { plays++ }) }
             }
         }
         onNodeWithTag(PayCraftTestTags.GATE_SOFT_SHIELD).performClick()
@@ -128,7 +128,7 @@ class PayCraftSoftGateTest {
         PayCraft.dismissPaywall()
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.NotEntitled) {
-                PayCraftSoftGate { HostTile(onPlay = {}) }
+                PayCraftTeaseGate { HostTile(onPlay = {}) }
             }
         }
 
@@ -149,7 +149,7 @@ class PayCraftSoftGateTest {
         var plays = 0
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.NotEntitled) {
-                PayCraftSoftGate(enabled = false) { HostTile(onPlay = { plays++ }) }
+                PayCraftTeaseGate(enabled = false) { HostTile(onPlay = { plays++ }) }
             }
         }
         onNodeWithTag(PayCraftTestTags.GATE_PLUS_CHIP).assertDoesNotExist()
@@ -163,7 +163,7 @@ class PayCraftSoftGateTest {
         // Hosts with their own Plus chip art keep it; only the plumbing moves to the SDK.
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.NotEntitled) {
-                PayCraftSoftGate(badge = { Text("Cappy Plus") }) { HostTile(onPlay = {}) }
+                PayCraftTeaseGate(badge = { Text("Cappy Plus") }) { HostTile(onPlay = {}) }
             }
         }
         onNodeWithText("Cappy Plus").assertIsDisplayed()
@@ -172,7 +172,7 @@ class PayCraftSoftGateTest {
 
     @Test
     fun softGate_whileResolving_errsOPEN_notLocked() = runComposeUiTest {
-        // Deliberately the OPPOSITE of PayCraftPremiumGate. A soft gate must never be the thing that
+        // Deliberately the OPPOSITE of PayCraftGate. A soft gate must never be the thing that
         // interrupts: flashing a lock at a subscriber during a cold start is the same disappearing-
         // state defect as flashing a paywall, and here the stake is one tap, not the whole screen.
         //
@@ -182,7 +182,7 @@ class PayCraftSoftGateTest {
         var plays = 0
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.Resolving) {
-                PayCraftSoftGate { HostTile(onPlay = { plays++ }) }
+                PayCraftTeaseGate { HostTile(onPlay = { plays++ }) }
             }
         }
 

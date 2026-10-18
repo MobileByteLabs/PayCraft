@@ -27,7 +27,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * [PayCraftPremiumGate] + [PayCraftRewardedGate].
+ * [PayCraftGate] + [PayCraftAdGate].
  *
  * Entitlement is driven through [LocalPayCraftEntitlementOverride] — the same seam a consumer's
  * `@Preview` uses — because the gates deliberately take no `billingManager`. That is the point of the
@@ -83,13 +83,13 @@ class PayCraftGatesTest {
         Dispatchers.resetMain()
     }
 
-    // ── PayCraftPremiumGate ──────────────────────────────────────────────────────────────────────
+    // ── PayCraftGate ──────────────────────────────────────────────────────────────────────
 
     @Test
     fun premiumGate_entitled_showsContent() = runComposeUiTest {
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.Entitled) {
-                PayCraftPremiumGate { Text(gated) }
+                PayCraftGate { Text(gated) }
             }
         }
         onNodeWithTag(PayCraftTestTags.GATE_UNLOCKED).assertIsDisplayed()
@@ -102,20 +102,20 @@ class PayCraftGatesTest {
         // ViewModel — so this asserts the thing that matters and is assertable without one: the
         // gated content is NOT rendered.
         setContent {
-            WithPaywallGraph(entitled = false) { PayCraftPremiumGate { Text(gated) } }
+            WithPaywallGraph(entitled = false) { PayCraftGate { Text(gated) } }
         }
         onNodeWithTag(PayCraftTestTags.GATE_LOCKED).assertExists()
         onNodeWithText(gated).assertDoesNotExist()
     }
 
-    // ── PayCraftRewardedGate ─────────────────────────────────────────────────────────────────────
+    // ── PayCraftAdGate ─────────────────────────────────────────────────────────────────────
 
     @Test
     fun rewardedGate_entitled_showsContentAndNeverOffersAnAd() = runComposeUiTest {
         // A subscriber must never be asked to watch an ad for something they already pay for.
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.Entitled) {
-                PayCraftRewardedGate(
+                PayCraftAdGate(
                     featureKey = feature,
                     ads = { Text(adSurface) },
                 ) { Text(gated) }
@@ -130,7 +130,7 @@ class PayCraftGatesTest {
     fun rewardedGate_notEntitled_offersWatchOrUpgrade_andHidesContent() = runComposeUiTest {
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.NotEntitled) {
-                PayCraftRewardedGate(
+                PayCraftAdGate(
                     featureKey = feature,
                     ads = { Text(adSurface) },
                 ) { Text(gated) }
@@ -149,7 +149,7 @@ class PayCraftGatesTest {
         // callback, which this ad surface never invokes.
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.NotEntitled) {
-                PayCraftRewardedGate(
+                PayCraftAdGate(
                     featureKey = feature,
                     ads = { Text(adSurface) }, // never calls onRewardEarned
                 ) { Text(gated) }
@@ -166,7 +166,7 @@ class PayCraftGatesTest {
     fun rewardedGate_rewardEarned_unlocksTheContent() = runComposeUiTest {
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.NotEntitled) {
-                PayCraftRewardedGate(
+                PayCraftAdGate(
                     featureKey = feature,
                     // A real rewarded ad reports completion as an EVENT. Invoking the callback
                     // inline during composition would be a side effect in composition — bad practice,
@@ -186,12 +186,12 @@ class PayCraftGatesTest {
 
     @Test
     fun rewardedGate_noAdsSupplied_failsClosed() = runComposeUiTest {
-        // `ads = null` means the host has no inventory. It must behave like PayCraftPremiumGate, NOT
+        // `ads = null` means the host has no inventory. It must behave like PayCraftGate, NOT
         // hand over the content — a gate that opens because the host forgot to wire an ad SDK is the
         // one failure here that costs money.
         setContent {
             WithPaywallGraph(entitled = false) {
-                PayCraftRewardedGate(featureKey = feature, ads = null) { Text(gated) }
+                PayCraftAdGate(featureKey = feature, ads = null) { Text(gated) }
             }
         }
         onNodeWithTag(PayCraftTestTags.GATE_LOCKED).assertExists()
@@ -204,7 +204,7 @@ class PayCraftGatesTest {
         PayCraftAdUnlock.grant(feature)
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.NotEntitled) {
-                PayCraftRewardedGate(
+                PayCraftAdGate(
                     featureKey = feature,
                     ads = { Text(adSurface) },
                 ) { Text(gated) }
@@ -220,7 +220,7 @@ class PayCraftGatesTest {
         PayCraftAdUnlock.grant("insights")
         setContent {
             CompositionLocalProvider(LocalPayCraftEntitlementOverride provides PayCraftGateState.NotEntitled) {
-                PayCraftRewardedGate(
+                PayCraftAdGate(
                     featureKey = "soundscapes",
                     ads = { Text(adSurface) },
                 ) { Text(gated) }

@@ -259,7 +259,7 @@ data class PaywallDto(
     @SerialName("hero_icon_url") val heroIconUrl: String? = null,
     @SerialName("support_email") val supportEmail: String? = null,
     // ── Subscription-settings section copy (migration 156) ──────────────
-    // Wording for PayCraftSubscriptionSettings, so the settings section and the paywall are edited
+    // Wording for PayCraftPlanSection, so the settings section and the paywall are edited
     // in the same place and cannot disagree about what a tier is called.
     //
     // Every one defaults to "" and the SDK reads them as `.ifBlank { stringResource(…) }`. Blank

@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * How [PayCraftSubscriptionSettings] should LOOK inside this app.
+ * How [PayCraftPlanSection] should LOOK inside this app.
  *
  * ## Why a theme instead of exposing the state
  *
@@ -41,9 +41,9 @@ import androidx.compose.ui.unit.dp
  * the SDK cannot see.
  *
  * ```kotlin
- * PayCraftSubscriptionSettings(
- *     style = SubscriptionSettingsStyle.Rows,
- *     theme = PayCraftSettingsTheme.defaults().copy(
+ * PayCraftPlanSection(
+ *     style = PayCraftPlanSectionStyle.Rows,
+ *     theme = PayCraftPlanSectionTheme.defaults().copy(
  *         iconTileBackground = MaterialTheme.colorScheme.tertiaryContainer,
  *         rowSpacing = MaterialTheme.spacing.md,
  *     ),
@@ -51,7 +51,7 @@ import androidx.compose.ui.unit.dp
  * ```
  */
 @Immutable
-data class PayCraftSettingsTheme(
+data class PayCraftPlanSectionTheme(
     /** Behind the section as a whole. `Transparent` lets a host's own group container show. */
     val containerColor: Color,
     /** Primary text. */
@@ -62,7 +62,7 @@ data class PayCraftSettingsTheme(
     val iconTileBackground: Color,
     /** The tier glyph itself. */
     val iconTileTint: Color,
-    /** Fill for the one prominent action, used by [SubscriptionSettingsStyle.Hero]. */
+    /** Fill for the one prominent action, used by [PayCraftPlanSectionStyle.Hero]. */
     val accentColor: Color,
     /** On [accentColor]. */
     val onAccentColor: Color,
@@ -96,7 +96,7 @@ data class PayCraftSettingsTheme(
          */
         @Composable
         @ReadOnlyComposable
-        fun defaults(): PayCraftSettingsTheme = PayCraftSettingsTheme(
+        fun defaults(): PayCraftPlanSectionTheme = PayCraftPlanSectionTheme(
             containerColor = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurface,
             supportingColor = MaterialTheme.colorScheme.onSurfaceVariant,

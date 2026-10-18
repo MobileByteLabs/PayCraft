@@ -60,10 +60,10 @@ PayCraftPaywall(onDismiss = { })
 PayCraftSheet(visible = show, onDismiss = { show = false })
 
 // Settings banner — upgrade / manage / restore all handled internally
-PayCraftBanner()
+PayCraftPlanBanner()
 
 // Full subscription section, five styles, themeable
-PayCraftSubscriptionSettings(style = SubscriptionSettingsStyle.Rows)
+PayCraftPlanSection(style = PayCraftPlanSectionStyle.Rows)
 ```
 
 The restore sheet is not a composable you place. Every SDK surface that offers "Restore

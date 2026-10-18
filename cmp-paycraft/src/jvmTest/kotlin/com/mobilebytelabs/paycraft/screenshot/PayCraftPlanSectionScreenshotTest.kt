@@ -4,7 +4,7 @@
  * The subscription-settings section, RENDERED.
  *
  * WHY THIS EXISTS
- * `PayCraftSubscriptionSettings` and its five styles were authored, reviewed and shipped with
+ * `PayCraftPlanSection` and its five styles were authored, reviewed and shipped with
  * compile + logic verification only — 562 unit tests, zero pixels. Every report on them carried the
  * same caveat: "none of this has been seen rendered". Five style presets and a theme whose defaults
  * resolve from MaterialTheme is precisely the surface where that gap hides a real defect: a style
@@ -19,7 +19,7 @@
  * frame as the reference.
  *
  * WHY THE STYLE BODIES AND NOT THE PUBLIC COMPOSABLE
- * `PayCraftSubscriptionSettings` resolves its repository from Koin and gates on
+ * `PayCraftPlanSection` resolves its repository from Koin and gates on
  * `PayCraft.isConfigured`, so rendering it here would test the harness as much as the UI. The five
  * internal style functions take state/copy/theme explicitly — they ARE the production composables,
  * with the resolution step removed. State is constructed directly for the same reason: it makes the
@@ -48,22 +48,22 @@ import com.mobilebytelabs.paycraft.ui.CardSettings
 import com.mobilebytelabs.paycraft.ui.CompactSettings
 import com.mobilebytelabs.paycraft.ui.HeroSettings
 import com.mobilebytelabs.paycraft.ui.MinimalSettings
-import com.mobilebytelabs.paycraft.ui.PayCraftSettingsTheme
+import com.mobilebytelabs.paycraft.ui.PayCraftPlanSectionTheme
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
+import com.mobilebytelabs.paycraft.ui.PlanSectionCopy
+import com.mobilebytelabs.paycraft.ui.PlanSectionState
 import com.mobilebytelabs.paycraft.ui.RowsSettings
-import com.mobilebytelabs.paycraft.ui.SubscriptionSettingsCopy
-import com.mobilebytelabs.paycraft.ui.SubscriptionSettingsState
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
 import io.github.takahirom.roborazzi.captureRoboImage
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
-class SubscriptionSettingsScreenshotTest {
+class PayCraftPlanSectionScreenshotTest {
 
     // The bundled English copy, as rememberSettingsCopy() resolves it when a tenant has configured
     // nothing — the commonest production case by a wide margin.
-    private val copy = SubscriptionSettingsCopy(
+    private val copy = PlanSectionCopy(
         freeLabel = "Free",
         trialLabel = "Trial",
         premiumLabel = "Premium",
@@ -81,7 +81,7 @@ class SubscriptionSettingsScreenshotTest {
     )
 
     private fun state(tier: EntitlementTier, supporting: String, canManage: Boolean = tier != EntitlementTier.FREE) =
-        SubscriptionSettingsState(
+        PlanSectionState(
             visible = true,
             tier = tier,
             statusLabel = when (tier) {
@@ -237,14 +237,14 @@ class SubscriptionSettingsScreenshotTest {
     // ── Helpers ──────────────────────────────────────────────────────────────────────────────────
 
     @Composable
-    private fun theme(): PayCraftSettingsTheme = PayCraftSettingsTheme.defaults()
+    private fun theme(): PayCraftPlanSectionTheme = PayCraftPlanSectionTheme.defaults()
 
     /**
      * The production layout, reproduced exactly.
      *
      * The inner COLUMN is load-bearing and was missing from the first version of this harness.
      * `RowsSettings` emits its status block, primary action, divider and restore row as SIBLINGS
-     * and relies on its caller for vertical stacking — `PayCraftSubscriptionSettings` wraps the
+     * and relies on its caller for vertical stacking — `PayCraftPlanSection` wraps the
      * whole `when (style)` in `Column(modifier.fillMaxWidth())`. Rendering a style inside a bare
      * Box instead let every row draw at the same origin, and the recorded golden showed "Premium",
      * "Manage Subscription" and "Restore Purchases" overlaid into illegible pixels.
@@ -279,15 +279,15 @@ class SubscriptionSettingsScreenshotTest {
 
     private companion object {
         const val DIR = "src/jvmTest/resources/screenshots"
-        const val P_MINIMAL = "$DIR/settings_minimal_premium.png"
-        const val P_ROWS = "$DIR/settings_rows_premium.png"
-        const val P_CARD = "$DIR/settings_card_premium.png"
-        const val P_HERO = "$DIR/settings_hero_premium.png"
-        const val P_COMPACT = "$DIR/settings_compact_premium.png"
-        const val P_ROWS_FREE = "$DIR/settings_rows_free.png"
-        const val P_ROWS_TRIAL = "$DIR/settings_rows_trial.png"
-        const val P_ROWS_NO_MANAGE = "$DIR/settings_rows_premium_no_manage.png"
-        const val P_CARD_BADGE = "$DIR/settings_card_premium_badge.png"
-        const val P_CARD_NO_BADGE = "$DIR/settings_card_premium_no_badge.png"
+        const val P_MINIMAL = "$DIR/plan_section_minimal_premium.png"
+        const val P_ROWS = "$DIR/plan_section_rows_premium.png"
+        const val P_CARD = "$DIR/plan_section_card_premium.png"
+        const val P_HERO = "$DIR/plan_section_hero_premium.png"
+        const val P_COMPACT = "$DIR/plan_section_compact_premium.png"
+        const val P_ROWS_FREE = "$DIR/plan_section_rows_free.png"
+        const val P_ROWS_TRIAL = "$DIR/plan_section_rows_trial.png"
+        const val P_ROWS_NO_MANAGE = "$DIR/plan_section_rows_premium_no_manage.png"
+        const val P_CARD_BADGE = "$DIR/plan_section_card_premium_badge.png"
+        const val P_CARD_NO_BADGE = "$DIR/plan_section_card_premium_no_badge.png"
     }
 }

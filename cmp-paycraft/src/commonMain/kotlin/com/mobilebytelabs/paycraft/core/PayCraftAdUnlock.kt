@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * Time-boxed "watch an ad to unlock this feature" grants.
  *
  * A rewarded ad buys the viewer a WINDOW, not a one-shot: the grant survives process death and
- * expires on a wall-clock deadline. That is the contract [PayCraftRewardedGate] is built on.
+ * expires on a wall-clock deadline. That is the contract [PayCraftAdGate] is built on.
  *
  * ## Why a window rather than a session or a use-count
  *

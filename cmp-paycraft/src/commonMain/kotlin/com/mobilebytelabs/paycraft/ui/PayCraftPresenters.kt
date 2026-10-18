@@ -21,7 +21,7 @@ import com.mobilebytelabs.paycraft.PayCraft
  *
  * [PayCraft.presentPaywall] only flips [PayCraft.paywallPresentation], a flow the host has to
  * observe and render. Most hosts do not — cappy, the first consumer, never reads it at all — so a
- * surface that merely CALLS it absorbs the tap into nothing. [PayCraftSoftGate] already learned this
+ * surface that merely CALLS it absorbs the tap into nothing. [PayCraftTeaseGate] already learned this
  * and renders its own sheet; these presenters are that lesson applied to every other surface, so an
  * Upgrade or Restore affordance the SDK draws is one the SDK can actually complete.
  *

@@ -446,7 +446,7 @@ object PayCraft {
         } else {
             // Populate a placeholder config synchronously so requireConfig()
             // never throws between initialize() and the async cloud fetch
-            // completing. UI composables (PayCraftBanner, paywalls) and Koin
+            // completing. UI composables (PayCraftPlanBanner, paywalls) and Koin
             // singletons can read empty plans/benefits as a "loading" state
             // and react when applySuiteConfig() replaces them with the real
             // values from cloud.

@@ -135,7 +135,7 @@ internal fun gateVerdictOf(isPremium: Boolean, isAdFree: Boolean, billingState: 
  * Wraps a premium-only feature. Two arguments in the common case — the modifier and the content.
  *
  * ```kotlin
- * PayCraftPremiumGate {
+ * PayCraftGate {
  *     DeepInsightsCard()
  * }
  * ```
@@ -165,7 +165,7 @@ internal fun gateVerdictOf(isPremium: Boolean, isAdFree: Boolean, billingState: 
  *   its parent for space and reads as a broken layout rather than an offer.
  */
 @Composable
-fun PayCraftPremiumGate(
+fun PayCraftGate(
     modifier: Modifier = Modifier,
     loading: (@Composable () -> Unit)? = null,
     displayMode: DisplayMode = DisplayMode.FullScreen,
@@ -188,7 +188,7 @@ fun PayCraftPremiumGate(
  * Wraps a feature unlockable EITHER by subscribing OR by watching a rewarded ad.
  *
  * ```kotlin
- * PayCraftRewardedGate(
+ * PayCraftAdGate(
  *     featureKey = "deep-insights",
  *     ads = { onRewardEarned -> MyRewardedAd(onComplete = onRewardEarned) },
  * ) {
@@ -206,7 +206,7 @@ fun PayCraftPremiumGate(
  * ## [ads] is optional, and omitting it is meaningful
  *
  * `null` means this host has no rewarded-ad inventory, so there is nothing to offer: the gate behaves
- * exactly like [PayCraftPremiumGate]. It does NOT fall through to the content — a gate that opens
+ * exactly like [PayCraftGate]. It does NOT fall through to the content — a gate that opens
  * because the host forgot to wire an ad SDK is the one failure mode here that costs money.
  *
  * ## PayCraft never touches an ad SDK
@@ -221,7 +221,7 @@ fun PayCraftPremiumGate(
  * @param unlockDurationMillis How long a reward lasts. Default 24h ([PayCraftAdUnlock.DEFAULT_UNLOCK_MILLIS]).
  */
 @Composable
-fun PayCraftRewardedGate(
+fun PayCraftAdGate(
     featureKey: String,
     modifier: Modifier = Modifier,
     unlockDurationMillis: Long = PayCraftAdUnlock.DEFAULT_UNLOCK_MILLIS,
@@ -258,7 +258,7 @@ fun PayCraftRewardedGate(
             ads { PayCraftAdUnlock.grant(featureKey, unlockDurationMillis) }
         }
 
-        // No ad inventory → identical to PayCraftPremiumGate. Fails CLOSED.
+        // No ad inventory → identical to PayCraftGate. Fails CLOSED.
         ads == null -> InternalPaywall(modifier, displayMode)
 
         else -> RewardedChoice(
@@ -354,7 +354,7 @@ private fun RewardedChoice(
  * Wraps a Plus-only feature SOFTLY: the content stays visible and the Plus affordance is additive.
  *
  * ```kotlin
- * PayCraftSoftGate(enabled = soundscape.plusOnly) {
+ * PayCraftTeaseGate(enabled = soundscape.plusOnly) {
  *     SoundscapeTile(soundscape, onPlay = { play(soundscape) })
  * }
  * ```
@@ -363,7 +363,7 @@ private fun RewardedChoice(
  * - not entitled → [content] still renders, PLUS a Plus [badge] and an interaction shield that opens
  *   the SDK paywall instead of letting the tap through
  *
- * ## Why this exists alongside [PayCraftPremiumGate]
+ * ## Why this exists alongside [PayCraftGate]
  *
  * A hard gate replaces the content with a paywall. Many products deliberately do the opposite: show
  * what Plus unlocks, let it be browsed, and intercept only the ACTION. cappy requires this in writing —
@@ -386,7 +386,7 @@ private fun RewardedChoice(
  *
  * ## Resolving shows CONTENT, not a lock
  *
- * Unlike [PayCraftPremiumGate], an unresolved entitlement renders [content] ungated. A soft gate must
+ * Unlike [PayCraftGate], an unresolved entitlement renders [content] ungated. A soft gate must
  * never be the thing that interrupts: flashing a lock at a subscriber for the first frames of a cold
  * start is the same disappearing-state defect as showing them a paywall, and here the stake is one
  * tap, not the whole screen. Erring open for a moment is the correct direction for a SOFT gate.
@@ -417,7 +417,7 @@ private fun RewardedChoice(
  *   only the content beneath (NFR-009-shaped concern).
  */
 @Composable
-fun PayCraftSoftGate(
+fun PayCraftTeaseGate(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     badge: (@Composable () -> Unit)? = null,

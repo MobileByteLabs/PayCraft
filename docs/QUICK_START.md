@@ -140,10 +140,10 @@ fun SettingsScreen() {
 
     // Tapping upgrade raises the SDK's paywall, manage opens the store or provider page, and
     // restore opens the SDK's restore sheet. None of it needs state on this screen.
-    PayCraftBanner()
+    PayCraftPlanBanner()
 
     // Or the full subscription section — status line, manage row, restore row:
-    PayCraftSubscriptionSettings(header = { Text("Subscription") })
+    PayCraftPlanSection(header = { Text("Subscription") })
 }
 ```
 

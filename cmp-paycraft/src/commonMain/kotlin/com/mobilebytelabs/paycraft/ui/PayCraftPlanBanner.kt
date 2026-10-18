@@ -121,27 +121,30 @@ private val colorCtaManage = Brush.linearGradient(
  * The SDK's billing banner. Observes entitlement and renders itself accordingly.
  *
  * ```kotlin
- * PayCraftBanner()                                        // adaptive, the default
- * PayCraftBanner(style = PayCraftBannerStyle.Upsell)      // hides itself for subscribers
+ * PayCraftPlanBanner()                                        // adaptive, the default
+ * PayCraftPlanBanner(style = PayCraftPlanBannerStyle.Upsell)      // hides itself for subscribers
  * ```
  *
- * [PayCraftBannerStyle] explains the two presets and why premium-behaviour and visual weight are
+ * [PayCraftPlanBannerStyle] explains the two presets and why premium-behaviour and visual weight are
  * bundled rather than independent. `PayCraftPremiumBanner`, which was a second public composable
- * doing this same job, is now [PayCraftBannerStyle.Upsell].
+ * doing this same job, is now [PayCraftPlanBannerStyle.Upsell].
  *
  * ## No callbacks
  *
  * It used to take `onUpgradeClick`, `onManageClick` and `onRestoreClick`, which made a host hold a
  * `var showPaywall` / `var showRestore` and render two sheets — the sample did precisely that, and
  * every consumer would have copied it. The SDK knows all three destinations: its own paywall, the
- * store/provider portal it already resolves for [PayCraftSubscriptionSettings], and its own restore
+ * store/provider portal it already resolves for [PayCraftPlanSection], and its own restore
  * sheet. Owning them is why there is nothing left to pass.
  *
  * The restore link still only appears when there is something to restore — a free user — exactly as
  * when the callback was nullable.
  */
 @Composable
-fun PayCraftBanner(modifier: Modifier = Modifier, style: PayCraftBannerStyle = PayCraftBannerStyle.Adaptive) {
+fun PayCraftPlanBanner(
+    modifier: Modifier = Modifier,
+    style: PayCraftPlanBannerStyle = PayCraftPlanBannerStyle.Adaptive,
+) {
     // Both presenters EMIT their sheet here and return a trigger, so the tap completes inside the
     // SDK instead of being handed back to a host that has to render something.
     val showPaywall = rememberPaywallPresenter()
@@ -152,7 +155,7 @@ fun PayCraftBanner(modifier: Modifier = Modifier, style: PayCraftBannerStyle = P
     // signature anyway.
     val billingManager: BillingManager = koinInject()
 
-    if (style == PayCraftBannerStyle.Upsell) {
+    if (style == PayCraftPlanBannerStyle.Upsell) {
         UpsellBannerCard(
             onGetPremiumTap = showPaywall,
             onRestoreTap = showRestore,
@@ -163,7 +166,7 @@ fun PayCraftBanner(modifier: Modifier = Modifier, style: PayCraftBannerStyle = P
     }
 
     // The facade, for the one ACTION this banner performs itself. manageSubscription() resolves the
-    // provider portal or the platform's store page — the same call PayCraftSubscriptionSettings
+    // provider portal or the platform's store page — the same call PayCraftPlanSection
     // makes, rather than a second derivation of where "Manage" goes.
     val repository: PayCraftRepository = koinInject()
     val billingState by billingManager.billingState.collectAsStateWithLifecycle()
@@ -658,7 +661,7 @@ private fun TestModeChip(modifier: Modifier = Modifier) {
 
 /**
  * Compact one-liner paywall banner — the minimal companion to the rich
- * [PayCraftBanner] gradient card. Renders through [PayCraftPaywallComposable] in
+ * [PayCraftPlanBanner] gradient card. Renders through [PayCraftPaywallComposable] in
  * [DisplayMode.Banner] so the compact strip shares the single paywall path with
  * every other public paywall composable (Phase-2 clean-SDK consolidation, AC-4).
  *

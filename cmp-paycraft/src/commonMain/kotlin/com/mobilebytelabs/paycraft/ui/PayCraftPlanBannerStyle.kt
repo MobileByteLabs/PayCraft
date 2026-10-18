@@ -8,21 +8,21 @@
 package com.mobilebytelabs.paycraft.ui
 
 /**
- * How [PayCraftBanner] presents itself.
+ * How [PayCraftPlanBanner] presents itself.
  *
  * ## Why these were two components
  *
- * `PayCraftBanner` and `PayCraftPremiumBanner` were separate public composables that did the same
+ * `PayCraftPlanBanner` and `PayCraftPremiumBanner` were separate public composables that did the same
  * job: observe entitlement, render a card, offer upgrade and restore. A consumer choosing between
  * them had to read both to discover that the real difference was what happens to a PAYING user —
  * one shows them their subscription, the other disappears.
  *
  * That is a style, not a component. Merging them means one name to learn and one place where a fix
- * lands, the same reasoning that gave [PayCraftSubscriptionSettings] its five presets.
+ * lands, the same reasoning that gave [PayCraftPlanSection] its five presets.
  *
  * ## Two presets, not five
  *
- * [PayCraftSubscriptionSettings] offers five because a settings row has five genuinely different
+ * [PayCraftPlanSection] offers five because a settings row has five genuinely different
  * densities. A banner has two real behaviours, so there are two. Adding `Compact` or `Hero` here
  * because the other component has them would be inventing variants nothing asked for.
  *
@@ -31,7 +31,7 @@ package com.mobilebytelabs.paycraft.ui
  * subscribers wastes the most prominent surface on the screen, and a flat compact card is a poor
  * place to show renewal dates and support contact.
  */
-enum class PayCraftBannerStyle {
+enum class PayCraftPlanBannerStyle {
     /**
      * Rich gradient card that adapts: perks and a gold upgrade CTA for a free user, plan details,
      * renewal date and a Manage action for a subscriber.

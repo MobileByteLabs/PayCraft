@@ -95,7 +95,7 @@ import org.koin.compose.viewmodel.koinViewModel
  * used to own — the close-button top bar (Scaffold), the test-mode chip, the
  * snackbar host, the provider-picker bottom sheet, and the modal restore sheet —
  * live inside this composable so every downstream public composable
- * ([PayCraftPaywall], [PayCraftPaywallSheet], [BannerPaywall], [PayCraftBanner]'s
+ * ([PayCraftPaywall], [PayCraftPaywallSheet], [BannerPaywall], [PayCraftPlanBanner]'s
  * inline variant, [PayCraftRestore]'s paywall-integrated variant,
  * [PayCraftPremiumGuard]'s inline variant, [PayCraftCheckoutSuccessSheet]'s
  * post-success upsell variant) delegates through this ONE path.

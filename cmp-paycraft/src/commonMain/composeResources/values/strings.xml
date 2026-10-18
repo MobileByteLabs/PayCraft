@@ -222,7 +222,7 @@
     <string name="paycraft_builtin_priced_label">%1$s — %2$s</string>
     <string name="paycraft_builtin_reload">Reload plans</string>
 
-    <!-- Subscription settings section (PayCraftSubscriptionSettings).
+    <!-- Subscription settings section (PayCraftPlanSection).
          These are the FALLBACKS for the dashboard-driven settings_* copy (migration 156): the SDK
          renders a tenant's value when they set one and these when they have not, so a tenant who
          never opens the paywall designer still gets localised wording rather than English baked

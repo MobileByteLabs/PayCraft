@@ -415,17 +415,17 @@ PAYWALL_CUSTOMIZATION.md.
 
 ## Compose surface (optional)
 
-`PayCraftPaywall`, `PayCraftPaywallSheet`, `PayCraftSheet`, `PayCraftBanner`,
-`PayCraftInlinePaywallBanner`, `PayCraftSubscriptionSettings`, `PayCraftPaywallWithRestore`,
+`PayCraftPaywall`, `PayCraftPaywallSheet`, `PayCraftSheet`, `PayCraftPlanBanner`,
+`PayCraftInlinePaywallBanner`, `PayCraftPlanSection`, `PayCraftPaywallWithRestore`,
 `PayCraftCheckoutSuccessSheet`, `PayCraftCheckoutSuccessSheetOrPaywall`, `BannerPaywall`,
-`PayCraftPaywallComposable`, `ProductList`, plus the gates (`PayCraftPremiumGate`,
-`PayCraftSoftGate`, `PayCraftRewardedGate`) and the style/theme types
-(`PayCraftBannerStyle`, `SubscriptionSettingsStyle`, `PayCraftSettingsTheme`).
+`PayCraftPaywallComposable`, `ProductList`, plus the gates (`PayCraftGate`,
+`PayCraftTeaseGate`, `PayCraftAdGate`) and the style/theme types
+(`PayCraftPlanBannerStyle`, `PayCraftPlanSectionStyle`, `PayCraftPlanSectionTheme`).
 Surface-mode contract in PAYWALL_CUSTOMIZATION.md.
 
 Deliberately NOT public: `PayCraftRestore` / `PayCraftRestoreContent` (the SDK presents restore
 itself, from the banner's link or the settings row), `PayCraftPremiumBanner` (now
-`PayCraftBannerStyle.Upsell`), `BillingManager` and `PayCraftPaywallViewModel`. Consumers reach
+`PayCraftPlanBannerStyle.Upsell`), `BillingManager` and `PayCraftPaywallViewModel`. Consumers reach
 data and actions through `PayCraftRepository` / `PayCraftStore` / `PayCraftApi`.
 
 ### Gates — how a consumer locks a surface
@@ -436,11 +436,11 @@ entitlement, so they cannot drift from the entitlement or from the offer.
 
 | Gate | Behaviour | Use when |
 |---|---|---|
-| `PayCraftPremiumGate` | REPLACES the gated content with the SDK's offer (`DisplayMode.FullScreen` / `.Banner`) | the gated thing is a TRANSACTION or a whole screen |
-| `PayCraftSoftGate` | content stays visible and readable; only the TAP is shielded, and the upsell sheet is raised in place over it | the user should still SEE what the subscription unlocks |
-| `PayCraftRewardedGate` | time-boxed unlock per feature key, via a consumer-supplied `ads` slot | the app monetises with ads as well as subscriptions |
+| `PayCraftGate` | REPLACES the gated content with the SDK's offer (`DisplayMode.FullScreen` / `.Banner`) | the gated thing is a TRANSACTION or a whole screen |
+| `PayCraftTeaseGate` | content stays visible and readable; only the TAP is shielded, and the upsell sheet is raised in place over it | the user should still SEE what the subscription unlocks |
+| `PayCraftAdGate` | time-boxed unlock per feature key, via a consumer-supplied `ads` slot | the app monetises with ads as well as subscriptions |
 
-`PayCraftSoftGate` takes `enabled` for a list MIXING free and locked rows: pass the row's own
+`PayCraftTeaseGate` takes `enabled` for a list MIXING free and locked rows: pass the row's own
 catalogue flag, and the gate still decides whether to LOCK from live entitlement, so a subscriber
 gets the row ungated with no chip. `badge` and `lockedContentDescription` have usable defaults.
 

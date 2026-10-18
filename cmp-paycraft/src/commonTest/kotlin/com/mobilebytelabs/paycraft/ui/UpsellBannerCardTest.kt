@@ -18,9 +18,9 @@ import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import kotlin.test.Test
 
 /**
- * Compose UI tests for [UpsellBannerCard] — the body behind [PayCraftBannerStyle.Upsell].
+ * Compose UI tests for [UpsellBannerCard] — the body behind [PayCraftPlanBannerStyle.Upsell].
  *
- * It was the public `PayCraftPremiumBanner` until that merged into [PayCraftBanner] as a style:
+ * It was the public `PayCraftPremiumBanner` until that merged into [PayCraftPlanBanner] as a style:
  * two public composables observing entitlement to draw a card, differing only in what a paying
  * user sees. These assertions are unchanged; only the name they drive is.
  *

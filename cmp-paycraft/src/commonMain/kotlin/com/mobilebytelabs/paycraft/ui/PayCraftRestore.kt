@@ -118,7 +118,7 @@ private val CtaShape = RoundedCornerShape(14.dp)
  * callbacks. The sample did exactly that, three times on one screen.
  *
  * Now each SDK surface that offers restore owns the sheet through [rememberRestorePresenter]: the
- * banner, the premium banner and [PayCraftSubscriptionSettings]. A host that wants a restore
+ * banner, the premium banner and [PayCraftPlanSection]. A host that wants a restore
  * affordance uses one of those, which is the same answer as for the paywall.
  *
  * The two sign-in callbacks are gone for a separate reason: [LocalPayCraftOAuthHandler] already

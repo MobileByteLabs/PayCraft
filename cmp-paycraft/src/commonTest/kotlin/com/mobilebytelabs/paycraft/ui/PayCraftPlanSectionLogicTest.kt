@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
  * wording, the tenant's paywall wording, or the SDK's bundled translation, and the failure mode is
  * silent (a blank label, or English where a translation existed).
  */
-class SubscriptionSettingsLogicTest {
+class PayCraftPlanSectionLogicTest {
 
     private val day = 24L * 60 * 60 * 1000
 
@@ -94,7 +94,7 @@ class SubscriptionSettingsLogicTest {
     // ── copy resolution: dashboard over bundled ──────────────────────────────────────────────────
 
     /** Stands in for what `rememberSettingsCopy` reads out of the SDK's own strings.xml. */
-    private val bundled = SubscriptionSettingsCopy(
+    private val bundled = PlanSectionCopy(
         freeLabel = "Free",
         trialLabel = "Trial",
         premiumLabel = "Premium",
@@ -197,24 +197,24 @@ class SubscriptionSettingsLogicTest {
  * the one decision every style shares — which primary action to show — is centralised so no style
  * can disagree with another.
  */
-class SubscriptionSettingsStyleTest {
+class PayCraftPlanSectionStyleTest {
 
     @Test
     fun fiveStylesAreOffered() {
-        assertEquals(5, SubscriptionSettingsStyle.entries.size)
+        assertEquals(5, PayCraftPlanSectionStyle.entries.size)
     }
 
     @Test
     fun rowsIsTheDefault() {
         // The conventional settings section. A host that passes no style gets the shape that fits a
         // settings list, not the one that assumes it owns the viewport.
-        assertEquals(SubscriptionSettingsStyle.Rows, SubscriptionSettingsStyle.Rows)
-        assertTrue(SubscriptionSettingsStyle.entries.contains(SubscriptionSettingsStyle.Rows))
+        assertEquals(PayCraftPlanSectionStyle.Rows, PayCraftPlanSectionStyle.Rows)
+        assertTrue(PayCraftPlanSectionStyle.entries.contains(PayCraftPlanSectionStyle.Rows))
     }
 
     @Test
     fun everyStyleIsNamedAndDistinct() {
-        val names = SubscriptionSettingsStyle.entries.map { it.name }.toSet()
+        val names = PayCraftPlanSectionStyle.entries.map { it.name }.toSet()
         assertEquals(
             setOf("Minimal", "Rows", "Card", "Hero", "Compact"),
             names,

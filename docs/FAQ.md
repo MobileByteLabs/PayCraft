@@ -74,7 +74,7 @@ Android, iOS, macOS, JVM (Desktop), JS (Web), Wasm. The URL opener (`PayCraftPla
 
 **Does it require Compose Multiplatform?**
 
-The UI layer (PayCraftPaywall, PayCraftBanner, etc.) requires Compose Multiplatform. The core (`BillingManager`, `PayCraft.configure`) is pure Kotlin and works without Compose.
+The UI layer (PayCraftPaywall, PayCraftPlanBanner, etc.) requires Compose Multiplatform. The core (`BillingManager`, `PayCraft.configure`) is pure Kotlin and works without Compose.
 
 **Can I use it without Koin?**
 

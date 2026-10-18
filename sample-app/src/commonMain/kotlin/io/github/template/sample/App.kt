@@ -24,14 +24,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.sample.BillingStateDebugPanel
-import com.mobilebytelabs.paycraft.ui.PayCraftBanner
+import com.mobilebytelabs.paycraft.ui.PayCraftPlanBanner
 import com.mobilebytelabs.paycraft.ui.PayCraftSheet
 
 /**
  * PayCraft Sample App
  *
  * Demonstrates PayCraft billing integration:
- * - PayCraftBanner in a settings-like screen — upgrade, manage and restore are all handled
+ * - PayCraftPlanBanner in a settings-like screen — upgrade, manage and restore are all handled
  *   inside the SDK, so the banner takes nothing but a modifier
  * - PayCraftSheet (bottom sheet paywall), for a host that raises the paywall from its OWN button
  *
@@ -73,10 +73,10 @@ private fun SampleScreen() {
                 style = MaterialTheme.typography.headlineSmall,
             )
 
-            // PayCraftBanner — upgrade CTA or active premium status. No callbacks: tapping
+            // PayCraftPlanBanner — upgrade CTA or active premium status. No callbacks: tapping
             // upgrade raises the SDK's paywall, manage opens the store/provider page, and restore
             // opens the SDK's restore sheet, all without this screen holding any state for them.
-            PayCraftBanner(modifier = Modifier.fillMaxWidth())
+            PayCraftPlanBanner(modifier = Modifier.fillMaxWidth())
 
             // Debug panel — displays BillingState with testTag assertions
             BillingStateDebugPanel(modifier = Modifier.fillMaxWidth())
@@ -98,7 +98,7 @@ private fun SampleScreen() {
 
             // No manual "Restore Purchase" button any more: PayCraftRestore is internal, because a
             // host placing the sheet itself is exactly the wiring the banner above removes. Restore
-            // is reached from the banner's own link, or from PayCraftSubscriptionSettings.
+            // is reached from the banner's own link, or from PayCraftPlanSection.
         }
     }
 

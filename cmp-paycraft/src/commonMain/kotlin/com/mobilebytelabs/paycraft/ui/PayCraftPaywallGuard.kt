@@ -72,13 +72,13 @@ import com.mobilebytelabs.paycraft.core.BillingManager
  * @param content The gated screen.
  */
 @Deprecated(
-    message = "Split into two gates with smaller, SDK-owned surfaces: PayCraftPremiumGate for a " +
-        "premium-only feature, PayCraftRewardedGate for one unlockable by watching an ad. Both drop " +
+    message = "Split into two gates with smaller, SDK-owned surfaces: PayCraftGate for a " +
+        "premium-only feature, PayCraftAdGate for one unlockable by watching an ad. Both drop " +
         "`billingManager` (billing is the SDK's concern — use LocalPayCraftEntitlementOverride in " +
         "previews), drop `onDismiss`/`paywall` (the paywall is presented through PayCraft's own " +
         "internal path so tiers/prices/copy stay dashboard-owned), and make ads optional with a " +
         "persisted 24h grant instead of a permanent content+banner render.",
-    replaceWith = ReplaceWith("PayCraftPremiumGate(modifier, loading, content)"),
+    replaceWith = ReplaceWith("PayCraftGate(modifier, loading, content)"),
     level = DeprecationLevel.WARNING,
 )
 @Composable

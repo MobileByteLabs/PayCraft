@@ -23,13 +23,13 @@ The host renders a PayCraft composable; everything visual comes from `SuiteConfi
 | `PayCraftPaywallSheet(…)` | modal bottom sheet | the paywall interrupts a flow |
 | `PayCraftSheet(visible, onDismiss, modifier)` | sheet wrapper | simplest drop-in |
 | `PayCraftPaywallWithRestore(onDismiss, modifier)` | screen | paywall + restore in one surface |
-| `PayCraftBanner(style)` | inline | the billing banner — `Adaptive` (default) shows a subscriber their plan, `Upsell` renders nothing for them |
+| `PayCraftPlanBanner(style)` | inline | the billing banner — `Adaptive` (default) shows a subscriber their plan, `Upsell` renders nothing for them |
 | `PayCraftInlinePaywallBanner` / `BannerPaywall` | inline | contextual upsell |
-| `PayCraftPremiumGate` | wrapper | gate a screen or a region — REPLACES the content with the SDK's offer |
-| `PayCraftSoftGate` | wrapper | the content stays visible and readable; only the TAP is shielded |
-| `PayCraftRewardedGate` | wrapper | unlockable by watching an ad as well as by subscribing |
-| — | — | restore is presented BY the SDK (banner link, `PayCraftSubscriptionSettings` row); `PayCraftRestore` is internal |
-| `PayCraftSubscriptionSettings(style, theme, header)` | inline | subscription section for a settings screen — status, manage, restore (five styles; see below) |
+| `PayCraftGate` | wrapper | gate a screen or a region — REPLACES the content with the SDK's offer |
+| `PayCraftTeaseGate` | wrapper | the content stays visible and readable; only the TAP is shielded |
+| `PayCraftAdGate` | wrapper | unlockable by watching an ad as well as by subscribing |
+| — | — | restore is presented BY the SDK (banner link, `PayCraftPlanSection` row); `PayCraftRestore` is internal |
+| `PayCraftPlanSection(style, theme, header)` | inline | subscription section for a settings screen — status, manage, restore (five styles; see below) |
 | `PayCraftCheckoutSuccessSheet` / `…OrPaywall` | sheet | post-purchase confirmation |
 | `ProductList(…)` | list | plan stack on its own |
 
@@ -187,21 +187,21 @@ different things to say to a buyer, and only one of them deserves a retry button
 
 ---
 
-## The settings section — `PayCraftSubscriptionSettings`
+## The settings section — `PayCraftPlanSection`
 
 Not a paywall, but the same contract: the SDK draws it, the dashboard words it, the host themes it.
 Status line, Manage row, Restore row, resolved from live entitlement.
 
 ```kotlin
-PayCraftSubscriptionSettings(
-    style = SubscriptionSettingsStyle.Rows,              // Minimal · Rows · Card · Hero · Compact
-    theme = PayCraftSettingsTheme.defaults(),            // reads the ambient MaterialTheme
+PayCraftPlanSection(
+    style = PayCraftPlanSectionStyle.Rows,              // Minimal · Rows · Card · Hero · Compact
+    theme = PayCraftPlanSectionTheme.defaults(),            // reads the ambient MaterialTheme
     header = { Text("Subscription") },
 )
 ```
 
-Four public types and nothing else: the composable, `SubscriptionSettingsStyle`,
-`PayCraftSettingsTheme`, and the header slot. There is no copy parameter, no repository parameter
+Four public types and nothing else: the composable, `PayCraftPlanSectionStyle`,
+`PayCraftPlanSectionTheme`, and the header slot. There is no copy parameter, no repository parameter
 and no `onUpgrade` callback — the wording comes from the dashboard, the data from
 `PayCraftRepository`, and both actions resolve internally.
 

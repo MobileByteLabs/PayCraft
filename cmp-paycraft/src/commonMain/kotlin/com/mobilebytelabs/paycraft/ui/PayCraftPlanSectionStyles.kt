@@ -40,18 +40,18 @@ import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.model.EntitlementTier
 
 /**
- * How [PayCraftSubscriptionSettings] draws itself.
+ * How [PayCraftPlanSection] draws itself.
  *
  * Five presets, chosen so they differ STRUCTURALLY rather than cosmetically — density and
  * prominence, not colour. Five skins of one layout would be five things to maintain and one real
  * choice; these answer different questions about where the section sits.
  *
  * A host whose design system is specific enough that none of these quite fit adjusts
- * [PayCraftSettingsTheme] rather than drawing its own rows. The computed state is internal
+ * [PayCraftPlanSectionTheme] rather than drawing its own rows. The computed state is internal
  * deliberately: handing it out and asking a consumer to assemble a section is the work this
  * component exists to remove.
  */
-enum class SubscriptionSettingsStyle {
+enum class PayCraftPlanSectionStyle {
     /**
      * One status line, actions as text buttons. The quietest option.
      *
@@ -94,9 +94,9 @@ enum class SubscriptionSettingsStyle {
 
 @Composable
 internal fun MinimalSettings(
-    state: SubscriptionSettingsState,
-    copy: SubscriptionSettingsCopy,
-    theme: PayCraftSettingsTheme,
+    state: PlanSectionState,
+    copy: PlanSectionCopy,
+    theme: PayCraftPlanSectionTheme,
     onUpgrade: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = theme.horizontalPadding, vertical = theme.rowSpacing)) {
@@ -132,9 +132,9 @@ internal fun MinimalSettings(
 
 @Composable
 internal fun RowsSettings(
-    state: SubscriptionSettingsState,
-    copy: SubscriptionSettingsCopy,
-    theme: PayCraftSettingsTheme,
+    state: PlanSectionState,
+    copy: PlanSectionCopy,
+    theme: PayCraftPlanSectionTheme,
     onUpgrade: () -> Unit,
 ) {
     StatusBlock(state, theme)
@@ -147,9 +147,9 @@ internal fun RowsSettings(
 
 @Composable
 internal fun CardSettings(
-    state: SubscriptionSettingsState,
-    copy: SubscriptionSettingsCopy,
-    theme: PayCraftSettingsTheme,
+    state: PlanSectionState,
+    copy: PlanSectionCopy,
+    theme: PayCraftPlanSectionTheme,
     onUpgrade: () -> Unit,
 ) {
     Card(
@@ -182,9 +182,9 @@ internal fun CardSettings(
 
 @Composable
 internal fun HeroSettings(
-    state: SubscriptionSettingsState,
-    copy: SubscriptionSettingsCopy,
-    theme: PayCraftSettingsTheme,
+    state: PlanSectionState,
+    copy: PlanSectionCopy,
+    theme: PayCraftPlanSectionTheme,
     onUpgrade: () -> Unit,
 ) {
     Column(
@@ -221,7 +221,7 @@ internal fun HeroSettings(
 // ── Compact ──────────────────────────────────────────────────────────────────────────────────────
 
 @Composable
-internal fun CompactSettings(state: SubscriptionSettingsState, theme: PayCraftSettingsTheme, onUpgrade: () -> Unit) {
+internal fun CompactSettings(state: PlanSectionState, theme: PayCraftPlanSectionTheme, onUpgrade: () -> Unit) {
     // Free -> upgrade, otherwise manage. When neither is available (entitled, but nowhere to
     // manage) the row is INERT rather than absent: the status is still worth showing, and a
     // chevron-less row reads as information instead of a broken control.
@@ -271,8 +271,8 @@ internal fun CompactSettings(state: SubscriptionSettingsState, theme: PayCraftSe
  */
 @Composable
 private fun PrimaryAction(
-    state: SubscriptionSettingsState,
-    copy: SubscriptionSettingsCopy,
+    state: PlanSectionState,
+    copy: PlanSectionCopy,
     onUpgrade: () -> Unit,
     render: @Composable (label: String, tag: String, onClick: () -> Unit) -> Unit,
 ) {
@@ -286,7 +286,7 @@ private fun PrimaryAction(
 }
 
 @Composable
-private fun StatusBlock(state: SubscriptionSettingsState, theme: PayCraftSettingsTheme) {
+private fun StatusBlock(state: PlanSectionState, theme: PayCraftPlanSectionTheme) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -304,7 +304,7 @@ private fun StatusBlock(state: SubscriptionSettingsState, theme: PayCraftSetting
 }
 
 @Composable
-private fun TappableRow(label: String, tag: String, theme: PayCraftSettingsTheme, onClick: () -> Unit) {
+private fun TappableRow(label: String, tag: String, theme: PayCraftPlanSectionTheme, onClick: () -> Unit) {
     Text(
         text = label,
         style = theme.rowTextStyle,
@@ -321,7 +321,7 @@ private fun TappableRow(label: String, tag: String, theme: PayCraftSettingsTheme
 
 /** Tier mark. Theme colours only — no brand assets, so it inherits the host's palette. */
 @Composable
-private fun TierBadge(tier: EntitlementTier, size: androidx.compose.ui.unit.Dp, theme: PayCraftSettingsTheme) {
+private fun TierBadge(tier: EntitlementTier, size: androidx.compose.ui.unit.Dp, theme: PayCraftPlanSectionTheme) {
     if (!theme.showTierBadge) return
     Surface(shape = RoundedCornerShape(50), color = theme.iconTileBackground) {
         Box(Modifier.size(size), contentAlignment = Alignment.Center) {

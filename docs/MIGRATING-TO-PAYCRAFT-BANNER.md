@@ -1,4 +1,4 @@
-# Migrating a hand-coded premium banner to `PayCraftBanner`
+# Migrating a hand-coded premium banner to `PayCraftPlanBanner`
 
 The hand-coded Settings-tab premium banner that ships in many PayCraft consumer apps today (with
 `strings.xml` entries `settings_premium_banner_title`, `_subtitle`, `_cta` and a handful of
@@ -6,10 +6,10 @@ The hand-coded Settings-tab premium banner that ships in many PayCraft consumer 
 dashboard-configured `tenant_paywall` row.
 
 > **Renamed.** This guide was *Migrating to `PayCraftPremiumBanner`*. That composable and
-> `PayCraftBanner` were two public names for one job — observe entitlement, draw a card, offer
+> `PayCraftPlanBanner` were two public names for one job — observe entitlement, draw a card, offer
 > upgrade and restore — differing only in what a paying user sees. They are now one component and
 > that difference is a style: the old `PayCraftPremiumBanner` is
-> `PayCraftBanner(style = PayCraftBannerStyle.Upsell)`.
+> `PayCraftPlanBanner(style = PayCraftPlanBannerStyle.Upsell)`.
 
 ## The swap
 
@@ -28,7 +28,7 @@ Card(
 }
 
 // NEW
-PayCraftBanner(style = PayCraftBannerStyle.Upsell)
+PayCraftPlanBanner(style = PayCraftPlanBannerStyle.Upsell)
 ```
 
 That is the whole migration on the consumer side. Everything else flows from the dashboard.
@@ -47,7 +47,7 @@ nothing for the host to render. `PayCraftRestore` is internal for that reason.
 
 Pick `Upsell` when the banner sits among unrelated content and a paying user should see no billing
 UI at all. Pick `Adaptive` for a dedicated billing area — or use
-`PayCraftSubscriptionSettings`, which is the full section (status line, Manage row, Restore row) in
+`PayCraftPlanSection`, which is the full section (status line, Manage row, Restore row) in
 five styles.
 
 ## strings.xml
@@ -85,7 +85,7 @@ framework defaults.
 fun PreviewOldVsNew() {
     Column {
         OldHandCodedBanner(...)
-        PayCraftBanner(style = PayCraftBannerStyle.Upsell)
+        PayCraftPlanBanner(style = PayCraftPlanBannerStyle.Upsell)
     }
 }
 ```
@@ -95,7 +95,7 @@ into the SDK, or dashboard config not yet populated for the tenant.
 
 ## Source
 
-- `cmp-paycraft/src/commonMain/.../ui/PayCraftBanner.kt` — the component and its style dispatch
-- `cmp-paycraft/src/commonMain/.../ui/PayCraftBannerStyle.kt` — the two presets, and why two
+- `cmp-paycraft/src/commonMain/.../ui/PayCraftPlanBanner.kt` — the component and its style dispatch
+- `cmp-paycraft/src/commonMain/.../ui/PayCraftPlanBannerStyle.kt` — the two presets, and why two
 - `cmp-paycraft/src/commonMain/.../ui/UpsellBannerCard.kt` — the `Upsell` body
 - `cmp-paycraft/src/commonTest/.../ui/UpsellBannerCardTest.kt` — the render assertions
