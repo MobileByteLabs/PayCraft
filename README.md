@@ -203,16 +203,19 @@ startKoin {
 ### Add UI
 
 ```kotlin
+// Upgrade, manage and restore are handled inside the SDK — no state, no callbacks.
+PayCraftBanner()
+
+// The subscription section for a settings screen: status, manage, restore.
+PayCraftSubscriptionSettings(header = { Text("Subscription") })
+```
+
+Raise the paywall from your own button when you want to:
+
+```kotlin
 var showPaywall by remember { mutableStateOf(false) }
-var showRestore by remember { mutableStateOf(false) }
-
-PayCraftBanner(
-    onClick = { showPaywall = true },
-    onRestoreClick = { showRestore = true },
-)
-
+Button(onClick = { showPaywall = true }) { Text("Go Premium") }
 PayCraftSheet(visible = showPaywall, onDismiss = { showPaywall = false })
-PayCraftRestore(visible = showRestore, onDismiss = { showRestore = false })
 ```
 
 ### Gate premium features

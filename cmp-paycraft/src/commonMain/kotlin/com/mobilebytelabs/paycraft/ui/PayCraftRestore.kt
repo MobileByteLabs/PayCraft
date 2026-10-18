@@ -79,6 +79,8 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_success_
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_verifying_identity
 import com.mobilebytelabs.paycraft.model.BillingState
+import com.mobilebytelabs.paycraft.model.OAuthProvider
+import com.mobilebytelabs.paycraft.ui.components.LocalPayCraftOAuthHandler
 import com.mobilebytelabs.paycraft.ui.components.PayCraftPaywallHeader
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
@@ -102,42 +104,33 @@ private val CtaShape = RoundedCornerShape(14.dp)
 /**
  * Modal bottom sheet that lets a user restore their subscription.
  *
- * **Gate 1 (primary)** — Google / Apple sign-in buttons, shown when the host app
- * provides [onGoogleSignInClick] or [onAppleSignInClick] callbacks. The host app
- * triggers the platform OAuth flow and calls [BillingManager.loginWithOAuth] with
- * the resulting ID token; this composable observes [BillingManager.billingState]
- * and reacts automatically.
+ * **Gate 1 (primary)** — Google / Apple sign-in buttons, shown when a host has supplied an OAuth
+ * handler through [ProvidePayCraftOAuthHandler]. The host runs the platform sign-in and calls
+ * `PayCraftRepository.loginWithOAuth` with the resulting ID token; this sheet observes billing
+ * state and reacts on its own.
  *
- * **Gate 2 (fallback)** — Email input + "Restore Purchases" button, always shown
- * below the OAuth section.
+ * **Gate 2 (fallback)** — Email input + "Restore Purchases" button, always shown below.
  *
- * ```kotlin
- * PayCraftRestore(
- *     visible = showRestore,
- *     onDismiss = { showRestore = false },
- *     onGoogleSignInClick = {
- *         // trigger Google Sign-In on this platform, then:
- *         scope.launch { billingManager.loginWithOAuth(OAuthProvider.GOOGLE, idToken) }
- *     },
- * )
- * ```
+ * ## Internal: the SDK presents this, a host does not place it
+ *
+ * It was public, taking `visible` / `onDismiss` and a pair of sign-in callbacks — so every surface
+ * offering "Restore purchases" made the host hold a `var showRestore`, render this, and wire the
+ * callbacks. The sample did exactly that, three times on one screen.
+ *
+ * Now each SDK surface that offers restore owns the sheet through [rememberRestorePresenter]: the
+ * banner, the premium banner and [PayCraftSubscriptionSettings]. A host that wants a restore
+ * affordance uses one of those, which is the same answer as for the paywall.
+ *
+ * The two sign-in callbacks are gone for a separate reason: [LocalPayCraftOAuthHandler] already
+ * existed for this, and [DeviceConflictContent] already read it. Two mechanisms for "how does the
+ * SDK ask the host to run platform OAuth" meant a host could provide one and still get a sheet with
+ * no sign-in buttons. There is now one, provided once around the app.
  *
  * @param visible Whether the bottom sheet is shown.
  * @param onDismiss Called when the user cancels or restore completes.
- * @param onGoogleSignInClick Provide this to show the "Continue with Google" button.
- *   The host app is responsible for triggering the platform OAuth flow and calling
- *   [BillingManager.loginWithOAuth] after receiving the ID token.
- * @param onAppleSignInClick Provide this to show the "Continue with Apple" button.
- *   Same contract as [onGoogleSignInClick].
  */
 @Composable
-fun PayCraftRestore(
-    visible: Boolean,
-    onDismiss: () -> Unit,
-    onGoogleSignInClick: (() -> Unit)? = null,
-    onAppleSignInClick: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
-) {
+internal fun PayCraftRestore(visible: Boolean, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     // The visibility check comes BEFORE anything is resolved from Koin, and NOTHING here is a
     // `koinInject()` default, because a DEFAULT ARGUMENT IS EVALUATED AT THE CALL SITE — before this
     // function body runs. With `billingManager: BillingManager = koinInject()` the inject happened
@@ -154,8 +147,6 @@ fun PayCraftRestore(
 
     PayCraftRestoreSheet(
         onDismiss = onDismiss,
-        onGoogleSignInClick = onGoogleSignInClick,
-        onAppleSignInClick = onAppleSignInClick,
         modifier = modifier,
         billingManager = koinInject(),
     )
@@ -163,13 +154,7 @@ fun PayCraftRestore(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PayCraftRestoreSheet(
-    onDismiss: () -> Unit,
-    onGoogleSignInClick: (() -> Unit)?,
-    onAppleSignInClick: (() -> Unit)?,
-    modifier: Modifier,
-    billingManager: BillingManager,
-) {
+private fun PayCraftRestoreSheet(onDismiss: () -> Unit, modifier: Modifier, billingManager: BillingManager) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Re-apply the dashboard brand theme at the sheet boundary. Material3
@@ -191,8 +176,6 @@ private fun PayCraftRestoreSheet(
                 billingManager = billingManager,
                 onCancel = onDismiss,
                 onSuccess = onDismiss,
-                onGoogleSignInClick = onGoogleSignInClick,
-                onAppleSignInClick = onAppleSignInClick,
             )
         }
     }
@@ -200,16 +183,24 @@ private fun PayCraftRestoreSheet(
 
 /**
  * Stateless restore content. Can be placed in any container (sheet, dialog, screen).
+ *
+ * The OAuth buttons come from [LocalPayCraftOAuthHandler] rather than from parameters — one
+ * mechanism for "ask the host to run platform sign-in", shared with [DeviceConflictContent].
  */
 @Composable
 internal fun PayCraftRestoreContent(
     billingManager: BillingManager,
     onCancel: () -> Unit,
     onSuccess: () -> Unit,
-    onGoogleSignInClick: (() -> Unit)? = null,
-    onAppleSignInClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    // A handler is all-or-nothing by design: a host that can run Google sign-in on this platform
+    // can run Apple sign-in too (the SDK asks for a provider), so the previous pair of independent
+    // nullable callbacks modelled a state that does not occur.
+    val oauthHandler = LocalPayCraftOAuthHandler.current
+    val onGoogleSignInClick: (() -> Unit)? = oauthHandler?.let { h -> { h(OAuthProvider.GOOGLE) } }
+    val onAppleSignInClick: (() -> Unit)? = oauthHandler?.let { h -> { h(OAuthProvider.APPLE) } }
+
     var email by remember { mutableStateOf("") }
     var emailError by remember { mutableStateOf<String?>(null) }
     var restoreResult by remember { mutableStateOf<RestoreResult?>(null) }

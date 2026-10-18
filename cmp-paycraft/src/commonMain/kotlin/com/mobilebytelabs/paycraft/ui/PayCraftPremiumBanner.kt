@@ -63,10 +63,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
  *
  * Typical wiring:
  * ```kotlin
- * PayCraftPremiumBanner(
- *     onGetPremiumTap = { paywallVisible.value = true },
- *     onRestoreTap = { restoreSheetVisible.value = true },
- * )
+ * PayCraftPremiumBanner()
  * ```
  *
  * Per RULE-EPIC-LOCKED-DECISION D8, the reels-downloader Settings-tab swap of
@@ -79,13 +76,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * premium (never upsell a paying user), and the upgrade card only for a free/non-premium buyer.
  */
 @Composable
-fun PayCraftPremiumBanner(onGetPremiumTap: () -> Unit, onRestoreTap: () -> Unit, modifier: Modifier = Modifier) {
+fun PayCraftPremiumBanner(modifier: Modifier = Modifier) {
+    // The SDK presents both. See rememberRestorePresenter for why a surface that draws an
+    // affordance must also be able to complete it.
+    val showPaywall = rememberPaywallPresenter()
+    val showRestore = rememberRestorePresenter()
+
     // `PayCraft.billingManager`, not `koinInject()`: it is null before PayCraft.initialize() and
     // that null is MEANINGFUL here — it means "status unknown", which renders the shimmer. A
     // koinInject() would throw on a composition with no graph instead of degrading.
     PayCraftPremiumBannerContent(
-        onGetPremiumTap = onGetPremiumTap,
-        onRestoreTap = onRestoreTap,
+        onGetPremiumTap = showPaywall,
+        onRestoreTap = showRestore,
         modifier = modifier,
         billingManager = PayCraft.billingManager,
     )

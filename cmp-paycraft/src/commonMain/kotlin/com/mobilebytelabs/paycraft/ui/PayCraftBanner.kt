@@ -78,6 +78,7 @@ import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.provider.StripeProvider
+import com.mobilebytelabs.paycraft.repository.PayCraftRepository
 import com.mobilebytelabs.paycraft.ui.theme.parseHexColor
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -125,21 +126,32 @@ private val colorCtaManage = Brush.linearGradient(
  * Observes [BillingManager.billingState] and switches automatically — no manual
  * state management required.
  *
- * @param onUpgradeClick Invoked when a free user taps the card or CTA.
- * @param onManageClick  Invoked when a premium user taps "Manage Subscription".
- * @param onRestoreClick Optional — shown as a text link for free users.
+ * ## No callbacks
+ *
+ * It used to take `onUpgradeClick`, `onManageClick` and `onRestoreClick`, which made a host hold a
+ * `var showPaywall` / `var showRestore` and render two sheets — the sample did precisely that, and
+ * every consumer would have copied it. The SDK knows all three destinations: its own paywall, the
+ * store/provider portal it already resolves for [PayCraftSubscriptionSettings], and its own restore
+ * sheet. Owning them is why there is nothing left to pass.
+ *
+ * The restore link still only appears when there is something to restore — a free user — exactly as
+ * when the callback was nullable.
  */
 @Composable
-fun PayCraftBanner(
-    onUpgradeClick: () -> Unit,
-    onManageClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    onRestoreClick: (() -> Unit)? = null,
-) {
-    // Resolved inside the body, never as a `billingManager: BillingManager = koinInject()`
-    // parameter. Which manager drives entitlement is the SDK's concern, not a host's — and the type
-    // is on its way to `internal`, so it must not appear in a public signature.
+fun PayCraftBanner(modifier: Modifier = Modifier) {
+    // Both presenters EMIT their sheet here and return a trigger, so the tap completes inside the
+    // SDK instead of being handed back to a host that has to render something.
+    val showPaywall = rememberPaywallPresenter()
+    val showRestore = rememberRestorePresenter()
+
+    // Resolved inside the body, never as a parameter. Which manager drives entitlement is the
+    // SDK's concern, not a host's, and BillingManager is internal so it cannot appear in a public
+    // signature anyway.
     val billingManager: BillingManager = koinInject()
+    // The facade, for the one ACTION this banner performs itself. manageSubscription() resolves the
+    // provider portal or the platform's store page — the same call PayCraftSubscriptionSettings
+    // makes, rather than a second derivation of where "Manage" goes.
+    val repository: PayCraftRepository = koinInject()
     val billingState by billingManager.billingState.collectAsStateWithLifecycle()
 
     // Retain last stable (non-loading) state — avoids jarring free → premium flash on navigation
@@ -176,14 +188,14 @@ fun PayCraftBanner(
                     plans = plans,
                     topTierPlan = plans.maxByOrNull { it.rank },
                     supportEmail = supportEmail,
-                    onManageClick = onManageClick,
+                    onManageClick = { repository.manageSubscription() },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 else -> FreeBannerCard(
                     benefits = benefits,
                     paywall = paywall,
-                    onUpgradeClick = onUpgradeClick,
-                    onRestoreClick = onRestoreClick,
+                    onUpgradeClick = showPaywall,
+                    onRestoreClick = showRestore,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

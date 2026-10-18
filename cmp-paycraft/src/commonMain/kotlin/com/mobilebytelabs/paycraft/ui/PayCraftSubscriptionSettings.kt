@@ -13,7 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -103,12 +102,15 @@ internal data class SubscriptionSettingsState(
     val canManage: Boolean,
     /** Opens the provider portal or the platform's store subscriptions page. */
     val onManage: () -> Unit,
-    /** Shows the SDK's restore flow. Observe [restoreVisible] to render it. */
+    /**
+     * Shows the SDK's restore flow.
+     *
+     * Just the trigger. It used to be accompanied by `restoreVisible` + `onRestoreDismiss`, which
+     * made every caller of this state own the sheet's visibility; [rememberRestorePresenter] now
+     * emits the sheet and hands back only this, so there is one place in the SDK where restore is
+     * presented rather than one per surface that offers it.
+     */
     val onRestoreClick: () -> Unit,
-    /** True while the restore sheet should be on screen. */
-    val restoreVisible: Boolean,
-    /** Dismiss the restore flow. */
-    val onRestoreDismiss: () -> Unit,
 )
 
 /**
@@ -131,7 +133,7 @@ internal fun rememberSubscriptionSettingsState(
     val repo = repository ?: koinInject()
     val entitlement by repo.entitlement.collectAsState()
     val status by repo.subscriptionStatus.collectAsState()
-    var restoreVisible by remember { mutableStateOf(false) }
+    val showRestore = rememberRestorePresenter()
 
     // Read through on each composition rather than remembering: `isConfigured` and the manage URL
     // both resolve from config that lands asynchronously, so a value captured once would be stale
@@ -173,9 +175,7 @@ internal fun rememberSubscriptionSettingsState(
         supportingText = supporting,
         canManage = manageUrl != null,
         onManage = { repo.manageSubscription() },
-        onRestoreClick = { restoreVisible = true },
-        restoreVisible = restoreVisible,
-        onRestoreDismiss = { restoreVisible = false },
+        onRestoreClick = showRestore,
     )
 }
 
@@ -396,8 +396,4 @@ fun PayCraftSubscriptionSettings(
             SubscriptionSettingsStyle.Compact -> CompactSettings(state, theme, upgrade)
         }
     }
-
-    // The SDK's existing restore flow, not a second one. It owns the sheet, the provider buttons
-    // and the calm non-blocking outcome notice. Rendered once here regardless of style.
-    PayCraftRestore(visible = state.restoreVisible, onDismiss = state.onRestoreDismiss)
 }
