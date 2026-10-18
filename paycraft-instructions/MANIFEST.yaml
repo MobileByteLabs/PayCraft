@@ -4,8 +4,8 @@
 schema_version: 1
 corpus_root: workspaces/mbs/PayCraft/source/PayCraft/paycraft-instructions
 sdk_repo_path: workspaces/mbs/PayCraft/source/PayCraft
-sdk_version: 2.4.5                    # bumped by /paycraft-dev fold; consumed by the D12 corpus-vs-artifact gate
-sdk_head_commit: 5f6be4cc1908fefb303f50c517e30234efe29a29
+sdk_version: 2.4.6                    # bumped by the fold; consumed by the D12 corpus-vs-artifact gate
+sdk_head_commit: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
 documents:
   - PUBLIC_API.md
   - WIRING_CONTRACTS.md

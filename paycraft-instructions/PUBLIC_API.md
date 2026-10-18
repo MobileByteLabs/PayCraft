@@ -1,4 +1,4 @@
-example-provenance: 5f6be4cc1908fefb303f50c517e30234efe29a29
+example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
 
 # PUBLIC_API.md — PayCraft SDK public integration surface
 
@@ -50,7 +50,6 @@ Related surface on the same object:
 | `monetizationMode` | `MonetizationMode` | Resolved: cloud `SuiteConfig.mode` wins over the `initialize` argument |
 | `isAdFree` | `StateFlow<Boolean>` | Host ad-gating signal under `MonetizationMode.AdSupported` |
 | `paywallPresentation` | `StateFlow<PaywallPresentation>` | `Hidden`/`Shown(trigger)` — the auto-present signal |
-| `billingManager` | `BillingManager?` | Koin-resolved; null before `initialize` |
 | `plans` | `List<BillingPlan>` | Empty until config lands |
 | `deviceId` | `String` | Lazy `DeviceFingerprint.get()`; the fallback app-user-id when no email |
 | `activeRegion` | `ResolvedRegion(country, currency)` | THE single resolved billing region |
@@ -275,10 +274,20 @@ performing, so a test can assert a tap reached the SDK without opening anything.
 
 All three expose `supabaseUrl`, `supabaseAnonKey`, `configUrl`.
 
-## Headless surface — `interface BillingManager`
+## Headless surface — `interface PayCraftRepository`
 
-Resolved from Koin (`single<BillingManager>`). This is the whole contract a bespoke paywall needs;
-no PayCraft composable is required to ship billing.
+Resolved from Koin (`single<PayCraftRepository>`). This is the whole contract a bespoke paywall
+needs; no PayCraft composable is required to ship billing.
+
+> **This section used to document `interface BillingManager`.** That type is now `internal`: it was
+> public, appeared as a parameter on six composables, and nothing a consumer legitimately needs was
+> reachable only through it. `PayCraftRepository` is the facade over it, and the last gap — the
+> device-conflict actions below — was closed when it went internal, because a facade exposing a
+> state (`OwnershipVerified`) without the actions that resolve it is not a facade.
+>
+> Three facades, one per layer, all `single<…>` in `PayCraftModule`:
+> `PayCraftApi` (network · `core/network`), `PayCraftRepository` (data · `core/data`),
+> `PayCraftStore` (persistence · `core/store`). Inject the one your layer needs.
 
 **State (all hot, all `StateFlow` unless noted):**
 
@@ -296,14 +305,19 @@ val subscriptionActivated: SharedFlow<SubscriptionActivated>   // replay 0, risi
 transition. Replay is 0, so a late collector gets nothing — collect it from a scope that outlives the
 purchase (a ViewModel started before checkout, not a dialog composed after it).
 
-**Purchase lanes:**
+**Checkout:**
 
 ```kotlin
-fun purchaseViaPlayBilling(plan: BillingPlan, email: String?)   // Android digital
-fun purchaseViaStoreKit(plan: BillingPlan, email: String?)      // iOS/macOS digital
+fun checkout(plan: BillingPlan, email: String? = null)
 ```
 
-Both drive `billingState`: `Loading` → `Premium` | `Free` (user cancelled) | `PaymentPending` |
+ONE entry point. It resolves the lane itself — Play Billing on Android, StoreKit on iOS/macOS, the
+provider's web checkout elsewhere — from the plan's server-resolved `storeBinding`. The per-lane
+methods (`purchaseViaPlayBilling` / `purchaseViaStoreKit`) are internal to `BillingManager`
+precisely so a host cannot pick a lane the dashboard's platform-provider setting did not choose;
+picking client-side is what made that setting decorative before `storeBinding` existed.
+
+It drives `billingState`: `Loading` → `Premium` | `Free` (user cancelled) | `PaymentPending` |
 `Error`. A plan with **no `storeBinding`** is an **`Error`, never a web fallback** — that
 anti-steering rule is the point of `CheckoutLane.Misconfigured` (PROVIDERS_AND_STORES.md).
 
@@ -313,21 +327,30 @@ App Store Server Notifications webhook, so success reconciles through the normal
 **Identity + entitlement:**
 
 ```kotlin
-fun registerAndLogin(email: String)                 // replaces logIn(); logIn() delegates here
-fun logIn(email: String)                            // legacy alias
-fun refreshStatus(force: Boolean = false)           // honours SyncPolicy unless force
+fun logIn(email: String)                            // registers this device, then checks status
+fun logOut()
+fun refresh(force: Boolean = false)                 // honours SyncPolicy unless force
 suspend fun checkTrialEligibility(): Boolean        // optimistic true on any failure
 suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String)   // Gate 1
-fun logOut()
 ```
+
+`logIn` is the facade's name for register-device-then-check. `BillingManager` spells the same thing
+`registerAndLogin` and keeps `logIn` as a legacy alias; the facade exposes one name, not both.
+
+For `loginWithOAuth`, the HOST runs the platform sign-in and passes the resulting ID token. Supply
+the handler once with `ProvidePayCraftOAuthHandler` and every SDK surface that needs it — the
+restore sheet, the device-conflict screen — gains its sign-in buttons.
 
 **Device-conflict resolution (Gate 1 → Gate 2):**
 
 ```kotlin
-suspend fun confirmDeviceTransfer()                 // after OwnershipVerified
-suspend fun revokeCurrentDevice()
-suspend fun transferToDevice()                      // internal
+suspend fun confirmDeviceTransfer()                 // after OwnershipVerified — moves it HERE
+suspend fun revokeCurrentDevice()                   // release this device's slot instead
 ```
+
+`transferToDevice()` is NOT on the facade. `BillingManager` documents it as "internal — called by
+`confirmDeviceTransfer`", and exposing it would hand a host the half-step that skips deactivating
+the other device.
 
 The UI **must** show an explicit confirmation between `OwnershipVerified` and
 `confirmDeviceTransfer()` — the user is deactivating another device.

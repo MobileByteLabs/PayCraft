@@ -1,4 +1,4 @@
-example-provenance: 5f6be4cc1908fefb303f50c517e30234efe29a29
+example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
 
 # PAYWALL_CUSTOMIZATION.md — the two supported paywall paths
 
@@ -29,7 +29,7 @@ The host renders a PayCraft composable; everything visual comes from `SuiteConfi
 | `PayCraftSoftGate` | wrapper | the content stays visible and readable; only the TAP is shielded |
 | `PayCraftRewardedGate` | wrapper | unlockable by watching an ad as well as by subscribing |
 | — | — | restore is presented BY the SDK (banner link, `PayCraftSubscriptionSettings` row); `PayCraftRestore` is internal |
-| `PayCraftSubscriptionSettings(style, theme)` | inline | subscription section for a settings screen — status, manage, restore |
+| `PayCraftSubscriptionSettings(style, theme, header)` | inline | subscription section for a settings screen — status, manage, restore (five styles; see below) |
 | `PayCraftCheckoutSuccessSheet` / `…OrPaywall` | sheet | post-purchase confirmation |
 | `ProductList(…)` | list | plan stack on its own |
 
@@ -187,10 +187,60 @@ different things to say to a buyer, and only one of them deserves a retry button
 
 ---
 
+## The settings section — `PayCraftSubscriptionSettings`
+
+Not a paywall, but the same contract: the SDK draws it, the dashboard words it, the host themes it.
+Status line, Manage row, Restore row, resolved from live entitlement.
+
+```kotlin
+PayCraftSubscriptionSettings(
+    style = SubscriptionSettingsStyle.Rows,              // Minimal · Rows · Card · Hero · Compact
+    theme = PayCraftSettingsTheme.defaults(),            // reads the ambient MaterialTheme
+    header = { Text("Subscription") },
+)
+```
+
+Four public types and nothing else: the composable, `SubscriptionSettingsStyle`,
+`PayCraftSettingsTheme`, and the header slot. There is no copy parameter, no repository parameter
+and no `onUpgrade` callback — the wording comes from the dashboard, the data from
+`PayCraftRepository`, and both actions resolve internally.
+
+**Theme defaults read the ambient `MaterialTheme`**, so an app that themes itself at all already
+gets its palette, shape and type here with no argument. Override only where your design system
+exposes something Material does not (a spacing scale, an icon-tile colour). `rowMinHeight` defaults
+to 48dp and should not go lower: it is the row a user taps in order to CANCEL.
+
+### Settings copy — `settings_*` (migration 156)
+
+14 dashboard fields, edited under **Paywall designer → In-app subscription settings**: the three
+tier names, the supporting lines, the trial countdown, the renewal/expiry lines, and the three row
+labels.
+
+| Field | Token | Note |
+|---|---|---|
+| `settings_trial_days_left` | `{days}` | `settings_trial_one_day_left` is SEPARATE — no token can pluralise, so one template would read "1 days left" on the last day |
+| `settings_renews_on` / `settings_expires_on` | `{date}` | Keep them distinct. A subscriber who cancelled but is still inside their paid period sees the second; telling them their subscription "renews" is the wording error that generates support mail |
+| `settings_trial_ending_today` | — | Not `{days}`=0, which reads as already-expired |
+
+**Blank means "not configured", never "render nothing".** These columns default to `''` rather than
+to English — unlike the 071/077 copy columns — because the SDK reads tenant copy as
+`.ifBlank { stringResource(…) }`. A column pre-filled with English makes that fallback dead for
+every row, silently overriding a localised bundled string for a tenant who never opened the
+designer.
+
+For the same reason the settings labels do NOT fall through to their paywall equivalents:
+`PaywallDto.restoreLabel` and `ctaGetPremium` default to non-blank English and the server always
+sends them, so a middle rung would have made the localised rung unreachable.
+
+---
+
 ## Path B — generated bespoke UI against the headless surface
 
-The app owns every pixel and consumes only `BillingManager`. Nothing from
+The app owns every pixel and consumes only `PayCraftRepository`. Nothing from
 `com.mobilebytelabs.paycraft.ui` or `.presentation` is imported.
+
+(This said `BillingManager` until that type went `internal`. The facade covers every arm a bespoke
+paywall renders, including the device-conflict actions, which is what made the narrowing safe.)
 
 **Minimum contract a bespoke paywall must satisfy** — this is what `/idea-paycraft` asserts, and each
 item is a real failure mode, not a style preference:
