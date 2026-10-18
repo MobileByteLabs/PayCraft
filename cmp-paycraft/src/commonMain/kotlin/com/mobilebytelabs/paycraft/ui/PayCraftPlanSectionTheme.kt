@@ -7,7 +7,6 @@
  */
 package com.mobilebytelabs.paycraft.ui
 
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
@@ -103,20 +102,40 @@ data class PayCraftPlanSectionTheme(
          *
          * These parameters are the design-system's OWN groups instead: a colour scheme, a
          * typography set, a shape, a spacing scale, and the one genuinely app-specific choice (the
-         * icon-tile role). They map 1:1 onto what a KMP design system already exposes — in the
-         * kmp-project-template vocabulary, `KptTheme.colorScheme` / `.typography` / `.shapes` /
-         * `.spacing` — so adoption is passing what you already have, not translating it.
+         * icon-tile role). They map 1:1 onto what a KMP design system already exposes, so adoption
+         * is passing what you already have, not translating it.
          *
-         * Everything defaults to the ambient `MaterialTheme`, so an app that themes itself and
-         * passes NOTHING already gets its own palette, shape and type.
+         * ## Adoptive by default — passing nothing is the normal case
+         *
+         * EVERYTHING Material can express is read from the ambient `MaterialTheme`: colours,
+         * typography AND shape. An app that themes itself therefore gets its own look from
+         * `defaults()` with no arguments at all, and stays in step as that theme changes — dark
+         * mode, dynamic colour, a shape-scale revision.
+         *
+         * Only two things are SDK-chosen, because Material has no equivalent to read:
+         *
+         *   spacing   — Material defines no spacing scale. Pass [PayCraftSpacing] mapped from
+         *               yours when the SDK's 16/12/8dp does not match your rhythm.
+         *   tileRole  — which colour role paints the badge tile. A default had to be picked;
+         *               Secondary is it.
+         *
+         * So: customise by constructing an instance with the one or two things that differ, and
+         * leave the rest to adoption. Never restate a value the host theme already supplies.
          */
         @Composable
         @ReadOnlyComposable
         fun defaults(
             colors: ColorScheme = MaterialTheme.colorScheme,
             typography: Typography = MaterialTheme.typography,
-            /** Card / badge corners. A design system passes its own — e.g. `KptTheme.shapes.medium`. */
-            shape: Shape = RoundedCornerShape(12.dp),
+            /**
+             * Card / badge corners — `MaterialTheme.shapes.medium` by default.
+             *
+             * Adopted, not hardcoded. It used to default to `RoundedCornerShape(12.dp)`, which
+             * ignored the host's shape scale: an app with sharp corners everywhere got one
+             * rounded SDK card, and the only fix was passing a value. Material expresses shape,
+             * so the SDK reads it like it reads colour and typography.
+             */
+            shape: Shape = MaterialTheme.shapes.medium,
             /** The spacing scale. Pass your own — e.g. `PayCraftSpacing(KptTheme.spacing)`. */
             spacing: PayCraftSpacing = PayCraftSpacing.Default,
             /**
