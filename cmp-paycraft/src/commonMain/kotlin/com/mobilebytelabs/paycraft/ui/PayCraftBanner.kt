@@ -118,13 +118,16 @@ private val colorCtaManage = Brush.linearGradient(
 )
 
 /**
- * Adaptive settings banner that renders a rich gradient card.
+ * The SDK's billing banner. Observes entitlement and renders itself accordingly.
  *
- * - **Free user**: purple gradient, perk list, gold "Get Premium" CTA.
- * - **Premium user**: blue/green gradient, plan info, renewal date, support note.
+ * ```kotlin
+ * PayCraftBanner()                                        // adaptive, the default
+ * PayCraftBanner(style = PayCraftBannerStyle.Upsell)      // hides itself for subscribers
+ * ```
  *
- * Observes [BillingManager.billingState] and switches automatically — no manual
- * state management required.
+ * [PayCraftBannerStyle] explains the two presets and why premium-behaviour and visual weight are
+ * bundled rather than independent. `PayCraftPremiumBanner`, which was a second public composable
+ * doing this same job, is now [PayCraftBannerStyle.Upsell].
  *
  * ## No callbacks
  *
@@ -138,7 +141,7 @@ private val colorCtaManage = Brush.linearGradient(
  * when the callback was nullable.
  */
 @Composable
-fun PayCraftBanner(modifier: Modifier = Modifier) {
+fun PayCraftBanner(modifier: Modifier = Modifier, style: PayCraftBannerStyle = PayCraftBannerStyle.Adaptive) {
     // Both presenters EMIT their sheet here and return a trigger, so the tap completes inside the
     // SDK instead of being handed back to a host that has to render something.
     val showPaywall = rememberPaywallPresenter()
@@ -148,6 +151,17 @@ fun PayCraftBanner(modifier: Modifier = Modifier) {
     // SDK's concern, not a host's, and BillingManager is internal so it cannot appear in a public
     // signature anyway.
     val billingManager: BillingManager = koinInject()
+
+    if (style == PayCraftBannerStyle.Upsell) {
+        UpsellBannerCard(
+            onGetPremiumTap = showPaywall,
+            onRestoreTap = showRestore,
+            modifier = modifier,
+            billingManager = billingManager,
+        )
+        return
+    }
+
     // The facade, for the one ACTION this banner performs itself. manageSubscription() resolves the
     // provider portal or the platform's store page — the same call PayCraftSubscriptionSettings
     // makes, rather than a second derivation of where "Manage" goes.

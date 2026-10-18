@@ -45,64 +45,23 @@ import com.mobilebytelabs.paycraft.ui.theme.parseHexColor
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
- * Drop-in Settings-tab premium upsell banner — the consumer-app entry point to
- * the PayCraft paywall.
+ * The [PayCraftBannerStyle.Upsell] body: a flat brand-coloured card that renders NOTHING for a
+ * subscriber.
  *
- * Every piece of copy comes from [PaywallDto] (v2 — migration 071) — the same published config
- * that drives the paywall modal, so one dashboard edit moves both.
+ * This was the public `PayCraftPremiumBanner`. It is internal now because it and `PayCraftBanner`
+ * were two public names for one job — observe entitlement, draw a card, offer upgrade and restore —
+ * differing only in what a paying user sees. That difference is a style, so it became one.
  *
- * It used to also accept `titleOverride` / `subtitleOverride` / `ctaOverride` / `restoreOverride`,
- * which pinned a string in app code ahead of the dashboard's Content tab being populated (the D8
- * 90-day migration grace). That grace is long expired and nothing outside this SDK's own tests ever
- * passed one, so they are gone: a public parameter that only tests use is a test seam living in
- * public API, and a host pinning copy is how a banner drifts from the paywall it links to.
+ * Copy is dashboard-driven ([PaywallDto], migration 071), the same published config the paywall
+ * modal renders from, so one edit moves both.
  *
- * Color + typography pull from [PayCraftTheme] so the same accent + font
- * that drive the paywall modal also drive this banner — consistent visual
- * identity end-to-end.
- *
- * Typical wiring:
- * ```kotlin
- * PayCraftPremiumBanner()
- * ```
- *
- * Per RULE-EPIC-LOCKED-DECISION D8, the reels-downloader Settings-tab swap of
- * the existing hand-coded banner for this composable is opt-in (90-day grace);
- * the existing `strings.xml` keys stay during the transition so consumers can
- * roll back without churn. See `docs/MIGRATING-TO-PAYCRAFT-PREMIUM-BANNER.md`.
- *
- * State-aware: the banner observes the SDK's own billing state and renders accordingly — a shimmer
- * card while the status is still resolving (or before init), NOTHING when the buyer is already
- * premium (never upsell a paying user), and the upgrade card only for a free/non-premium buyer.
+ * The `billingManager` parameter stays as an explicit seam rather than a `koinInject()`: it is
+ * nullable because [PayCraft.billingManager] is null before `initialize()`, and that null is
+ * MEANINGFUL here — it means "status unknown", which renders the shimmer rather than throwing.
+ * Tests drive specific states through it.
  */
 @Composable
-fun PayCraftPremiumBanner(modifier: Modifier = Modifier) {
-    // The SDK presents both. See rememberRestorePresenter for why a surface that draws an
-    // affordance must also be able to complete it.
-    val showPaywall = rememberPaywallPresenter()
-    val showRestore = rememberRestorePresenter()
-
-    // `PayCraft.billingManager`, not `koinInject()`: it is null before PayCraft.initialize() and
-    // that null is MEANINGFUL here — it means "status unknown", which renders the shimmer. A
-    // koinInject() would throw on a composition with no graph instead of degrading.
-    PayCraftPremiumBannerContent(
-        onGetPremiumTap = showPaywall,
-        onRestoreTap = showRestore,
-        modifier = modifier,
-        billingManager = PayCraft.billingManager,
-    )
-}
-
-/**
- * The banner body, with the billing manager as an explicit seam.
- *
- * Internal, and the only reason it is a separate function: tests must drive a specific
- * [BillingState] (shimmer / premium-collapse / free-card), and the alternative was leaving a
- * `billingManager` parameter in public API for their benefit. Same split as
- * [PayCraftRestore] / [PayCraftRestoreContent], for the same reason.
- */
-@Composable
-internal fun PayCraftPremiumBannerContent(
+internal fun UpsellBannerCard(
     onGetPremiumTap: () -> Unit,
     onRestoreTap: () -> Unit,
     modifier: Modifier = Modifier,
@@ -124,7 +83,7 @@ internal fun PayCraftPremiumBannerContent(
     // Status not yet known (Loading, or pre-init null manager) → render a layout-matched
     // shimmer card instead of a stale "Upgrade" card, reusing the shared [BannerShimmerRow].
     if (billingState is BillingState.Loading) {
-        PayCraftPremiumBannerShimmer(modifier = modifier)
+        UpsellBannerShimmer(modifier = modifier)
         return
     }
 
@@ -226,7 +185,7 @@ internal fun PayCraftPremiumBannerContent(
 }
 
 /**
- * Loading-state stand-in for [PayCraftPremiumBanner] — a layout-matched shimmer card
+ * Loading-state stand-in for [UpsellBannerCard] — a layout-matched shimmer card
  * rendered while the billing status is not yet known (cold-start Loading, or a pre-init
  * null billing manager). Reuses the shared [BannerShimmerRow] pill so the banner shows a
  * shimmer instead of a stale "Upgrade to Premium" card, then swaps to the real upgrade
@@ -234,7 +193,7 @@ internal fun PayCraftPremiumBannerContent(
  * resolves.
  */
 @Composable
-private fun PayCraftPremiumBannerShimmer(modifier: Modifier = Modifier) {
+private fun UpsellBannerShimmer(modifier: Modifier = Modifier) {
     Card(
         modifier = modifier
             .fillMaxWidth()

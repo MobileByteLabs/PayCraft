@@ -393,10 +393,17 @@ PAYWALL_CUSTOMIZATION.md.
 ## Compose surface (optional)
 
 `PayCraftPaywall`, `PayCraftPaywallSheet`, `PayCraftSheet`, `PayCraftBanner`,
-`PayCraftInlinePaywallBanner`, `PayCraftPremiumBanner`, `PayCraftRestore`,
-`PayCraftRestoreContent`, `PayCraftPaywallWithRestore`, `PayCraftCheckoutSuccessSheet`,
-`PayCraftCheckoutSuccessSheetOrPaywall`, `BannerPaywall`, `PayCraftPaywallComposable`,
-`ProductList`. Surface-mode contract in PAYWALL_CUSTOMIZATION.md.
+`PayCraftInlinePaywallBanner`, `PayCraftSubscriptionSettings`, `PayCraftPaywallWithRestore`,
+`PayCraftCheckoutSuccessSheet`, `PayCraftCheckoutSuccessSheetOrPaywall`, `BannerPaywall`,
+`PayCraftPaywallComposable`, `ProductList`, plus the gates (`PayCraftPremiumGate`,
+`PayCraftSoftGate`, `PayCraftRewardedGate`) and the style/theme types
+(`PayCraftBannerStyle`, `SubscriptionSettingsStyle`, `PayCraftSettingsTheme`).
+Surface-mode contract in PAYWALL_CUSTOMIZATION.md.
+
+Deliberately NOT public: `PayCraftRestore` / `PayCraftRestoreContent` (the SDK presents restore
+itself, from the banner's link or the settings row), `PayCraftPremiumBanner` (now
+`PayCraftBannerStyle.Upsell`), `BillingManager` and `PayCraftPaywallViewModel`. Consumers reach
+data and actions through `PayCraftRepository` / `PayCraftStore` / `PayCraftApi`.
 
 ### Gates — how a consumer locks a surface
 

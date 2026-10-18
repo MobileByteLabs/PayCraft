@@ -18,7 +18,11 @@ import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import kotlin.test.Test
 
 /**
- * Compose UI tests for [PayCraftPremiumBanner].
+ * Compose UI tests for [UpsellBannerCard] — the body behind [PayCraftBannerStyle.Upsell].
+ *
+ * It was the public `PayCraftPremiumBanner` until that merged into [PayCraftBanner] as a style:
+ * two public composables observing entitlement to draw a card, differing only in what a paying
+ * user sees. These assertions are unchanged; only the name they drive is.
  *
  * Exercises DTO-driven copy (via [LocalPayCraftConfig]) and per-call *Override params,
  * plus the billing-state-aware behavior (shimmer while loading, collapse when premium,
@@ -29,7 +33,7 @@ import kotlin.test.Test
  * Uses [runComposeUiTest] (commonTest-friendly) matching the pattern in PaywallTemplateTest.
  */
 @OptIn(ExperimentalTestApi::class)
-class PayCraftPremiumBannerTest {
+class UpsellBannerCardTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -48,7 +52,7 @@ class PayCraftPremiumBannerTest {
         val paywall = PaywallDto(heroTitle = "Level Up Your Experience")
         setContent {
             CompositionLocalProvider(LocalPayCraftConfig provides suiteConfig(paywall)) {
-                PayCraftPremiumBannerContent(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
+                UpsellBannerCard(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
             }
         }
         onNodeWithText("Level Up Your Experience", substring = true).assertExists()
@@ -59,7 +63,7 @@ class PayCraftPremiumBannerTest {
         val paywall = PaywallDto(heroSubtitle = "Unlock unlimited access for all features")
         setContent {
             CompositionLocalProvider(LocalPayCraftConfig provides suiteConfig(paywall)) {
-                PayCraftPremiumBannerContent(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
+                UpsellBannerCard(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
             }
         }
         onNodeWithText("Unlock unlimited access for all features", substring = true).assertExists()
@@ -70,7 +74,7 @@ class PayCraftPremiumBannerTest {
         val paywall = PaywallDto(ctaGetPremium = "Go Premium Now")
         setContent {
             CompositionLocalProvider(LocalPayCraftConfig provides suiteConfig(paywall)) {
-                PayCraftPremiumBannerContent(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
+                UpsellBannerCard(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
             }
         }
         onNodeWithText("Go Premium Now", substring = true).assertExists()
@@ -81,7 +85,7 @@ class PayCraftPremiumBannerTest {
         val paywall = PaywallDto(restoreLabel = "Restore My Purchase")
         setContent {
             CompositionLocalProvider(LocalPayCraftConfig provides suiteConfig(paywall)) {
-                PayCraftPremiumBannerContent(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
+                UpsellBannerCard(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
             }
         }
         onNodeWithText("Restore My Purchase", substring = true).assertExists()
@@ -93,7 +97,7 @@ class PayCraftPremiumBannerTest {
     fun banner_uses_defaults_when_no_config_provided() = runComposeUiTest {
         // LocalPayCraftConfig defaults to null; banner falls back to PaywallDto()
         setContent {
-            PayCraftPremiumBannerContent(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
+            UpsellBannerCard(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
         }
         onNodeWithText("Upgrade to Premium", substring = true).assertExists()
     }
@@ -101,7 +105,7 @@ class PayCraftPremiumBannerTest {
     @Test
     fun banner_default_subtitle_renders() = runComposeUiTest {
         setContent {
-            PayCraftPremiumBannerContent(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
+            UpsellBannerCard(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
         }
         onNodeWithText("Enjoy ad-free experience", substring = true).assertExists()
     }
@@ -109,7 +113,7 @@ class PayCraftPremiumBannerTest {
     @Test
     fun banner_default_cta_renders() = runComposeUiTest {
         setContent {
-            PayCraftPremiumBannerContent(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
+            UpsellBannerCard(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
         }
         onNodeWithText("Get Premium", substring = true).assertExists()
     }
@@ -117,7 +121,7 @@ class PayCraftPremiumBannerTest {
     @Test
     fun banner_default_restore_label_renders() = runComposeUiTest {
         setContent {
-            PayCraftPremiumBannerContent(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
+            UpsellBannerCard(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = freeManager())
         }
         onNodeWithText("Restore Your Premium", substring = true).assertExists()
     }
@@ -139,7 +143,7 @@ class PayCraftPremiumBannerTest {
         )
         setContent {
             CompositionLocalProvider(LocalPayCraftConfig provides suiteConfig(paywall)) {
-                PayCraftPremiumBannerContent(
+                UpsellBannerCard(
                     onGetPremiumTap = {},
                     onRestoreTap = {},
                     billingManager = freeManager(),
@@ -160,7 +164,7 @@ class PayCraftPremiumBannerTest {
         val paywall = PaywallDto(heroTitle = "Dashboard Wins")
         setContent {
             CompositionLocalProvider(LocalPayCraftConfig provides suiteConfig(paywall)) {
-                PayCraftPremiumBannerContent(
+                UpsellBannerCard(
                     onGetPremiumTap = {},
                     onRestoreTap = {},
                     billingManager = freeManager(),
@@ -175,7 +179,7 @@ class PayCraftPremiumBannerTest {
     @Test
     fun loading_state_renders_shimmer_not_upgrade_card() = runComposeUiTest {
         setContent {
-            PayCraftPremiumBannerContent(
+            UpsellBannerCard(
                 onGetPremiumTap = {},
                 onRestoreTap = {},
                 billingManager = freeManager(BillingState.Loading),
@@ -191,7 +195,7 @@ class PayCraftPremiumBannerTest {
     fun null_manager_pre_init_renders_shimmer() = runComposeUiTest {
         // A null billing manager (pre-init / no Koin) is treated as Loading.
         setContent {
-            PayCraftPremiumBannerContent(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = null)
+            UpsellBannerCard(onGetPremiumTap = {}, onRestoreTap = {}, billingManager = null)
         }
         // The banner shimmer renders three pills, each tagged — assert at least one exists.
         onAllNodesWithTag(PayCraftTestTags.BANNER_SHIMMER).onFirst().assertExists()
@@ -204,7 +208,7 @@ class PayCraftPremiumBannerTest {
             trial = null,
         )
         setContent {
-            PayCraftPremiumBannerContent(
+            UpsellBannerCard(
                 onGetPremiumTap = {},
                 onRestoreTap = {},
                 billingManager = freeManager(premium),
@@ -218,7 +222,7 @@ class PayCraftPremiumBannerTest {
     @Test
     fun free_state_renders_upgrade_card() = runComposeUiTest {
         setContent {
-            PayCraftPremiumBannerContent(
+            UpsellBannerCard(
                 onGetPremiumTap = {},
                 onRestoreTap = {},
                 billingManager = freeManager(BillingState.Free),

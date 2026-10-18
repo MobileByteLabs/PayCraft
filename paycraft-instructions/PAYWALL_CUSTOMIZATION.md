@@ -23,12 +23,13 @@ The host renders a PayCraft composable; everything visual comes from `SuiteConfi
 | `PayCraftPaywallSheet(…)` | modal bottom sheet | the paywall interrupts a flow |
 | `PayCraftSheet(visible, onDismiss, modifier)` | sheet wrapper | simplest drop-in |
 | `PayCraftPaywallWithRestore(onDismiss, modifier)` | screen | paywall + restore in one surface |
-| `PayCraftBanner` / `PayCraftInlinePaywallBanner` / `BannerPaywall` | inline | contextual upsell |
-| `PayCraftPremiumBanner` | inline | already-premium state |
+| `PayCraftBanner(style)` | inline | the billing banner — `Adaptive` (default) shows a subscriber their plan, `Upsell` renders nothing for them |
+| `PayCraftInlinePaywallBanner` / `BannerPaywall` | inline | contextual upsell |
 | `PayCraftPremiumGate` | wrapper | gate a screen or a region — REPLACES the content with the SDK's offer |
 | `PayCraftSoftGate` | wrapper | the content stays visible and readable; only the TAP is shielded |
 | `PayCraftRewardedGate` | wrapper | unlockable by watching an ad as well as by subscribing |
-| `PayCraftRestore` / `PayCraftRestoreContent` | screen / content | restore purchases |
+| — | — | restore is presented BY the SDK (banner link, `PayCraftSubscriptionSettings` row); `PayCraftRestore` is internal |
+| `PayCraftSubscriptionSettings(style, theme)` | inline | subscription section for a settings screen — status, manage, restore |
 | `PayCraftCheckoutSuccessSheet` / `…OrPaywall` | sheet | post-purchase confirmation |
 | `ProductList(…)` | list | plan stack on its own |
 
