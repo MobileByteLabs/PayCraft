@@ -145,6 +145,18 @@ fun PayCraftPlanBanner(
     modifier: Modifier = Modifier,
     style: PayCraftPlanBannerStyle = PayCraftPlanBannerStyle.Adaptive,
 ) {
+    // Configured check FIRST, before Koin and before requireConfig().
+    //
+    // Same defect [PayCraftPlanSection] carried until cappy's preview test caught it, with a worse
+    // failure: the Adaptive path calls `PayCraft.requireConfig()`, which THROWS on an
+    // unconfigured SDK rather than merely failing to resolve. So a @Preview or Roborazzi capture
+    // of any host screen containing this banner crashed, and an app that had not called
+    // `initialize` crashed at first composition instead of rendering nothing.
+    //
+    // An app with no publishable key has no billing to show. Returning here is both the fix and
+    // the honest behaviour.
+    if (!PayCraft.isConfigured) return
+
     // Both presenters EMIT their sheet here and return a trigger, so the tap completes inside the
     // SDK instead of being handed back to a host that has to render something.
     val showPaywall = rememberPaywallPresenter()
@@ -246,7 +258,7 @@ fun PayCraftPlanBanner(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun FreeBannerCard(
+internal fun FreeBannerCard(
     benefits: List<BillingBenefit>,
     paywall: PaywallDto,
     onUpgradeClick: () -> Unit,
@@ -353,7 +365,7 @@ private fun FreeBannerCard(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun PremiumBannerCard(
+internal fun PremiumBannerCard(
     status: SubscriptionStatus,
     trial: com.mobilebytelabs.paycraft.model.TrialInfo?,
     plans: List<BillingPlan>,
@@ -378,7 +390,15 @@ private fun PremiumBannerCard(
 
     // isTopTier + portal URL configured → open billing portal; otherwise → open paywall
     val email = status.email.orEmpty()
-    val hasPortalUrl = PayCraft.requireConfig().provider.getManageUrl(email) != null
+    // `config?`, not `requireConfig()`. This function already reads `PayCraft.config?` sixteen
+    // lines up for test mode, so it used BOTH the null-safe and the throwing accessor for the same
+    // object — and the throwing one made the card uncomposable without a started SDK, which a
+    // screenshot test hit immediately.
+    //
+    // No config means no provider portal, which is exactly what `false` says here: the CTA then
+    // falls through to `onManageClick`, the platform store page. The throw added nothing the
+    // fallback does not already handle.
+    val hasPortalUrl = PayCraft.config?.provider?.getManageUrl(email) != null
     val ctaClick: () -> Unit = if (isTopTier && email.isNotBlank() && hasPortalUrl) {
         { PayCraft.manageSubscription(email) }
     } else {
