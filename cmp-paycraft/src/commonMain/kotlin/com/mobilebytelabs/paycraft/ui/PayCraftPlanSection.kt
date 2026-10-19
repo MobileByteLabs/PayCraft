@@ -396,7 +396,22 @@ fun PayCraftPlanSection(
     // dashboard-configured, so a host overriding it is a host rebuilding what it just adopted. The
     // same reasoning that removed `copy` and `repository`: if the SDK has the answer, it does not
     // ask. Manage already worked this way — it has never been overridable.
-    val upgrade: () -> Unit = { PayCraft.presentPaywall() }
+    // ...and because it is NOT a host decision, this section must PRESENT the paywall, not merely
+    // signal it — so upgrade goes through the SAME presenter seam restore already uses above.
+    //
+    // It did not, and that asymmetry was the bug: restore called `rememberRestorePresenter()` while
+    // upgrade was a bare `{ PayCraft.presentPaywall() }`. That call only flips
+    // `PayCraft.paywallPresentation`, a flow the host must observe and render — and most hosts never
+    // read it (cappy, the first consumer, does not). While `onUpgrade` was still a parameter the
+    // signal sufficed, because the host wired the navigation; the moment upgrade became internal, the
+    // row became a tap that goes NOWHERE.
+    //
+    // Found on-device 2026-10-19: tapping "Get Premium" in cappy's settings logged
+    // `[presentPaywall] manual — mode=AdSupported` and showed nothing. The row reported
+    // `clickable=true`, its handler ran, its golden matched and its tests passed — only the render
+    // proved it dead. `PayCraftPresenters` exists precisely so this cannot happen; this surface just
+    // never adopted it. The presenter still calls `presentPaywall()` for the analytics trigger.
+    val upgrade = rememberPaywallPresenter()
 
     Column(modifier = modifier.fillMaxWidth().testTag(PayCraftTestTags.SUBSCRIPTION_SETTINGS)) {
         // Compact is a single inline row by definition — a section header above a one-liner is the
