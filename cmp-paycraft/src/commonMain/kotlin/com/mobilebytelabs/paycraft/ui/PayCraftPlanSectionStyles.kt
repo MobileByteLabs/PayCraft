@@ -21,6 +21,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ManageAccounts
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material.icons.filled.Stars
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -34,6 +37,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -117,7 +121,10 @@ internal fun MinimalSettings(
             modifier = Modifier.testTag(PayCraftTestTags.SUBSCRIPTION_STATUS_ROW),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(theme.rowSpacing)) {
-            PrimaryAction(state, copy, onUpgrade) { label, tag, click ->
+            // `_`, deliberately: Minimal is "the quietest option" for a list where billing is one
+            // entry among thirty. Giving it the glyph + accent would make it the loudest row on the
+            // screen, which is the opposite of what the style is for.
+            PrimaryAction(state, copy, onUpgrade) { label, tag, _, _, click ->
                 TextButton(onClick = click, modifier = Modifier.testTag(tag)) { Text(label) }
             }
             TextButton(
@@ -138,9 +145,18 @@ internal fun RowsSettings(
     onUpgrade: () -> Unit,
 ) {
     StatusBlock(state, theme)
-    PrimaryAction(state, copy, onUpgrade) { label, tag, click -> TappableRow(label, tag, theme, click) }
+    PrimaryAction(state, copy, onUpgrade) { label, tag, icon, emphasized, click ->
+        TappableRow(label, tag, theme, icon, emphasized, click)
+    }
     HorizontalDivider()
-    TappableRow(copy.restoreLabel, PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW, theme, state.onRestoreClick)
+    TappableRow(
+        copy.restoreLabel,
+        PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW,
+        theme,
+        Icons.Default.Restore,
+        emphasized = false,
+        onClick = state.onRestoreClick,
+    )
 }
 
 // ── Card ─────────────────────────────────────────────────────────────────────────────────────────
@@ -172,9 +188,18 @@ internal fun CardSettings(
             }
         }
         HorizontalDivider()
-        PrimaryAction(state, copy, onUpgrade) { label, tag, click -> TappableRow(label, tag, theme, click) }
+        PrimaryAction(state, copy, onUpgrade) { label, tag, icon, emphasized, click ->
+            TappableRow(label, tag, theme, icon, emphasized, click)
+        }
         HorizontalDivider()
-        TappableRow(copy.restoreLabel, PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW, theme, state.onRestoreClick)
+        TappableRow(
+            copy.restoreLabel,
+            PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW,
+            theme,
+            Icons.Default.Restore,
+            emphasized = false,
+            onClick = state.onRestoreClick,
+        )
     }
 }
 
@@ -205,7 +230,9 @@ internal fun HeroSettings(
             color = theme.supportingColor,
         )
         Spacer(Modifier.height(20.dp))
-        PrimaryAction(state, copy, onUpgrade) { label, tag, click ->
+        // Hero's emphasis is the filled Button itself, so it needs neither the glyph nor the accent
+        // tint — applying both would double up on a surface that already assumes it owns the viewport.
+        PrimaryAction(state, copy, onUpgrade) { label, tag, _, _, click ->
             Button(
                 onClick = click,
                 modifier = Modifier.fillMaxWidth().heightIn(min = theme.rowMinHeight).testTag(tag),
@@ -274,41 +301,108 @@ private fun PrimaryAction(
     state: PlanSectionState,
     copy: PlanSectionCopy,
     onUpgrade: () -> Unit,
-    render: @Composable (label: String, tag: String, onClick: () -> Unit) -> Unit,
+    render: @Composable (label: String, tag: String, icon: ImageVector, emphasized: Boolean, onClick: () -> Unit) -> Unit,
 ) {
+    // The icon + emphasis travel WITH the branch that chose the action. A caller re-deriving
+    // "is this upgrade or manage" to pick a glyph would be a second copy of this `when`, free to
+    // disagree with it — which is how a manage row ends up wearing the upgrade's accent.
     when {
         state.tier == EntitlementTier.FREE ->
-            render(copy.upgradeLabel, PayCraftTestTags.SUBSCRIPTION_UPGRADE_ROW, onUpgrade)
+            render(
+                copy.upgradeLabel,
+                PayCraftTestTags.SUBSCRIPTION_UPGRADE_ROW,
+                Icons.Default.WorkspacePremium,
+                // The one commercial action in the section, and the only emphasized row.
+                true,
+                onUpgrade,
+            )
         state.canManage ->
-            render(copy.manageLabel, PayCraftTestTags.SUBSCRIPTION_MANAGE_ROW, state.onManage)
+            render(
+                copy.manageLabel,
+                PayCraftTestTags.SUBSCRIPTION_MANAGE_ROW,
+                Icons.Default.ManageAccounts,
+                // Administrative, not commercial: a subscriber is not being sold to.
+                false,
+                state.onManage,
+            )
         else -> Unit
     }
 }
 
 @Composable
 private fun StatusBlock(state: PlanSectionState, theme: PayCraftPlanSectionTheme) {
-    Column(
-        Modifier
+    // The badge leads, as it does in Card/Hero/Compact. Rows is the DEFAULT style and was the only
+    // one that never drew it — so `showTierBadge`, which defaults to `true`, was silently inert
+    // exactly where most consumers meet this component. The result read as placeholder text beside
+    // a host's own icon-led settings rows (observed in cappy on device, 2026-10-19).
+    //
+    // `TierBadge` still honours `showTierBadge = false`, so a text-only list opts out as before.
+    Row(
+        modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = theme.horizontalPadding, vertical = theme.verticalPadding)
             .testTag(PayCraftTestTags.SUBSCRIPTION_STATUS_ROW),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(theme.rowSpacing),
     ) {
-        Text(state.statusLabel, style = theme.statusTextStyle)
-        Spacer(Modifier.height(2.dp))
-        Text(
-            state.supportingText,
-            style = theme.supportingTextStyle,
-            color = theme.supportingColor,
-        )
+        TierBadge(state.tier, 40.dp, theme)
+        Column {
+            // Tier, then the commercial line, then the operational one. Status first and price
+            // beside it is the ordering a subscription card is expected to use — a user checking
+            // this screen is answering "what am I on and what does it cost", and burying the price
+            // behind the upgrade tap makes them leave the screen to find out.
+            Text(state.statusLabel, style = theme.statusTextStyle)
+            state.planLine?.let { line ->
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    line,
+                    style = theme.supportingTextStyle,
+                    color = theme.contentColor,
+                    modifier = Modifier.testTag(PayCraftTestTags.SUBSCRIPTION_PLAN_LINE),
+                )
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                state.supportingText,
+                style = theme.supportingTextStyle,
+                color = theme.supportingColor,
+            )
+            // Last, and quiet: it matters only when someone goes looking for where to cancel, and
+            // it must not compete with the price. Absent entirely for a free user.
+            state.billedThrough?.let { store ->
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    store,
+                    style = theme.supportingTextStyle,
+                    color = theme.supportingColor,
+                    modifier = Modifier.testTag(PayCraftTestTags.SUBSCRIPTION_BILLED_THROUGH),
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun TappableRow(label: String, tag: String, theme: PayCraftPlanSectionTheme, onClick: () -> Unit) {
-    Text(
-        text = label,
-        style = theme.rowTextStyle,
-        color = theme.contentColor,
+private fun TappableRow(
+    label: String,
+    tag: String,
+    theme: PayCraftPlanSectionTheme,
+    leadingIcon: ImageVector,
+    emphasized: Boolean,
+    onClick: () -> Unit,
+) {
+    // Icon + label + chevron, not a bare Text.
+    //
+    // A plain string with an invisible `clickable` gives a user NOTHING that says it is tappable:
+    // it sits in a settings list beside host rows that all carry an icon tile and a trailing
+    // affordance, and reads as a label rather than an action. The chevron is the part that earns
+    // its place — it is the platform convention for "this opens something".
+    //
+    // `emphasized` marks the single commercial action (upgrade, for a free user) by tinting it with
+    // the theme accent. One accent per section: the restore and manage rows stay quiet so the thing
+    // worth tapping is obvious without shouting.
+    val tint = if (emphasized) theme.accentColor else theme.supportingColor
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
@@ -316,7 +410,30 @@ private fun TappableRow(label: String, tag: String, theme: PayCraftPlanSectionTh
             .heightIn(min = theme.rowMinHeight)
             .padding(horizontal = theme.horizontalPadding, vertical = theme.verticalPadding)
             .testTag(tag),
-    )
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(theme.rowSpacing),
+    ) {
+        Icon(
+            leadingIcon,
+            // Null: the LABEL already names the action, so announcing the glyph too would make a
+            // screen reader read the row twice.
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = tint,
+        )
+        Text(
+            text = label,
+            style = theme.rowTextStyle,
+            color = if (emphasized) theme.accentColor else theme.contentColor,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            Icons.Default.ChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = theme.supportingColor,
+        )
+    }
 }
 
 /** Tier mark. Theme colours only — no brand assets, so it inherits the host's palette. */

@@ -48,6 +48,12 @@ object PayCraftTestTags {
     // device flow asserting "the user can reach cancel" works the same across every consumer.
     const val SUBSCRIPTION_SETTINGS = "paycraft_subscription_settings"
     const val SUBSCRIPTION_STATUS_ROW = "paycraft_subscription_status_row"
+
+    /** Price + billing interval — "₹1259 per year", or "From ₹89 per week" for a free user. */
+    const val SUBSCRIPTION_PLAN_LINE = "paycraft_subscription_plan_line"
+
+    /** Billing owner — "Billed through Google Play". Absent for a free user. */
+    const val SUBSCRIPTION_BILLED_THROUGH = "paycraft_subscription_billed_through"
     const val SUBSCRIPTION_MANAGE_ROW = "paycraft_subscription_manage_row"
     const val SUBSCRIPTION_UPGRADE_ROW = "paycraft_subscription_upgrade_row"
     const val SUBSCRIPTION_RESTORE_ROW = "paycraft_subscription_restore_row"

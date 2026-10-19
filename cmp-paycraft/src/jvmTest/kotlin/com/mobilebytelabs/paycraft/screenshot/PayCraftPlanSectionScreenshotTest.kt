@@ -78,10 +78,25 @@ class PayCraftPlanSectionScreenshotTest {
         manageLabel = "Manage Subscription",
         upgradeLabel = "Get Premium",
         restoreLabel = "Restore Purchases",
+        fromPriceTemplate = "From {price}",
+        perIntervalTemplate = "per {interval}",
+        billedThroughTemplate = "Billed through {store}",
     )
 
-    private fun state(tier: EntitlementTier, supporting: String, canManage: Boolean = tier != EntitlementTier.FREE) =
+    // `planLine` / `billedThrough` default to the values the real derivation produces for each tier
+    // (planLineFor / billedThroughFor, covered in PayCraftPlanSectionLogicTest) so the goldens
+    // render the SHIPPING card rather than a stripped one. A golden of a card with its price line
+    // omitted would keep passing while the real card lost it — the goldens' whole job is to notice.
+    private fun state(
+        tier: EntitlementTier,
+        supporting: String,
+        canManage: Boolean = tier != EntitlementTier.FREE,
+        planLine: String? = if (tier == EntitlementTier.FREE) "From ₹89 per week" else "₹1259 per year",
+        billedThrough: String? = if (tier == EntitlementTier.FREE) null else "Billed through Google Play",
+    ) =
         PlanSectionState(
+            planLine = planLine,
+            billedThrough = billedThrough,
             visible = true,
             tier = tier,
             statusLabel = when (tier) {

@@ -24,7 +24,10 @@ import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_get_premium
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_manage_subscription
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_button
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_billed_through
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_expires_on
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_from_price
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_per_interval
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_free
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_free_supporting
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_premium
@@ -35,6 +38,7 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_trial_d
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_trial_ending_today
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_trial_one_day_left
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_trial_supporting
+import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.EntitlementTier
 import com.mobilebytelabs.paycraft.repository.PayCraftRepository
 import org.jetbrains.compose.resources.stringResource
@@ -100,6 +104,27 @@ internal data class PlanSectionState(
      * flag exists to prevent.
      */
     val canManage: Boolean,
+    /**
+     * Price and billing interval as ONE line — "₹1259 per year" for a subscriber, "From ₹89 per
+     * week" for a free user. Null when the catalogue has not loaded or carries no priced plan.
+     *
+     * A subscription card that names a plan but not its price makes the user leave the screen to
+     * find out what they pay; price and interval belong together with the status, not behind the
+     * upgrade tap. Sourced from [PayCraftRepository.plans] — the SAME list the paywall renders — so
+     * the two surfaces cannot quote different numbers for the same SKU.
+     */
+    val planLine: String?,
+
+    /**
+     * Who actually bills this subscription — "Google Play", "App Store", the web provider's name.
+     * Null for a free user, or when the status carries no provider.
+     *
+     * Named because hiding the billing owner is how a user ends up tapping Cancel in the wrong
+     * place: a Play-billed subscription cannot be cancelled from a web portal, and a card that
+     * stays silent about it sends them down a dead end.
+     */
+    val billedThrough: String?,
+
     /** Opens the provider portal or the platform's store subscriptions page. */
     val onManage: () -> Unit,
     /**
@@ -164,9 +189,20 @@ internal fun rememberSubscriptionSettingsState(
         }
     }
 
+    // The SAME StateFlow the paywall renders from. Deriving a second price here — off ProductDto's
+    // base_price_cents, say — would quote the catalogue price while the paywall quotes the native
+    // store's, and the two disagree exactly where it matters (a Play price differs by region/offer).
+    val plans by repo.plans.collectAsState()
+
+    val priced = planLineFor(entitlement.tier, entitlement.planSku, plans, copy)
+
     return PlanSectionState(
         visible = configured,
         tier = entitlement.tier,
+        planLine = priced,
+        // Only for someone who actually has a subscription — a free user has no billing owner, and
+        // naming one would imply a relationship that does not exist.
+        billedThrough = billedThroughFor(entitlement.tier, status.provider, copy),
         statusLabel = when (entitlement.tier) {
             EntitlementTier.FREE -> copy.freeLabel
             EntitlementTier.TRIAL -> copy.trialLabel
@@ -177,6 +213,72 @@ internal fun rememberSubscriptionSettingsState(
         onManage = { repo.manageSubscription() },
         onRestoreClick = showRestore,
     )
+}
+
+/**
+ * The plan the card should quote, as a finished line.
+ *
+ * Subscriber → the plan they actually hold, matched on [planSku]. Free → the cheapest entry point,
+ * which is what "From …" means.
+ *
+ * `rank` is the catalogue's OWN ordering, so the lowest rank is the entry tier. Sorting by [price]
+ * would compare FORMATTED strings — "₹89" against "₹1259" lexically, which puts ₹1259 first — and
+ * sorting by a parsed amount would have to strip a symbol that varies by currency.
+ *
+ * Returns null when the catalogue has not loaded, or when a subscriber's SKU is not in it (a plan
+ * retired from the dashboard while someone still holds it). Null renders no line at all rather than
+ * a half-built one: "From  per " is worse than silence.
+ *
+ * Pure, and internal, so the selection can be tested without a composition — the convention this
+ * file's logic tests already follow.
+ */
+internal fun planLineFor(
+    tier: EntitlementTier,
+    planSku: String?,
+    plans: List<BillingPlan>,
+    copy: PlanSectionCopy,
+): String? {
+    val plan = when (tier) {
+        EntitlementTier.FREE -> plans.minByOrNull { it.rank }
+        else -> plans.firstOrNull { it.sku == planSku }
+    } ?: return null
+    val priceWithInterval = "${plan.price} ${copy.perInterval(plan.interval)}"
+    // "From" belongs ONLY to the free card: for a subscriber the number is what they actually pay,
+    // and prefixing it with "From" would read as though their own plan might cost more.
+    return if (tier == EntitlementTier.FREE) copy.fromPrice(priceWithInterval) else priceWithInterval
+}
+
+/**
+ * Who bills this subscription, as a finished line — or null when nobody does.
+ *
+ * Null for a FREE user even if a provider lingers on the status (a lapsed subscription leaves one
+ * behind): naming a billing owner for someone with no subscription implies a relationship that does
+ * not exist, and sends them to a store page that will show nothing.
+ */
+internal fun billedThroughFor(
+    tier: EntitlementTier,
+    provider: String?,
+    copy: PlanSectionCopy,
+): String? {
+    if (tier == EntitlementTier.FREE) return null
+    val slug = provider?.takeIf { it.isNotBlank() } ?: return null
+    return copy.billedThrough(storeDisplayName(slug))
+}
+
+/**
+ * A provider slug as a person would read it.
+ *
+ * The slugs are the wire values PayCraft already uses (`NATIVE_STORE_PROVIDERS`), and the two
+ * native stores get their official names because that is what the user will look for in their
+ * device settings. Anything else — a web provider — is title-cased from its own slug rather than
+ * mapped, so a tenant adding a provider does not need an SDK release to have it read properly.
+ */
+private fun storeDisplayName(provider: String): String = when (provider) {
+    "google_play" -> "Google Play"
+    "app_store" -> "App Store"
+    else -> provider.split('_', '-').joinToString(" ") { part ->
+        part.replaceFirstChar { it.uppercase() }
+    }
 }
 
 /**
@@ -221,7 +323,16 @@ internal data class PlanSectionCopy(
     val manageLabel: String,
     val upgradeLabel: String,
     val restoreLabel: String,
+    /** Token `{price}` — wraps an already-formatted "₹89 per week" for a free user. */
+    val fromPriceTemplate: String,
+    /** Token `{interval}` — "per month" / "per year". */
+    val perIntervalTemplate: String,
+    /** Token `{store}` — "Billed through Google Play". */
+    val billedThroughTemplate: String,
 ) {
+    fun fromPrice(priceWithInterval: String): String = fromPriceTemplate.replace(TOKEN_PRICE, priceWithInterval)
+    fun perInterval(interval: String): String = perIntervalTemplate.replace(TOKEN_INTERVAL, interval)
+    fun billedThrough(store: String): String = billedThroughTemplate.replace(TOKEN_STORE, store)
     fun trialDaysLeft(days: Long): String = trialDaysLeftTemplate.replace(TOKEN_DAYS, days.toString())
     fun renewsOn(date: String): String = renewsOnTemplate.replace(TOKEN_DATE, date)
     fun expiresOn(date: String): String = expiresOnTemplate.replace(TOKEN_DATE, date)
@@ -229,6 +340,9 @@ internal data class PlanSectionCopy(
     internal companion object {
         const val TOKEN_DAYS = "{days}"
         const val TOKEN_DATE = "{date}"
+        const val TOKEN_PRICE = "{price}"
+        const val TOKEN_INTERVAL = "{interval}"
+        const val TOKEN_STORE = "{store}"
     }
 }
 
@@ -269,6 +383,12 @@ internal fun PlanSectionCopy.mergedWith(paywall: PaywallDto) = PlanSectionCopy(
     manageLabel = paywall.settingsManageLabel.ifBlank { manageLabel },
     upgradeLabel = paywall.settingsUpgradeLabel.ifBlank { upgradeLabel },
     restoreLabel = paywall.settingsRestoreLabel.ifBlank { restoreLabel },
+    // No `settings_*` column for these three yet, so they carry through from the bundled strings.
+    // Listed explicitly rather than left to a copy(): a field added to PlanSectionCopy and silently
+    // omitted here is how a tenant override stops reaching one line while the rest still work.
+    fromPriceTemplate = fromPriceTemplate,
+    perIntervalTemplate = perIntervalTemplate,
+    billedThroughTemplate = billedThroughTemplate,
 )
 
 /**
@@ -298,6 +418,9 @@ internal fun rememberSettingsCopy(): PlanSectionCopy {
         manageLabel = stringResource(Res.string.paycraft_manage_subscription),
         upgradeLabel = stringResource(Res.string.paycraft_get_premium),
         restoreLabel = stringResource(Res.string.paycraft_restore_button),
+        fromPriceTemplate = stringResource(Res.string.paycraft_settings_from_price),
+        perIntervalTemplate = stringResource(Res.string.paycraft_settings_per_interval),
+        billedThroughTemplate = stringResource(Res.string.paycraft_settings_billed_through),
     )
     val paywall = PayCraft.suiteConfigFlow.collectAsState().value?.paywall
     // Null until the first config lands, and on every offline cold start with no cache. The section
