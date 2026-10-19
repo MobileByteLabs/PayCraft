@@ -36,4 +36,8 @@ dependencyResolutionManagement {
 
 rootProject.name = "paycraft"
 include(":cmp-paycraft")
+// Optional companion. Ships the paywall as a Navigation Compose destination, so the
+// `navigation-compose` dependency stays OFF the core artifact's classpath — a billing SDK does
+// not get to choose an app's navigation library. Same split as cmp-supabase-auth-compose.
+include(":cmp-paycraft-navigation")
 include(":sample-app")
