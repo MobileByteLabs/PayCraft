@@ -23,8 +23,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ManageAccounts
 import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material.icons.filled.Stars
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -301,7 +301,13 @@ private fun PrimaryAction(
     state: PlanSectionState,
     copy: PlanSectionCopy,
     onUpgrade: () -> Unit,
-    render: @Composable (label: String, tag: String, icon: ImageVector, emphasized: Boolean, onClick: () -> Unit) -> Unit,
+    render: @Composable (
+        label: String,
+        tag: String,
+        icon: ImageVector,
+        emphasized: Boolean,
+        onClick: () -> Unit,
+    ) -> Unit,
 ) {
     // The icon + emphasis travel WITH the branch that chose the action. A caller re-deriving
     // "is this upgrade or manage" to pick a glyph would be a second copy of this `when`, free to

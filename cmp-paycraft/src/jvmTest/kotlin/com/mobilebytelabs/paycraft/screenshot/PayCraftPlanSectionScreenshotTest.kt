@@ -93,22 +93,21 @@ class PayCraftPlanSectionScreenshotTest {
         canManage: Boolean = tier != EntitlementTier.FREE,
         planLine: String? = if (tier == EntitlementTier.FREE) "From ₹89 per week" else "₹1259 per year",
         billedThrough: String? = if (tier == EntitlementTier.FREE) null else "Billed through Google Play",
-    ) =
-        PlanSectionState(
-            planLine = planLine,
-            billedThrough = billedThrough,
-            visible = true,
-            tier = tier,
-            statusLabel = when (tier) {
-                EntitlementTier.FREE -> copy.freeLabel
-                EntitlementTier.TRIAL -> copy.trialLabel
-                EntitlementTier.PREMIUM -> copy.premiumLabel
-            },
-            supportingText = supporting,
-            canManage = canManage,
-            onManage = {},
-            onRestoreClick = {},
-        )
+    ) = PlanSectionState(
+        planLine = planLine,
+        billedThrough = billedThrough,
+        visible = true,
+        tier = tier,
+        statusLabel = when (tier) {
+            EntitlementTier.FREE -> copy.freeLabel
+            EntitlementTier.TRIAL -> copy.trialLabel
+            EntitlementTier.PREMIUM -> copy.premiumLabel
+        },
+        supportingText = supporting,
+        canManage = canManage,
+        onManage = {},
+        onRestoreClick = {},
+    )
 
     private val premium = state(EntitlementTier.PREMIUM, copy.renewsOn("14 Nov 2026"))
     private val free = state(EntitlementTier.FREE, copy.freeSupporting)

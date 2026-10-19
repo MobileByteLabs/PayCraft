@@ -26,10 +26,10 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_manage_subscript
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_button
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_billed_through
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_expires_on
-import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_from_price
-import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_per_interval
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_free
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_free_supporting
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_from_price
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_per_interval
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_premium
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_premium_supporting
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_renews_on
@@ -255,11 +255,7 @@ internal fun planLineFor(
  * behind): naming a billing owner for someone with no subscription implies a relationship that does
  * not exist, and sends them to a store page that will show nothing.
  */
-internal fun billedThroughFor(
-    tier: EntitlementTier,
-    provider: String?,
-    copy: PlanSectionCopy,
-): String? {
+internal fun billedThroughFor(tier: EntitlementTier, provider: String?, copy: PlanSectionCopy): String? {
     if (tier == EntitlementTier.FREE) return null
     val slug = provider?.takeIf { it.isNotBlank() } ?: return null
     return copy.billedThrough(storeDisplayName(slug))
