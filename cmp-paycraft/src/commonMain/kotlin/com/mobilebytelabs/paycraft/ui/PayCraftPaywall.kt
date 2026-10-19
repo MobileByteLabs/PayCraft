@@ -5,13 +5,18 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.repository.PayCraftRepository
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -56,7 +61,22 @@ fun PayCraftPaywall(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     displayMode: DisplayMode = DisplayMode.FullScreen,
+    onSubscribed: () -> Unit = onDismiss,
 ) {
+    // "They bought it — leave" is the SDK's to know, not the host's.
+    //
+    // Every consumer placing the paywall as a destination had to write this themselves, and it is
+    // subtle in a way that is easy to get wrong: `premiumOnEntry` separates "just purchased" from
+    // "arrived already subscribed". Without it, a subscriber who opens the paywall to look at
+    // plans is immediately thrown out of it. Measured on `mbs/cappy`, this exact LaunchedEffect
+    // lived in the host's nav destination.
+    //
+    // Defaulting to [onDismiss] means a host that does not care gets the obvious behaviour; one
+    // mid-onboarding passes a different continuation.
+    val isPremium by rememberIsPremium()
+    val premiumOnEntry = remember { isPremium }
+    LaunchedEffect(isPremium) { if (isPremium && !premiumOnEntry) onSubscribed() }
+
     // Removed: v1 hand-built content branch(state = …, onDismiss = …, …) hand-built branch.
     // Single paywall path — PayCraftPaywallComposable resolves BrandedStackTemplate.
     PayCraftPaywallComposable(
@@ -65,6 +85,15 @@ fun PayCraftPaywall(
         modifier = modifier,
     )
 }
+
+/**
+ * Entitlement for the auto-dismiss above, resolved the same way every other SDK surface does.
+ *
+ * A separate function so the Koin lookup is in one place and `PayCraftPaywall` reads as the
+ * behaviour rather than the plumbing.
+ */
+@Composable
+private fun rememberIsPremium() = koinInject<PayCraftRepository>().isPremium.collectAsState()
 
 /**
  * Bottom-sheet variant of the paywall. Preserves the retired v1 behaviour:
