@@ -1,4 +1,4 @@
-example-provenance: 0a353f53c55e8b2a0a69801e1ccce77ab6682bd2
+example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
 
 # WIRING_CONTRACTS.md — DI, initialization order, and the repository seam
 
@@ -10,7 +10,7 @@ example-provenance: 0a353f53c55e8b2a0a69801e1ccce77ab6682bd2
 1. PayCraft.initialize(apiKey, backend, options, mode)     // synchronous; captures apiKey + backend
 2. startKoin { modules(PayCraftModule, …app modules) }     // or add PayCraftModule to an existing startKoin
 3. (Android only, optional) loadKoinModules(paycraftPlayBillingModule(context, activityProvider))
-4. app UI composes; BillingManager resolves lazily
+4. app UI composes; `PayCraftRepository` resolves lazily
 ```
 
 **Why this order is preferred.** `PayCraftModule`'s `SupabaseClient` singleton reads
@@ -51,11 +51,11 @@ Platform-specific pieces are additive Koin modules layered on top, never a secon
 | `EntitlementCache` | `EntitlementCache(service, SettingsEntitlementDao())` | Store5 read-through + offline last-known-good |
 | `EntitlementRepository` | `EntitlementRepository(cache, native, service)` | The internal read seam — NOT what a consumer injects |
 | `PayCraftRepository` | `PayCraftRepositoryImpl(billing = get(), entitlements = get())` | **The one binding a consumer app injects** (PUBLIC_API.md) |
-| `BillingManager` | `PayCraftBillingManager(service, store, repo, nativeBillingClient)` | The headless surface |
+| `BillingManager` | `PayCraftBillingManager(service, store, repo, nativeBillingClient)` | **`internal`** — the engine the facade composes, not a consumer seam |
 | `ConfigCache` | `ConfigCache(Settings())` | Persistent `SuiteConfig` cache — what makes a cold/offline start render real products |
 | `HttpClient` | Ktor + `ContentNegotiation(json)` | |
 | `CouponClient` | | |
-| `PayCraftPaywallViewModel` | `viewModelOf` | Only needed by the bundled paywall |
+| `PayCraftPaywallViewModel` | `viewModelOf` | **`internal`** — the bundled paywall's own MVI engine |
 
 **The qualifier matters.** Because the `SupabaseClient` is registered under
 `named("paycraft")`, an app that already binds its own unqualified `SupabaseClient` keeps it. Do not
@@ -105,11 +105,19 @@ client. It is null-equivalent until the first config lands (cached or fetched), 
 
 ## The repository seam
 
-Two layers, and a consumer binds only the outer one.
+Two layers, and a consumer binds only the outer one. As of SDK HEAD this is not merely the
+RECOMMENDED path — it is the only one: `BillingManager` is `internal`, so there is no longer a
+lower-level seam a host can reach for by accident.
+
+Three facades, one per layer, so a module injects what it actually needs rather than the whole
+engine: `PayCraftApi` (network · `core/network`), `PayCraftRepository` (data · `core/data`),
+`PayCraftStore` (persistence · `core/store`).
 
 **`PayCraftRepository` — what the app injects.** `PayCraftRepositoryImpl` composes `BillingManager`
 + `EntitlementRepository` + `PayCraft.suiteConfigFlow`, exposing `isPremium` / `entitlement` /
-`plans` / `checkout` / `restore` / `manageSubscription` / `refresh`. **A consumer app writes no
+`plans` / `checkout` / `restore` / `manageSubscription` / `refresh`, the identity cluster
+(`logIn` / `logOut` / `loginWithOAuth` / `userEmail`), the paywall-presentation cluster, and the
+device-conflict actions `confirmDeviceTransfer` / `revokeCurrentDevice`. **A consumer app writes no
 repository, store, or API wrapper of its own** — doing so is the 670 LOC (measured on `mbs/cappy`:
 five modules, `PayCraftApiImpl` alone 233 lines over 12 SDK call sites) that this binding deletes.
 Gate UI on `entitlement` (which preserves tier across `Loading`/`PaymentPending`/`Error`) rather
@@ -130,8 +138,9 @@ reaches `commonTest` with no extra wiring).
   `PayCraft.isConfigured == true`.
 - `getKoin().get<PayCraftRepository>()` resolves without throwing, and `isPremium` / `entitlement`
   emit immediately (Free before the first read, never empty).
-- `getKoin().get<BillingManager>()` resolves without throwing — **including before `initialize`**,
-  where it must answer Free rather than crash.
+- `PayCraftRepository` resolves **including before `initialize`**, where it must answer Free rather
+  than crash. (This check used to name `BillingManager`; that type is `internal` now, so a consumer
+  cannot write the assertion — and the property being asserted was always the facade's.)
 - `getKoin().get<NativeBillingClient>()` is NOT `WebCheckoutNativeBillingClient` on Android/iOS when
   the app ships digital subscriptions.
 - `PayCraft.suiteConfigFlow.value?.tenantId` non-null after the first successful `/config`, and

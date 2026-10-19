@@ -11,7 +11,7 @@ The core design principle of PayCraft: **the app never talks to the payment prov
 │  PayCraft.configure(provider = StripeProvider(...))                  │
 │                                                                      │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐    │
-│  │ PayCraftPaywall │  │ PayCraftRestore │  │ PayCraftBanner   │    │
+│  │ PayCraftPaywall │  │ PayCraftRestore │  │ PayCraftPlanBanner   │    │
 │  └────────┬────────┘  └────────┬────────┘  └────────┬─────────┘    │
 │           └───────────────────┬┘                    │               │
 │                               ▼                     │               │

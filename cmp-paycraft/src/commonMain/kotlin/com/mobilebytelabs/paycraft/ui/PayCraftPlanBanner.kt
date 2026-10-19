@@ -78,6 +78,7 @@ import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.provider.StripeProvider
+import com.mobilebytelabs.paycraft.repository.PayCraftRepository
 import com.mobilebytelabs.paycraft.ui.theme.parseHexColor
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -117,26 +118,69 @@ private val colorCtaManage = Brush.linearGradient(
 )
 
 /**
- * Adaptive settings banner that renders a rich gradient card.
+ * The SDK's billing banner. Observes entitlement and renders itself accordingly.
  *
- * - **Free user**: purple gradient, perk list, gold "Get Premium" CTA.
- * - **Premium user**: blue/green gradient, plan info, renewal date, support note.
+ * ```kotlin
+ * PayCraftPlanBanner()                                        // adaptive, the default
+ * PayCraftPlanBanner(style = PayCraftPlanBannerStyle.Upsell)      // hides itself for subscribers
+ * ```
  *
- * Observes [BillingManager.billingState] and switches automatically — no manual
- * state management required.
+ * [PayCraftPlanBannerStyle] explains the two presets and why premium-behaviour and visual weight are
+ * bundled rather than independent. `PayCraftPremiumBanner`, which was a second public composable
+ * doing this same job, is now [PayCraftPlanBannerStyle.Upsell].
  *
- * @param onUpgradeClick Invoked when a free user taps the card or CTA.
- * @param onManageClick  Invoked when a premium user taps "Manage Subscription".
- * @param onRestoreClick Optional — shown as a text link for free users.
+ * ## No callbacks
+ *
+ * It used to take `onUpgradeClick`, `onManageClick` and `onRestoreClick`, which made a host hold a
+ * `var showPaywall` / `var showRestore` and render two sheets — the sample did precisely that, and
+ * every consumer would have copied it. The SDK knows all three destinations: its own paywall, the
+ * store/provider portal it already resolves for [PayCraftPlanSection], and its own restore
+ * sheet. Owning them is why there is nothing left to pass.
+ *
+ * The restore link still only appears when there is something to restore — a free user — exactly as
+ * when the callback was nullable.
  */
 @Composable
-fun PayCraftBanner(
-    onUpgradeClick: () -> Unit,
-    onManageClick: () -> Unit,
+fun PayCraftPlanBanner(
     modifier: Modifier = Modifier,
-    onRestoreClick: (() -> Unit)? = null,
-    billingManager: BillingManager = koinInject(),
+    style: PayCraftPlanBannerStyle = PayCraftPlanBannerStyle.Adaptive,
 ) {
+    // Configured check FIRST, before Koin and before requireConfig().
+    //
+    // Same defect [PayCraftPlanSection] carried until cappy's preview test caught it, with a worse
+    // failure: the Adaptive path calls `PayCraft.requireConfig()`, which THROWS on an
+    // unconfigured SDK rather than merely failing to resolve. So a @Preview or Roborazzi capture
+    // of any host screen containing this banner crashed, and an app that had not called
+    // `initialize` crashed at first composition instead of rendering nothing.
+    //
+    // An app with no publishable key has no billing to show. Returning here is both the fix and
+    // the honest behaviour.
+    if (!PayCraft.isConfigured) return
+
+    // Both presenters EMIT their sheet here and return a trigger, so the tap completes inside the
+    // SDK instead of being handed back to a host that has to render something.
+    val showPaywall = rememberPaywallPresenter()
+    val showRestore = rememberRestorePresenter()
+
+    // Resolved inside the body, never as a parameter. Which manager drives entitlement is the
+    // SDK's concern, not a host's, and BillingManager is internal so it cannot appear in a public
+    // signature anyway.
+    val billingManager: BillingManager = koinInject()
+
+    if (style == PayCraftPlanBannerStyle.Upsell) {
+        UpsellBannerCard(
+            onGetPremiumTap = showPaywall,
+            onRestoreTap = showRestore,
+            modifier = modifier,
+            billingManager = billingManager,
+        )
+        return
+    }
+
+    // The facade, for the one ACTION this banner performs itself. manageSubscription() resolves the
+    // provider portal or the platform's store page — the same call PayCraftPlanSection
+    // makes, rather than a second derivation of where "Manage" goes.
+    val repository: PayCraftRepository = koinInject()
     val billingState by billingManager.billingState.collectAsStateWithLifecycle()
 
     // Retain last stable (non-loading) state — avoids jarring free → premium flash on navigation
@@ -173,14 +217,14 @@ fun PayCraftBanner(
                     plans = plans,
                     topTierPlan = plans.maxByOrNull { it.rank },
                     supportEmail = supportEmail,
-                    onManageClick = onManageClick,
+                    onManageClick = { repository.manageSubscription() },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 else -> FreeBannerCard(
                     benefits = benefits,
                     paywall = paywall,
-                    onUpgradeClick = onUpgradeClick,
-                    onRestoreClick = onRestoreClick,
+                    onUpgradeClick = showPaywall,
+                    onRestoreClick = showRestore,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -214,7 +258,7 @@ fun PayCraftBanner(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun FreeBannerCard(
+internal fun FreeBannerCard(
     benefits: List<BillingBenefit>,
     paywall: PaywallDto,
     onUpgradeClick: () -> Unit,
@@ -321,7 +365,7 @@ private fun FreeBannerCard(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun PremiumBannerCard(
+internal fun PremiumBannerCard(
     status: SubscriptionStatus,
     trial: com.mobilebytelabs.paycraft.model.TrialInfo?,
     plans: List<BillingPlan>,
@@ -346,7 +390,15 @@ private fun PremiumBannerCard(
 
     // isTopTier + portal URL configured → open billing portal; otherwise → open paywall
     val email = status.email.orEmpty()
-    val hasPortalUrl = PayCraft.requireConfig().provider.getManageUrl(email) != null
+    // `config?`, not `requireConfig()`. This function already reads `PayCraft.config?` sixteen
+    // lines up for test mode, so it used BOTH the null-safe and the throwing accessor for the same
+    // object — and the throwing one made the card uncomposable without a started SDK, which a
+    // screenshot test hit immediately.
+    //
+    // No config means no provider portal, which is exactly what `false` says here: the CTA then
+    // falls through to `onManageClick`, the platform store page. The throw added nothing the
+    // fallback does not already handle.
+    val hasPortalUrl = PayCraft.config?.provider?.getManageUrl(email) != null
     val ctaClick: () -> Unit = if (isTopTier && email.isNotBlank() && hasPortalUrl) {
         { PayCraft.manageSubscription(email) }
     } else {
@@ -629,7 +681,7 @@ private fun TestModeChip(modifier: Modifier = Modifier) {
 
 /**
  * Compact one-liner paywall banner — the minimal companion to the rich
- * [PayCraftBanner] gradient card. Renders through [PayCraftPaywallComposable] in
+ * [PayCraftPlanBanner] gradient card. Renders through [PayCraftPaywallComposable] in
  * [DisplayMode.Banner] so the compact strip shares the single paywall path with
  * every other public paywall composable (Phase-2 clean-SDK consolidation, AC-4).
  *

@@ -87,10 +87,10 @@ val LocalPayCraftEntitlementOverride = compositionLocalOf<PayCraftGateState?> { 
  * derivation of the same truth and locks out a buyer in `PaymentPending`, in offline grace, or in
  * `OwnershipVerified`.
  */
-private class GateVerdict(val entitled: Boolean, val resolving: Boolean)
+internal class GateVerdict(val entitled: Boolean, val resolving: Boolean)
 
 @Composable
-private fun rememberGateVerdict(): GateVerdict {
+internal fun rememberGateVerdict(): GateVerdict {
     when (LocalPayCraftEntitlementOverride.current) {
         PayCraftGateState.Entitled -> return GateVerdict(entitled = true, resolving = false)
         PayCraftGateState.NotEntitled -> return GateVerdict(entitled = false, resolving = false)
@@ -102,20 +102,40 @@ private fun rememberGateVerdict(): GateVerdict {
     val isPremium by manager.isPremium.collectAsState()
     val billingState by manager.billingState.collectAsState()
     val isAdFree by PayCraft.isAdFree.collectAsState()
+    return gateVerdictOf(isPremium = isPremium, isAdFree = isAdFree, billingState = billingState)
+}
 
-    // `resolving` is checked AFTER entitlement by every caller: a warm cache can report premium while
-    // a refresh is in flight, and an entitled user must not be made to wait behind a spinner.
-    return GateVerdict(
+/**
+ * The derivation itself, with no Compose and no Koin.
+ *
+ * Split out because this is the part that can be WRONG, and testing it through a composable meant
+ * standing up a Koin graph — which made those tests hostage to whether another test in the same JVM
+ * had started a global Koin context. It is also now the single derivation shared by the live gates
+ * AND the deprecated guards, so it is worth asserting directly rather than twice over indirectly.
+ *
+ * `entitled` is `isPremium || isAdFree`, NOT `billingState is BillingState.Premium`:
+ *
+ *  - [BillingState.PaymentPending] is not a `Premium` instance, so matching on the state locks out
+ *    someone the store has already taken money from.
+ *  - an offline buyer in grace, and one in `OwnershipVerified`, are entitled everywhere else in the
+ *    app — a gate disagreeing with `isPremium` is a gate disagreeing with the rest of the SDK.
+ *  - [PayCraft.isAdFree] is the SDK's own ad-gating signal (AC-12). A host-granted ad-free cohort
+ *    (a promo, a grandfathered tier, `AdFreeEntitlement.set`) counts as entitled here too.
+ *
+ * `resolving` is checked AFTER entitlement by every caller: a warm cache can report premium while a
+ * refresh is in flight, and an entitled user must not be made to wait behind a spinner.
+ */
+internal fun gateVerdictOf(isPremium: Boolean, isAdFree: Boolean, billingState: BillingState): GateVerdict =
+    GateVerdict(
         entitled = isPremium || isAdFree,
         resolving = billingState is BillingState.Loading,
     )
-}
 
 /**
  * Wraps a premium-only feature. Two arguments in the common case — the modifier and the content.
  *
  * ```kotlin
- * PayCraftPremiumGate {
+ * PayCraftGate {
  *     DeepInsightsCard()
  * }
  * ```
@@ -145,7 +165,7 @@ private fun rememberGateVerdict(): GateVerdict {
  *   its parent for space and reads as a broken layout rather than an offer.
  */
 @Composable
-fun PayCraftPremiumGate(
+fun PayCraftGate(
     modifier: Modifier = Modifier,
     loading: (@Composable () -> Unit)? = null,
     displayMode: DisplayMode = DisplayMode.FullScreen,
@@ -168,7 +188,7 @@ fun PayCraftPremiumGate(
  * Wraps a feature unlockable EITHER by subscribing OR by watching a rewarded ad.
  *
  * ```kotlin
- * PayCraftRewardedGate(
+ * PayCraftAdGate(
  *     featureKey = "deep-insights",
  *     ads = { onRewardEarned -> MyRewardedAd(onComplete = onRewardEarned) },
  * ) {
@@ -186,7 +206,7 @@ fun PayCraftPremiumGate(
  * ## [ads] is optional, and omitting it is meaningful
  *
  * `null` means this host has no rewarded-ad inventory, so there is nothing to offer: the gate behaves
- * exactly like [PayCraftPremiumGate]. It does NOT fall through to the content — a gate that opens
+ * exactly like [PayCraftGate]. It does NOT fall through to the content — a gate that opens
  * because the host forgot to wire an ad SDK is the one failure mode here that costs money.
  *
  * ## PayCraft never touches an ad SDK
@@ -201,7 +221,7 @@ fun PayCraftPremiumGate(
  * @param unlockDurationMillis How long a reward lasts. Default 24h ([PayCraftAdUnlock.DEFAULT_UNLOCK_MILLIS]).
  */
 @Composable
-fun PayCraftRewardedGate(
+fun PayCraftAdGate(
     featureKey: String,
     modifier: Modifier = Modifier,
     unlockDurationMillis: Long = PayCraftAdUnlock.DEFAULT_UNLOCK_MILLIS,
@@ -238,7 +258,7 @@ fun PayCraftRewardedGate(
             ads { PayCraftAdUnlock.grant(featureKey, unlockDurationMillis) }
         }
 
-        // No ad inventory → identical to PayCraftPremiumGate. Fails CLOSED.
+        // No ad inventory → identical to PayCraftGate. Fails CLOSED.
         ads == null -> InternalPaywall(modifier, displayMode)
 
         else -> RewardedChoice(
@@ -334,7 +354,7 @@ private fun RewardedChoice(
  * Wraps a Plus-only feature SOFTLY: the content stays visible and the Plus affordance is additive.
  *
  * ```kotlin
- * PayCraftSoftGate(enabled = soundscape.plusOnly) {
+ * PayCraftTeaseGate(enabled = soundscape.plusOnly) {
  *     SoundscapeTile(soundscape, onPlay = { play(soundscape) })
  * }
  * ```
@@ -343,7 +363,7 @@ private fun RewardedChoice(
  * - not entitled → [content] still renders, PLUS a Plus [badge] and an interaction shield that opens
  *   the SDK paywall instead of letting the tap through
  *
- * ## Why this exists alongside [PayCraftPremiumGate]
+ * ## Why this exists alongside [PayCraftGate]
  *
  * A hard gate replaces the content with a paywall. Many products deliberately do the opposite: show
  * what Plus unlocks, let it be browsed, and intercept only the ACTION. cappy requires this in writing —
@@ -366,7 +386,7 @@ private fun RewardedChoice(
  *
  * ## Resolving shows CONTENT, not a lock
  *
- * Unlike [PayCraftPremiumGate], an unresolved entitlement renders [content] ungated. A soft gate must
+ * Unlike [PayCraftGate], an unresolved entitlement renders [content] ungated. A soft gate must
  * never be the thing that interrupts: flashing a lock at a subscriber for the first frames of a cold
  * start is the same disappearing-state defect as showing them a paywall, and here the stake is one
  * tap, not the whole screen. Erring open for a moment is the correct direction for a SOFT gate.
@@ -397,7 +417,7 @@ private fun RewardedChoice(
  *   only the content beneath (NFR-009-shaped concern).
  */
 @Composable
-fun PayCraftSoftGate(
+fun PayCraftTeaseGate(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     badge: (@Composable () -> Unit)? = null,

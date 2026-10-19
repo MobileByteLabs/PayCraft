@@ -8,6 +8,7 @@ import com.mobilebytelabs.paycraft.PayCraftBackend
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
+import com.mobilebytelabs.paycraft.config.StoreBinding
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.di.PayCraftModule
 import com.mobilebytelabs.paycraft.di.paycraftPlayBillingModule
@@ -126,9 +127,13 @@ class SampleApplication : Application() {
                 basePriceCents = 9900,
                 baseCurrency = "INR",
                 displayOrder = 0,
-                // Google Play product id — Android digital checkout transacts against this via
-                // Google Play Billing (Payments-policy compliance).
-                playProductId = "paycraft_monthly",
+                // `storeBinding`, not the removed `playProductId`. PR #121 replaced the per-store
+                // id pair with ONE server-resolved binding: /config reads tenant_routing_rules for
+                // the requesting platform and emits the id belonging to that platform's primary
+                // provider. Shipping every store's id and letting the client pick made the
+                // dashboard's provider setting decorative. A Mock config states the binding
+                // directly, since there is no server to resolve it.
+                storeBinding = StoreBinding(provider = "google_play", productId = "paycraft_monthly"),
             ),
             ProductDto(
                 id = "quarterly",
@@ -139,7 +144,7 @@ class SampleApplication : Application() {
                 basePriceCents = 24900,
                 baseCurrency = "INR",
                 displayOrder = 1,
-                playProductId = "paycraft_quarterly",
+                storeBinding = StoreBinding(provider = "google_play", productId = "paycraft_quarterly"),
             ),
             ProductDto(
                 id = "yearly",
@@ -150,7 +155,7 @@ class SampleApplication : Application() {
                 basePriceCents = 79900,
                 baseCurrency = "INR",
                 displayOrder = 2,
-                playProductId = "paycraft_yearly",
+                storeBinding = StoreBinding(provider = "google_play", productId = "paycraft_yearly"),
             ),
             // 14-day free trial attached to the monthly plan — showcases the
             // Play Subscriptions-policy trial disclosure (post-trial price + cadence

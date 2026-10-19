@@ -1,4 +1,4 @@
-example-provenance: 0a353f53c55e8b2a0a69801e1ccce77ab6682bd2
+example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
 
 # FAILURE_MODES.md — enumerated integration failures and their source-level remedies
 
@@ -22,7 +22,7 @@ never faked green and never spun on.
 | F4 | Billing works on Android only | `initialize` in the Android `Application` class | heal | Same as F3 — commonMain-first |
 | F5 | Two `SupabaseClient`s collide / app auth session lost | The `named("paycraft")` qualifier was dropped | heal | Restore the qualifier |
 | F6 | Paywall shows a skeleton on every open | `ConfigCache` not reachable, or `prefetchProducts()` never called | heal | Keep `ConfigCache` bound; call `prefetchProducts()` from splash/home |
-| F6b | Host re-implements "is PayCraft set up?" from its own build config and disagrees with the SDK | `isConfigured` not used | heal | Read `PayCraft.isConfigured`; resolving `BillingManager` unconditionally is valid |
+| F6b | Host re-implements "is PayCraft set up?" from its own build config and disagrees with the SDK | `isConfigured` not used | heal | Read `PayCraft.isConfigured`; resolving `PayCraftRepository` unconditionally is valid |
 
 ## Checkout and store lanes
 
@@ -30,7 +30,7 @@ never faked green and never spun on.
 |---|---|---|:--:|---|
 | F7 | `CheckoutLane.Misconfigured("no provider configured for platform …")` | No routing rule names a primary provider for this platform, or the product has no id for it — so `/config` emitted a null `storeBinding` | heal | Set the platform's primary provider on the dashboard's Platform-providers page **and** give the product an id for it; re-fetch config |
 | F8 | Integration reads `playProductId` / `appStoreProductId` and finds nothing | Those fields were replaced by the server-resolved `storeBinding` | heal | Read `plan.storeBinding` (PROVIDERS_AND_STORES.md); never reconstruct the pair client-side |
-| F9 | Checkout opens a browser on Android/iOS for a digital plan | A hand-rolled checkout bypassed `resolveCheckoutLane` | heal | Route through `PayCraft.checkout` / the `BillingManager` purchase lanes |
+| F9 | Checkout opens a browser on Android/iOS for a digital plan | A hand-rolled checkout bypassed `resolveCheckoutLane` | heal | Route through `PayCraft.checkout` / `PayCraftRepository.checkout` — it resolves the lane from `storeBinding` |
 | F10 | Native lane resolves but the store reports "product not found" | Id exists in the dashboard, absent or unapproved in the store | external | Create/activate the product in Play Console / App Store Connect; report the exact id |
 | F10b | Lane resolves, checkout starts, store refuses — product in `MISSING_METADATA` or priced in 1 territory | A resolved lane was treated as a sellability verdict | external | Ask `/api/products/store-readiness`; quote the store's own blockers. All three cappy subscriptions resolved a lane while none could be sold (2026-09-17) |
 | F11 | `NativeBillingClient` is `WebCheckoutNativeBillingClient` on iOS | Stale wiring — or a build that still tries to load `paycraftStoreKit2BillingModule`, which no longer exists | heal | Remove the module reference; iOS resolves `StoreKit2NativeBillingClient` automatically (the Swift shim is SDK-internal) |
@@ -94,7 +94,7 @@ never faked green and never spun on.
 | F36 | Sheet paywall renders as an opaque full-screen takeover; host disappears | A root declares `fillMaxSize().background(…)` under `Sheet` mode | heal | Use `Modifier.paywallRoot(…)` / `Modifier.paywallContentSize()` |
 | F37 | Sheet snaps to full height | Inner scroll column uses `fillMaxSize()` | heal | `Modifier.paywallContentSize()` |
 | F38 | Terms / Privacy / Restore do nothing | Empty `onClick` lambdas | heal | Wire to `PaywallDto.termsUrl` / `privacyUrl` / the restore path |
-| F39 | Store review rejects for a missing restore path | No restore affordance | heal | Add `PayCraftRestore` or a bespoke restore action |
+| F39 | Store review rejects for a missing restore path | No restore affordance | heal | Add `PayCraftPlanBanner` or `PayCraftPlanSection` — both present the SDK's restore sheet themselves (`PayCraftRestore` is internal) |
 | F40 | Bespoke paywall verified against bundled-UI assertions (or the reverse) | Path detection skipped | heal | Detect the path (imports of `com.mobilebytelabs.paycraft.ui`) and assert that path only |
 | F41 | Build references `BrandedStackTemplate` / `MinimalTemplate` / `DarkTemplate` / `PremiumTemplate` | Those four Kotlin templates were deleted | heal | The state machine is `PaywallStateHost`; the layouts are seed trees. `PaywallDto.template` is a seed selection now (PAYWALL_CUSTOMIZATION.md) |
 | F42 | Price renders outside a plan card's background/border, or a tenant cannot move it | Price drawn as a renderer overlay instead of authored copy | heal | Use the `{{ product.price }}` variable in a `text` node inside the card |
@@ -103,6 +103,9 @@ never faked green and never spun on.
 | F45 | A newer published tree takes the whole config down | The tree was decoded as a typed model | heal | Keep `workflow` as `JsonElement` and let `PaywallTreeParser` degrade node-by-node to `Unknown` |
 | F46 | Ringed plan and purchased plan disagree | Default selection applied by styling the card | heal | Apply it through `SelectPlan`, and read the **effective** workflow (tree ?: seed) — reading the tenant tree alone silently does nothing for an app with no published tree |
 | F47 | Trial paywall rejected by Play Subscriptions policy | Trial length / post-trial price / cancellation not stated | heal | Render `trialTermsTemplate` / `trialDisclosureTitle` / `trialDisclosureBody` (blank falls back to the SDK's localized default) |
+| F53 | An SDK-drawn Upgrade or Restore affordance does nothing when tapped | The surface SIGNALLED presentation instead of OWNING it — `PayCraft.presentPaywall()` only flips `paywallPresentation`, a flow most hosts never observe (cappy reads it nowhere) | heal | A surface that draws an affordance must be able to complete it: present through the SDK's own sheet (`rememberPaywallPresenter` / `rememberRestorePresenter`), and call `presentPaywall()` only as the ADDITIONAL analytics/state trigger. Found 2026-10-18 in the settings section's Upgrade row, one surface over from the `PayCraftTeaseGate` comment that had already named the class |
+| F54 | A host supplies an OAuth handler and still gets a restore sheet with no sign-in buttons | Two mechanisms for "ask the host to run platform sign-in" — `LocalPayCraftOAuthHandler` and a pair of per-composable callbacks | heal | One seam: `ProvidePayCraftOAuthHandler` once around the app. The callbacks are gone, and one handler produces BOTH buttons (a host that can run Google sign-in can run Apple too — the SDK asks for a provider) |
+| F55 | A banner shows copy that disagrees with the paywall it links to | Copy pinned in app code via `*Override` parameters | heal | Dashboard is the only copy source. Those parameters are removed; a host that needs different wording changes the dashboard field |
 
 ## Verification integrity
 

@@ -136,18 +136,23 @@ startKoin {
 ```kotlin
 @Composable
 fun SettingsScreen() {
-    var showPaywall by remember { mutableStateOf(false) }
-    var showRestore by remember { mutableStateOf(false) }
-
     // ... your other settings ...
 
-    PayCraftBanner(
-        onClick = { showPaywall = true },
-        onRestoreClick = { showRestore = true },
-    )
+    // Tapping upgrade raises the SDK's paywall, manage opens the store or provider page, and
+    // restore opens the SDK's restore sheet. None of it needs state on this screen.
+    PayCraftPlanBanner()
 
-    PayCraftSheet(visible = showPaywall, onDismiss = { showPaywall = false })
-    PayCraftRestore(visible = showRestore, onDismiss = { showRestore = false })
+    // Or the full subscription section — status line, manage row, restore row:
+    PayCraftPlanSection(header = { Text("Subscription") })
+}
+```
+
+If your app runs Google or Apple sign-in, provide the handler once around your app and the
+restore sheet gains those buttons wherever it appears:
+
+```kotlin
+ProvidePayCraftOAuthHandler(handler = { provider -> startPlatformSignIn(provider) }) {
+    App()
 }
 ```
 

@@ -5,13 +5,18 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.repository.PayCraftRepository
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -50,24 +55,45 @@ import org.koin.compose.viewmodel.koinViewModel
  *                    banner tap). Hosts wire this to close their sheet/dialog wrapper.
  * @param modifier    Optional modifier applied to the root surface.
  * @param displayMode [DisplayMode.FullScreen] (default) or [DisplayMode.Banner].
- * @param viewModel   ViewModel — Koin-injected by default so consumers rarely pass one.
  */
 @Composable
 fun PayCraftPaywall(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     displayMode: DisplayMode = DisplayMode.FullScreen,
-    viewModel: PayCraftPaywallViewModel = koinViewModel(),
+    onSubscribed: () -> Unit = onDismiss,
 ) {
+    // "They bought it — leave" is the SDK's to know, not the host's.
+    //
+    // Every consumer placing the paywall as a destination had to write this themselves, and it is
+    // subtle in a way that is easy to get wrong: `premiumOnEntry` separates "just purchased" from
+    // "arrived already subscribed". Without it, a subscriber who opens the paywall to look at
+    // plans is immediately thrown out of it. Measured on `mbs/cappy`, this exact LaunchedEffect
+    // lived in the host's nav destination.
+    //
+    // Defaulting to [onDismiss] means a host that does not care gets the obvious behaviour; one
+    // mid-onboarding passes a different continuation.
+    val isPremium by rememberIsPremium()
+    val premiumOnEntry = remember { isPremium }
+    LaunchedEffect(isPremium) { if (isPremium && !premiumOnEntry) onSubscribed() }
+
     // Removed: v1 hand-built content branch(state = …, onDismiss = …, …) hand-built branch.
     // Single paywall path — PayCraftPaywallComposable resolves BrandedStackTemplate.
     PayCraftPaywallComposable(
         onDismiss = onDismiss,
         displayMode = displayMode,
         modifier = modifier,
-        viewModel = viewModel,
     )
 }
+
+/**
+ * Entitlement for the auto-dismiss above, resolved the same way every other SDK surface does.
+ *
+ * A separate function so the Koin lookup is in one place and `PayCraftPaywall` reads as the
+ * behaviour rather than the plumbing.
+ */
+@Composable
+private fun rememberIsPremium() = koinInject<PayCraftRepository>().isPremium.collectAsState()
 
 /**
  * Bottom-sheet variant of the paywall. Preserves the retired v1 behaviour:
@@ -89,11 +115,12 @@ fun PayCraftPaywall(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PayCraftPaywallSheet(
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-    viewModel: PayCraftPaywallViewModel = koinViewModel(),
-) {
+fun PayCraftPaywallSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    // Resolved here rather than taken as a parameter: the sheet needs the SDK's own MVI engine to
+    // dispatch RefreshStatus on close, and a consumer-supplied one would be reimplementing the
+    // paywall rather than configuring it. Koin scopes this to the same instance the nested
+    // PayCraftPaywallComposable resolves, so dispatching here still reaches the rendered state.
+    val viewModel: PayCraftPaywallViewModel = koinViewModel()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Material3 hosts sheet content in a separate window layer that does NOT inherit the
@@ -119,7 +146,6 @@ fun PayCraftPaywallSheet(
                 onDismiss = onDismiss,
                 displayMode = DisplayMode.FullScreen,
                 surfaceMode = PayCraftSurfaceMode.Sheet,
-                viewModel = viewModel,
             )
         }
     }

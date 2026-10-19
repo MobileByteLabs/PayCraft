@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
  */
 data class SubscriptionActivated(val sku: String?, val isTrial: Boolean)
 
-interface BillingManager {
+internal interface BillingManager {
     val isPremium: StateFlow<Boolean>
     val subscriptionStatus: StateFlow<SubscriptionStatus>
     val billingState: StateFlow<BillingState>

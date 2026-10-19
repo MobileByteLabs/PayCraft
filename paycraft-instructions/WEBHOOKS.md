@@ -1,4 +1,4 @@
-example-provenance: 0a353f53c55e8b2a0a69801e1ccce77ab6682bd2
+example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
 
 # WEBHOOKS.md — endpoints, verification discipline, reachability probe
 

@@ -86,7 +86,9 @@ class PayCraftRepositoryTest {
         repo.refresh(force = true)
         repo.refresh(force = false)
 
-        assertEquals(listOf("a@b.com"), fake.manageSubscriptionCalls)
+        // Explicitly typed: `manageSubscription` now takes `String?` so a store-billed subscriber —
+        // identified by their store account, not an email — is expressible through the facade.
+        assertEquals(listOf<String?>("a@b.com"), fake.manageSubscriptionCalls)
         assertEquals(listOf(true, false), fake.refreshCalls)
     }
 

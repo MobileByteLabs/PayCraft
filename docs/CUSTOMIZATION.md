@@ -59,15 +59,16 @@ PayCraftPaywall(onDismiss = { })
 // Bottom sheet
 PayCraftSheet(visible = show, onDismiss = { show = false })
 
-// Settings banner
-PayCraftBanner(
-    onClick = { showPaywall = true },
-    onRestoreClick = { showRestore = true },
-)
+// Settings banner — upgrade / manage / restore all handled internally
+PayCraftPlanBanner()
 
-// Restore sheet
-PayCraftRestore(visible = showRestore, onDismiss = { showRestore = false })
+// Full subscription section, five styles, themeable
+PayCraftPlanSection(style = PayCraftPlanSectionStyle.Rows)
 ```
+
+The restore sheet is not a composable you place. Every SDK surface that offers "Restore
+purchases" presents it itself, so there is no visibility state to hold and no way for the link
+to be shown without the sheet behind it.
 
 ### Option 2: Custom Plan Card (Slot API)
 

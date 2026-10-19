@@ -42,6 +42,15 @@ object PayCraftTestTags {
     const val LOGIN_BUTTON = "paycraft_login_button"
     const val LOGOUT_BUTTON = "paycraft_logout_button"
     const val MANAGE_SUBSCRIPTION_BUTTON = "paycraft_manage_subscription_button"
+
+    // ── Subscription settings section (PayCraftPlanSection) ─────────────────────────────
+    // A host that renders the section with its OWN row components should reuse these tags, so a
+    // device flow asserting "the user can reach cancel" works the same across every consumer.
+    const val SUBSCRIPTION_SETTINGS = "paycraft_subscription_settings"
+    const val SUBSCRIPTION_STATUS_ROW = "paycraft_subscription_status_row"
+    const val SUBSCRIPTION_MANAGE_ROW = "paycraft_subscription_manage_row"
+    const val SUBSCRIPTION_UPGRADE_ROW = "paycraft_subscription_upgrade_row"
+    const val SUBSCRIPTION_RESTORE_ROW = "paycraft_subscription_restore_row"
     const val CONTACT_SUPPORT_BUTTON = "paycraft_contact_support_button"
     const val REFRESH_BUTTON = "paycraft_refresh_button"
     const val DISMISS_BUTTON = "paycraft_dismiss_button"
@@ -55,12 +64,7 @@ object PayCraftTestTags {
     const val PREMIUM_PROVIDER_LABEL = "paycraft_premium_provider_label"
     const val PREMIUM_EMAIL_LABEL = "paycraft_premium_email_label"
 
-    // Premium guard
-    const val PREMIUM_GUARD_LOCKED = "paycraft_premium_guard_locked"
-    const val PREMIUM_GUARD_UNLOCKED = "paycraft_premium_guard_unlocked"
-    const val PREMIUM_GUARD_UPGRADE_BUTTON = "paycraft_premium_guard_upgrade_button"
-
-    // PayCraftPremiumGate / PayCraftRewardedGate. One tag per OUTCOME, because a test must be able
+    // PayCraftGate / PayCraftAdGate. One tag per OUTCOME, because a test must be able
     // to tell "resolving" from "locked" and "ad grant" from "subscribed" — and a gate that silently
     // serves gated content reads as a pass if two outcomes share a tag.
     const val GATE_UNLOCKED = "paycraft_gate_unlocked"
@@ -71,19 +75,16 @@ object PayCraftTestTags {
     const val GATE_WATCH_AD_BUTTON = "paycraft_gate_watch_ad_button"
     const val GATE_UPGRADE_BUTTON = "paycraft_gate_upgrade_button"
 
-    // PayCraftSoftGate. SOFT_LOCKED is distinct from GATE_LOCKED on purpose: a soft gate still
+    // PayCraftTeaseGate. SOFT_LOCKED is distinct from GATE_LOCKED on purpose: a soft gate still
     // renders the content, so a test asserting "locked" must be able to tell "content hidden behind a
     // paywall" from "content visible but its tap redirected" — the two have opposite requirements.
     const val GATE_SOFT_LOCKED = "paycraft_gate_soft_locked"
     const val GATE_SOFT_SHIELD = "paycraft_gate_soft_shield"
     const val GATE_PLUS_CHIP = "paycraft_gate_plus_chip"
 
-    // Superseded by the GATE_* tags above; kept so the deprecated PayCraftPaywallGuardScreen and any
-    // existing assertion against it still compile.
-    const val PAYWALL_GUARD_UNLOCKED = "paycraft_paywall_guard_unlocked"
-    const val PAYWALL_GUARD_LOCKED = "paycraft_paywall_guard_locked"
-    const val PAYWALL_GUARD_AD_SUPPORTED = "paycraft_paywall_guard_ad_supported"
-    const val PAYWALL_GUARD_RESOLVING = "paycraft_paywall_guard_resolving"
+    // PREMIUM_GUARD_* and PAYWALL_GUARD_* lived here, superseded by the GATE_* tags above and
+    // kept only so the deprecated guards compiled. Those guards are gone (2026-10-18), and a tag
+    // nothing emits is a tag a test can assert forever without ever rendering it.
 
     // Banner paywall (DisplayMode.Banner)
     const val BANNER_PAYWALL = "paycraft_banner_paywall"

@@ -18,6 +18,11 @@ kotlin = "2.4.20"
 # 1.11.1 — the version kmp-toolkit ships. NOT 1.12.x: that pulls androidx.compose 1.12, which
 # also demands compileSdk 37; kmp-toolkit stays on the 1.11 line at compileSdk 36.
 compose-multiplatform = "1.11.1"
+# JetBrains' KMP port of Navigation Compose. Used ONLY by :cmp-paycraft-navigation, never by
+# :cmp-paycraft — the core artifact must not force a navigation library on consumers who use
+# Voyager, Decompose, or their own. Held at the version cappy and the template already resolve,
+# so a consumer taking both gets one copy rather than a conflict.
+composeNavigation = "2.9.2"
 android-minSdk = "24"
 # compileSdk/targetSdk 36 — matches mbs/kmp-toolkit. Required by androidx activity 1.12+ (its AAR
 # metadata refuses compileSdk < 36).
@@ -187,6 +192,8 @@ google-billing-ktx = { module = "com.android.billingclient:billing-ktx", version
 # only the alias name is aligned. NOTE the version is deliberately NOT aligned: the template is on
 # 1.67.0 and this SDK on 1.73.0, and downgrading risks the 14 goldens (see the versions note above).
 roborazzi-composeDesktop = { module = "io.github.takahirom.roborazzi:roborazzi-compose-desktop", version.ref = "roborazzi" }
+
+jb-composeNavigation = { module = "org.jetbrains.androidx.navigation:navigation-compose", version.ref = "composeNavigation" }
 
 [plugins]
 android-kmp-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }

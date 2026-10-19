@@ -131,7 +131,7 @@ No full re-setup. Subscriber data migration included (optional).
 - **Multi-tenant** — single deployment serves multiple apps with isolated data
 - **KMP + Compose** — works on Android, iOS, macOS, JVM, JS, and Wasm
 - **Device binding** — per-device premium verification with conflict resolution
-- **Paywall UI included** — `PayCraftSheet`, `PayCraftBanner`, `PayCraftRestore` out of the box
+- **Paywall UI included** — `PayCraftSheet`, `PayCraftPlanBanner`, `PayCraftRestore` out of the box
 - **Plugin system** — community-contributed providers as separate Maven artifacts
 - **Web dashboard** — subscriber management, revenue analytics, webhook monitoring
 - **CLI tooling** — `npx paycraft init` scaffolds everything in minutes
@@ -203,16 +203,19 @@ startKoin {
 ### Add UI
 
 ```kotlin
+// Upgrade, manage and restore are handled inside the SDK — no state, no callbacks.
+PayCraftPlanBanner()
+
+// The subscription section for a settings screen: status, manage, restore.
+PayCraftPlanSection(header = { Text("Subscription") })
+```
+
+Raise the paywall from your own button when you want to:
+
+```kotlin
 var showPaywall by remember { mutableStateOf(false) }
-var showRestore by remember { mutableStateOf(false) }
-
-PayCraftBanner(
-    onClick = { showPaywall = true },
-    onRestoreClick = { showRestore = true },
-)
-
+Button(onClick = { showPaywall = true }) { Text("Go Premium") }
 PayCraftSheet(visible = showPaywall, onDismiss = { showPaywall = false })
-PayCraftRestore(visible = showRestore, onDismiss = { showRestore = false })
 ```
 
 ### Gate premium features
@@ -246,7 +249,7 @@ if (isPremium) PremiumContent() else FreeContent()
 |-----------|-------------|
 | `PayCraftSheet` | Conditional bottom-sheet paywall |
 | `PayCraftPaywall` | Full-screen paywall |
-| `PayCraftBanner` | Settings row — upgrade CTA or premium status |
+| `PayCraftPlanBanner` | Settings row — upgrade CTA or premium status |
 | `PayCraftRestore` | Email-based restore purchases dialog |
 | `PayCraftPremiumGuard` | Gate any composable behind premium |
 

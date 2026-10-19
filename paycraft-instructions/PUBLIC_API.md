@@ -1,4 +1,4 @@
-example-provenance: 0a353f53c55e8b2a0a69801e1ccce77ab6682bd2
+example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
 
 # PUBLIC_API.md — PayCraft SDK public integration surface
 
@@ -50,7 +50,6 @@ Related surface on the same object:
 | `monetizationMode` | `MonetizationMode` | Resolved: cloud `SuiteConfig.mode` wins over the `initialize` argument |
 | `isAdFree` | `StateFlow<Boolean>` | Host ad-gating signal under `MonetizationMode.AdSupported` |
 | `paywallPresentation` | `StateFlow<PaywallPresentation>` | `Hidden`/`Shown(trigger)` — the auto-present signal |
-| `billingManager` | `BillingManager?` | Koin-resolved; null before `initialize` |
 | `plans` | `List<BillingPlan>` | Empty until config lands |
 | `deviceId` | `String` | Lazy `DeviceFingerprint.get()`; the fallback app-user-id when no email |
 | `activeRegion` | `ResolvedRegion(country, currency)` | THE single resolved billing region |
@@ -96,10 +95,35 @@ onResume/onCreate hook. It always updates `AdFreeEntitlement` first, then dispat
   active or just-ended trial (`trial.isActiveOrNearExpiry`) **and** the session debounce is unmarked.
 - `AdSupported` — never auto-presents; the host owns the trigger and reads `isAdFree` to gate ads.
 
-## Data surface — `interface PayCraftRepository` (inject this)
+## The three injectable facades — one per consumer layer
 
-**The one data surface a consumer app needs.** Injected from Koin (`payCraftModule`); a consumer
-writes no repository, store, or API wrapper of its own.
+**Everything a consumer needs is injected from Koin (`payCraftModule`); a consumer writes no
+repository, store, or API wrapper of its own.** The three surfaces line up with the layers a KMP
+consumer already has, so billing does not need a home invented for it:
+
+| facade | consumer layer | answers |
+|---|---|---|
+| `PayCraftApi` | `core/network` | how is this app configured, where is the buyer, refresh from the server |
+| `PayCraftRepository` | `core/data` | what does THIS USER have, let them transact, drive the paywall |
+| `PayCraftStore` | `core/store` | what is cached on this device |
+
+Three singleton members are deliberately on NO facade — `initialize`, `requireConfig`, `deviceId`
+— plus the raw `configResultFlow` / `suiteConfigFlow` transport. They are bootstrap: a feature
+module that can re-initialize the SDK can repoint it at another tenant mid-session.
+
+**`PayCraft.billingManager` is `internal`.** It was public, and the only thing consumers used it for
+was a one-line identity bind — `PayCraft.billingManager?.logIn(email)`, the single usage across
+every consumer. To get that, a host was handed the whole engine: purchase launching, device
+transfer, OAuth, revocation. Nothing stopped a feature module calling `purchaseViaPlayBilling`
+directly and bypassing lane resolution. The identity capability is on `PayCraftRepository` instead;
+the device-transfer trio stays internal because the SDK's own device-conflict UI is the only correct
+caller.
+
+`G-PAYCRAFT-FACADE-COVERAGE` asserts the split, because it had already drifted once —
+`manageSubscriptionUrl` was added to the singleton and to no facade, and the first consumer wrote a
+delegate file to reach it.
+
+### `core/data` — `interface PayCraftRepository`
 
 ```kotlin
 interface PayCraftRepository {
@@ -111,8 +135,26 @@ interface PayCraftRepository {
     val plans: StateFlow<List<BillingPlan>>
     fun checkout(plan: BillingPlan, email: String? = null)   // fire-and-observe, no synchronous verdict
     suspend fun restore(): Entitlement                       // genuinely has an answer, so it suspends
-    fun manageSubscription(email: String)
+    fun manageSubscription(email: String? = null)             // email OPTIONAL: a store-billed
+    fun manageSubscriptionUrl(email: String? = null): String? //   subscriber has no email we know
     fun refresh(force: Boolean = false)
+
+    val isAdFree: StateFlow<Boolean>                     // SEPARATE from isPremium (AC-12)
+    suspend fun applyCoupon(planId: String, code: String): CouponClient.Result
+    fun setAppliedCoupon(planId: String, coupon: CouponDto?)
+
+    val paywallPresentation: StateFlow<PaywallPresentation>
+    fun presentPaywall()
+    fun presentPaywallIfNeeded(entitlement: String? = null)   // no-op when already entitled
+    fun dismissPaywall()
+    fun onAppOpen(entitlement: EntitlementSnapshot, trial: TrialSnapshot)
+
+    val userEmail: StateFlow<String?>                    // identity — an entitlement has an owner
+    fun logIn(email: String)                             // call on EVERY identity change
+    fun logOut()                                         // drops the entitlement with the identity
+    suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String)
+    suspend fun checkTrialEligibility(): Boolean         // ask BEFORE advertising a trial
+    val subscriptionActivated: SharedFlow<SubscriptionActivated>  // JUST became premium
 }
 ```
 
@@ -156,6 +198,64 @@ already paid.
 `SuiteConfig.roleForSku(sku)`), so an app derives its own tier notion from tenant configuration
 instead of hardcoding product names.
 
+### `core/network` — `interface PayCraftApi`
+
+```kotlin
+interface PayCraftApi {
+    val isConfigured: Boolean          // false = unprovisioned; runs local-first, gates read free
+    val mode: PayCraft.Mode            // test|live, derived from the ARTIFACT — never branch billing on it
+    val monetizationMode: MonetizationMode
+    val activeRegion: ResolvedRegion   // DISPLAY only — never compute a price from it
+    val activeCountry: String
+    val activeCurrency: String
+    fun refreshConfig()
+    suspend fun prefetchProducts()     // warm the store cache before a paywall opens
+}
+```
+
+`activeCurrency` is for showing "prices in ₹", never for deriving an amount: the authoritative price
+is on the plan, already resolved per-country server-side. Computing one locally from a currency code
+is how a ¥400 plan became ¥32,900.
+
+### `core/store` — `interface PayCraftStore`
+
+```kotlin
+interface PayCraftStore {
+    suspend fun saveEmail(email: String); suspend fun getEmail(): String?; suspend fun clearEmail()
+
+    fun cacheSubscriptionStatus(status: SubscriptionStatus) {}   // non-suspend: read during
+    fun getCachedSubscriptionStatus(): SubscriptionStatus? = null //   construction, before frame 1
+    fun getLastSyncedAt(): Long = 0L
+    fun clearCache() {}
+
+    fun getAdUnlockExpiry(featureKey: String): Long? = null       // ABSOLUTE expiry, per feature
+    fun saveAdUnlock(featureKey: String, expiresAtEpochMillis: Long) {}
+    fun clearAdUnlock(featureKey: String) {}
+    fun getAllAdUnlocks(): Map<String, Long> = emptyMap()
+
+    fun getDeviceToken(): String? = null                          // identity when there is no email
+    fun saveDeviceToken(token: String) {}
+    fun clearDeviceToken() {}
+
+    suspend fun clearAll()                                        // the sign-out call
+}
+```
+
+**Read it; think hard before writing it.** Most apps never call this — the SDK writes it, and
+`PayCraftRepository`'s flows are offline-tolerant precisely BECAUSE this cache exists. Writing it
+directly asserts an entitlement the server has not confirmed. The one write a host legitimately owns
+is `clearAll()` on sign-out; a sign-out that leaves a cached entitlement shows the next user the
+previous user's premium state.
+
+**Every added member carries a default** because this is HOST-IMPLEMENTABLE: an app may supply its
+own storage, and an abstract member would break it on upgrade. The shipped `PayCraftSettingsStore`
+implements all of them for real — a default that no implementation overrides is a declared
+capability that silently does nothing.
+
+Ad-unlock expiry is stored ABSOLUTE, not as a remaining duration: a duration silently extends itself
+on every process restart, so one watched ad would unlock the feature forever. An expired grant reads
+as absent and is evicted on read, so the key set cannot grow unbounded.
+
 ### `FakePayCraftRepository` — ships in the MAIN artifact
 
 Not a test fixture, on purpose. Removing the app-owned wrapper is only honest if testability moves
@@ -174,10 +274,20 @@ performing, so a test can assert a tap reached the SDK without opening anything.
 
 All three expose `supabaseUrl`, `supabaseAnonKey`, `configUrl`.
 
-## Headless surface — `interface BillingManager`
+## Headless surface — `interface PayCraftRepository`
 
-Resolved from Koin (`single<BillingManager>`). This is the whole contract a bespoke paywall needs;
-no PayCraft composable is required to ship billing.
+Resolved from Koin (`single<PayCraftRepository>`). This is the whole contract a bespoke paywall
+needs; no PayCraft composable is required to ship billing.
+
+> **This section used to document `interface BillingManager`.** That type is now `internal`: it was
+> public, appeared as a parameter on six composables, and nothing a consumer legitimately needs was
+> reachable only through it. `PayCraftRepository` is the facade over it, and the last gap — the
+> device-conflict actions below — was closed when it went internal, because a facade exposing a
+> state (`OwnershipVerified`) without the actions that resolve it is not a facade.
+>
+> Three facades, one per layer, all `single<…>` in `PayCraftModule`:
+> `PayCraftApi` (network · `core/network`), `PayCraftRepository` (data · `core/data`),
+> `PayCraftStore` (persistence · `core/store`). Inject the one your layer needs.
 
 **State (all hot, all `StateFlow` unless noted):**
 
@@ -195,14 +305,19 @@ val subscriptionActivated: SharedFlow<SubscriptionActivated>   // replay 0, risi
 transition. Replay is 0, so a late collector gets nothing — collect it from a scope that outlives the
 purchase (a ViewModel started before checkout, not a dialog composed after it).
 
-**Purchase lanes:**
+**Checkout:**
 
 ```kotlin
-fun purchaseViaPlayBilling(plan: BillingPlan, email: String?)   // Android digital
-fun purchaseViaStoreKit(plan: BillingPlan, email: String?)      // iOS/macOS digital
+fun checkout(plan: BillingPlan, email: String? = null)
 ```
 
-Both drive `billingState`: `Loading` → `Premium` | `Free` (user cancelled) | `PaymentPending` |
+ONE entry point. It resolves the lane itself — Play Billing on Android, StoreKit on iOS/macOS, the
+provider's web checkout elsewhere — from the plan's server-resolved `storeBinding`. The per-lane
+methods (`purchaseViaPlayBilling` / `purchaseViaStoreKit`) are internal to `BillingManager`
+precisely so a host cannot pick a lane the dashboard's platform-provider setting did not choose;
+picking client-side is what made that setting decorative before `storeBinding` existed.
+
+It drives `billingState`: `Loading` → `Premium` | `Free` (user cancelled) | `PaymentPending` |
 `Error`. A plan with **no `storeBinding`** is an **`Error`, never a web fallback** — that
 anti-steering rule is the point of `CheckoutLane.Misconfigured` (PROVIDERS_AND_STORES.md).
 
@@ -212,21 +327,30 @@ App Store Server Notifications webhook, so success reconciles through the normal
 **Identity + entitlement:**
 
 ```kotlin
-fun registerAndLogin(email: String)                 // replaces logIn(); logIn() delegates here
-fun logIn(email: String)                            // legacy alias
-fun refreshStatus(force: Boolean = false)           // honours SyncPolicy unless force
+fun logIn(email: String)                            // registers this device, then checks status
+fun logOut()
+fun refresh(force: Boolean = false)                 // honours SyncPolicy unless force
 suspend fun checkTrialEligibility(): Boolean        // optimistic true on any failure
 suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String)   // Gate 1
-fun logOut()
 ```
+
+`logIn` is the facade's name for register-device-then-check. `BillingManager` spells the same thing
+`registerAndLogin` and keeps `logIn` as a legacy alias; the facade exposes one name, not both.
+
+For `loginWithOAuth`, the HOST runs the platform sign-in and passes the resulting ID token. Supply
+the handler once with `ProvidePayCraftOAuthHandler` and every SDK surface that needs it — the
+restore sheet, the device-conflict screen — gains its sign-in buttons.
 
 **Device-conflict resolution (Gate 1 → Gate 2):**
 
 ```kotlin
-suspend fun confirmDeviceTransfer()                 // after OwnershipVerified
-suspend fun revokeCurrentDevice()
-suspend fun transferToDevice()                      // internal
+suspend fun confirmDeviceTransfer()                 // after OwnershipVerified — moves it HERE
+suspend fun revokeCurrentDevice()                   // release this device's slot instead
 ```
+
+`transferToDevice()` is NOT on the facade. `BillingManager` documents it as "internal — called by
+`confirmDeviceTransfer`", and exposing it would hand a host the half-step that skips deactivating
+the other device.
 
 The UI **must** show an explicit confirmation between `OwnershipVerified` and
 `confirmDeviceTransfer()` — the user is deactivating another device.
@@ -291,11 +415,18 @@ PAYWALL_CUSTOMIZATION.md.
 
 ## Compose surface (optional)
 
-`PayCraftPaywall`, `PayCraftPaywallSheet`, `PayCraftSheet`, `PayCraftBanner`,
-`PayCraftInlinePaywallBanner`, `PayCraftPremiumBanner`, `PayCraftRestore`,
-`PayCraftRestoreContent`, `PayCraftPaywallWithRestore`, `PayCraftCheckoutSuccessSheet`,
-`PayCraftCheckoutSuccessSheetOrPaywall`, `BannerPaywall`, `PayCraftPaywallComposable`,
-`ProductList`. Surface-mode contract in PAYWALL_CUSTOMIZATION.md.
+`PayCraftPaywall`, `PayCraftPaywallSheet`, `PayCraftSheet`, `PayCraftPlanBanner`,
+`PayCraftInlinePaywallBanner`, `PayCraftPlanSection`, `PayCraftPaywallWithRestore`,
+`PayCraftCheckoutSuccessSheet`, `PayCraftCheckoutSuccessSheetOrPaywall`, `BannerPaywall`,
+`PayCraftPaywallComposable`, `ProductList`, plus the gates (`PayCraftGate`,
+`PayCraftTeaseGate`, `PayCraftAdGate`) and the style/theme types
+(`PayCraftPlanBannerStyle`, `PayCraftPlanSectionStyle`, `PayCraftPlanSectionTheme`).
+Surface-mode contract in PAYWALL_CUSTOMIZATION.md.
+
+Deliberately NOT public: `PayCraftRestore` / `PayCraftRestoreContent` (the SDK presents restore
+itself, from the banner's link or the settings row), `PayCraftPremiumBanner` (now
+`PayCraftPlanBannerStyle.Upsell`), `BillingManager` and `PayCraftPaywallViewModel`. Consumers reach
+data and actions through `PayCraftRepository` / `PayCraftStore` / `PayCraftApi`.
 
 ### Gates — how a consumer locks a surface
 
@@ -305,11 +436,11 @@ entitlement, so they cannot drift from the entitlement or from the offer.
 
 | Gate | Behaviour | Use when |
 |---|---|---|
-| `PayCraftPremiumGate` | REPLACES the gated content with the SDK's offer (`DisplayMode.FullScreen` / `.Banner`) | the gated thing is a TRANSACTION or a whole screen |
-| `PayCraftSoftGate` | content stays visible and readable; only the TAP is shielded, and the upsell sheet is raised in place over it | the user should still SEE what the subscription unlocks |
-| `PayCraftRewardedGate` | time-boxed unlock per feature key, via a consumer-supplied `ads` slot | the app monetises with ads as well as subscriptions |
+| `PayCraftGate` | REPLACES the gated content with the SDK's offer (`DisplayMode.FullScreen` / `.Banner`) | the gated thing is a TRANSACTION or a whole screen |
+| `PayCraftTeaseGate` | content stays visible and readable; only the TAP is shielded, and the upsell sheet is raised in place over it | the user should still SEE what the subscription unlocks |
+| `PayCraftAdGate` | time-boxed unlock per feature key, via a consumer-supplied `ads` slot | the app monetises with ads as well as subscriptions |
 
-`PayCraftSoftGate` takes `enabled` for a list MIXING free and locked rows: pass the row's own
+`PayCraftTeaseGate` takes `enabled` for a list MIXING free and locked rows: pass the row's own
 catalogue flag, and the gate still decides whether to LOCK from live entitlement, so a subscriber
 gets the row ungated with no chip. `badge` and `lockedContentDescription` have usable defaults.
 

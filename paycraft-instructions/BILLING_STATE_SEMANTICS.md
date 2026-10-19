@@ -1,4 +1,4 @@
-example-provenance: 0a353f53c55e8b2a0a69801e1ccce77ab6682bd2
+example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
 
 # BILLING_STATE_SEMANTICS.md — the billing state machine and realtime invalidation
 
@@ -34,8 +34,9 @@ toast on every dismissal is misreading this arm.
 
 ### `Free` is also the answer for an unconfigured SDK
 
-Resolving `BillingManager` before `PayCraft.initialize` no longer throws — `PayCraftService` holds a
-nullable api key, the RPCs resolve no tenant, and the honest answer is Free (WIRING_CONTRACTS.md). A
+Resolving `PayCraftRepository` before `PayCraft.initialize` no longer throws — `PayCraftService`
+holds a nullable api key, the RPCs resolve no tenant, and the honest answer is Free
+(WIRING_CONTRACTS.md). A
 host that wants to distinguish "no entitlement" from "no key" asks `PayCraft.isConfigured`; a host
 that simply gates features needs no branch at all.
 
