@@ -11,6 +11,7 @@ import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingConfig
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.ConsumeParams
 import com.android.billingclient.api.GetBillingConfigParams
 import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
@@ -19,6 +20,7 @@ import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.QueryPurchasesParams
 import com.android.billingclient.api.acknowledgePurchase
+import com.android.billingclient.api.consumePurchase
 import com.android.billingclient.api.queryProductDetails
 import com.android.billingclient.api.queryPurchasesAsync
 import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
@@ -221,9 +223,37 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
      * a failure here is surfaced by leaving `isAcknowledged = false` on the next
      * [queryPurchases] — the reconcile loop retries it rather than losing it to a log line.
      */
-    override suspend fun finishPurchase(purchase: NativePurchase) {
-        if (purchase.isPending) return // nothing to acknowledge until payment clears
+    override suspend fun finishPurchase(purchase: NativePurchase, consumable: Boolean) {
+        if (purchase.isPending) return // nothing to finish until payment clears
         ensureConnected()
+
+        // CONSUME, not acknowledge, for a consumable. These are different calls with different
+        // outcomes, and picking the wrong one fails SILENTLY:
+        //
+        //   acknowledgePurchase -> the sku stays OWNED forever. A second purchase of the same coin
+        //                          pack is rejected by Play with "already owned", and nothing in
+        //                          the SDK errors — the buyer simply cannot buy again.
+        //   consumeAsync        -> marks it consumed so the sku is purchasable again, and
+        //                          acknowledges implicitly, so the 72h auto-refund is also covered.
+        //
+        // Consuming is therefore strictly the correct call here; it is not an optimisation.
+        if (consumable) {
+            val result = billingClient.consumePurchase(
+                ConsumeParams.newBuilder()
+                    .setPurchaseToken(purchase.purchaseToken)
+                    .build(),
+            )
+            if (result.billingResult.responseCode != BillingResponseCode.OK) {
+                logW("PlayBillingNativeClient") {
+                    "consumePurchase failed (${result.billingResult.responseCode}): " +
+                        "${result.billingResult.debugMessage} — will retry on the next reconcile " +
+                        "(unconsumed means the buyer cannot repurchase; unacknowledged means Play " +
+                        "auto-refunds after 72h)"
+                }
+            }
+            return
+        }
+
         val ack = billingClient.acknowledgePurchase(
             AcknowledgePurchaseParams.newBuilder()
                 .setPurchaseToken(purchase.purchaseToken)

@@ -82,6 +82,9 @@ class SpyNativeBillingClient : NativeBillingClient {
     var restoreCalls = 0
     var manageCalls = 0
     var finishCalls = 0
+
+    /** The `consumable` flag of the LAST finishPurchase call — null until one happens. */
+    var lastFinishConsumable: Boolean? = null
     val manageProductIds = mutableListOf<String?>()
 
     override val purchaseUpdates: kotlinx.coroutines.flow.Flow<NativePurchase> =
@@ -93,8 +96,9 @@ class SpyNativeBillingClient : NativeBillingClient {
         productType: com.mobilebytelabs.paycraft.billing.NativeProductType,
     ): NativePurchaseResult = NativePurchaseResult.Cancelled
 
-    override suspend fun finishPurchase(purchase: NativePurchase) {
+    override suspend fun finishPurchase(purchase: NativePurchase, consumable: Boolean) {
         finishCalls++
+        lastFinishConsumable = consumable
     }
 
     override suspend fun queryPurchases(): List<NativePurchase> = emptyList()

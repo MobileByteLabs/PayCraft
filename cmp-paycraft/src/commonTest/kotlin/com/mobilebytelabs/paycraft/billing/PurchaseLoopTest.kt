@@ -33,6 +33,9 @@ class PurchaseLoopTest {
     private class RecordingBillingClient(private val outcome: (String) -> NativePurchaseResult) : NativeBillingClient {
         val purchasedWithIdentity = mutableListOf<Pair<String, String?>>()
         val finished = mutableListOf<NativePurchase>()
+
+        /** Parallel to [finished]: whether each finish asked Play to CONSUME rather than acknowledge. */
+        val finishedConsumable = mutableListOf<Boolean>()
         var queryResult: List<NativePurchase> = emptyList()
 
         private val updates = MutableSharedFlow<NativePurchase>(extraBufferCapacity = 8)
@@ -49,8 +52,11 @@ class PurchaseLoopTest {
             return outcome(productId)
         }
 
-        override suspend fun finishPurchase(purchase: NativePurchase) {
+        override suspend fun finishPurchase(purchase: NativePurchase, consumable: Boolean) {
             finished += purchase
+            // Recorded, not ignored: consume-vs-acknowledge is the distinction PC-007 turns on,
+            // and a double that drops it cannot catch the regression.
+            finishedConsumable += consumable
         }
 
         override suspend fun queryPurchases(): List<NativePurchase> = queryResult
@@ -141,6 +147,44 @@ class PurchaseLoopTest {
             "purchase() must NOT finish the transaction. Finishing before the server records the " +
                 "entitlement drops it from the store's unfinished queue — a failed server call " +
                 "then leaves a paying customer with nothing to retry against.",
+        )
+    }
+
+    @Test
+    fun finishPurchase_defaultsToAcknowledge_notConsume() = runTest {
+        // The SAFE default. Consuming a non-consumable discards a permanent entitlement; failing
+        // to consume a consumable only delays repurchase until the next reconcile. So when the
+        // caller says nothing, we must acknowledge.
+        val client = RecordingBillingClient { NativePurchaseResult.Success(purchase()) }
+
+        client.finishPurchase(purchase())
+
+        assertEquals(
+            listOf(false),
+            client.finishedConsumable,
+            "finishPurchase must default to acknowledge — consuming a subscription or lifetime " +
+                "unlock would throw away an entitlement the buyer owns permanently.",
+        )
+    }
+
+    @Test
+    fun finishPurchase_consumesWhenAskedTo() = runTest {
+        // PC-007. On Play, acknowledge and consume are DIFFERENT calls with different outcomes,
+        // and picking the wrong one fails silently: an acknowledged-but-unconsumed sku stays
+        // OWNED, so the buyer's SECOND purchase of the same coin pack is rejected with
+        // "already owned" and nothing in the SDK errors.
+        //
+        // This asserts the flag reaches the client. That the client then calls consumePurchase
+        // rather than acknowledgePurchase is Play-side behaviour, verified on-device — a JVM
+        // double cannot observe which Play API was invoked.
+        val client = RecordingBillingClient { NativePurchaseResult.Success(purchase()) }
+
+        client.finishPurchase(purchase(), consumable = true)
+
+        assertEquals(
+            listOf(true),
+            client.finishedConsumable,
+            "a consumable must be CONSUMED, not acknowledged, or it can never be bought again.",
         )
     }
 

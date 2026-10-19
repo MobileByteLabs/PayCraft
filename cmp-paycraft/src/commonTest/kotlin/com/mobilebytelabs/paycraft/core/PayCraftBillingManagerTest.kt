@@ -180,7 +180,7 @@ class PayCraftBillingManagerTest {
             purchaseCalled = true
             return NativePurchaseResult.Failed("not exercised in this test")
         }
-        override suspend fun finishPurchase(purchase: NativePurchase) = Unit
+        override suspend fun finishPurchase(purchase: NativePurchase, consumable: Boolean) = Unit
         override suspend fun queryPurchases(): List<NativePurchase> = emptyList()
         override suspend fun sync() = Unit
         override suspend fun restore(): List<NativePurchase> = emptyList()
