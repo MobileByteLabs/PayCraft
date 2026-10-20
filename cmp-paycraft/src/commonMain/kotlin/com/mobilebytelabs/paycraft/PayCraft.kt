@@ -275,6 +275,19 @@ object PayCraft {
     val plans: List<BillingPlan> get() = config?.plans ?: emptyList()
 
     /**
+     * The non-subscription catalogue — consumable packs and one-time unlocks.
+     *
+     * Deliberately EXCLUDES subscription and trial plans (they belong to the paywall): a store that
+     * lists a plan beside a coin pack invites a user to "buy" a subscription they may already hold,
+     * and the two are bought through different flows.
+     *
+     * Derived from the same [plans] the paywall renders rather than a second fetch, so the two
+     * surfaces can never quote different prices for one sku.
+     */
+    val products: List<BillingPlan>
+        get() = plans.filter { it.isConsumable || it.interval == "lifetime" }
+
+    /**
      * The native store's OWN localized price per plan sku (Play `formattedPrice` / StoreKit
      * `displayPrice`), resolved after products load on native billing lanes. When present it is
      * the truth the store charges and OVERRIDES the cloud `/config` price for the paywall + the
@@ -1549,6 +1562,7 @@ private fun List<ProductDto>.toBillingPlans(
             // "lifetime", which makes a consumable indistinguishable from a one-time unlock —
             // and Play finishes those two with different calls.
             isConsumable = dto.type == "consumable",
+            grantQuantity = dto.grantQuantity,
         )
     }
 }

@@ -198,4 +198,10 @@ object PayCraftTestTags {
     const val OFFLINE_MESSAGE = "paycraft_offline_message"
     const val STALE_MESSAGE = "paycraft_stale_message"
     const val STALE_REFRESH = "paycraft_stale_refresh"
+
+    /** Consumable balances + the non-subscription store (coin packs, one-time unlocks). */
+    const val BALANCE = "paycraft_balance"
+    const val STORE_SECTION = "paycraft_store_section"
+    const val STORE_PRODUCT_ROW = "paycraft_store_product_row"
+    const val STORE_EMPTY = "paycraft_store_empty"
 }
