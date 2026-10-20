@@ -133,8 +133,30 @@ BEGIN
     AND tp.provider_account_id IS NULL
     AND (tp.test_secret_key_enc IS NOT NULL OR tp.live_secret_key_enc IS NOT NULL);
   RAISE NOTICE 'psp connections now: %, still-unattached credentialed rows: %', n, orphans;
-  IF n = 0 THEN
-    RAISE EXCEPTION 'psp backfill produced no connections — the account tier is still empty for PSPs';
+
+  -- Assert only when there was INPUT to backfill.
+  --
+  -- The original condition was `IF n = 0`, whose premise is "this database has PSP credentials".
+  -- True in production; false for an EMPTY database, where creating nothing is the correct and
+  -- expected outcome. That made the whole chain unappliable from scratch, so `supabase db reset`
+  -- died here — and RULE-SERVER-PROD-PUSH-001 Rule 4 requires exactly that reset to pass before
+  -- ANY production push. One unprovable assertion therefore blocked every future deploy, not just
+  -- this one.
+  --
+  -- The guard still catches what it was written for: credentialed rows present AND no connection
+  -- produced, which is a backfill that silently matched nothing and left the state it exists to
+  -- fix. A database with no credentials has nothing to match and is not a failure.
+  --
+  -- Editing an applied migration is normally forbidden (CLAUDE.md: add a follow-up instead), and
+  -- this is the narrow case where it is correct: the change touches ONLY the fresh-apply path. A
+  -- follow-up migration cannot un-fire an earlier migration's exception, and for any database
+  -- where 116 already ran this edit is a no-op — the DO block does not re-execute.
+  IF n = 0 AND EXISTS (
+    SELECT 1 FROM tenant_providers tp
+    WHERE tp.provider IN ('stripe','razorpay','cashfree')
+      AND (tp.test_secret_key_enc IS NOT NULL OR tp.live_secret_key_enc IS NOT NULL)
+  ) THEN
+    RAISE EXCEPTION 'psp backfill produced no connections despite credentialed tenant_providers rows — the account tier is still empty for PSPs';
   END IF;
 END;
 $$;
