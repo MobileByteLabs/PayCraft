@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.mobilenativefoundation.store.store5.StoreReadResponse
 
@@ -109,6 +110,12 @@ class PayCraftBillingManager(
 
     private val _isPremium = MutableStateFlow(false)
     override val isPremium: StateFlow<Boolean> = _isPremium.asStateFlow()
+
+    // Consumable balances. ONLY ever written from a server answer — a refreshBalance() read or the
+    // new balance a successful spend() returned (AR-013: a client-writable balance is forgeable
+    // currency, so there is no local increment path and no setter).
+    private val _balances = MutableStateFlow<Map<String, Int>>(emptyMap())
+    override val balances: StateFlow<Map<String, Int>> = _balances.asStateFlow()
 
     private val _subscriptionStatus = MutableStateFlow(SubscriptionStatus())
     override val subscriptionStatus: StateFlow<SubscriptionStatus> = _subscriptionStatus.asStateFlow()
@@ -1094,5 +1101,48 @@ class PayCraftBillingManager(
             )
             lastObservedPremium = false
         }
+    }
+
+    // ─── Consumable balances ────────────────────────────────────────────────────────────────────
+
+    /**
+     * Read [sku]'s balance from the server and publish it to [balances].
+     *
+     * The subject is NOT a parameter: the server derives it from this device's token (migration
+     * 159). Before that, these RPCs took a caller-supplied subject id, which both let one holder of
+     * the publishable key read another user's balance AND made the call impossible to make honestly
+     * — `entitlement_subject_resolve` is service_role-only, so a client could never learn its own
+     * subject id to pass.
+     *
+     * No token (signed out, not yet registered) is 0 WITHOUT a server round-trip, and the map is
+     * left untouched: publishing a 0 here would be indistinguishable from a real zero balance and
+     * would make the UI offer a spend that cannot succeed.
+     */
+    override suspend fun refreshBalance(sku: String): Int {
+        val token = DeviceTokenStore.getToken()
+        if (token.isNullOrBlank()) return 0
+        val balance = service.balanceOf(token, sku)
+        _balances.update { it + (sku to balance) }
+        return balance
+    }
+
+    /**
+     * Spend [quantity] of [sku], server-checked and atomic.
+     *
+     * The service returns null for BOTH a transport failure and `insufficient_balance`, and the
+     * distinction cannot be recovered here. Both map to [Result.failure] — which is the safe
+     * collapse, because the one outcome that must never happen is treating a network error as a
+     * successful spend and handing over the goods. The caller's message is the same either way.
+     */
+    override suspend fun spend(sku: String, quantity: Int, idempotencyKey: String): Result<Int> {
+        val token = DeviceTokenStore.getToken()
+        if (token.isNullOrBlank()) {
+            return Result.failure(IllegalStateException("no registered device - cannot spend"))
+        }
+        val newBalance = service.spendBalance(token, sku, quantity, idempotencyKey)
+            ?: return Result.failure(IllegalStateException("spend rejected (insufficient balance or unreachable)"))
+        // Server-returned value, so this is still a server write (AR-013), not a local decrement.
+        _balances.update { it + (sku to newBalance) }
+        return Result.success(newBalance)
     }
 }

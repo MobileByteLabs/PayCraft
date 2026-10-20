@@ -57,6 +57,7 @@ internal class PayCraftRepositoryImpl(
 ) : PayCraftRepository {
 
     override val isPremium: StateFlow<Boolean> get() = billing.isPremium
+    override val balances: StateFlow<Map<String, Int>> get() = billing.balances
     override val billingState: StateFlow<BillingState> get() = billing.billingState
     override val subscriptionStatus: StateFlow<SubscriptionStatus> get() = billing.subscriptionStatus
     override val isInTrial: StateFlow<Boolean> get() = billing.isInTrial
@@ -164,4 +165,9 @@ internal class PayCraftRepositoryImpl(
     // confirmDeviceTransfer", so exposing it would hand a host the half-step that skips the
     // deactivation of the other device.
     override suspend fun revokeCurrentDevice() = billing.revokeCurrentDevice()
+
+    override suspend fun refreshBalance(sku: String): Int = billing.refreshBalance(sku)
+
+    override suspend fun spend(sku: String, quantity: Int, idempotencyKey: String): Result<Int> =
+        billing.spend(sku, quantity, idempotencyKey)
 }

@@ -71,6 +71,8 @@ class FakePayCraftRepository(
         },
     ),
     plans: List<BillingPlan> = emptyList(),
+    /** Starting consumable balances by sku. Mutable mid-run via [setBalance]. */
+    balances: Map<String, Int> = emptyMap(),
     /**
      * What [restore] returns. Null → [restore] throws, so the unhappy path is testable too.
      *
@@ -87,6 +89,7 @@ class FakePayCraftRepository(
     private val _isInTrial = MutableStateFlow(inTrial)
     private val _plans = MutableStateFlow(plans)
     private val _entitlement = MutableStateFlow(entitlement)
+    private val _balances = MutableStateFlow(balances)
 
     override val isPremium: StateFlow<Boolean> = _isPremium.asStateFlow()
     override val billingState: StateFlow<BillingState> = _billingState.asStateFlow()
@@ -94,6 +97,7 @@ class FakePayCraftRepository(
     override val isInTrial: StateFlow<Boolean> = _isInTrial.asStateFlow()
     override val plans: StateFlow<List<BillingPlan>> = _plans.asStateFlow()
     override val entitlement: StateFlow<EntitlementSummary> = _entitlement.asStateFlow()
+    override val balances: StateFlow<Map<String, Int>> = _balances.asStateFlow()
 
     /** Every [checkout] call, in order — assert a tap reached the SDK. */
     val checkoutCalls: MutableList<Pair<BillingPlan, String?>> = mutableListOf()
@@ -274,5 +278,36 @@ class FakePayCraftRepository(
         revokeCurrentDeviceCalls++
         // Releasing the slot drops the entitlement on THIS device, same reasoning as logOut.
         setPremium(false)
+    }
+
+    /** Every [spend] call, in order — assert quantity AND the idempotency key the host chose. */
+    val spendCalls: MutableList<Triple<String, Int, String>> = mutableListOf()
+
+    /** Seed or change a balance mid-run (e.g. simulate the webhook grant landing). */
+    fun setBalance(sku: String, balance: Int) {
+        _balances.value = _balances.value + (sku to balance)
+    }
+
+    /** Reads straight from the seeded map — a fake has no server to ask. Absent sku reads 0. */
+    override suspend fun refreshBalance(sku: String): Int = _balances.value[sku] ?: 0
+
+    /**
+     * Mirrors the real contract closely enough to test the host against it:
+     *  - insufficient funds is [Result.failure], never an exception (AR-012);
+     *  - a REPLAYED idempotency key returns the current balance without debiting again (AR-011),
+     *    so a host's retry path can be exercised without double-charging the fake.
+     */
+    override suspend fun spend(sku: String, quantity: Int, idempotencyKey: String): Result<Int> {
+        if (spendCalls.any { it.third == idempotencyKey }) {
+            return Result.success(_balances.value[sku] ?: 0)
+        }
+        spendCalls += Triple(sku, quantity, idempotencyKey)
+        val current = _balances.value[sku] ?: 0
+        if (current < quantity) {
+            return Result.failure(IllegalStateException("insufficient_balance: have $current, need $quantity"))
+        }
+        val next = current - quantity
+        _balances.value = _balances.value + (sku to next)
+        return Result.success(next)
     }
 }

@@ -3,6 +3,7 @@ package com.mobilebytelabs.paycraft.core
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -146,4 +147,41 @@ internal interface BillingManager {
     suspend fun revokeCurrentDevice()
 
     fun logOut()
+
+    // ─── Consumable balances (REQUIREMENTS.md PC-001..006) ───────────────────
+
+    /**
+     * Server-authoritative consumable balances, keyed by sku.
+     *
+     * READ-ONLY and there is deliberately no local increment path (AR-013): a client-writable
+     * balance is forgeable currency. Every value here came from the server — either a
+     * [refreshBalance] read or the new balance a successful [spend] returned. A sku absent from the
+     * map has simply not been read yet; it is NOT the same as a zero balance.
+     *
+     * Default empty so alternate [BillingManager] implementations stay source-compatible.
+     */
+    val balances: StateFlow<Map<String, Int>> get() = MutableStateFlow(emptyMap())
+
+    /**
+     * Re-read [sku]'s balance from the server and publish it to [balances].
+     *
+     * @return the balance, or 0 when it cannot be read. 0 is the safe reading of "unknown" — it
+     *   withholds a spend rather than granting one.
+     */
+    suspend fun refreshBalance(sku: String): Int = 0
+
+    /**
+     * Spend [quantity] of [sku] atomically, server-checked.
+     *
+     * [idempotencyKey] is REQUIRED and has no default (AR-011). A caller retrying after a timeout
+     * must present the SAME key, so the server recognises the replay and returns the original
+     * balance instead of charging twice. Only the caller knows which retry is the same logical
+     * spend, which is why this cannot be defaulted here.
+     *
+     * @return the new balance on success. Insufficient funds is a [Result.failure], NOT an
+     *   exception (AR-012) — a shopper short on currency is an expected outcome of a shop. Never
+     *   grant the purchased thing on a failure.
+     */
+    suspend fun spend(sku: String, quantity: Int, idempotencyKey: String): Result<Int> =
+        Result.failure(UnsupportedOperationException("balances not supported by this BillingManager"))
 }
