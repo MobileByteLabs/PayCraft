@@ -174,6 +174,18 @@ interface PayCraftService {
     suspend fun balanceOf(serverToken: String, sku: String): Int = 0
 
     /**
+     * Whether this device's owner already owns the one-time product [sku].
+     *
+     * Distinct from [isPremium], which answers a SUBSCRIPTION question. A store needs the narrower
+     * one so it stops selling something already bought.
+     *
+     * Default false so alternate [PayCraftService] fakes stay source-compatible, and because false
+     * is the safe reading of "unknown" — it offers the product for sale rather than unlocking
+     * content nobody paid for.
+     */
+    suspend fun owns(serverToken: String, sku: String): Boolean = false
+
+    /**
      * Spend [quantity] of [sku], atomically.
      *
      * [idempotencyKey] is REQUIRED and has no default (AR-011). A client retrying after a network
@@ -284,6 +296,28 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
     } catch (e: Exception) {
         PayCraftLogger.onRpcError("get_subscription", e.message)
         null
+    }
+
+    override suspend fun owns(serverToken: String, sku: String): Boolean = try {
+        PayCraftLogger.onRpcCall("entitlement_owns", "sku=$sku")
+        val result = postgrest.rpc(
+            function = "entitlement_owns",
+            parameters = buildJsonObject {
+                // Same shape as the balance RPCs since 159/160: the subject is the SERVER's to
+                // derive from the device token, never the caller's to name.
+                put("p_server_token", serverToken)
+                put("p_api_key", apiKey)
+                put("p_sku", sku)
+            },
+        ).data
+        val decoded = result.trim().equals("true", ignoreCase = true)
+        PayCraftLogger.onRpcResult("entitlement_owns", decoded.toString())
+        decoded
+    } catch (e: Exception) {
+        // false on failure, NEVER optimistic. Play and StoreKit can both report success for a
+        // transaction that later fails verification, so ownership is only ever the server's word.
+        PayCraftLogger.onRpcError("entitlement_owns", e.message)
+        false
     }
 
     override suspend fun balanceOf(serverToken: String, sku: String): Int = try {

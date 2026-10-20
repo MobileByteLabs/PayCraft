@@ -12,6 +12,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -74,6 +75,16 @@ class BalanceSpendTest {
             deviceId: String,
             mode: String,
         ): RegisterDeviceResult = RegisterDeviceResult(TOKEN, false, null, null)
+
+        var ownsResult: Boolean = false
+        var ownsToken: String? = null
+        var ownsCallCount = 0
+
+        override suspend fun owns(serverToken: String, sku: String): Boolean {
+            ownsCallCount++
+            ownsToken = serverToken
+            return ownsResult
+        }
 
         override suspend fun balanceOf(serverToken: String, sku: String): Int {
             balanceOfToken = serverToken
@@ -186,5 +197,42 @@ class BalanceSpendTest {
 
         assertTrue(result.isFailure)
         assertEquals(0, service.spendCallCount, "a spend with no subject must never reach the server")
+    }
+
+    @Test
+    fun ownership_is_server_confirmed_and_sends_the_device_token() = runTest {
+        val service = FakeBalanceService().apply { ownsResult = true }
+        val m = manager(service)
+
+        assertTrue(m.refreshOwnership("remove_ads"))
+        assertTrue("remove_ads" in m.ownedSkus.value)
+        assertEquals(TOKEN, service.ownsToken)
+    }
+
+    @Test
+    fun a_false_REMOVES_a_previously_owned_sku_so_a_refund_can_close_the_gate() = runTest {
+        val service = FakeBalanceService().apply { ownsResult = true }
+        val m = manager(service)
+        m.refreshOwnership("remove_ads")
+        assertTrue("remove_ads" in m.ownedSkus.value)
+
+        // Refunded, or re-verification failed.
+        service.ownsResult = false
+        assertFalse(m.refreshOwnership("remove_ads"))
+
+        // An add-only set would leave paid content unlocked forever after the first true — the
+        // whole reason refreshOwnership removes rather than only adds.
+        assertFalse("remove_ads" in m.ownedSkus.value)
+    }
+
+    @Test
+    fun ownership_without_a_registered_device_is_false_and_never_reaches_the_wire() = runTest {
+        DeviceTokenStore.clearToken()
+        val service = FakeBalanceService().apply { ownsResult = true }
+        val m = manager(service)
+
+        assertFalse(m.refreshOwnership("remove_ads"))
+        assertEquals(0, service.ownsCallCount)
+        assertTrue(m.ownedSkus.value.isEmpty())
     }
 }

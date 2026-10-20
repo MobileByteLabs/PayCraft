@@ -106,6 +106,13 @@ interface PayCraftRepository {
     val balances: StateFlow<Map<String, Int>>
 
     /**
+     * Skus owned outright (one-time unlocks). Server-confirmed only — a sku appears here when the
+     * server says so, never optimistically on a purchase return (AR: `owns` is false until the
+     * server confirms the grant).
+     */
+    val ownedSkus: StateFlow<Set<String>>
+
+    /**
      * Start checkout. **Fire-and-observe**, matching `PayCraft.checkout`: it routes to the correct
      * lane (native store vs web) and returns immediately.
      *
@@ -117,6 +124,9 @@ interface PayCraftRepository {
      */
     /** Re-read [sku]'s balance from the server into [balances]; 0 when it cannot be read. */
     suspend fun refreshBalance(sku: String): Int
+
+    /** Re-read ownership of [sku] into [ownedSkus]; false when it cannot be read. */
+    suspend fun refreshOwnership(sku: String): Boolean
 
     /**
      * Spend [quantity] of [sku], server-checked and atomic.

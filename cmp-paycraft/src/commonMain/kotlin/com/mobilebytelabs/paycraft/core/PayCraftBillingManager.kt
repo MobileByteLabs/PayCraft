@@ -117,6 +117,10 @@ class PayCraftBillingManager(
     private val _balances = MutableStateFlow<Map<String, Int>>(emptyMap())
     override val balances: StateFlow<Map<String, Int>> = _balances.asStateFlow()
 
+    // Owned one-time skus. Like _balances, only ever written from a server answer.
+    private val _ownedSkus = MutableStateFlow<Set<String>>(emptySet())
+    override val ownedSkus: StateFlow<Set<String>> = _ownedSkus.asStateFlow()
+
     private val _subscriptionStatus = MutableStateFlow(SubscriptionStatus())
     override val subscriptionStatus: StateFlow<SubscriptionStatus> = _subscriptionStatus.asStateFlow()
 
@@ -1118,6 +1122,21 @@ class PayCraftBillingManager(
      * left untouched: publishing a 0 here would be indistinguishable from a real zero balance and
      * would make the UI offer a spend that cannot succeed.
      */
+    /**
+     * Read ownership of [sku] from the server into [ownedSkus].
+     *
+     * Note this REMOVES the sku on a false, rather than only adding on a true. A refund or a failed
+     * verification has to be able to close a gate that an earlier purchase opened; an add-only set
+     * would leave content unlocked forever after the first true.
+     */
+    override suspend fun refreshOwnership(sku: String): Boolean {
+        val token = DeviceTokenStore.getToken()
+        if (token.isNullOrBlank()) return false
+        val owned = service.owns(token, sku)
+        _ownedSkus.update { if (owned) it + sku else it - sku }
+        return owned
+    }
+
     override suspend fun refreshBalance(sku: String): Int {
         val token = DeviceTokenStore.getToken()
         if (token.isNullOrBlank()) return 0

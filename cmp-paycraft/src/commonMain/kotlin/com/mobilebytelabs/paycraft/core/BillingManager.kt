@@ -184,4 +184,18 @@ internal interface BillingManager {
      */
     suspend fun spend(sku: String, quantity: Int, idempotencyKey: String): Result<Int> =
         Result.failure(UnsupportedOperationException("balances not supported by this BillingManager"))
+
+    // ─── One-time product ownership ──────────────────────────────────────────
+
+    /**
+     * Skus this user owns outright (non-consumable one-time unlocks).
+     *
+     * Server-confirmed only. A sku is absent until [refreshOwnership] gets a `true` back — never
+     * optimistically on purchase return, because Play and StoreKit can both report success for a
+     * transaction that later fails verification.
+     */
+    val ownedSkus: StateFlow<Set<String>> get() = MutableStateFlow(emptySet())
+
+    /** Re-read ownership of [sku] from the server into [ownedSkus]. False when it cannot be read. */
+    suspend fun refreshOwnership(sku: String): Boolean = false
 }

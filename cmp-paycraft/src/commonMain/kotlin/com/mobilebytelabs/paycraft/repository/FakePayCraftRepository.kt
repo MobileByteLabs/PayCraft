@@ -73,6 +73,8 @@ class FakePayCraftRepository(
     plans: List<BillingPlan> = emptyList(),
     /** Starting consumable balances by sku. Mutable mid-run via [setBalance]. */
     balances: Map<String, Int> = emptyMap(),
+    /** Skus owned outright at construction. Mutable mid-run via [setOwned]. */
+    ownedSkus: Set<String> = emptySet(),
     /**
      * What [restore] returns. Null → [restore] throws, so the unhappy path is testable too.
      *
@@ -90,6 +92,7 @@ class FakePayCraftRepository(
     private val _plans = MutableStateFlow(plans)
     private val _entitlement = MutableStateFlow(entitlement)
     private val _balances = MutableStateFlow(balances)
+    private val _ownedSkus = MutableStateFlow(ownedSkus)
 
     override val isPremium: StateFlow<Boolean> = _isPremium.asStateFlow()
     override val billingState: StateFlow<BillingState> = _billingState.asStateFlow()
@@ -98,6 +101,7 @@ class FakePayCraftRepository(
     override val plans: StateFlow<List<BillingPlan>> = _plans.asStateFlow()
     override val entitlement: StateFlow<EntitlementSummary> = _entitlement.asStateFlow()
     override val balances: StateFlow<Map<String, Int>> = _balances.asStateFlow()
+    override val ownedSkus: StateFlow<Set<String>> = _ownedSkus.asStateFlow()
 
     /** Every [checkout] call, in order — assert a tap reached the SDK. */
     val checkoutCalls: MutableList<Pair<BillingPlan, String?>> = mutableListOf()
@@ -290,6 +294,13 @@ class FakePayCraftRepository(
 
     /** Reads straight from the seeded map — a fake has no server to ask. Absent sku reads 0. */
     override suspend fun refreshBalance(sku: String): Int = _balances.value[sku] ?: 0
+
+    /** Seed or change ownership mid-run (e.g. simulate the purchase being verified, or refunded). */
+    fun setOwned(sku: String, owned: Boolean) {
+        _ownedSkus.value = if (owned) _ownedSkus.value + sku else _ownedSkus.value - sku
+    }
+
+    override suspend fun refreshOwnership(sku: String): Boolean = sku in _ownedSkus.value
 
     /**
      * Mirrors the real contract closely enough to test the host against it:

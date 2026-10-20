@@ -58,6 +58,7 @@ internal class PayCraftRepositoryImpl(
 
     override val isPremium: StateFlow<Boolean> get() = billing.isPremium
     override val balances: StateFlow<Map<String, Int>> get() = billing.balances
+    override val ownedSkus: StateFlow<Set<String>> get() = billing.ownedSkus
     override val billingState: StateFlow<BillingState> get() = billing.billingState
     override val subscriptionStatus: StateFlow<SubscriptionStatus> get() = billing.subscriptionStatus
     override val isInTrial: StateFlow<Boolean> get() = billing.isInTrial
@@ -167,6 +168,8 @@ internal class PayCraftRepositoryImpl(
     override suspend fun revokeCurrentDevice() = billing.revokeCurrentDevice()
 
     override suspend fun refreshBalance(sku: String): Int = billing.refreshBalance(sku)
+
+    override suspend fun refreshOwnership(sku: String): Boolean = billing.refreshOwnership(sku)
 
     override suspend fun spend(sku: String, quantity: Int, idempotencyKey: String): Result<Int> =
         billing.spend(sku, quantity, idempotencyKey)
