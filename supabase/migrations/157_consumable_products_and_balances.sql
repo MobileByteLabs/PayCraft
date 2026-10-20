@@ -104,7 +104,30 @@ CREATE POLICY entitlement_balance_ledger_read ON public.entitlement_balance_ledg
   USING (tenant_id IN (SELECT ta.tenant_id FROM tenant_admins ta WHERE ta.user_id = auth.uid()));
 
 -- ── 4. balance read ──────────────────────────────────────────────────────────────────────────────
+-- CLIENT-FACING: the tenant is resolved from the publishable key, NEVER taken as a parameter.
+-- This function is granted to `authenticated`; a p_tenant_id parameter would let any caller read
+-- ANOTHER tenant's balances by passing their id. resolve_tenant() has been the house pattern for
+-- every tenant-aware RPC since migration 016 — this follows it rather than inventing a second way.
 CREATE OR REPLACE FUNCTION public.entitlement_balance_get(
+    p_api_key    TEXT,
+    p_subject_id UUID,
+    p_sku        TEXT
+)
+RETURNS INT
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COALESCE(SUM(delta), 0)::INT
+  FROM entitlement_balance_ledger
+  WHERE tenant_id = resolve_tenant(p_api_key)
+    AND subject_id = p_subject_id
+    AND sku = p_sku;
+$$;
+
+-- Internal balance by tenant id. The client-facing getter above is api-key scoped and therefore
+-- NOT callable from the service-role paths, which hold a tenant id and no key. Splitting them
+-- keeps the client function unable to name a tenant, without forcing the webhook to invent a key.
+CREATE OR REPLACE FUNCTION public.entitlement_balance_of_tenant(
     p_tenant_id  UUID,
     p_subject_id UUID,
     p_sku        TEXT
@@ -117,6 +140,8 @@ AS $$
   FROM entitlement_balance_ledger
   WHERE tenant_id = p_tenant_id AND subject_id = p_subject_id AND sku = p_sku;
 $$;
+
+REVOKE EXECUTE ON FUNCTION public.entitlement_balance_of_tenant(UUID, UUID, TEXT) FROM authenticated, anon;
 
 -- ── 5. grant (server-only) ───────────────────────────────────────────────────────────────────────
 -- PC-005: credited ONLY from the webhook path under service_role. Never granted to `authenticated`
@@ -153,13 +178,16 @@ BEGIN
     (p_tenant_id, p_subject_id, p_sku, p_quantity, 'purchase', p_stable_txn_id, btrim(p_idempotency_key))
   ON CONFLICT (tenant_id, idempotency_key) DO NOTHING;
 
-  SELECT entitlement_balance_get(p_tenant_id, p_subject_id, p_sku) INTO v_balance;
+  SELECT entitlement_balance_of_tenant(p_tenant_id, p_subject_id, p_sku) INTO v_balance;
   RETURN v_balance;
 END $$;
 
 -- ── 6. spend (checked, atomic) ───────────────────────────────────────────────────────────────────
+-- CLIENT-FACING: tenant resolved from the key, for the same reason as the getter above. A
+-- caller-supplied tenant id on a spend would be worse than a leak — it would let one tenant
+-- DRAIN another's balances.
 CREATE OR REPLACE FUNCTION public.entitlement_balance_spend(
-    p_tenant_id       UUID,
+    p_api_key         TEXT,
     p_subject_id      UUID,
     p_sku             TEXT,
     p_quantity        INT,
@@ -170,9 +198,14 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_balance INT;
+  v_balance  INT;
   v_existing INT;
+  v_tenant   UUID;
 BEGIN
+  v_tenant := resolve_tenant(p_api_key);
+  IF v_tenant IS NULL THEN
+    RAISE EXCEPTION 'unknown or inactive api key' USING ERRCODE = 'invalid_authorization_specification';
+  END IF;
   IF p_quantity IS NULL OR p_quantity < 1 THEN
     RAISE EXCEPTION 'spend quantity must be >= 1' USING ERRCODE = 'check_violation';
   END IF;
@@ -184,20 +217,20 @@ BEGIN
   -- original call, not "insufficient funds" because the first attempt already debited.
   SELECT 1 INTO v_existing
   FROM entitlement_balance_ledger
-  WHERE tenant_id = p_tenant_id AND idempotency_key = btrim(p_idempotency_key);
+  WHERE tenant_id = v_tenant AND idempotency_key = btrim(p_idempotency_key);
 
   IF FOUND THEN
-    RETURN entitlement_balance_get(p_tenant_id, p_subject_id, p_sku);
+    RETURN entitlement_balance_of_tenant(v_tenant, p_subject_id, p_sku);
   END IF;
 
   -- Lock this subject's rows for this sku so two concurrent spends cannot both read a sufficient
   -- balance and both debit. Without this the CHECK below is a time-of-check/time-of-use race and
   -- the balance goes negative under load.
   PERFORM 1 FROM entitlement_balance_ledger
-   WHERE tenant_id = p_tenant_id AND subject_id = p_subject_id AND sku = p_sku
+   WHERE tenant_id = v_tenant AND subject_id = p_subject_id AND sku = p_sku
    FOR UPDATE;
 
-  SELECT entitlement_balance_get(p_tenant_id, p_subject_id, p_sku) INTO v_balance;
+  SELECT entitlement_balance_of_tenant(v_tenant, p_subject_id, p_sku) INTO v_balance;
 
   IF v_balance < p_quantity THEN
     -- Expected outcome of a shop, not a fault. The SDK maps this to Result.failure (AR-012)
@@ -209,12 +242,15 @@ BEGIN
   INSERT INTO entitlement_balance_ledger
     (tenant_id, subject_id, sku, delta, reason, stable_txn_id, idempotency_key)
   VALUES
-    (p_tenant_id, p_subject_id, p_sku, -p_quantity, 'spend', NULL, btrim(p_idempotency_key));
+    (v_tenant, p_subject_id, p_sku, -p_quantity, 'spend', NULL, btrim(p_idempotency_key));
 
   RETURN v_balance - p_quantity;
 END $$;
 
 -- ── 7. history read (cursor-paginated) ───────────────────────────────────────────────────────────
+-- DASHBOARD-FACING, and SECURITY DEFINER bypasses RLS — so the admin check must be IN the body.
+-- Without it any authenticated user could read any tenant's purchase history by passing their id,
+-- which the table's RLS policy would otherwise have prevented.
 CREATE OR REPLACE FUNCTION public.entitlement_balance_ledger_list(
     p_tenant_id  UUID,
     p_subject_id UUID,
@@ -236,6 +272,10 @@ AS $$
   SELECT l.occurred_at, l.sku, l.delta, l.reason, l.stable_txn_id, l.idempotency_key
   FROM entitlement_balance_ledger l
   WHERE l.tenant_id = p_tenant_id
+    AND EXISTS (
+      SELECT 1 FROM tenant_admins ta
+      WHERE ta.tenant_id = p_tenant_id AND ta.user_id = auth.uid()
+    )
     AND l.subject_id = p_subject_id
     AND (p_sku IS NULL OR l.sku = p_sku)
     AND (p_before IS NULL OR l.occurred_at < p_before)
@@ -246,8 +286,8 @@ $$;
 -- ── 8. grants ────────────────────────────────────────────────────────────────────────────────────
 -- Read + spend reach the client. GRANT does NOT (PC-005) — it stays service_role only, which is
 -- the whole reason the balance is not forgeable.
-GRANT EXECUTE ON FUNCTION public.entitlement_balance_get(UUID, UUID, TEXT)                  TO authenticated;
-GRANT EXECUTE ON FUNCTION public.entitlement_balance_spend(UUID, UUID, TEXT, INT, TEXT)     TO authenticated;
+GRANT EXECUTE ON FUNCTION public.entitlement_balance_get(TEXT, UUID, TEXT)              TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION public.entitlement_balance_spend(TEXT, UUID, TEXT, INT, TEXT) TO authenticated, anon;
 GRANT EXECUTE ON FUNCTION public.entitlement_balance_ledger_list(UUID, UUID, TEXT, TIMESTAMPTZ, INT) TO authenticated;
 
 REVOKE EXECUTE ON FUNCTION public.entitlement_balance_grant(UUID, UUID, TEXT, INT, TEXT, TEXT) FROM authenticated, anon;

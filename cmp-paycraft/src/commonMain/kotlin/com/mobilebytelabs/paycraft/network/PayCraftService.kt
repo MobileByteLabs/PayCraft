@@ -163,6 +163,30 @@ interface PayCraftService {
     suspend fun cancelSubscription(provider: String, subscriptionId: String): Boolean = false
 
     /**
+     * Consumable balance for one sku — the server's `SUM(delta)` over the append-only ledger.
+     *
+     * Server-authoritative by construction: there is deliberately no local increment path, because
+     * a client-writable balance is forgeable currency (REQUIREMENTS.md AR-013).
+     *
+     * Default 0 so alternate [PayCraftService] fakes stay source-compatible, and because 0 is the
+     * safe reading of "unknown" — it withholds a spend rather than granting one.
+     */
+    suspend fun balanceOf(subjectId: String, sku: String): Int = 0
+
+    /**
+     * Spend [quantity] of [sku], atomically.
+     *
+     * [idempotencyKey] is REQUIRED and has no default (AR-011). A client retrying after a network
+     * timeout must present the SAME key so the server recognises the replay and returns the
+     * original balance; a generated-per-call key makes every retry a fresh charge, which is the
+     * precise failure the key exists to prevent.
+     *
+     * @return the new balance, or null when the server rejected it — insufficient funds is the
+     *   expected case and is NOT an exception (AR-012): a shopper short on coins is normal.
+     */
+    suspend fun spendBalance(subjectId: String, sku: String, quantity: Int, idempotencyKey: String): Int? = null
+
+    /**
      * Register a completed **Google Play** purchase server-side (Payments-policy native lane).
      *
      * POSTs to the `register-play-purchase` edge function, which (1) re-fetches truth from the Play
@@ -261,6 +285,55 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         PayCraftLogger.onRpcError("get_subscription", e.message)
         null
     }
+
+    override suspend fun balanceOf(subjectId: String, sku: String): Int = try {
+        PayCraftLogger.onRpcCall("entitlement_balance_get", "sku=$sku")
+        val result = postgrest.rpc(
+            function = "entitlement_balance_get",
+            parameters = buildJsonObject {
+                // The publishable key, NOT a tenant id. The server resolves the tenant from it
+                // (resolve_tenant, the house pattern since migration 016) so a client cannot name
+                // someone else's tenant and read their balances.
+                put("p_api_key", apiKey)
+                put("p_subject_id", subjectId)
+                put("p_sku", sku)
+            },
+        ).data
+        val decoded = result.trim().toIntOrNull() ?: 0
+        PayCraftLogger.onRpcResult("entitlement_balance_get", decoded.toString())
+        decoded
+    } catch (e: Exception) {
+        // 0 on failure, NOT a cached optimistic value. Reporting a balance we cannot confirm
+        // would let the UI offer a spend the server will refuse.
+        PayCraftLogger.onRpcError("entitlement_balance_get", e.message)
+        0
+    }
+
+    override suspend fun spendBalance(subjectId: String, sku: String, quantity: Int, idempotencyKey: String): Int? =
+        try {
+            PayCraftLogger.onRpcCall("entitlement_balance_spend", "sku=$sku qty=$quantity")
+            val result = postgrest.rpc(
+                function = "entitlement_balance_spend",
+                parameters = buildJsonObject {
+                    put("p_api_key", apiKey)
+                    put("p_subject_id", subjectId)
+                    put("p_sku", sku)
+                    put("p_quantity", quantity)
+                    put("p_idempotency_key", idempotencyKey)
+                },
+            ).data
+            val decoded = result.trim().toIntOrNull()
+            PayCraftLogger.onRpcResult("entitlement_balance_spend", decoded?.toString() ?: "rejected")
+            decoded
+        } catch (e: Exception) {
+            // Covers BOTH a real failure and `insufficient_balance`, which the RPC raises. Null means
+            // "not spent" either way; the caller must not grant the thing being paid for. Separating
+            // the two would need an error-code round-trip that buys nothing here — the UI message is
+            // the same ("not enough"), and treating a network error as a successful spend is the one
+            // outcome that must never happen.
+            PayCraftLogger.onRpcError("entitlement_balance_spend", e.message)
+            null
+        }
 
     override suspend fun isTrialEligible(serverToken: String): Boolean = try {
         PayCraftLogger.onRpcCall("is_trial_eligible", "token=${serverToken.take(12)}...")
