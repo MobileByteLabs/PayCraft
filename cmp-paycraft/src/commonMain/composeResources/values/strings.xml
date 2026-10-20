@@ -8,6 +8,9 @@
     <!-- Plan selection -->
     <string name="paycraft_choose_plan">Choose your plan</string>
     <string name="paycraft_per_interval">per %1$s</string>
+    <string name="paycraft_settings_from_price">From {price}</string>
+    <string name="paycraft_settings_per_interval">per {interval}</string>
+    <string name="paycraft_settings_billed_through">Billed through {store}</string>
     <string name="paycraft_popular_badge">Popular</string>
     <string name="paycraft_most_popular_badge">MOST POPULAR</string>
     <string name="paycraft_plan_selected_description">%1$s plan, %2$s per %3$s, selected</string>

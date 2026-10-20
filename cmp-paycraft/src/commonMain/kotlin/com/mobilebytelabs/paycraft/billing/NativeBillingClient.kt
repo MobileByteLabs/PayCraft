@@ -126,16 +126,35 @@ interface NativeBillingClient {
     ): NativePurchaseResult
 
     /**
-     * Durably record [purchase] with the store — Play `acknowledgePurchase`, StoreKit
-     * `Transaction.finish()`.
+     * Durably record [purchase] with the store — Play `acknowledgePurchase` / `consumeAsync`,
+     * StoreKit `Transaction.finish()`.
      *
      * MUST be called only AFTER the entitlement is safely recorded server-side. Finishing first is
      * a lost purchase: the store drops it from the unfinished queue, so if the server call then
      * fails there is nothing left to retry against and the customer has paid for nothing.
      *
+     * ## [consumable] — why this parameter exists
+     *
+     * Play has TWO finish calls and they are not interchangeable:
+     *
+     *  - `acknowledgePurchase` — the purchase stays OWNED forever. Correct for subscriptions and
+     *    one-time unlocks.
+     *  - `consumeAsync` — marks it consumed so the same sku can be BOUGHT AGAIN. Correct for
+     *    consumables, and it acknowledges implicitly.
+     *
+     * Acknowledging a consumable does not refund it and logs no error — Play simply keeps
+     * reporting the sku as owned, and the customer's SECOND purchase fails with "already owned".
+     * For a coin pack that is the whole product, and nothing in the SDK would notice.
+     *
+     * StoreKit 2 has no equivalent split: `Transaction.finish()` is correct for every product
+     * type, so the iOS actual ignores this flag by design rather than by omission.
+     *
+     * The caller passes it because only the CATALOGUE knows a sku's type — [NativePurchase] comes
+     * from the store, which does not know the tenant's product model.
+     *
      * Idempotent — safe to call on an already-finished purchase.
      */
-    suspend fun finishPurchase(purchase: NativePurchase)
+    suspend fun finishPurchase(purchase: NativePurchase, consumable: Boolean = false)
 
     /**
      * Current store-side purchases for the signed-in store account (no network re-link).
@@ -203,8 +222,8 @@ class WebCheckoutNativeBillingClient : NativeBillingClient {
         productType: NativeProductType,
     ): NativePurchaseResult = NativePurchaseResult.Failed("No native store on this platform — use web checkout")
 
-    // intentional-noop: no native store → nothing to acknowledge or finish.
-    override suspend fun finishPurchase(purchase: NativePurchase) = Unit
+    // intentional-noop: no native store → nothing to acknowledge, consume or finish.
+    override suspend fun finishPurchase(purchase: NativePurchase, consumable: Boolean) = Unit
 
     // intentional-noop: no native store → no native purchases to enumerate.
     override suspend fun queryPurchases(): List<NativePurchase> = emptyList()

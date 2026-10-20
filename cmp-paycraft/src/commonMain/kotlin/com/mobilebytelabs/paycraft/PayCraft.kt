@@ -1545,6 +1545,10 @@ private fun List<ProductDto>.toBillingPlans(
             // digital subscriptions/lifetime unlocks → isDigital stays true (default).
             // Server-resolved: which provider this platform transacts with, and the id to use.
             storeBinding = dto.storeBinding,
+            // Carried EXPLICITLY, not derived: `interval` above collapses a null interval to
+            // "lifetime", which makes a consumable indistinguishable from a one-time unlock —
+            // and Play finishes those two with different calls.
+            isConsumable = dto.type == "consumable",
         )
     }
 }

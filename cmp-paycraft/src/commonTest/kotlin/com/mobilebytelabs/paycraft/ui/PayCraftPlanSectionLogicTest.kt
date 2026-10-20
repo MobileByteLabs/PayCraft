@@ -1,6 +1,8 @@
 package com.mobilebytelabs.paycraft.ui
 
 import com.mobilebytelabs.paycraft.config.PaywallDto
+import com.mobilebytelabs.paycraft.model.BillingPlan
+import com.mobilebytelabs.paycraft.model.EntitlementTier
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -109,6 +111,9 @@ class PayCraftPlanSectionLogicTest {
         manageLabel = "Manage Subscription",
         upgradeLabel = "Get Premium",
         restoreLabel = "Restore Purchases",
+        fromPriceTemplate = "From {price}",
+        perIntervalTemplate = "per {interval}",
+        billedThroughTemplate = "Billed through {store}",
     )
 
     @Test
@@ -187,6 +192,86 @@ class PayCraftPlanSectionLogicTest {
         // on every device. A row of spaces is not copy.
         val resolved = bundled.mergedWith(PaywallDto(settingsPremiumLabel = "   "))
         assertEquals("Premium", resolved.premiumLabel)
+    }
+
+    // ── planLineFor / billedThroughFor ───────────────────────────────────────────────────────────
+    //
+    // The device can only ever show the FREE path without a real purchase, so the subscriber
+    // derivation is verified here or nowhere. That asymmetry is the reason these exist.
+
+    private fun plan(sku: String, price: String, interval: String, rank: Int) =
+        BillingPlan(id = sku, sku = sku, name = sku, price = price, interval = interval, rank = rank)
+
+    /** Deliberately NOT in rank order — a test that feeds a pre-sorted list proves nothing. */
+    private val catalogue = listOf(
+        plan("annual", "₹1259", "year", rank = 4),
+        plan("weekly", "₹89", "week", rank = 1),
+        plan("quarterly", "₹854", "quarter", rank = 3),
+        plan("monthly", "₹209", "month", rank = 2),
+    )
+
+    @Test
+    fun freeCardQuotesTheCheapestEntryPoint() {
+        assertEquals("From ₹89 per week", planLineFor(EntitlementTier.FREE, null, catalogue, bundled))
+    }
+
+    @Test
+    fun cheapestIsByRankNotByTheFormattedPriceString() {
+        // The bug this pins: "₹1259" < "₹89" lexically, so a string sort puts the ANNUAL plan first
+        // and the free card advertises the most expensive option as its entry price. Sorting by a
+        // parsed amount is no better — it would have to strip a symbol that varies by currency.
+        val line = planLineFor(EntitlementTier.FREE, null, catalogue, bundled)
+        assertEquals("From ₹89 per week", line)
+        assertTrue("1259" !in line!!, "rank must decide the entry price, not string order")
+    }
+
+    @Test
+    fun subscriberQuotesTheirOwnPlanWithoutTheFromPrefix() {
+        // "From ₹1259" would read as though their own plan might cost more than they pay.
+        assertEquals("₹1259 per year", planLineFor(EntitlementTier.PREMIUM, "annual", catalogue, bundled))
+    }
+
+    @Test
+    fun trialQuotesTheHeldPlanToo() {
+        // TRIAL is not FREE: a trialist holds a plan, and the card must show what it will cost when
+        // the trial converts. Falling into the FREE branch would quote the cheapest plan instead of
+        // theirs — right-looking, and wrong for anyone trialling above the entry tier.
+        assertEquals("₹209 per month", planLineFor(EntitlementTier.TRIAL, "monthly", catalogue, bundled))
+    }
+
+    @Test
+    fun aRetiredSkuRendersNoLineRatherThanAHalfBuiltOne() {
+        // A plan pulled from the dashboard while someone still holds it. "From  per " is worse
+        // than silence, and a crash is worse than both.
+        assertNull(planLineFor(EntitlementTier.PREMIUM, "a-sku-no-longer-sold", catalogue, bundled))
+    }
+
+    @Test
+    fun anEmptyCatalogueRendersNoLine() {
+        // The first frame on every cold start, before /config lands.
+        assertNull(planLineFor(EntitlementTier.FREE, null, emptyList(), bundled))
+        assertNull(planLineFor(EntitlementTier.PREMIUM, "annual", emptyList(), bundled))
+    }
+
+    @Test
+    fun billingOwnerIsNamedForASubscriber() {
+        assertEquals("Billed through Google Play", billedThroughFor(EntitlementTier.PREMIUM, "google_play", bundled))
+        assertEquals("Billed through App Store", billedThroughFor(EntitlementTier.PREMIUM, "app_store", bundled))
+    }
+
+    @Test
+    fun anUnknownProviderIsTitleCasedRatherThanDropped() {
+        // A tenant adding a provider must not need an SDK release for it to read properly.
+        assertEquals("Billed through Razorpay", billedThroughFor(EntitlementTier.PREMIUM, "razorpay", bundled))
+    }
+
+    @Test
+    fun aFreeUserIsNeverToldWhoBillsThem() {
+        // A lapsed subscription leaves a provider on the status. Naming it implies a relationship
+        // that ended, and sends the user to a store page that will show them nothing.
+        assertNull(billedThroughFor(EntitlementTier.FREE, "google_play", bundled))
+        assertNull(billedThroughFor(EntitlementTier.PREMIUM, null, bundled))
+        assertNull(billedThroughFor(EntitlementTier.PREMIUM, "  ", bundled))
     }
 }
 

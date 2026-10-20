@@ -406,7 +406,7 @@ class PayCraftBillingManager(
                         // Acknowledging/finishing earlier drops it from the store's unfinished
                         // queue, so a failed server call would leave a paying customer with no
                         // entitlement and nothing to retry against.
-                        finishPurchaseSafely(native, purchase, tag)
+                        finishPurchaseSafely(native, purchase, tag, consumable = plan.isConsumable)
                     } else if (register != null && entitlement == null) {
                         // A grant endpoint EXISTS but did not confirm — surface the failure.
                         _billingState.value = BillingState.Error(
@@ -469,9 +469,14 @@ class PayCraftBillingManager(
      * A failure leaves the purchase unacknowledged, which [reconcileUnfinishedPurchases] retries —
      * that retry is what stops Play auto-refunding it after 72 hours.
      */
-    private suspend fun finishPurchaseSafely(native: NativeBillingClient, purchase: NativePurchase, tag: String) {
+    private suspend fun finishPurchaseSafely(
+        native: NativeBillingClient,
+        purchase: NativePurchase,
+        tag: String,
+        consumable: Boolean,
+    ) {
         try {
-            native.finishPurchase(purchase)
+            native.finishPurchase(purchase, consumable)
         } catch (e: Exception) {
             PayCraftLogger.onError(tag, "finishPurchase failed (will retry on reconcile): ${e.message}")
         }
@@ -566,9 +571,24 @@ class PayCraftBillingManager(
             refreshStatus(force = true)
             return
         }
-        finishPurchaseSafely(native, purchase, tag)
+        finishPurchaseSafely(native, purchase, tag, consumable = isConsumableStoreProduct(purchase.productId))
         refreshStatus(force = true)
     }
+
+    /**
+     * Is this STORE product id a consumable?
+     *
+     * The reconcile path holds only a [NativePurchase], which carries the store's product id — NOT
+     * the PayCraft sku. Those differ (`cappy_plus_annual` vs `com.example.app.sub.year`), so the
+     * lookup must go through [BillingPlan.storeBinding], never `sku`. Matching on sku here would
+     * silently find nothing and default every consumable to acknowledge-only.
+     *
+     * Defaults to FALSE when the catalogue has not loaded or the product is unknown. That is the
+     * safe direction: acknowledging a consumable leaves it unrepurchasable until the next
+     * reconcile, whereas consuming a non-consumable would discard a permanent entitlement.
+     */
+    private fun isConsumableStoreProduct(storeProductId: String): Boolean =
+        PayCraft.plans.firstOrNull { it.storeBinding?.productId == storeProductId }?.isConsumable == true
 
     override suspend fun checkTrialEligibility(): Boolean {
         val token = DeviceTokenStore.getToken()

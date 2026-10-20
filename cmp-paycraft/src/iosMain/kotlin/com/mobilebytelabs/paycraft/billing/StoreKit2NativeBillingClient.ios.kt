@@ -92,7 +92,11 @@ internal class StoreKit2NativeBillingClient(private val shim: PayCraftStoreKitSh
      * entitlement. Anything still unfinished is re-delivered on the next launch by
      * `Transaction.updates`, which is exactly the retry we want.
      */
-    override suspend fun finishPurchase(purchase: NativePurchase) {
+    // `consumable` is deliberately unused: StoreKit 2 has no acknowledge/consume split — a
+    // consumable and a non-consumable are both completed by Transaction.finish(). Accepting and
+    // ignoring the flag keeps the one call site platform-agnostic; branching here would invent a
+    // distinction the platform does not have.
+    override suspend fun finishPurchase(purchase: NativePurchase, consumable: Boolean) {
         val transactionId = purchase.storeKitTransactionId ?: return
         suspendCancellableCoroutine { cont ->
             shim.finish(transactionId) { cont.resume(Unit) }

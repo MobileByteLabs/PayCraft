@@ -75,6 +75,20 @@ data class BillingPlan(
      * and consumer keeps compiling unchanged.
      */
     val roleIdentifier: String? = null,
+    /**
+     * `true` for a CONSUMABLE — bought repeatedly and spent down (coins, credits, gems), as opposed
+     * to a subscription or a one-time unlock that is owned once and forever.
+     *
+     * This cannot be derived from [interval]: a consumable has no interval, and the `/config`
+     * mapper collapses a null interval to the literal `"lifetime"`, so a consumable and a lifetime
+     * unlock are indistinguishable by interval alone. Carried explicitly from `ProductDto.type`.
+     *
+     * The flag exists because Play finishes the two differently — `consumeAsync` for a consumable
+     * so it can be bought again, `acknowledgePurchase` for everything else. Getting that wrong
+     * fails SILENTLY: Play keeps reporting the sku as owned and the buyer's second purchase is
+     * rejected with "already owned". See [com.mobilebytelabs.paycraft.billing.NativeBillingClient.finishPurchase].
+     */
+    val isConsumable: Boolean = false,
 ) {
     init {
         require(trialDays == null || trialDays >= 1) {
