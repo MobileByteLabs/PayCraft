@@ -1,4 +1,4 @@
-example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
+example-provenance: d17c43b42c05b30b9029e3cbcbbfa314a8bd372b
 
 # FAILURE_MODES.md — enumerated integration failures and their source-level remedies
 
@@ -116,3 +116,21 @@ never faked green and never spun on.
 | F50 | One platform's verdict inherited by another | Per-platform verdicts collapsed | — | Verdicts are per-platform and never cross-inherit |
 | F51 | Corpus disagrees with the SDK | Corpus stale | heal | Re-fold via `/paycraft-corpus-fold` before integrating (PCA-4) |
 | F52 | Corpus version ≠ resolved artifact version | `corpus-artifact-mismatch` | heal | Align the consumer's `cmp-paycraft` version, or re-fold + publish. On a `/lib-integrate` composite link there is no artifact version — the gate compares `sdk_head_commit` against source HEAD instead |
+
+## Consumables
+
+Every row below was observed in production on 2026-10-21 (mbs/cappy, three live Ripples packs).
+They share a shape worth naming: **each reported success at every layer it touched.** A consumable
+failure is almost never an error — it is a surface that looks configured and sells nothing.
+
+| # | Symptom | Cause | Class | Resolution |
+|---|---|---|:--:|---|
+| F53 | `PayCraftStoreSection` renders "No products available" against a tenant that HAS live packs | `isConsumable` false on every plan. The catalogue mapper filtered to `subscription`/`lifetime` BEFORE setting the flag, so `isConsumable = dto.type == "consumable"` was unreachable | heal | Fixed in the SDK (the mapper now denylists `trial` only). On an older SDK there is no host-side workaround — the flag never arrives. Verify with `PayCraft.products.isNotEmpty()` |
+| F53b | The same bug, two silent cousins | The drain's `plans.filter { it.isConsumable }` matched nothing, so purchased units NEVER reached the host; and `isConsumableStoreProduct` returned false, so a pack was ACKNOWLEDGED instead of CONSUMED | heal | Same fix. The acknowledge path is the dangerous one: Play then treats the pack as owned forever and refuses to sell it again — unrecoverable for that buyer |
+| F54 | Pack exists in Play Console with correct prices, `sync_state: draft`, and no buyer can see it | A one-time product is created in DRAFT and `purchaseOptions[].state` is OUTPUT-ONLY. Activation is a SEPARATE call (`purchaseOptions:batchUpdateStates`) that nothing invoked | heal | Re-sync on a dashboard that activates. `draft` reads like "Play is still processing" and is not — it means unbuyable |
+| F55 | Pack is ACTIVE in Play but invisible to the app's billing client | The purchase option is not `legacyCompatible`. Purchase options are a newer PBL concept; a client querying the usual way gets nothing back | heal | Exactly one option per product may carry `legacyCompatible: true`; the sync sets it. Symptom is indistinguishable from "product not found" |
+| F56 | Buyer charged, units never arrive | `onUnitsGranted` not bound, or the sink returned `true` without durably committing | heal | Bind the sink; return `true` only after the write is committed. A `false` return keeps the grant pending and retries — that is the safe answer when unsure |
+| F57 | Units credited twice for one purchase | Sink not idempotent on `grantId` | heal | Make `grantId` the ledger row's PRIMARY KEY and insert with IGNORE-on-conflict. The sink IS re-invoked after a crash or a provider redelivery — by design |
+| F58 | A coin pack is offered as the "upgrade" on a paywall | A plan picked by rank out of `plans`, which now contains consumables | heal | Use `PayCraft.subscriptionPlans` for any rank-based pick |
+| F59 | `spend` throws and takes down a screen | Insufficient funds treated as an exception | heal | It is `Result.failure` — an ordinary outcome. Render it; a rejected spend must not move the balance |
+| F60 | Catalogue write accepted, product grants nothing | A `consumable` created with no `grant_quantity` | external | The API refuses this on create. A row predating that rule still exists — the buyer is charged and receives nothing, so fix the catalogue row |

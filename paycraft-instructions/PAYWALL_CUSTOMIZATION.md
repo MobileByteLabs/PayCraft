@@ -1,4 +1,4 @@
-example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
+example-provenance: d17c43b42c05b30b9029e3cbcbbfa314a8bd372b
 
 # PAYWALL_CUSTOMIZATION.md — the two supported paywall paths
 
@@ -32,6 +32,24 @@ The host renders a PayCraft composable; everything visual comes from `SuiteConfi
 | `PayCraftPlanSection(style, theme, header)` | inline | subscription section for a settings screen — status, manage, restore (five styles; see below) |
 | `PayCraftCheckoutSuccessSheet` / `…OrPaywall` | sheet | post-purchase confirmation |
 | `ProductList(…)` | list | plan stack on its own |
+| `PayCraftStoreSection(modifier)` | inline | the CONSUMABLE store — coin/credit packs, prices, and checkout, all the SDK's |
+| `PayCraftProductGate` | wrapper | gate on OWNING a one-time product rather than on a subscription |
+| `PayCraftBalance` | inline | the host's unit balance, where the host wants it |
+
+**`PayCraftStoreSection` takes no purchase callback, deliberately.** It calls
+`PayCraftRepository.checkout` itself. A host-callback surface shipped once with a dead upgrade row:
+it reported `clickable=true`, its handler ran, its golden matched, its logic tests passed — and only
+an on-device render caught that nothing happened. A surface that owns its own presentation cannot
+fail that way.
+
+It lists only the non-subscription catalogue, because a store that offers a plan beside a coin pack
+invites a user to buy a subscription they may already hold. It also shows **no per-row balance**: a
+pack's balance is the balance of the currency it GRANTS, not of the pack sku, and only the host
+knows how to present its own currency — render `PayCraftBalance` (or read `repository.balances`)
+wherever that belongs in your chrome.
+
+An empty render ("No products available") is a CONFIGURATION state, not an error — a tenant may sell
+only subscriptions. If you expect packs and see that message, start at FAILURE_MODES F53/F54.
 
 The three gates replace `PayCraftPremiumGuard`, `PayCraftPremiumGuardInline` and
 `PayCraftPaywallGuardScreen`, all now `@Deprecated` — see PUBLIC_API.md § Gates. A guard renders a
