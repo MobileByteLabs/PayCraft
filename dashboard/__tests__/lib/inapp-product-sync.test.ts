@@ -4,8 +4,10 @@
  * Both stores accept a wrong value here happily, and neither failure surfaces until a real customer
  * is involved:
  *
- *  - `priceMicros` is minor-units × 10,000. An exponent slip is a 10× or 100× mispricing that the
- *    Play API stores without complaint; the first signal is a charge.
+ *  - Play one-time products moved from the legacy `inappproducts` resource (retired — every call
+ *    402/403s with "Please migrate to the new publishing API") to `monetization.onetimeproducts`,
+ *    which takes a `Money` of units+nanos instead of a `priceMicros` string. The listings shape
+ *    changed with it, from a language-keyed object to an array.
  *  - Apple's `inAppPurchaseType` is IMMUTABLE after creation. A coin pack created as NON_CONSUMABLE
  *    can be bought exactly once per Apple ID, forever, and the only fix is a new product under a
  *    new id — so this mapping has to be right the first time, not fixable later.
@@ -14,23 +16,62 @@
  */
 
 import { ascInAppPurchaseType, sanitizeAscInAppProductId } from "@/lib/appstore-inapp-sync"
-import { sanitizeInAppProductId, toPriceMicros } from "@/lib/googleplay-inapp-sync"
+import { oneTimeListings, regionalConfigsFor, sanitizeInAppProductId } from "@/lib/googleplay-inapp-sync"
 
-describe("toPriceMicros", () => {
-  it("scales decimal currencies by 10,000", () => {
-    expect(toPriceMicros("USD", 499)).toBe("4990000") // $4.99
-    expect(toPriceMicros("USD", 99)).toBe("990000") // $0.99
-    expect(toPriceMicros("EUR", 1000)).toBe("10000000") // €10.00
+describe("regionalConfigsFor", () => {
+  it("maps PayCraft currencies to Play REGIONS, not to currency codes", () => {
+    // The bug this pins: comparing "USD" against a region code. It matches almost nothing, so the
+    // product syncs with a near-empty region set and looks successful.
+    const out = regionalConfigsFor([
+      { currency: "USD", amountCents: 199 },
+      { currency: "GBP", amountCents: 169 },
+    ])
+    expect(out.map((r) => r.regionCode)).toEqual(["US", "GB"])
+    expect(out[0].price).toEqual({ currencyCode: "USD", units: "1", nanos: 990000000 })
+    expect(out.every((r) => r.availability === "AVAILABLE")).toBe(true)
   })
 
-  it("scales zero-decimal currencies by 1,000,000", () => {
-    // ¥500 is 500 WHOLE yen, not 5.00. Treating it as minor units would undercharge 100×.
-    expect(toPriceMicros("JPY", 500)).toBe("500000000")
-    expect(toPriceMicros("KRW", 5000)).toBe("5000000000")
+  it("keeps the FIRST price when two currencies collapse to one region", () => {
+    // Many currencies map to one region; a later row must not silently overwrite an earlier price.
+    const out = regionalConfigsFor([
+      { currency: "USD", amountCents: 199 },
+      { currency: "USD", amountCents: 999 },
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].price.units).toBe("1")
   })
 
-  it("is case-insensitive about the currency code", () => {
-    expect(toPriceMicros("jpy", 500)).toBe(toPriceMicros("JPY", 500))
+  it("drops a currency that maps to no Play region", () => {
+    expect(regionalConfigsFor([{ currency: "ZZZ", amountCents: 100 }])).toEqual([])
+  })
+
+  it("encodes money as units+nanos, the monetization.* Money shape", () => {
+    // The legacy resource took `priceMicros` (minor units x 10,000, a STRING). This resource takes
+    // a Money. A priceMicros value sent here is not a 10x error, it is a rejected request — which
+    // is the safer failure, and the reason toPriceMicros was deleted rather than ported.
+    const [row] = regionalConfigsFor([{ currency: "EUR", amountCents: 1000 }])
+    expect(row.price).toEqual({ currencyCode: "EUR", units: "10", nanos: 0 })
+  })
+})
+
+describe("oneTimeListings", () => {
+  it("is an ARRAY of languageCode entries, not a language-keyed object", () => {
+    // `inappproducts` keyed listings by language ({"en-US": {...}}); this resource takes a list.
+    // Sending the old shape is a 400 on a required field.
+    const l = oneTimeListings("300 Ripples", 300)
+    expect(Array.isArray(l)).toBe(true)
+    expect(l[0].languageCode).toBe("en-US")
+    expect(l[0].title).toBe("300 Ripples")
+  })
+
+  it("describes what the pack GRANTS when no store description is given", () => {
+    expect(oneTimeListings("300 Ripples", 300)[0].description).toBe("Adds 300 to your balance instantly.")
+  })
+
+  it("respects Play's length caps", () => {
+    const l = oneTimeListings("x".repeat(200), 300, "y".repeat(200))
+    expect(l[0].title.length).toBeLessThanOrEqual(55)
+    expect(l[0].description.length).toBeLessThanOrEqual(80)
   })
 })
 
