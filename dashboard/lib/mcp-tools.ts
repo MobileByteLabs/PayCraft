@@ -209,6 +209,7 @@ export const MCP_TOOLS: McpTool[] = [
           description: "Billing cadence. Required for a subscription.",
         },
         type: { type: "string", enum: ["subscription", "one_time", "consumable"], description: "Default: subscription." },
+        grant_quantity: { type: "integer", minimum: 0, description: "Units ONE purchase grants (e.g. 550 Ripples). REQUIRED and > 0 for type:consumable — a consumable granting 0 takes the money, is consumed at the store so it cannot be bought again for free, and credits nothing. Ignored for other types." },
         base_price_cents: { type: "integer", minimum: 0, description: "Reference price in MINOR units. Per-country prices go through paycraft_set_product_pricing." },
         base_currency: { type: "string", description: "ISO 4217 for base_price_cents. Default USD." },
         trial_enabled: { type: "boolean" },
@@ -255,6 +256,7 @@ export const MCP_TOOLS: McpTool[] = [
           description: "Billing cadence. Required for a subscription.",
         },
         type: { type: "string", enum: ["subscription", "one_time", "consumable"], description: "Default: subscription." },
+        grant_quantity: { type: "integer", minimum: 0, description: "Units ONE purchase grants (e.g. 550 Ripples). REQUIRED and > 0 for type:consumable — a consumable granting 0 takes the money, is consumed at the store so it cannot be bought again for free, and credits nothing. Ignored for other types." },
         base_price_cents: { type: "integer", minimum: 0, description: "Reference price in MINOR units. Per-country prices go through paycraft_set_product_pricing." },
         base_currency: { type: "string", description: "ISO 4217 for base_price_cents. Default USD." },
         trial_enabled: { type: "boolean" },
@@ -416,7 +418,12 @@ export const MCP_TOOLS: McpTool[] = [
     title: "Sync one product (writes to live providers)",
     description:
       "Pushes a single product to its providers. No confirm_count — the subject is named explicitly. " +
-      "Optionally narrow to one provider. Requires products:sync.",
+      "Optionally narrow to one provider. Requires products:sync. Handles every product type: a "  +
+      "subscription becomes a Play base plan / App Store subscription, while a consumable or "     +
+      "one_time becomes a Play MANAGED PRODUCT (inappproducts) / App Store in-app purchase. A "    +
+      "freshly created native product is normally NOT yet purchasable — Play needs a published "   +
+      "APK and the App Store needs a review screenshot — and the response says so as a warning "   +
+      "rather than reporting a success the storefront will not honour.",
     inputSchema: obj(
       { ...TENANT,
         id: { type: "string", description: "Product UUID." },

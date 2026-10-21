@@ -1,3 +1,4 @@
+import type { SyncProductType } from "./product-write"
 import {
   cashfreeCreatePaymentLink,
   cashfreeGetPaymentLink,
@@ -42,7 +43,7 @@ export async function syncProductToCashfree(
   tenantId: string,
   productId: string,
   productName: string,
-  productType: "subscription" | "trial" | "lifetime",
+  productType: SyncProductType,
   prices: PriceInput[],
   appId: string,
   secret: string,

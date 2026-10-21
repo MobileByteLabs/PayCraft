@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3?target=deno";
+import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
 /**
@@ -217,6 +218,49 @@ serve(withWebhookRateLimit({ bucket: "webhook:razorpay" }, async (req) => {
   );
 
   if (!sub) {
+    // A captured PAYMENT with no subscription envelope is how a one-time / consumable purchase
+    // arrives — Razorpay Payment Links are the lane razorpay-product-sync creates for exactly
+    // those products. Until 2026-10-20 this branch acked and ignored every such event ("PayCraft
+    // only cares about subscription state"), so a coin pack bought through Razorpay charged the
+    // customer and credited nothing.
+    //
+    // The link is created with notes.paycraft_product_id (a UUID, not the sku) — see
+    // razorpay-product-sync.ts — so the product id is what gets threaded through.
+    const payment = parsed.payload?.payment?.entity as
+      | { id?: string; email?: string; notes?: Record<string, string> }
+      | undefined;
+    const notes = payment?.notes ?? {};
+    if (eventType === "payment.captured" && payment) {
+      const grant = await handleConsumablePurchase({
+        tenantId,
+        email: payment.email || notes.paycraft_email || null,
+        productId: notes.paycraft_product_id || null,
+        sku: notes.paycraft_plan || null,
+        stableTxnId: payment.id ?? null,
+        provider: "razorpay",
+        eventType,
+      });
+      if (grant.granted) {
+        console.log(
+          `[razorpay-webhook] granted ${grant.quantity} to ${payment.email ?? "unknown"} (balance ${grant.balance})`,
+        );
+        return new Response(
+          JSON.stringify({ received: true, granted: grant.quantity, balance: grant.balance }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      // Not one of our consumables → the old ack-and-ignore. Anything else is logged: the customer
+      // has already been charged, so a refusal must leave a trace an operator can act on.
+      if (
+        grant.reason &&
+        !grant.reason.includes("not in this tenant's catalogue") &&
+        !grant.reason.includes("not a consumable") &&
+        !grant.reason.includes("no sku or product id")
+      ) {
+        console.error(`[razorpay-webhook] consumable grant refused: ${grant.reason}`);
+      }
+    }
+
     // payment.* events without a subscription envelope — ack and ignore,
     // PayCraft only cares about subscription state.
     return new Response(
