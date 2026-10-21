@@ -198,7 +198,9 @@ fun PayCraftPlanBanner(
     val isLoading = billingState is BillingState.Loading && lastStableState is BillingState.Premium
 
     val benefits = PayCraft.requireConfig().benefits
-    val plans = PayCraft.requireConfig().plans
+    // subscriptionPlans, not plans: this picks a TOP TIER by rank, and an unfiltered pick can
+    // land on a consumable pack now that the catalogue carries them (PayCraft.subscriptionPlans).
+    val plans = PayCraft.subscriptionPlans
     val supportEmail = PayCraft.requireConfig().supportEmail
     // Live dashboard config — drives the free card's brand color + copy reactively, so a
     // dashboard edit recolors/recopies the Settings banner without a cold relaunch.
