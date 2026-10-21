@@ -85,6 +85,23 @@ interface PayCraftStore {
     fun saveDeviceToken(token: String) {}
     fun clearDeviceToken() {}
 
+    // ─── Consumable drain intent ─────────────────────────────────────────────
+    //
+    // A purchased balance is moved to the host in two writes against different systems (debit the
+    // server, then credit the host), and a crash between them is the ordinary case. The intent is
+    // persisted BEFORE the server is touched so the next launch can replay it under the same id.
+    // Defaulted no-ops: a store that does not implement these simply loses crash-resume, it does
+    // not break — and every existing implementation keeps compiling.
+
+    /** Record an in-flight consumable drain. Overwrites any previous one (they are serialized). */
+    fun saveConsumablePending(grantId: String, sku: String, quantity: Int) {}
+
+    /** The in-flight drain, or null. */
+    fun getConsumablePending(): ConsumablePending? = null
+
+    /** Clear the in-flight drain once the host has durably credited it. */
+    fun clearConsumablePending() {}
+
     // ── Wipe ─────────────────────────────────────────────────────────────────────────────────────
 
     /**
@@ -102,3 +119,9 @@ interface PayCraftStore {
         getAllAdUnlocks().keys.forEach { clearAdUnlock(it) }
     }
 }
+
+/**
+ * An in-flight consumable drain: the server may or may not already be debited, and the host may or
+ * may not already have credited. Replaying under [grantId] settles it either way.
+ */
+public data class ConsumablePending(val grantId: String, val sku: String, val quantity: Int)

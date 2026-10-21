@@ -111,6 +111,34 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
 
     override fun clearDeviceToken() = settings.remove(KEY_DEVICE_TOKEN)
 
+    // ── Consumable grant in flight ───────────────────────────────────────────────────────────────
+    //
+    // Written BEFORE the server is debited so a crash mid-drain is recoverable (ConsumableDrainer).
+    // Three primitive keys rather than a serialized blob: there is at most ONE pending grant, the
+    // shape is fixed, and a half-written blob would be unparseable in exactly the crash this exists
+    // to survive. The grantId is written LAST and read FIRST, so a torn write reads as "nothing
+    // pending" — which re-drains from the server balance, the safe direction.
+
+    override fun saveConsumablePending(grantId: String, sku: String, quantity: Int) {
+        settings.putString(KEY_PENDING_SKU, sku)
+        settings.putInt(KEY_PENDING_QUANTITY, quantity)
+        settings.putString(KEY_PENDING_GRANT_ID, grantId)
+    }
+
+    override fun getConsumablePending(): ConsumablePending? {
+        val grantId = settings.getStringOrNull(KEY_PENDING_GRANT_ID) ?: return null
+        val sku = settings.getStringOrNull(KEY_PENDING_SKU) ?: return null
+        val quantity = settings.getInt(KEY_PENDING_QUANTITY, 0)
+        if (quantity <= 0) return null
+        return ConsumablePending(grantId = grantId, sku = sku, quantity = quantity)
+    }
+
+    override fun clearConsumablePending() {
+        settings.remove(KEY_PENDING_GRANT_ID)
+        settings.remove(KEY_PENDING_SKU)
+        settings.remove(KEY_PENDING_QUANTITY)
+    }
+
     private fun adUnlockKey(featureKey: String) = KEY_AD_UNLOCK_PREFIX + featureKey
 
     companion object {
@@ -124,5 +152,8 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
         private const val KEY_AD_UNLOCK_PREFIX = "paycraft_ad_unlock_"
         private const val KEY_AD_UNLOCK_INDEX = "paycraft_ad_unlock_idx_"
         private const val KEY_DEVICE_TOKEN = "paycraft_device_token"
+        private const val KEY_PENDING_GRANT_ID = "paycraft_pending_grant_id"
+        private const val KEY_PENDING_SKU = "paycraft_pending_grant_sku"
+        private const val KEY_PENDING_QUANTITY = "paycraft_pending_grant_quantity"
     }
 }

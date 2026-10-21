@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3?target=deno";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
@@ -53,7 +53,7 @@ async function loadTenantWebhookSecret(
       p_provider: "cashfree",
       p_mode: mode,
     })
-    .maybeSingle();
+    .maybeSingle<{ secret_key: string | null; webhook_secret: string | null; key_id: string | null; credential: string | null }>();
   if (error) {
     console.error(
       `[cashfree-webhook] decrypt failed (tenant=${tenantId}, mode=${mode}): ${error.message}`,

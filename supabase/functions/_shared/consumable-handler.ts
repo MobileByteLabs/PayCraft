@@ -1,3 +1,4 @@
+import { resolveInboundTenant } from "./inbound-tenant.ts";
 import { supabaseAdmin } from "./supabase-admin.ts";
 
 /**
@@ -34,10 +35,27 @@ import { supabaseAdmin } from "./supabase-admin.ts";
  * Apple's originalTransactionId. A per-call random key would grant every redelivery again.
  */
 export interface ConsumablePurchaseEvent {
-  /** Tenant from the webhook URL path. NULL is refused — an unattributed grant is unspendable. */
+  /**
+   * Tenant from the webhook URL path. NULL is refused for the web PSPs — an unattributed grant is
+   * unspendable. The STORE lanes are the exception: Play's Pub/Sub topic and Apple's ASSN endpoint
+   * are per-DEPLOYMENT, not per-tenant (which is why `entitlement-reconcile` records
+   * `tenantId: null` for both), so they pass [storeProductId] instead and the tenant is derived
+   * from the catalogue row that owns that store id.
+   */
   tenantId: string | null;
-  /** Buyer identity. Email is the only identifier every provider carries. */
-  email: string | null;
+  /**
+   * Buyer email — the identifier every web PSP carries. Sugar for `identity: {kind:"email"}`.
+   * Stores do not have one; they pass [identity] with the app's own user id instead.
+   */
+  email?: string | null;
+  /**
+   * Explicit buyer identity, for providers that do not carry an email.
+   *
+   * `kind` is constrained by `entitlement_identities_kind_check` to
+   * `email | oauth | device | auth_user`. A store purchase arrives with the app-supplied account
+   * id — Play's `obfuscatedExternalAccountId`, Apple's `appAccountToken` — which is `auth_user`.
+   */
+  identity?: { kind: "email" | "oauth" | "device" | "auth_user"; provider?: string | null; value: string };
   /**
    * Catalogue sku as the provider knows it (Stripe `plan_id` metadata, Play productId, …).
    * Either this OR [productId] must be present.
@@ -50,6 +68,21 @@ export interface ConsumablePurchaseEvent {
    * already work; resolving either here keeps that difference out of every webhook.
    */
   productId?: string | null;
+  /**
+   * The id the STORE knows the product by (`tenant_products.play_product_id` /
+   * `.app_store_product_id`), written back by the product sync.
+   */
+  storeProductId?: string | null;
+  /**
+   * The APP the purchase happened in — Play's `packageName`, Apple's `bundleId`. This is how a
+   * store purchase is attributed to a tenant, matching how the rest of the system scopes:
+   * `tenants.app_identifier` (migration 111) is owned by the app and read by both stores.
+   *
+   * Required for the store lanes, and it is NOT interchangeable with resolving on the product id
+   * alone: two tenants can both sell a sku called `coins_550`, so a product-only lookup either
+   * errors on multiple rows or silently attributes one tenant's purchase to another's ledger.
+   */
+  appIdentifier?: string | null;
   /** Stable per-purchase id — the idempotency anchor. */
   stableTxnId: string | null;
   provider: string;
@@ -70,16 +103,26 @@ export interface ConsumableGrantResult {
 export async function handleConsumablePurchase(
   event: ConsumablePurchaseEvent,
 ): Promise<ConsumableGrantResult> {
-  const { tenantId, email, stableTxnId, provider } = event;
+  const { stableTxnId, provider } = event;
   const sku = event.sku ?? null;
   const productId = event.productId ?? null;
+  const storeProductId = event.storeProductId ?? null;
+  const appIdentifier = event.appIdentifier ?? null;
+  const identity = event.identity ??
+    (event.email ? { kind: "email" as const, provider: null, value: event.email } : null);
 
   // Every one of these is a REFUSAL, not a silent skip. A grant that cannot be attributed is money
   // the buyer paid and cannot spend, and the only way anyone finds out is a support ticket — so
   // each failure names exactly what was missing.
-  if (!tenantId) return { granted: false, quantity: 0, reason: "no tenant_id on the webhook URL" };
-  if (!email) return { granted: false, quantity: 0, reason: "no buyer email on the event" };
-  if (!sku && !productId) {
+  if (!event.tenantId && !appIdentifier) {
+    return {
+      granted: false,
+      quantity: 0,
+      reason: "no tenant_id on the webhook URL and no app identifier to resolve one from",
+    };
+  }
+  if (!identity) return { granted: false, quantity: 0, reason: "no buyer identity on the event" };
+  if (!sku && !productId && !storeProductId) {
     return { granted: false, quantity: 0, reason: "no sku or product id on the event" };
   }
   if (!stableTxnId) {
@@ -89,14 +132,46 @@ export async function handleConsumablePurchase(
   }
 
   // The catalogue decides the amount — never the payload.
-  const lookup = supabaseAdmin
+  // Same resolver every inbound lane uses — path → app_identifier → sole provider tenant →
+  // self-hosted. This used to be an ad-hoc tenants lookup written only for this path, which is
+  // exactly the duplication that left the store SUBSCRIPTION lanes with no attribution at all.
+  let tenantId = event.tenantId ?? null;
+  if (!tenantId) {
+    try {
+      const resolved = await resolveInboundTenant({
+        tenantIdFromPath: event.tenantId,
+        appIdentifier,
+        provider,
+      });
+      tenantId = resolved.tenantId;
+    } catch (e) {
+      // Ambiguous attribution. Refused, never guessed — crediting the wrong app's ledger is worse
+      // than failing a webhook the provider will redeliver.
+      return { granted: false, quantity: 0, reason: (e as Error).message };
+    }
+  }
+  if (!tenantId) {
+    return {
+      granted: false,
+      quantity: 0,
+      reason: `could not attribute this ${provider} purchase to an app — set tenants.app_identifier with tenant_app_identifier_set`,
+    };
+  }
+
+  let lookup = supabaseAdmin
     .from("tenant_products")
-    .select("sku, type, grant_quantity")
+    .select("tenant_id, sku, type, grant_quantity")
     .eq("tenant_id", tenantId);
-  const { data: product, error: productError } = await (
-    sku ? lookup.eq("sku", sku) : lookup.eq("id", productId)
-  ).maybeSingle();
-  const label = sku ?? productId;
+  if (storeProductId) {
+    const column = provider === "app_store" ? "app_store_product_id" : "play_product_id";
+    lookup = lookup.eq(column, storeProductId);
+  } else if (sku) {
+    lookup = lookup.eq("sku", sku);
+  } else {
+    lookup = lookup.eq("id", productId);
+  }
+  const { data: product, error: productError } = await lookup.maybeSingle();
+  const label = sku ?? storeProductId ?? productId;
 
   if (productError) {
     return { granted: false, quantity: 0, reason: `catalogue lookup failed: ${productError.message}` };
@@ -124,13 +199,19 @@ export async function handleConsumablePurchase(
   // a customer who subscribes AND buys a pack is one subject with one balance, not two identities.
   const { data: subjectId, error: subjectError } = await supabaseAdmin.rpc(
     "entitlement_subject_resolve",
-    { p_kind: "email", p_provider: null, p_value: email, p_verified: false },
+    {
+      p_kind: identity.kind,
+      p_provider: identity.provider ?? null,
+      p_value: identity.value,
+      // A store account id is attested by the store, unlike an email typed into a checkout form.
+      p_verified: identity.kind === "auth_user" || identity.kind === "oauth",
+    },
   );
   if (subjectError || !subjectId) {
     return {
       granted: false,
       quantity: 0,
-      reason: `could not resolve a subject for ${email}: ${subjectError?.message ?? "no id returned"}`,
+      reason: `could not resolve a subject for ${identity.kind}:${identity.value}: ${subjectError?.message ?? "no id returned"}`,
     };
   }
 
@@ -140,7 +221,7 @@ export async function handleConsumablePurchase(
   const idempotencyKey = `${provider}:${stableTxnId}`;
 
   const { data: balance, error: grantError } = await supabaseAdmin.rpc("entitlement_balance_grant", {
-    p_tenant_id: tenantId,
+    p_tenant_id: product.tenant_id,
     p_subject_id: subjectId,
     p_sku: product.sku,
     p_quantity: quantity,

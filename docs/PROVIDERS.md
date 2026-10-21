@@ -123,27 +123,48 @@ grant half has nothing to sell. Neither half alone is "support".
 | `stripe` | one-time Price + Payment Link | `checkout.session.completed` (payment mode) → `metadata.plan_id` |
 | `razorpay` | Payment Link | `payment.captured` → `notes.paycraft_product_id` |
 | `cashfree` | Payment Link (one-time-only lane) | `PAYMENT_SUCCESS_WEBHOOK` → product resolved from `link_id` prefix |
-| `google_play` | managed product (`inappproducts`) | — see *store grants* below |
-| `app_store` | in-app purchase (`/v2/inAppPurchases`) | — see *store grants* below |
+| `google_play` | managed product (`inappproducts`) | RTDN `oneTimeProductNotification` type 1 → `sku` + `purchaseToken` |
+| `app_store` | in-app purchase (`/v2/inAppPurchases`) | ASSN `ONE_TIME_CHARGE` → `productId` + `transactionId` |
 
 Only these five are **connectable** — `tenant_providers` constrains credentials to
 `stripe | razorpay | cashfree` plus the `google_play | app_store` store kinds — so these are also
 the only providers `paycraft_sync_product` can create a product on.
 
-> **Store grants are not wired yet — this is the one gap inside the supported five.**
-> Neither `google-rtdn` nor `apple-server-notifications` calls `handleConsumablePurchase`.
-> `google-rtdn/index.ts:48` is explicit about it — a one-time product notification is acked and
-> dropped:
+> **One inbound attribution rule, for every provider and both product kinds.**
 >
-> ```ts
-> // Not a subscription notification (test publish / voidedPurchase / oneTimeProduct) — ack.
-> ```
+> Outbound (the v1 API and MCP) is account-authenticated: an account access token plus the app's
+> api key, and `requireApiKey` refuses to act on an app the key does not reach. Inbound traffic has
+> no key — the provider calls us — so the app is recovered from the event. That asymmetry is real.
+> Three *different* recoveries were not, and `_shared/inbound-tenant.ts` now replaces them:
 >
-> So on Play and the App Store a pack today is **created and sellable and consumable** (the Kotlin
-> SDK finishes it correctly, so it is re-buyable) but **credits nothing**. Unlike the seven
-> providers below, the metadata contract here is NOT unknown: the store notification carries the
-> purchase token / original transaction id, which is exactly the stable anchor the grant needs. It
-> is wiring, not discovery, and it should be the next thing built.
+> | order | how | used by |
+> |---|---|---|
+> | 1 | tenant in the webhook URL path | the web PSPs |
+> | 2 | app identifier → `tenants.app_identifier` | Play `packageName`, Apple `bundleId` |
+> | 3 | sole tenant configured for that provider (warns) | any lane missing 1 and 2 |
+> | 4 | `null` — genuine single-tenant self-hosted | any |
+>
+> More than one candidate at step 3 is **ambiguous and refused**, because crediting the wrong app's
+> ledger is worse than failing a webhook the provider will redeliver.
+>
+> This also fixed a real defect: the store lanes previously reconciled every subscription with
+> `tenant_id: null`, and a NULL-tenant row never matches `check_premium_with_device()`'s
+> `tenant_id IS NOT DISTINCT FROM` filter — so `is_premium` read **false for a paying customer** on
+> any multi-tenant deployment. Play and App Store subscriptions are now attributed by the same rule
+> as their consumables.
+>
+> Resolving on the PRODUCT id is deliberately not one of the steps: two tenants can both sell a sku
+> called `coins_550`, so a product-only lookup either errors on multiple rows or silently
+> mis-attributes.
+>
+> The buyer on a store purchase is the app's OWN user id — Play's `obfuscatedExternalAccountId`,
+> Apple's `appAccountToken` — recorded as `kind: "auth_user"`, `verified: true`. A purchase with no
+> account id is refused rather than attributed to the purchase token, which would mint a throwaway
+> subject the buyer can never sign back into.
+>
+> A consumable is **re-buyable without limit**: Play consumes it and Apple marks it CONSUMABLE, so
+> each purchase arrives with its own token / `transactionId` — which is why the idempotency key is
+> keyed on that and never on the product.
 
 ### The grant contract
 
