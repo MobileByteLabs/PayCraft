@@ -217,19 +217,73 @@ export async function syncInAppProductToGooglePlay(
     }
   }
 
-  const saved = await res.json()
-  const state: string | undefined = saved?.purchaseOptions?.[0]?.state
-  const active = state === "ACTIVE"
+  await res.json()
+
+  // The patch above leaves the option in DRAFT. Activating is a SEPARATE call, and it is the only
+  // thing that makes the pack buyable — see activatePurchaseOption.
+  const activation = await activatePurchaseOption(token, pkg, productId)
+  const active = activation.state === "ACTIVE"
+
   return {
     playProductId: productId,
     created: !existed,
     active,
-    // Report the state verbatim rather than calling a DRAFT product synced-and-done. Play keeps a
-    // one-time product in DRAFT until the app has a published release that can sell it.
+    // Never report a DRAFT product as synced-and-done. That is exactly what let three live packs
+    // look shipped — `sync_state.google_play: draft`, `play_product_id` populated — while no buyer
+    // could see them, because nothing had ever called the activation endpoint.
     warning: active
       ? undefined
-      : `written to Play, but the one-time product is ${state ?? "not yet ACTIVE"} — it becomes purchasable once a release containing it is published`,
+      : activation.error
+        ? `written to Play, but activation failed: ${activation.error}`
+        : `written to Play, but the purchase option is ${activation.state ?? "not ACTIVE"} — it cannot be bought yet`,
   }
+}
+
+/**
+ * Activate the purchase option — WITHOUT THIS A PACK IS NEVER PURCHASABLE.
+ *
+ * `patch` creates the product in DRAFT, and `purchaseOptions[].state` is OUTPUT-ONLY, so there is
+ * no field on the upsert that can make it live. Activation is its own endpoint, exactly as a
+ * subscription's base plan has `activateBasePlan` beside its patch — this module simply never had
+ * the counterpart. The cost was invisible in every signal we had: the patch returned 200, the
+ * product existed in Play Console with correct prices in 8 regions, `play_product_id` was written
+ * back, and the sync reported `draft` — which reads like "Play is still processing" rather than
+ * "nobody can buy this".
+ *
+ * Idempotent: activating an already-ACTIVE option returns 200 and changes nothing, so a re-sync is
+ * safe. Failure is REPORTED, not thrown — the product itself was written correctly, and a caller
+ * that treated "could not activate" as "did not sync" would re-create it on every attempt.
+ */
+async function activatePurchaseOption(
+  token: string,
+  pkg: string,
+  productId: string,
+): Promise<{ state?: string; error?: string }> {
+  // camelCase `oneTimeProducts` here, lowercase `onetimeproducts` on the patch — Google's own
+  // inconsistency, documented at the top of this file. Do not "tidy" these to match.
+  const res = await playFetch(
+    token,
+    `/applications/${pkg}/oneTimeProducts/${encodeURIComponent(productId)}/purchaseOptions:batchUpdateStates`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        requests: [{
+          activatePurchaseOptionRequest: {
+            packageName: pkg,
+            productId,
+            purchaseOptionId: BUY_OPTION_ID,
+          },
+        }],
+      }),
+    },
+  )
+  if (!res.ok) {
+    return {
+      error: `purchaseOptions.batchUpdateStates failed (${res.status}): ${shortPlayError(await res.text())}`,
+    }
+  }
+  const body = await res.json()
+  return { state: body?.oneTimeProducts?.[0]?.purchaseOptions?.[0]?.state }
 }
 
 /** The Money for [currency] if PayCraft priced it explicitly, else null. */
