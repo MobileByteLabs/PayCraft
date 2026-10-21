@@ -185,6 +185,16 @@ internal interface BillingManager {
     suspend fun spend(sku: String, quantity: Int, idempotencyKey: String): Result<Int> =
         Result.failure(UnsupportedOperationException("balances not supported by this BillingManager"))
 
+    /**
+     * Credit an in-app ACTIVITY earn and return the new server balance.
+     *
+     * Throws rather than returning a Result: unlike a spend, there is no "refused" outcome a caller
+     * renders — the server either records it or the call failed, and PayCraftBalances queues the
+     * latter for replay.
+     */
+    suspend fun earn(sku: String, quantity: Int, eventId: String): Int =
+        throw UnsupportedOperationException("balances not supported by this BillingManager")
+
     // ─── One-time product ownership ──────────────────────────────────────────
 
     /**

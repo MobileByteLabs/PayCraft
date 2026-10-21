@@ -10,8 +10,6 @@ package com.mobilebytelabs.paycraft.di
 import com.mobilebytelabs.paycraft.InitOptions
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.PayCraftBackend
-import com.mobilebytelabs.paycraft.core.ConsumableDrainer
-import com.mobilebytelabs.paycraft.core.ConsumableGrantSink
 import com.mobilebytelabs.paycraft.core.MonetizationMode
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
 import com.mobilebytelabs.paycraft.repository.PayCraftRepository
@@ -90,20 +88,6 @@ fun payCraft(
     options: InitOptions = InitOptions(),
     mode: MonetizationMode = MonetizationMode.AdSupported,
     identity: Scope.() -> Flow<String?> = { emptyFlow() },
-    /**
-     * WHERE PURCHASED UNITS GO. Bound once, like [identity], and then the SDK handles the rest:
-     * which products are consumable, noticing a balance, debiting it server-side with a
-     * caller-owned idempotency key, and replaying after a crash. The host states only how to credit
-     * its OWN ledger, and must do so idempotently on `grantId` — it can be called again.
-     *
-     * A `Scope.() -> …` for the same reason [identity] is one: the credit lands in the host's OWN
-     * storage, so the lambda has to be able to `get()` the host's database or repository. Typing it
-     * as a bare sink made `get` unresolvable at the call site — it resolved against whatever `get`
-     * happened to be in scope, which in the first consumer was `MatchGroupCollection.get`.
-     *
-     * Omit it and nothing drains: a host with no consumables pays nothing for this.
-     */
-    onUnitsGranted: (Scope.() -> ConsumableGrantSink)? = null,
 ): Module = module {
     includes(PayCraftModule)
 
@@ -124,7 +108,6 @@ fun payCraft(
             backend = backend,
             options = options,
             mode = mode,
-            onUnitsGranted = onUnitsGranted?.invoke(this),
         )
     }
 }
@@ -144,7 +127,6 @@ internal class PayCraftIdentityBinder(
     backend: PayCraftBackend,
     options: InitOptions,
     mode: MonetizationMode,
-    onUnitsGranted: ConsumableGrantSink? = null,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
     init {
@@ -170,28 +152,5 @@ internal class PayCraftIdentityBinder(
                 .collect { address -> if (address.isNotBlank()) repository()?.logIn(address) }
         }
 
-        // Collect anything bought since last launch. A purchase credits the SERVER balance via the
-        // store/PSP webhook, which can land while the app is closed or on another device — so this
-        // cannot hang off a purchase callback and runs at start instead. Idempotent and cheap when
-        // there is nothing outstanding.
-        if (onUnitsGranted != null) {
-            scope.launch {
-                val repo = repository() ?: return@launch
-                val persisted = store() ?: return@launch
-                ConsumableDrainer(
-                    repository = repo,
-                    store = persisted,
-                    sink = onUnitsGranted,
-                    // Unique per drain, and that matters in BOTH directions: a COLLIDING id would be
-                    // absorbed by the server's idempotency key and the grant silently lost, while a
-                    // RE-ROLLED id for an interrupted grant would credit it twice. Uniqueness here,
-                    // stability across a resume via the persisted intent.
-                    newGrantId = {
-                        "grant-" + Clock.System.now().toEpochMilliseconds() + "-" +
-                            Random.nextInt(Int.MAX_VALUE)
-                    },
-                ).drain()
-            }
-        }
     }
 }

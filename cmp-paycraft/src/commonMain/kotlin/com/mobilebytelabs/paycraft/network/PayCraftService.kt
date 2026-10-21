@@ -199,6 +199,13 @@ interface PayCraftService {
     suspend fun spendBalance(serverToken: String, sku: String, quantity: Int, idempotencyKey: String): Int? = null
 
     /**
+     * Credit an in-app ACTIVITY earn; null when unreachable, or when the sku has no server-side
+     * `daily_earn_cap` (activity earning is opt-in per sku, because enabling it is what lets a
+     * modified client mint up to that ceiling).
+     */
+    suspend fun earnBalance(serverToken: String, sku: String, quantity: Int, eventId: String): Int? = null
+
+    /**
      * Register a completed **Google Play** purchase server-side (Payments-policy native lane).
      *
      * POSTs to the `register-play-purchase` edge function, which (1) re-fetches truth from the Play
@@ -348,6 +355,33 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         PayCraftLogger.onRpcError("entitlement_balance_get", e.message)
         0
     }
+
+    override suspend fun earnBalance(serverToken: String, sku: String, quantity: Int, eventId: String): Int? =
+        try {
+            PayCraftLogger.onRpcCall("entitlement_balance_earn", "sku=$sku qty=$quantity")
+            val result = postgrest.rpc(
+                function = "entitlement_balance_earn",
+                parameters = buildJsonObject {
+                    // Token, not subject id — same reason as spend below. `eventId` IS the
+                    // idempotency key: it identifies the ACTIVITY, so a replayed sync cannot pay
+                    // twice. The server clamps to the tenant's daily cap, so the returned balance
+                    // may be lower than balance+quantity; that is the cap, not a failure.
+                    put("p_server_token", serverToken)
+                    put("p_api_key", apiKey)
+                    put("p_sku", sku)
+                    put("p_quantity", quantity)
+                    put("p_idempotency_key", eventId)
+                },
+            ).data
+            val decoded = result.trim().toIntOrNull()
+            PayCraftLogger.onRpcResult("entitlement_balance_earn", decoded?.toString() ?: "rejected")
+            decoded
+        } catch (e: Exception) {
+            // Null covers unreachable AND the sku having no daily_earn_cap (the RPC raises). The
+            // caller queues for replay either way, which is correct for both.
+            PayCraftLogger.onError("entitlement_balance_earn", e.message ?: "earn failed")
+            null
+        }
 
     override suspend fun spendBalance(serverToken: String, sku: String, quantity: Int, idempotencyKey: String): Int? =
         try {

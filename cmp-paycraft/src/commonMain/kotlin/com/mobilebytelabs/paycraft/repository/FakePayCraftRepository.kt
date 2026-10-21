@@ -321,4 +321,23 @@ class FakePayCraftRepository(
         _balances.value = _balances.value + (sku to next)
         return Result.success(next)
     }
+
+    /** Earn ids already honoured, so a replay is a no-op exactly as the server's key makes it. */
+    val earnCalls: MutableList<Triple<String, Int, String>> = mutableListOf()
+
+    /** Optional ceiling, mirroring the server's daily cap. Null = uncapped. */
+    var dailyEarnCap: Int? = null
+
+    override suspend fun earn(sku: String, quantity: Int, eventId: String): Int {
+        if (earnCalls.any { it.third == eventId }) return _balances.value[sku] ?: 0
+        earnCalls += Triple(sku, quantity, eventId)
+        val current = _balances.value[sku] ?: 0
+        // Clamp like the server: an honest client at its ceiling gets less than it asked for and
+        // no error, so a host that treats "granted < requested" as a failure is wrong here too.
+        val cap = dailyEarnCap
+        val granted = if (cap == null) quantity else minOf(quantity, maxOf(cap - current, 0))
+        val next = current + granted
+        _balances.value = _balances.value + (sku to next)
+        return next
+    }
 }

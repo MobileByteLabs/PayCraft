@@ -93,14 +93,32 @@ interface PayCraftStore {
     // Defaulted no-ops: a store that does not implement these simply loses crash-resume, it does
     // not break — and every existing implementation keeps compiling.
 
-    /** Record an in-flight consumable drain. Overwrites any previous one (they are serialized). */
-    fun saveConsumablePending(grantId: String, sku: String, quantity: Int) {}
+    // ── Balance outbox ───────────────────────────────────────────────────────────────────────────
+    //
+    // Writes made while offline, replayed on reconcile. Defaulted no-ops so an older PayCraftStore
+    // keeps compiling — but a store that does NOT persist these loses an offline spend or earn on
+    // process death, so a real implementation must override them.
+    //
+    // Keyed by the caller's idempotency key (a spend) or the host's event id (an earn), which is
+    // what makes a replay safe: the server absorbs a duplicate and returns the same balance.
 
-    /** The in-flight drain, or null. */
-    fun getConsumablePending(): ConsumablePending? = null
+    /** Record a spend that has not been acknowledged by the server. */
+    fun enqueueSpend(key: String, sku: String, quantity: Int) {}
 
-    /** Clear the in-flight drain once the host has durably credited it. */
-    fun clearConsumablePending() {}
+    /** Drop an acknowledged (or permanently refused) spend. */
+    fun dequeueSpend(key: String) {}
+
+    /** Spends still awaiting the server. */
+    fun pendingSpends(): List<PendingBalanceWrite> = emptyList()
+
+    /** Record an activity earn that has not reached the server. */
+    fun enqueueEarn(eventId: String, sku: String, quantity: Int) {}
+
+    /** Drop an acknowledged earn. */
+    fun dequeueEarn(eventId: String) {}
+
+    /** Earns still awaiting the server. */
+    fun pendingEarns(): List<PendingBalanceWrite> = emptyList()
 
     // ── Wipe ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -121,7 +139,9 @@ interface PayCraftStore {
 }
 
 /**
- * An in-flight consumable drain: the server may or may not already be debited, and the host may or
- * may not already have credited. Replaying under [grantId] settles it either way.
+ * A balance write that has not been acknowledged by the server.
+ *
+ * [id] is the idempotency key (a spend) or the host's stable event id (an earn) — never generated
+ * at replay time, or a retry would be counted as a second write.
  */
-public data class ConsumablePending(val grantId: String, val sku: String, val quantity: Int)
+public data class PendingBalanceWrite(val id: String, val sku: String, val quantity: Int)

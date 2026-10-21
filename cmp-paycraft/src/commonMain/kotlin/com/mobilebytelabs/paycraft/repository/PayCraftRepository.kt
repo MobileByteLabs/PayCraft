@@ -136,6 +136,18 @@ interface PayCraftRepository {
      */
     suspend fun spend(sku: String, quantity: Int, idempotencyKey: String): Result<Int>
 
+    /**
+     * Report an in-app ACTIVITY earn (a completed session, a streak) and return the new balance.
+     *
+     * [eventId] is the idempotency key: it must identify the activity, not the call, or a retry
+     * pays twice. The server CLAMPS to the tenant's daily cap, so the result may be lower than
+     * balance+quantity — an honest client at its ceiling, not an error.
+     *
+     * Activity earns are client-asserted by construction (no server can observe a focus session),
+     * which is exactly why the ceiling is enforced server-side.
+     */
+    suspend fun earn(sku: String, quantity: Int, eventId: String): Int
+
     fun checkout(plan: BillingPlan, email: String? = null)
 
     /**

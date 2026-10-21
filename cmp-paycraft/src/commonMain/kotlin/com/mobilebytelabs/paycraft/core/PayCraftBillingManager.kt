@@ -1164,4 +1164,15 @@ class PayCraftBillingManager(
         _balances.update { it + (sku to newBalance) }
         return Result.success(newBalance)
     }
+
+    override suspend fun earn(sku: String, quantity: Int, eventId: String): Int {
+        val token = DeviceTokenStore.getToken()
+            ?: throw IllegalStateException("no registered device - cannot earn")
+        if (token.isBlank()) throw IllegalStateException("no registered device - cannot earn")
+        val newBalance = service.earnBalance(token, sku, quantity, eventId)
+            ?: throw IllegalStateException("earn rejected (unreachable, or sku has no daily_earn_cap)")
+        // Server-returned, and possibly CLAMPED below what was asked — the cap working, not an error.
+        _balances.update { it + (sku to newBalance) }
+        return newBalance
+    }
 }
