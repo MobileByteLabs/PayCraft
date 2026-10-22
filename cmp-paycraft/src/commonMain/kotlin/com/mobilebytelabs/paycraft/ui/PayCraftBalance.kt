@@ -14,7 +14,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.mobilebytelabs.paycraft.repository.PayCraftRepository
+import com.mobilebytelabs.paycraft.core.PayCraftBalances
 import org.koin.compose.koinInject
 
 /**
@@ -32,11 +32,13 @@ import org.koin.compose.koinInject
  */
 @Composable
 public fun PayCraftBalance(sku: String, modifier: Modifier = Modifier) {
-    val repository: PayCraftRepository = koinInject()
-    val balances by repository.balances.collectAsStateWithLifecycle()
+    // The SDK-owned mirror, not the repository's raw flow: PayCraftBalances is what reconciles the
+    // outbox, so reading past it would show a number that ignores offline spends still queued.
+    val balanceStore: PayCraftBalances = koinInject()
+    val balances by balanceStore.balances.collectAsStateWithLifecycle()
 
     // Keyed on sku so switching products re-reads rather than showing the previous product's number.
-    LaunchedEffect(sku) { repository.refreshBalance(sku) }
+    LaunchedEffect(sku) { balanceStore.reconcile(sku) }
 
     val balance = balances[sku] ?: return
 

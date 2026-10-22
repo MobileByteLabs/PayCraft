@@ -73,6 +73,10 @@ export const MERGEABLE_COLUMNS = [
   "discount_percent",
   "discount_ends_at",
   "grant_quantity",
+  "grant_sku",
+  "daily_earn_cap",
+  "ad_reward_quantity",
+  "daily_ad_reward_cap",
 ] as const
 
 /** Columns the caller may never set directly. */
@@ -179,6 +183,27 @@ function validateField(key: string, raw: unknown): { value: unknown } | Validati
       if (raw === null) return { value: null }
       if (!Number.isInteger(raw) || (raw as number) < 0) {
         return { error: "grant_quantity_must_be_non_negative_integer" }
+      }
+      return { value: raw }
+    }
+    case "grant_sku": {
+      // The currency this product credits. null = the product's own sku (unchanged behaviour).
+      // Not validated against tenant_products: a currency id deliberately has no product row of its
+      // own — it is a ledger partition key, not a sellable thing (migration 164).
+      if (raw === null) return { value: null }
+      if (typeof raw !== "string" || !raw.trim()) return { error: "grant_sku_must_be_a_non_empty_string" }
+      return { value: raw.trim() }
+    }
+    case "daily_earn_cap":
+    case "ad_reward_quantity":
+    case "daily_ad_reward_cap": {
+      // All three are OPT-INS, and null is the meaningful default: null daily_earn_cap disables
+      // activity earning for the sku, null ad_reward_quantity disables ad rewards, null
+      // daily_ad_reward_cap leaves ad rewards uncapped. 0 would be an ambiguous way to say "off"
+      // for the first two and "no rewards ever" for the third, so it is refused — say null.
+      if (raw === null) return { value: null }
+      if (!Number.isInteger(raw) || (raw as number) < 1) {
+        return { error: `${key}_must_be_a_positive_integer_or_null` }
       }
       return { value: raw }
     }

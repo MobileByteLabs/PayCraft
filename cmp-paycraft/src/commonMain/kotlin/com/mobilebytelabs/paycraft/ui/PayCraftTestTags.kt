@@ -202,6 +202,8 @@ object PayCraftTestTags {
     /** Consumable balances + the non-subscription store (coin packs, one-time unlocks). */
     const val BALANCE = "paycraft_balance"
     const val STORE_SECTION = "paycraft_store_section"
+    const val EARN_SECTION = "paycraft_earn_section"
+    const val EARN_BUTTON = "paycraft_earn_button"
     const val STORE_PRODUCT_ROW = "paycraft_store_product_row"
     const val STORE_EMPTY = "paycraft_store_empty"
     const val PRODUCT_GATE_UNLOCKED = "paycraft_product_gate_unlocked"

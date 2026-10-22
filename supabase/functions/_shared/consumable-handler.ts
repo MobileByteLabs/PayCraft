@@ -160,7 +160,7 @@ export async function handleConsumablePurchase(
 
   let lookup = supabaseAdmin
     .from("tenant_products")
-    .select("tenant_id, sku, type, grant_quantity")
+    .select("tenant_id, sku, grant_sku, type, grant_quantity")
     .eq("tenant_id", tenantId);
   if (storeProductId) {
     const column = provider === "app_store" ? "app_store_product_id" : "play_product_id";
@@ -223,7 +223,10 @@ export async function handleConsumablePurchase(
   const { data: balance, error: grantError } = await supabaseAdmin.rpc("entitlement_balance_grant", {
     p_tenant_id: product.tenant_id,
     p_subject_id: subjectId,
-    p_sku: product.sku,
+    // The CURRENCY the product credits, not the product. Several pack sizes of one currency share a
+    // grant_sku so their balances add up; without this, buying the 800 pack credits a balance the
+    // 300 pack never touches and the user's coins do not combine (migration 164).
+    p_sku: (product.grant_sku ?? "").trim() || product.sku,
     p_quantity: quantity,
     p_stable_txn_id: stableTxnId,
     p_idempotency_key: idempotencyKey,
