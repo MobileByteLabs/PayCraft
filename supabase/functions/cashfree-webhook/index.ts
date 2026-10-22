@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3?target=deno";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno";
+import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
 /**
@@ -52,7 +53,7 @@ async function loadTenantWebhookSecret(
       p_provider: "cashfree",
       p_mode: mode,
     })
-    .maybeSingle();
+    .maybeSingle<{ secret_key: string | null; webhook_secret: string | null; key_id: string | null; credential: string | null }>();
   if (error) {
     console.error(
       `[cashfree-webhook] decrypt failed (tenant=${tenantId}, mode=${mode}): ${error.message}`,
@@ -232,6 +233,32 @@ serve(withWebhookRateLimit({ bucket: "webhook:cashfree" }, async (req) => {
           );
         }
         const product = products[0];
+
+        // Consumable / one-time packs credit a BALANCE rather than an entitlement row. Cashfree is
+        // a one-time-only lane (subscriptions self-skip in its product sync), so this is the
+        // product kind it is best suited to sell — and before this branch existed the purchase
+        // became a lifetime subscription row instead of the currency the buyer paid for.
+        if (product.type === "consumable" || product.type === "one_time") {
+          const grant = await handleConsumablePurchase({
+            tenantId: product.tenant_id,
+            email,
+            productId: product.id,
+            // The order id is the stable per-purchase anchor; the link id is reused across every
+            // purchase of that product, so keying on it would make the SECOND buyer a redelivery
+            // of the first and silently grant them nothing.
+            stableTxnId: order?.order_id ?? null,
+            provider: "cashfree",
+            eventType,
+          });
+          if (!grant.granted) {
+            console.error(`[cashfree-webhook] consumable grant refused: ${grant.reason}`);
+          }
+          return new Response(
+            JSON.stringify({ received: true, granted: grant.quantity, balance: grant.balance }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+
         await handleSubscriptionEvent({
           email,
           provider: "cashfree",

@@ -1,4 +1,4 @@
-example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
+example-provenance: d17c43b42c05b30b9029e3cbcbbfa314a8bd372b
 
 # PUBLIC_API.md — PayCraft SDK public integration surface
 
@@ -466,6 +466,101 @@ wire a gate; existing ones migrate. Do not wire a new integration to a guard.
 `paycraft_subscribe_button`, …) — assert against these rather than against visible text, which is
 tenant-configurable and localized.
 
+## Consumables — one-time packs that grant units
+
+A CONSUMABLE is a product bought repeatedly that grants a quantity into a balance the host spends
+(a coin pack, a credit bundle). It is the second shape of product beside the recurring plan, and it
+is wired differently end to end: a subscription grants ACCESS which the SDK answers with
+`isPremium`, while a consumable grants UNITS which only the host can store, because only the host
+knows what they mean.
+
+### The catalogue splits in two
+
+```kotlin
+PayCraft.plans               // the WHOLE catalogue
+PayCraft.products            // isConsumable || interval == "lifetime"  — the STORE half
+PayCraft.subscriptionPlans   // !isConsumable                           — the PAYWALL half
+```
+
+`plans` is the full list; the two subsets partition it by what the surface is allowed to sell. Use
+`subscriptionPlans` for anything that picks a plan by rank — a paywall taking `minByOrNull { rank }`
+over the unfiltered list can offer a coin pack as the "upgrade" a free user is shown.
+
+On `BillingPlan`: `isConsumable: Boolean` and `grantQuantity: Int` (units ONE purchase grants; `0`
+for every other type). `isConsumable` is carried explicitly rather than derived, because `interval`
+collapses a null to `"lifetime"` — which makes a consumable indistinguishable from a lifetime
+unlock, and the two are FINISHED with different store calls.
+
+### Where purchased units go — `ConsumableGrantSink`
+
+The host states one thing: how to credit its own ledger. Everything else is the SDK's.
+
+```kotlin
+public fun interface ConsumableGrantSink {
+    public suspend fun credit(sku: String, quantity: Int, grantId: String): Boolean
+}
+```
+
+Bound ONCE, beside `identity`, as a `Scope.() -> ConsumableGrantSink` so the lambda can `get()` the
+host's own database:
+
+```kotlin
+includes(
+    payCraft(
+        apiKey = …, testApiKey = …,
+        identity = { get<AuthRepository>().session.map { it.user?.email } },
+        onUnitsGranted = {
+            val dao = get<AppDatabase>().ledgerDao
+            ConsumableGrantSink { sku, quantity, grantId ->
+                dao.insert(LedgerEntry(id = grantId, amount = quantity, /* … */))
+                true
+            }
+        },
+    ),
+)
+```
+
+Contract, and each clause is load-bearing:
+
+- **`grantId` is a STABLE id for this grant.** Credit idempotently on it — use it as the PRIMARY KEY
+  of the host's ledger row and insert with `IGNORE`-on-conflict. The sink can be invoked again for
+  the same grant after a crash or a provider redelivery.
+- **Return `true` only when the credit is DURABLY committed.** Returning `false` (or throwing) keeps
+  the grant pending and the next drain retries it. The SDK will not drop it.
+- **The host never chooses the amount.** It transfers what the server granted. A client that could
+  decide the quantity is minting currency people pay real money for.
+- **Omit `onUnitsGranted` and nothing drains.** An app with no consumables pays nothing for this.
+
+### What the SDK does on its own
+
+Given the sink, the SDK owns: which products are consumable, noticing a server-side balance,
+debiting it with a caller-owned idempotency key, and replaying after a crash. It drains at init and
+is cheap when there is nothing outstanding (one balance read per consumable sku).
+
+The transfer is two writes against systems that cannot share a transaction, so the intent is
+persisted BEFORE the server is touched — credit-then-debit double-credits on retry, debit-then-credit
+loses the purchase. Every step is then safe to repeat.
+
+Do NOT re-implement this in the host. The first consumer wrote 118 lines to do it and every one of
+them was an invariant of the SDK.
+
+### Headless surface (`PayCraftRepository`)
+
+```kotlin
+val balances: StateFlow<Map<String, Int>>
+suspend fun refreshBalance(sku: String): Int
+suspend fun spend(sku: String, quantity: Int, idempotencyKey: String): Result<Int>
+```
+
+`spend` returns the server's new balance. Insufficient funds is `Result.failure`, NOT an exception —
+a shopper short on units is an ordinary outcome the host renders, not a crash. A rejected spend must
+not move the balance. Pass a caller-owned `idempotencyKey` so a retry after a timeout replays
+instead of charging twice.
+
+Hosts that render their own currency read `balances` (or `PayCraftBalance`); `PayCraftStoreSection`
+deliberately shows no per-row balance, because a pack's balance is the balance of the currency it
+grants, not of the pack sku.
+
 ## What an integrator must never do
 
 - Call a payment provider directly. The app talks only to Supabase; webhooks keep Supabase in sync.
@@ -475,6 +570,10 @@ tenant-configurable and localized.
 - Hand-write a repository / store / API wrapper around this SDK. Inject `PayCraftRepository`
   instead — that wrapper is the 670 LOC the facade exists to delete.
 - Re-derive test/live in the host from a key prefix or build config. `PayCraft.mode` owns it.
+- Credit a consumable balance locally, or let the host decide the granted quantity. The server is
+  the only authority on what a purchase granted.
+- Re-implement the consumable drain. Bind `onUnitsGranted` and let the SDK own the rest.
+- Pick a plan by rank out of `plans`. Use `subscriptionPlans` — `plans` now contains coin packs.
 
 ---
 

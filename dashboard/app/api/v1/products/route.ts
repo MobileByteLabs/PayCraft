@@ -10,7 +10,7 @@ const PRODUCT_WRITE_COLUMNS =
   "id, sku, type, display_name, trial_enabled, trial_duration_days, trial_per_platform, " +
   "attaches_to_product_id, interval, base_price_cents, base_currency, display_order, active, " +
   "pricing_mode, global_price_cents, global_currency, discount_percent, discount_ends_at, " +
-  "play_product_id, app_store_product_id"
+  "play_product_id, app_store_product_id, grant_quantity"
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v)
@@ -26,6 +26,7 @@ export async function GET(req: Request) {
     table: "tenant_products",
     columns:
       "id, sku, display_name, type, interval, base_price_cents, base_currency, active, " +
+      "grant_quantity, " +
       "trial_enabled, trial_duration_days, trial_per_platform, stripe_product_id, stripe_price_id_by_currency, " +
       "razorpay_plan_id_by_currency, razorpay_plan_id_by_currency_test, live_plan_ids_verified, " +
       "play_product_id, app_store_product_id, sync_state, created_at, updated_at",

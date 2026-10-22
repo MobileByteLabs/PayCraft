@@ -49,6 +49,9 @@ class PayCraftIdentityBinderTest {
     ) = PayCraftIdentityBinder(
         email = emails,
         repository = { repo },
+        // No store: these tests cover the identity binding only, and with nothing persisted the
+        // consumable drain has nowhere to record an intent so it does not run (PayCraftSetup).
+        store = { null },
         apiKey = "pk_test_binder",
         testApiKey = null,
         // Mock: this must not reach a network. A Cloud backend would make the test depend on the

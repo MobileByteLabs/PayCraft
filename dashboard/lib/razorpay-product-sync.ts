@@ -1,3 +1,4 @@
+import type { SyncProductType } from "./product-write"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { getConnectedRazorpayClient } from "./razorpay-client"
 
@@ -74,7 +75,7 @@ export async function syncProductToRazorpay(
   tenantId: string,
   productId: string,
   productName: string,
-  productType: "subscription" | "trial" | "lifetime",
+  productType: SyncProductType,
   interval: BillingInterval | string | null,
   prices: RazorpayPriceInput[],
   mode: "test" | "live" = "live",

@@ -1,3 +1,4 @@
+import type { SyncProductType } from "./product-write"
 import { createClient as createServiceClient } from "@supabase/supabase-js"
 import { buildUpiLink, generateUpiReference, paiseToRupees } from "@/lib/upi"
 import { recordUpiIntent } from "@/lib/upi-intent-recorder"
@@ -57,7 +58,7 @@ export interface CheckoutRouteRequest {
 
 export interface ProductForRouting {
   id: string
-  type: "subscription" | "trial" | "lifetime"
+  type: SyncProductType
   display_name: string
   base_price_cents: number
   base_currency: string

@@ -1,4 +1,4 @@
-example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
+example-provenance: d17c43b42c05b30b9029e3cbcbbfa314a8bd372b
 
 # BILLING_STATE_SEMANTICS.md — the billing state machine and realtime invalidation
 
@@ -39,6 +39,23 @@ holds a nullable api key, the RPCs resolve no tenant, and the honest answer is F
 (WIRING_CONTRACTS.md). A
 host that wants to distinguish "no entitlement" from "no key" asks `PayCraft.isConfigured`; a host
 that simply gates features needs no branch at all.
+
+## A balance is NOT an entitlement
+
+`BillingState` / `EntitlementSummary` answer **access** — may this user open the premium feature.
+A consumable balance answers **how many units are left**, and the two must never be folded:
+
+- A user with 500 coins and no subscription is `FREE`. Buying a pack does **not** make them premium.
+- A premium user who spends their last coin is still `PREMIUM`.
+- `isPremium` is a boolean about a plan; a balance is an integer about a currency.
+
+So nothing in the entitlement ladder below reads a balance, and nothing that spends reads
+`isPremium`. A host that gates a feature on "has units" writes that gate itself against its own
+ledger — the SDK's job ends when the units are handed over through `ConsumableGrantSink`.
+
+The balance is **server-authoritative** in exactly the way the entitlement is: `spend` debits
+server-side and returns the server's new number. There is no local decrement, and a client that
+could compute its own balance would be minting currency people pay real money for.
 
 ## `EntitlementSummary` — gate on this, not on `BillingState`
 

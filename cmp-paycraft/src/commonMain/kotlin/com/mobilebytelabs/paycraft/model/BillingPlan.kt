@@ -89,6 +89,14 @@ data class BillingPlan(
      * rejected with "already owned". See [com.mobilebytelabs.paycraft.billing.NativeBillingClient.finishPurchase].
      */
     val isConsumable: Boolean = false,
+    /**
+     * Units granted per purchase when [isConsumable]; 0 otherwise.
+     *
+     * The host needs this to label the pack ("550 ⚡") and to know what one purchase is worth. It
+     * is NOT what credits the balance — the server does that from the store webhook, because a
+     * client that could decide its own grant could mint currency (AR-013).
+     */
+    val grantQuantity: Int = 0,
 ) {
     init {
         require(trialDays == null || trialDays >= 1) {

@@ -85,6 +85,41 @@ interface PayCraftStore {
     fun saveDeviceToken(token: String) {}
     fun clearDeviceToken() {}
 
+    // ─── Consumable drain intent ─────────────────────────────────────────────
+    //
+    // A purchased balance is moved to the host in two writes against different systems (debit the
+    // server, then credit the host), and a crash between them is the ordinary case. The intent is
+    // persisted BEFORE the server is touched so the next launch can replay it under the same id.
+    // Defaulted no-ops: a store that does not implement these simply loses crash-resume, it does
+    // not break — and every existing implementation keeps compiling.
+
+    // ── Balance outbox ───────────────────────────────────────────────────────────────────────────
+    //
+    // Writes made while offline, replayed on reconcile. Defaulted no-ops so an older PayCraftStore
+    // keeps compiling — but a store that does NOT persist these loses an offline spend or earn on
+    // process death, so a real implementation must override them.
+    //
+    // Keyed by the caller's idempotency key (a spend) or the host's event id (an earn), which is
+    // what makes a replay safe: the server absorbs a duplicate and returns the same balance.
+
+    /** Record a spend that has not been acknowledged by the server. */
+    fun enqueueSpend(key: String, sku: String, quantity: Int) {}
+
+    /** Drop an acknowledged (or permanently refused) spend. */
+    fun dequeueSpend(key: String) {}
+
+    /** Spends still awaiting the server. */
+    fun pendingSpends(): List<PendingBalanceWrite> = emptyList()
+
+    /** Record an activity earn that has not reached the server. */
+    fun enqueueEarn(eventId: String, sku: String, quantity: Int) {}
+
+    /** Drop an acknowledged earn. */
+    fun dequeueEarn(eventId: String) {}
+
+    /** Earns still awaiting the server. */
+    fun pendingEarns(): List<PendingBalanceWrite> = emptyList()
+
     // ── Wipe ─────────────────────────────────────────────────────────────────────────────────────
 
     /**
@@ -102,3 +137,11 @@ interface PayCraftStore {
         getAllAdUnlocks().keys.forEach { clearAdUnlock(it) }
     }
 }
+
+/**
+ * A balance write that has not been acknowledged by the server.
+ *
+ * [id] is the idempotency key (a spend) or the host's stable event id (an earn) — never generated
+ * at replay time, or a retry would be counted as a second write.
+ */
+public data class PendingBalanceWrite(val id: String, val sku: String, val quantity: Int)

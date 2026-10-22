@@ -3,6 +3,12 @@ name: Production smoke tests
 on:
   workflow_call:
   workflow_dispatch:
+  # Unattended, every 6 hours. Until 2026-10-22 this workflow had NO schedule — it ran only when
+  # the deploy called it or a human clicked it, so between deploys nothing watched production at
+  # all. A smoke test that only runs at deploy time cannot catch what breaks after a deploy, which
+  # is the entire class of outage worth catching.
+  schedule:
+    - cron: "23 */6 * * *"
 
 jobs:
   smoke:
