@@ -36,23 +36,18 @@ import kotlin.test.assertTrue
  */
 class ConsumableCatalogueMappingTest {
 
-    private fun product(
-        sku: String,
-        type: String,
-        interval: String? = null,
-        grant: Int = 0,
-        order: Int = 0,
-    ) = ProductDto(
-        id = "id_$sku",
-        sku = sku,
-        type = type,
-        displayName = sku,
-        interval = interval,
-        basePriceCents = 199,
-        baseCurrency = "USD",
-        grantQuantity = grant,
-        displayOrder = order,
-    )
+    private fun product(sku: String, type: String, interval: String? = null, grant: Int = 0, order: Int = 0) =
+        ProductDto(
+            id = "id_$sku",
+            sku = sku,
+            type = type,
+            displayName = sku,
+            interval = interval,
+            basePriceCents = 199,
+            baseCurrency = "USD",
+            grantQuantity = grant,
+            displayOrder = order,
+        )
 
     private fun configOf(vararg products: ProductDto) = SuiteConfig(
         tenantId = "t",

@@ -6,13 +6,18 @@
  * If a copy of the MPL was not distributed with this file,
  * You can obtain one at https://mozilla.org/MPL/2.0/.
  */
+
 package com.mobilebytelabs.paycraft.di
 
 import com.mobilebytelabs.paycraft.InitOptions
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.PayCraftBackend
+import com.mobilebytelabs.paycraft.core.AdRewardProvider
 import com.mobilebytelabs.paycraft.core.MonetizationMode
+import com.mobilebytelabs.paycraft.core.PayCraftAdRewards
+import com.mobilebytelabs.paycraft.core.PayCraftBalances
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
+import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.mobilebytelabs.paycraft.repository.PayCraftRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,10 +28,6 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.koin.core.module.Module
-import com.mobilebytelabs.paycraft.core.AdRewardProvider
-import com.mobilebytelabs.paycraft.core.PayCraftAdRewards
-import com.mobilebytelabs.paycraft.core.PayCraftBalances
-import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import org.koin.core.scope.Scope
 import org.koin.dsl.module
 import kotlin.random.Random
@@ -116,7 +117,9 @@ fun payCraft(
         PayCraftBalances(
             repository = get(),
             store = get(),
-            newIdempotencyKey = { "spend-${Clock.System.now().toEpochMilliseconds()}-${Random.nextInt(Int.MAX_VALUE)}" },
+            newIdempotencyKey = {
+                "spend-${Clock.System.now().toEpochMilliseconds()}-${Random.nextInt(Int.MAX_VALUE)}"
+            },
         )
     }
 
@@ -182,6 +185,5 @@ internal class PayCraftIdentityBinder(
                 // identity rather than being told the user is "".
                 .collect { address -> if (address.isNotBlank()) repository()?.logIn(address) }
         }
-
     }
 }

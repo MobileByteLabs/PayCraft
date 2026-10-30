@@ -74,11 +74,7 @@ public class PayCraftBalances internal constructor(
      * @param offlineSpendAllowed when false this refuses rather than queueing while offline. Use it
      *   for anything whose over-spend cannot be forgiven; the default suits a cosmetic economy.
      */
-    public suspend fun spend(
-        sku: String,
-        quantity: Int,
-        offlineSpendAllowed: Boolean = true,
-    ): Boolean {
+    public suspend fun spend(sku: String, quantity: Int, offlineSpendAllowed: Boolean = true): Boolean {
         require(quantity >= 1) { "quantity must be >= 1" }
         if (balanceOf(sku) < quantity) return false
 

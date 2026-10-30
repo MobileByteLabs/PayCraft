@@ -37,8 +37,13 @@ class PayCraftBalancesTest {
     }
 
     private fun consumable(sku: String = SKU) = BillingPlan(
-        id = sku, name = sku, price = "$1.99", interval = "lifetime", rank = 0,
-        isConsumable = true, grantQuantity = 300,
+        id = sku,
+        name = sku,
+        price = "$1.99",
+        interval = "lifetime",
+        rank = 0,
+        isConsumable = true,
+        grantQuantity = 300,
     )
 
     private fun balances(

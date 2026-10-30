@@ -174,6 +174,5 @@ internal class PayCraftRepositoryImpl(
     override suspend fun spend(sku: String, quantity: Int, idempotencyKey: String): Result<Int> =
         billing.spend(sku, quantity, idempotencyKey)
 
-    override suspend fun earn(sku: String, quantity: Int, eventId: String): Int =
-        billing.earn(sku, quantity, eventId)
+    override suspend fun earn(sku: String, quantity: Int, eventId: String): Int = billing.earn(sku, quantity, eventId)
 }

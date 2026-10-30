@@ -3,9 +3,9 @@ package com.mobilebytelabs.paycraft.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -67,8 +67,11 @@ public fun PayCraftEarnSection(
             enabled = !busy,
             modifier = Modifier.testTag(PayCraftTestTags.EARN_BUTTON),
         ) {
-            if (busy) CircularProgressIndicator(modifier = Modifier.size(16.dp))
-            else Text(buttonLabel)
+            if (busy) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp))
+            } else {
+                Text(buttonLabel)
+            }
         }
     }
 }
