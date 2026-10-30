@@ -112,10 +112,12 @@ serve(async (req: Request) => {
       appIdentifier: data.bundleId ?? decodeSignedTransaction(data.signedTransactionInfo)?.bundleId ?? null,
       provider: "app_store",
     });
+    // preserveOwner: appleToCanonical keys on the appAccountToken UUID, never the SDK's
+    // app-user-id — writing it would re-key the row away from get_entitlements on every renewal.
     await reconcileEntitlement({
       ...appleToCanonical(truth, originalTxn),
       tenantId: subTenantId,
-    });
+    }, { preserveOwner: true });
     return new Response("ok", { status: 200 });
   } catch (err) {
     console.error("apple-server-notifications error:", (err as Error).message);

@@ -68,3 +68,8 @@ export function latestState(provider: string, stableTxnId: string): Promise<stri
   const row = table.find((r) => r.provider === provider && r.stable_txn_id === stableTxnId);
   return Promise.resolve(row ? (row.canonical_state as string) : null);
 }
+
+export function ownerOf(provider: string, stableTxnId: string): Promise<string | null> {
+  const row = table.find((r) => r.provider === provider && r.stable_txn_id === stableTxnId);
+  return Promise.resolve(row ? (row.app_user_id as string) : null);
+}

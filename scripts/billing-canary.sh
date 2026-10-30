@@ -104,17 +104,24 @@ else
       [ -z "$verdict" ] && continue
       case "$verdict" in
         ok)                    ok "$n provider(s) delivering normally" ;;
-        insufficient-baseline) say "⊘ $n provider(s) too quiet to judge (not a failure at this volume)" ;;
+        # FAILURES — both mean a path that WAS or SHOULD BE working is not.
         failing)               bad "$n provider(s) FAILING deliveries" ;;
         silent)                bad "$n provider(s) went SILENT vs their own cadence" ;;
-        never-seen)            bad "$n provider(s) configured but NEVER delivered a webhook" ;;
+        # NOT failures. `never-seen` cannot distinguish "endpoint broken" from "nobody has bought
+        # through this provider yet", and with 9 tenants x 4 providers against Stripe-only sales
+        # that is 30 of 31 pairs. Failing on it would paint the canary red permanently — and a
+        # permanently-red check is an ignored check, which costs more than no check. Reported
+        # loudly, counted as unknown.
+        never-seen)            say "⊘ $n provider(s) never delivered — unknown, not a fault (no sale yet, or endpoint never reachable)" ;;
+        no-attributed-history) say "⊘ $n provider(s) unjudgeable — webhook attribution landed 2026-10-22; resolves on first attributed delivery" ;;
+        insufficient-baseline) say "⊘ $n provider(s) too quiet to judge silence (failure detection still active)" ;;
         *)                     say "? $n provider(s) verdict=$verdict" ;;
       esac
     done <<< "$V"
     # Name the broken ones; a count alone is not actionable at 3am.
     q -At -F' · ' -c \
       "SELECT provider, verdict, detail FROM billing_canary_webhook_verdicts()
-        WHERE verdict IN ('failing','silent','never-seen') LIMIT 10;" 2>/dev/null \
+        WHERE verdict IN ('failing','silent') LIMIT 10;" 2>/dev/null \
       | sed 's/^/      /'
   fi
 fi

@@ -12,7 +12,6 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { resolveInboundTenant } from "../_shared/inbound-tenant.ts";
 import { reconcileEntitlement, googleToCanonical } from "../_shared/entitlement-reconcile.ts";
-import { assertPlayTokenNotReused } from "../_shared/receipt-validate.ts";
 import { playDeveloperJwt } from "../_shared/play-jwt.ts";
 
 // Play Developer API — purchases.subscriptionsv2.get. Re-fetch truth; never trust the RTDN body.
@@ -137,11 +136,13 @@ serve(async (req: Request) => {
       truth.externalAccountIdentifiers?.externalAccountId ??
       sub.purchaseToken;
 
-    await assertPlayTokenNotReused(sub.purchaseToken, appUserId);
+    // No reuse guard here: the token came from Google, not a client, and this id is only the
+    // hashed obfuscatedAccountId. preserveOwner keeps the owner the SDK's grant/claim set — the
+    // old guard rejected every renewal after a restore transfer, and Pub/Sub retried it forever.
     await reconcileEntitlement({
       ...googleToCanonical(truth, sub.purchaseToken, appUserId),
       tenantId: subTenantId,
-    });
+    }, { preserveOwner: true });
     return new Response("ok", { status: 200 });
   } catch (err) {
     console.error("google-rtdn error:", (err as Error).message);

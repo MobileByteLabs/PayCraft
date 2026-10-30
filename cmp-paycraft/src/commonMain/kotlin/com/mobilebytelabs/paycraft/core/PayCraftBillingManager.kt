@@ -553,22 +553,8 @@ class PayCraftBillingManager(
     /** Register a store purchase server-side, then finish it with the store if that succeeded. */
     private suspend fun registerAndFinish(native: NativeBillingClient, purchase: NativePurchase, tag: String) {
         val appUserId = _userEmail.value ?: PayCraft.deviceId
-        val platform = runCatching { PlatformInfo.platform.lowercase() }.getOrDefault("")
         val entitlement = try {
-            when {
-                platform == "android" -> service.registerPlayPurchase(
-                    purchaseToken = purchase.purchaseToken,
-                    productId = purchase.productId,
-                    appUserId = appUserId,
-                    packageName = purchase.packageName.orEmpty(),
-                )
-                platform == "ios" || platform == "macos" -> service.registerAppStorePurchase(
-                    signedTransaction = purchase.purchaseToken,
-                    appUserId = appUserId,
-                    productId = purchase.productId,
-                )
-                else -> null
-            }
+            service.registerStorePurchase(purchase, appUserId, currentPlatform())
         } catch (e: Exception) {
             PayCraftLogger.onError(tag, "server register failed — NOT finishing purchase: ${e.message}")
             return
@@ -585,21 +571,6 @@ class PayCraftBillingManager(
         finishPurchaseSafely(native, purchase, tag, consumable = isConsumableStoreProduct(purchase.productId))
         refreshStatus(force = true)
     }
-
-    /**
-     * Is this STORE product id a consumable?
-     *
-     * The reconcile path holds only a [NativePurchase], which carries the store's product id — NOT
-     * the PayCraft sku. Those differ (`cappy_plus_annual` vs `com.example.app.sub.year`), so the
-     * lookup must go through [BillingPlan.storeBinding], never `sku`. Matching on sku here would
-     * silently find nothing and default every consumable to acknowledge-only.
-     *
-     * Defaults to FALSE when the catalogue has not loaded or the product is unknown. That is the
-     * safe direction: acknowledging a consumable leaves it unrepurchasable until the next
-     * reconcile, whereas consuming a non-consumable would discard a permanent entitlement.
-     */
-    private fun isConsumableStoreProduct(storeProductId: String): Boolean =
-        PayCraft.plans.firstOrNull { it.storeBinding?.productId == storeProductId }?.isConsumable == true
 
     override suspend fun checkTrialEligibility(): Boolean {
         val token = DeviceTokenStore.getToken()
@@ -906,7 +877,31 @@ class PayCraftBillingManager(
 
     // ─── Private helpers ─────────────────────────────────────────────────────
 
+    /**
+     * Carry every purchase the store holds onto [appUserId] — run when the user signs in.
+     *
+     * A store purchase made before sign-in is bound to the anonymous device id. Signing in switches
+     * the app-user-id to the email, which is the identity the OTHER platform resolves, so without
+     * this the subscription stays on the device id and the second platform reads Free. The server
+     * moves it only off an anonymous holder, so this can never take a purchase from another account.
+     */
+    private fun relinkStorePurchasesTo(appUserId: String) {
+        val native = nativeBillingClient ?: return
+        scope.launch {
+            val purchases = try {
+                native.queryPurchases()
+            } catch (e: Exception) {
+                PayCraftLogger.onError("relinkStorePurchases", e.message)
+                return@launch
+            }
+            if (service.relinkStorePurchases(purchases, appUserId, currentPlatform()) > 0) {
+                refreshStatus(force = true)
+            }
+        }
+    }
+
     private suspend fun performRegisterAndLogin(email: String) {
+        relinkStorePurchasesTo(email)
         val mode = stripeMode
         val platform = PlatformInfo.platform
         val deviceName = PlatformInfo.deviceName
