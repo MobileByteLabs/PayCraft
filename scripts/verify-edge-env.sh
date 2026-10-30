@@ -34,9 +34,11 @@ ONLY="${1:-}"
 if [ -n "${GITHUB_ACTIONS:-}" ]; then err() { echo "::error::$*"; }; else err() { echo "❌ $*"; }; fi
 
 # ── what the PROJECT has ─────────────────────────────────────────────────────
+# Names only — the API returns values as digests, and this never needs them. `: *` because the
+# Management API pretty-prints; a compact-only pattern matched nothing and read as "no secrets".
 SECRETS="$(bash "$FW_ROOT/core/scripts/supabase-connect.sh" mgmt GET \
   "projects/$(tr -d '[:space:]' < supabase/.temp/project-ref)/secrets" \
-  --target mbs/PayCraft 2>/dev/null | grep -o '"name":"[A-Z_]*"' | sed 's/"name":"//;s/"//')"
+  --target mbs/PayCraft 2>/dev/null | grep -oE '"name": *"[A-Z0-9_]+"' | sed -E 's/"name": *"//;s/"//')"
 
 if [ -z "$SECRETS" ]; then
   err "could not list project secrets — is the Supabase account PAT resolvable?"
