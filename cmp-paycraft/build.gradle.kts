@@ -199,11 +199,7 @@ kotlin {
 
             // Supabase
             implementation(paycraftLibs.supabase.postgrest)
-            implementation(paycraftLibs.supabase.auth)
             implementation(paycraftLibs.supabase.realtime)
-            // Native Apple / Google sign-in on PayCraft's own Supabase client (D1, PLAN-paycraft-native-identity).
-            implementation(paycraftLibs.kmp.supabase.auth)
-            implementation(paycraftLibs.kmp.supabase.auth.compose)
 
             // Koin
             implementation(paycraftLibs.koin.core)
@@ -245,6 +241,11 @@ kotlin {
             // Google Play Billing v8 — native Android IAP client (Phase 3, D8/D13).
             // PlayBillingNativeClient wraps BillingClient v9 (billing/NativeBillingClient.android.kt).
             implementation(paycraftLibs.google.billing.ktx)
+            // Native Google sign-in (Credential Manager → Google ID token), verified server-side by
+            // identity-token — PLAN-paycraft-verified-identity D1.
+            implementation(paycraftLibs.androidx.credentials)
+            implementation(paycraftLibs.androidx.credentials.play.services.auth)
+            implementation(paycraftLibs.googleid)
         }
 
         iosMain.dependencies {

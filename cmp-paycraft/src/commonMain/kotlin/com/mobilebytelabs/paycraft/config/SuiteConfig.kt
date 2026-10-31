@@ -57,9 +57,9 @@ data class SuiteConfig(
      */
     @SerialName("cache_ttl_seconds") val cacheTtlSeconds: Int = 300,
     /**
-     * The APP's sign-in clients (migration 167) — PayCraft builds its own native Apple/Google sign-in
-     * from them ([com.mobilebytelabs.paycraft.core.NativeSignIn]). Null = an older backend, or a
-     * bundled/mock config: no PayCraft sign-in is offered.
+     * The APP's sign-in clients (migration 167) — PayCraft's own Apple/Google sign-in uses them
+     * ([com.mobilebytelabs.paycraft.core.identity.VerifiedSignIn]): the Google Web client is Credential
+     * Manager's `serverClientId` on Android; the Apple Services ID enables Apple's browser flow off iOS.
      */
     val auth: AuthClientsDto? = null,
     // Set by the client on receipt; not returned by the server.

@@ -22,19 +22,14 @@ import com.mobilebytelabs.paycraft.provider.StripeProvider
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.mobilenativefoundation.store.store5.StoreReadResponse
@@ -50,13 +45,6 @@ class PayCraftBillingManager(
     private val store: PayCraftStore,
     private val repo: EntitlementRepository? = null,
     private val nativeBillingClient: NativeBillingClient? = null,
-    /**
-     * PayCraft's own native sign-in client (kmp-supabase-auth on PayCraft's Supabase). A signed-in,
-     * non-anonymous user identifies the buyer — [onVerifiedSignIn]. Null = no native sign-in (tests,
-     * hosts that strip it). A FLOW because the client is built only once `/config` delivers the app's
-     * sign-in ids ([NativeSignIn]); null until then.
-     */
-    private val identity: Flow<io.github.mobilebytelabs.supabaseauth.KmpSupabaseAuthClient?> = flowOf(null),
     /**
      * Dispatcher for this manager's internal [scope]. Defaults to [Dispatchers.Default], which is
      * what every production caller gets.
@@ -181,7 +169,6 @@ class PayCraftBillingManager(
         // whether or not the user opens the paywall.
         observeOutOfBandPurchases()
         reconcileUnfinishedPurchases()
-        observeNativeSignIn()
 
         // Synchronous cache read — runs before any UI frame (no Loading flash)
         val cached = store.getCachedSubscriptionStatus()
@@ -712,9 +699,9 @@ class PayCraftBillingManager(
     }
 
     /**
-     * A NATIVE sign-in (Apple / Google, via kmp-supabase-auth on PayCraft's own Supabase client) has
-     * produced a verified session for [email]. Same outcome as [loginWithOAuth] — the identity is
-     * already proven by GoTrue, so there is no token left to verify.
+     * PayCraft's own sign-in ([com.mobilebytelabs.paycraft.core.identity.VerifiedSignIn]) has had the
+     * identity-token edge function verify [email]. Same outcome as [loginWithOAuth] — the token is
+     * already verified, so there is nothing left to check.
      */
     override suspend fun onVerifiedSignIn(email: String) {
         val priorConflict = _billingState.value as? BillingState.DeviceConflict ?: lastConflict
@@ -929,22 +916,6 @@ class PayCraftBillingManager(
             // Always re-check, not only when something bound: a lapsed or cancelled subscription
             // is exactly the case where the store returns NOTHING and premium must still drop.
             refreshStatus(force = true)
-        }
-    }
-
-    /**
-     * A native Apple / Google sign-in on PayCraft's client is the buyer identifying themselves. The
-     * session flow is the source of truth (kmp-supabase-auth: launcher success callbacks are not
-     * reliable on Android), so this observes it rather than a button callback.
-     */
-    private fun observeNativeSignIn() {
-        scope.launch {
-            @OptIn(ExperimentalCoroutinesApi::class)
-            identity.filterNotNull().flatMapLatest { it.currentUser }.collect { user ->
-                val email = user?.takeIf { !it.isAnonymous }?.email?.takeIf { it.isNotBlank() } ?: return@collect
-                PayCraftLogger.onFlow("observeNativeSignIn", "native sign-in via ${user.provider}")
-                onVerifiedSignIn(email)
-            }
         }
     }
 

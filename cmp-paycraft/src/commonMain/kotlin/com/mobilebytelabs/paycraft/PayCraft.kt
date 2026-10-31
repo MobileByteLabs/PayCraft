@@ -19,6 +19,7 @@ import com.mobilebytelabs.paycraft.core.MonetizationModeResolver
 import com.mobilebytelabs.paycraft.core.PaywallPresentation
 import com.mobilebytelabs.paycraft.core.SessionDebounce
 import com.mobilebytelabs.paycraft.core.TrialSnapshot
+import com.mobilebytelabs.paycraft.core.identity.VerifiedSignIn
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
@@ -270,6 +271,8 @@ object PayCraft {
     internal fun onAppForegrounded() {
         if (!isConfigured) return
         billingManager?.onAppForegrounded()
+        // A browser sign-in (D2) completes in the browser; the app learns the result on return.
+        KoinPlatform.getKoinOrNull()?.getOrNull<VerifiedSignIn>()?.onForeground()
     }
 
     /**
@@ -930,7 +933,6 @@ object PayCraft {
         // this tenant's response yet) leaves the init flag in charge — additive/safe.
         resolvedMonetizationMode = MonetizationModeResolver.resolve(initialMonetizationMode, suite.mode)
         _suiteConfigFlow.value = suite
-        com.mobilebytelabs.paycraft.core.NativeSignIn.onConfig(suite.auth, backend)
         PayCraftLogger.onSuiteConfigApplied(
             source = resolved.source.name,
             productCount = suite.products.size,

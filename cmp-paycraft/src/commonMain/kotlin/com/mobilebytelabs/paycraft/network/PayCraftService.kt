@@ -1,15 +1,13 @@
 package com.mobilebytelabs.paycraft.network
 
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.core.identity.IdentityTokenClient
+import com.mobilebytelabs.paycraft.core.identity.VerifyOutcome
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionState
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.auth.providers.Apple
-import io.github.jan.supabase.auth.providers.Google
-import io.github.jan.supabase.auth.providers.builtin.IDToken
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import io.ktor.client.HttpClient
@@ -133,8 +131,8 @@ interface PayCraftService {
     suspend fun revokeDevice(serverToken: String, targetToken: String): Boolean
 
     /**
-     * Verifies a Google or Apple ID token via Supabase Auth (Gate 1).
-     * Returns the verified email address, or null if verification fails.
+     * Verifies a host-supplied Google or Apple ID token via the `identity-token` edge function (Gate 1)
+     * — no Supabase user is created. Returns the verified email, or null if verification fails.
      */
     suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String?
 
@@ -267,7 +265,6 @@ data class RegisterAppStoreResponse(val entitlement: EntitlementDto? = null)
 class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey: String? = null) : PayCraftService {
 
     private val postgrest get() = client.postgrest
-    private val auth get() = client.auth
 
     override suspend fun isPremium(serverToken: String): Boolean = try {
         PayCraftLogger.onRpcCall("is_premium", "token=${serverToken.take(12)}...")
@@ -516,24 +513,13 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         return r["revoked"]?.jsonPrimitive?.boolean ?: false
     }
 
-    override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String? = try {
+    override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String? {
         PayCraftLogger.onRpcCall("verifyOAuthToken", provider.name)
-        when (provider) {
-            OAuthProvider.GOOGLE -> auth.signInWith(IDToken) {
-                this.idToken = idToken
-                this.provider = Google
-            }
-            OAuthProvider.APPLE -> auth.signInWith(IDToken) {
-                this.idToken = idToken
-                this.provider = Apple
-            }
-        }
-        val email = auth.currentSessionOrNull()?.user?.email
-        PayCraftLogger.onRpcResult("verifyOAuthToken", "email=${email ?: "null"}")
-        email
-    } catch (e: Exception) {
-        PayCraftLogger.onRpcError("verifyOAuthToken", e.message)
-        null
+        // A host-supplied token carries a nonce we never saw, so none is sent (the server then skips it).
+        val outcome = IdentityTokenClient(http, PayCraft.backend, apiKey).verify(provider, idToken, nonce = null)
+        val email = (outcome as? VerifyOutcome.Verified)?.email
+        PayCraftLogger.onRpcResult("verifyOAuthToken", "email=${email ?: "null"} ($outcome)")
+        return email
     }
 
     override suspend fun getEntitlements(appUserId: String): EntitlementDto? = try {
