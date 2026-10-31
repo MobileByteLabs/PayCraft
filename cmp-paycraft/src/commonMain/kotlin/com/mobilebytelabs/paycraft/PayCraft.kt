@@ -266,6 +266,12 @@ object PayCraft {
     internal val billingManager: BillingManager?
         get() = KoinPlatform.getKoinOrNull()?.getOrNull<BillingManager>()
 
+    /** Platform foreground signal (Android: first Activity started after all were stopped). */
+    internal fun onAppForegrounded() {
+        if (!isConfigured) return
+        billingManager?.onAppForegrounded()
+    }
+
     /**
      * The purchasable plans for HEADLESS integration (mode 2) — rebuilt from the
      * dashboard config + resolved native-store prices. Empty until the first

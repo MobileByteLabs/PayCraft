@@ -894,6 +894,16 @@ class PayCraftBillingManager(
         repo?.restore(appUserId)
     }
 
+    override fun onAppForegrounded() {
+        reconcileUnfinishedPurchases()
+        scope.launch {
+            syncHeldStorePurchases(_userEmail.value ?: PayCraft.deviceId)
+            // Always re-check, not only when something bound: a lapsed or cancelled subscription
+            // is exactly the case where the store returns NOTHING and premium must still drop.
+            refreshStatus(force = true)
+        }
+    }
+
     override suspend fun restoreStorePurchases(): Boolean {
         val repo = repo ?: return false
         val appUserId = _userEmail.value ?: PayCraft.deviceId

@@ -128,6 +128,13 @@ internal interface BillingManager {
     suspend fun restoreStorePurchases(): Boolean = false
 
     /**
+     * The app returned to the foreground. Re-syncs what the store holds and re-checks premium —
+     * Google's guidance is to call `queryPurchasesAsync()` in `onResume()` for purchases that
+     * changed while the app was not running. Driven by the SDK itself on Android; no host wiring.
+     */
+    fun onAppForegrounded() {}
+
+    /**
      * PRIMARY ownership verification gate (Gate 1).
      *
      * Verifies a Google or Apple ID token via Supabase Auth, extracts the verified email,

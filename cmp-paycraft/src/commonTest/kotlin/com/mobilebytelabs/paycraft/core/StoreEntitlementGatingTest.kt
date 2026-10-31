@@ -132,6 +132,28 @@ class StoreEntitlementGatingTest {
         assertIs<BillingState.Premium>(state)
     }
 
+    /**
+     * Google's integration guide: call queryPurchasesAsync() "in your app's onResume() method to
+     * handle purchases that have transitioned to the PURCHASED state while your app was not running".
+     * The SDK only synced at process start, so an app left in the background (process alive) never
+     * re-checked — a pending payment that cleared, or a renewal, waited for the next cold start.
+     */
+    @Test
+    fun returning_to_the_foreground_resyncs_what_the_store_holds() = runTest {
+        val service = FakePayCraftService().apply { storeTruth[token] = activeStoreEntitlement("old-device") }
+        val native = SpyNativeBillingClient() // nothing held at launch …
+        val manager = manager(service, native)
+        assertIs<BillingState.Free>(manager.settled())
+
+        native.storePurchases = listOf(storePurchase()) // … a pending payment cleared while backgrounded
+        manager.onAppForegrounded()
+
+        val state = withContext(Dispatchers.Default) {
+            withTimeout(5_000) { manager.billingState.first { it is BillingState.Premium } }
+        }
+        assertIs<BillingState.Premium>(state)
+    }
+
     @Test
     fun restore_store_purchases_rebinds_and_unlocks_without_any_email() = runTest {
         // Bought under an earlier install's id; this install has a different one and no email.
