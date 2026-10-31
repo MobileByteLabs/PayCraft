@@ -513,6 +513,9 @@ object PayCraft {
             configFetchJob?.cancel()
             configFetchJob = applicationScope.launch { prefetchProducts() }
         }
+        // Re-sync the store whenever the app returns to the foreground (Google's onResume guidance;
+        // the StoreKit twin on iOS). Idempotent per process.
+        installForegroundObserver()
     }
 
     /**
