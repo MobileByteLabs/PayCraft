@@ -192,6 +192,13 @@ object PayCraftTestTags {
     const val LINK_ACCOUNT_NOT_NOW = "paycraft_link_account_not_now"
     const val LINK_ACCOUNT_DONE = "paycraft_link_account_done"
 
+    // D6 sign-in states (PLAN-paycraft-verified-identity), shared by restore / link / conflict.
+    const val SIGN_IN_WAITING = "paycraft_sign_in_waiting"
+    const val SIGN_IN_WAITING_CANCEL = "paycraft_sign_in_waiting_cancel"
+    const val SIGN_IN_CANCELLED = "paycraft_sign_in_cancelled"
+    const val SIGN_IN_FAILED = "paycraft_sign_in_failed"
+    const val OWNERSHIP_VERIFIED = "paycraft_ownership_verified"
+
     /** Phase 3a resilience surfaces, tagged here so AC-28 can pair all eleven states. */
     const val CONFIG_FAILED_MESSAGE = "paycraft_config_failed_message"
     const val CONFIG_FAILED_RETRY = "paycraft_config_failed_retry"

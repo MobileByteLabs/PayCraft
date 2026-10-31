@@ -2,7 +2,6 @@ package com.mobilebytelabs.paycraft.presentation.tree
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,32 +10,50 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mobilebytelabs.paycraft.LocalPayCraftConfig
+import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_save
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_popular_badge
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_cta
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_disclosure_body
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_disclosure_title
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
+import com.mobilebytelabs.paycraft.ui.resolveTrialCopy
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * Renders a server-authored [PaywallWorkflow] with Compose.
@@ -82,35 +99,39 @@ fun PaywallTreeContent(
     // Width is filled, height WRAPS — the frame owns the bounds and the scrolling (see
     // `PaywallStateHost`'s frame box). The tree is pure content: it is server-authored and its
     // height is unknowable here, so deciding how overflow is reached is not its call to make.
-    Column(modifier = modifier.fillMaxWidth().background(surface)) {
-        RenderNode(
-            node = root,
-            workflow = workflow,
-            context = context,
-            onSurface = onSurface,
-            onSurfaceVariant = onSurfaceVariant,
-            owningPackageRole = null,
-            priceFor = priceFor,
-            onSelectPackage = onSelectPackage,
-            onPurchase = onPurchase,
-            onRestore = onRestore,
-            onNavigate = { target ->
-                // Navigating to a step that does not exist is ignored rather than blanking the
-                // paywall: the tree came off a server, and a dangling destination must not be able
-                // to strand a paying customer on an empty screen.
-                if (workflow.steps.any { it.id == target }) stepId = target
-            },
-        )
-        // BRANDING AND LEGAL ARE NOT PART OF THE TREE, and must not be.
-        //
-        // The tree is tenant-authored; attribution is a plan obligation and reachable Terms/Privacy
-        // is a store one. If either were a node, a tenant could delete it — deliberately or by
-        // starting from a template that never had one — and the paywall would ship without what its
-        // tier and its store require, with nothing failing.
-        //
-        // Both now render in the FRAME (`PaywallStateHost`'s footer chrome), which is also what gives
-        // them their bottom inset: as the last rows of this scrolling column they sat against the
-        // gesture bar.
+    // Which plan wears the POPULAR chip — one at most, decided once for the step.
+    val popularRole = remember(root, context) { root.popularRole(context) }
+    CompositionLocalProvider(LocalPopularRole provides popularRole) {
+        Column(modifier = modifier.fillMaxWidth().background(surface)) {
+            RenderNode(
+                node = root,
+                workflow = workflow,
+                context = context,
+                onSurface = onSurface,
+                onSurfaceVariant = onSurfaceVariant,
+                owningPackageRole = null,
+                priceFor = priceFor,
+                onSelectPackage = onSelectPackage,
+                onPurchase = onPurchase,
+                onRestore = onRestore,
+                onNavigate = { target ->
+                    // Navigating to a step that does not exist is ignored rather than blanking the
+                    // paywall: the tree came off a server, and a dangling destination must not be able
+                    // to strand a paying customer on an empty screen.
+                    if (workflow.steps.any { it.id == target }) stepId = target
+                },
+            )
+            // BRANDING AND LEGAL ARE NOT PART OF THE TREE, and must not be.
+            //
+            // The tree is tenant-authored; attribution is a plan obligation and reachable Terms/Privacy
+            // is a store one. If either were a node, a tenant could delete it — deliberately or by
+            // starting from a template that never had one — and the paywall would ship without what its
+            // tier and its store require, with nothing failing.
+            //
+            // Both now render in the FRAME (`PaywallStateHost`'s footer chrome), which is also what gives
+            // them their bottom inset: as the last rows of this scrolling column they sat against the
+            // gesture bar.
+        }
     }
 }
 
@@ -133,6 +154,12 @@ data class PackagePrice(
     val perPeriodNote: String? = null,
     val savingsPercent: Int? = null,
     val trialDays: Int? = null,
+    /**
+     * The plan card's compact sub-line under the price: the monthly anchor ("$3.33 / mo") for longer
+     * plans, else the cadence ("/ month", "one-time"). Optional — without it the card falls back to
+     * [perPeriodNote]. Kept separate because [perPeriodNote] also feeds authored copy variables.
+     */
+    val periodLabel: String? = null,
 )
 
 @Composable
@@ -271,18 +298,13 @@ private fun RenderNode(
             // preview and an authoring canvas have no prices at all and must still show every plan.
             // Null means "show them all", which is what every non-app caller wants.
             if (context.availableRoles?.contains(node.roleIdentifier) == false) return
-            // NOTE: there is deliberately no `selected` branch here. Selection styling is DATA —
-            // a `selected` override on the package's stack (see the seed trees) — so a tenant can
-            // restyle it without an SDK release. A renderer branch would hardcode one look.
             // `recommended` comes from the v1 `popularPlanSku` bridge (and is authorable by any
-            // tree). The TAG sits on this non-clickable outer node deliberately, matching what
+            // tree). The TAG sits on the non-clickable outer node deliberately, matching what
             // ProductList established: a tag on the clickable would make "is it recommended" and
             // "did the tap land" the same assertion.
             val recommended = props["recommended"] == "true"
-            // Two tags, two nodes — deliberately. Stacking `.testTag(a).testTag(b)` on one chain
-            // keeps only the outermost, which silently dropped RECOMMENDED. It also matches what
-            // ProductList documented: RECOMMENDED belongs on a non-clickable wrapper so that "is
-            // this plan recommended" and "did the tap land" never become the same assertion.
+            val price = priceFor(node.roleIdentifier)
+            val (title, subtitle) = node.cardCopy(workflow, context, price)
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -294,64 +316,16 @@ private fun RenderNode(
                         },
                     ),
             ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .testTag(PayCraftTestTags.PRODUCT_LIST_ITEM)
-                        .clickable { onSelectPackage(node.roleIdentifier) },
-                ) {
-                    // The child stack is rendered with THIS package as the owning role, which is what
-                    // makes a `selected` override apply to one card instead of all of them.
-                    RenderNode(
-                        node = node.stack,
-                        workflow = workflow,
-                        context = context,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        owningPackageRole = node.roleIdentifier,
-                        priceFor = priceFor,
-                        onSelectPackage = onSelectPackage,
-                        onPurchase = onPurchase,
-                        onRestore = onRestore,
-                        onNavigate = onNavigate,
-                    )
-                    // FALLBACK ONLY. A card that prices itself — any descendant text carrying a
-                    // `{{ product.* }}` variable — lays its own price out, inside its own bounds. This
-                    // corner overlay exists for trees authored before variables existed, which would
-                    // otherwise show a plan with no price at all. It is deliberately not the default:
-                    // being outside the stack, it is not part of the card's measured height, so it
-                    // escapes the card's background and border.
-                    if (!node.stack.pricesItself(workflow, context)) {
-                        priceFor(node.roleIdentifier)?.let { price ->
-                            Column(
-                                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-                                horizontalAlignment = Alignment.End,
-                            ) {
-                                // The "SAVE n%" chip the template draws inside ProductList. Authored
-                                // nowhere — derived from the prices themselves, so it cannot go stale.
-                                price.savingsPercent?.let { pct ->
-                                    Text(
-                                        text = "SAVE $pct%",
-                                        color = PayCraftTheme.colors.onPopularBadge,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .background(PayCraftTheme.colors.popularBadge, RoundedCornerShape(6.dp))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                                    )
-                                }
-                                Text(
-                                    text = price.display,
-                                    color = onSurface,
-                                    fontSize = 14.sp,
-                                )
-                                price.perPeriodNote?.let {
-                                    Text(it, color = onSurfaceVariant, fontSize = 12.sp)
-                                }
-                            }
-                        }
-                    }
-                }
+                PlanCard(
+                    title = title,
+                    subtitle = subtitle,
+                    price = price,
+                    selected = context.selectedPackageRole == node.roleIdentifier,
+                    popular = LocalPopularRole.current == node.roleIdentifier,
+                    onSurface = onSurface,
+                    onSurfaceVariant = onSurfaceVariant,
+                    onClick = { onSelectPackage(node.roleIdentifier) },
+                )
             }
         }
 
@@ -371,20 +345,43 @@ private fun RenderNode(
             modifier = Modifier.fillMaxWidth(),
         ) { Text(text(node.labelLid)) }
 
-        is PaywallNode.PurchaseButton -> Button(
-            onClick = onPurchase,
-            shape = RoundedCornerShape(26.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = PayCraftTheme.colors.accent,
-                contentColor = PayCraftTheme.colors.onAccent,
-            ),
-            // The dominant CTA, named. Callers assert there is exactly ONE of these on a paywall;
-            // a tree with two purchase buttons is an authoring mistake worth failing on.
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag(PayCraftTestTags.PAYWALL_CTA)
-                .padding(node.stack?.margin?.toPadding() ?: PaddingValues(0.dp)),
-        ) { Text(text(node.labelLid)) }
+        is PaywallNode.PurchaseButton -> Column(Modifier.fillMaxWidth()) {
+            // The trial is the CATALOGUE's statement about the SELECTED plan, read at render time —
+            // never authored copy, which is how cappy's paywall promised 7 days while selling 14.
+            // Play policy wants the terms beside the CTA, so the disclosure renders here, and the
+            // CTA names the trial the tap actually starts.
+            val trialDays = context.selectedPackageRole?.let(priceFor)?.trialDays?.takeIf { it > 0 }
+            if (trialDays != null) {
+                TrialDisclosure(days = trialDays, onSurface = onSurface, onSurfaceVariant = onSurfaceVariant)
+                Spacer(Modifier.height(20.dp))
+            }
+            Button(
+                onClick = onPurchase,
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PayCraftTheme.colors.accent,
+                    contentColor = PayCraftTheme.colors.onAccent,
+                ),
+                // The dominant CTA, named. Callers assert there is exactly ONE of these on a paywall;
+                // a tree with two purchase buttons is an authoring mistake worth failing on.
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(PayCraftTestTags.PAYWALL_CTA)
+                    .padding(node.stack?.margin?.toPadding() ?: PaddingValues(0.dp))
+                    // The dominant CTA is a 56dp pill everywhere the SDK draws one (Stitch sdk-paywall).
+                    .heightIn(min = 56.dp),
+            ) {
+                Text(
+                    text = if (trialDays != null) {
+                        stringResource(Res.string.paycraft_trial_cta, trialDays)
+                    } else {
+                        text(node.labelLid)
+                    },
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
 
         is PaywallNode.RestorePurchases -> TextButton(
             onClick = onRestore,
@@ -395,8 +392,9 @@ private fun RenderNode(
             Text(
                 text = text(node.labelLid).uppercase(),
                 color = onSurfaceVariant,
-                fontSize = 11.sp,
-                letterSpacing = 0.8.sp,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.2.sp,
             )
         }
 
@@ -502,3 +500,252 @@ private fun Edges.toPadding() = PaddingValues(
     end = trailing.dp,
     bottom = bottom.dp,
 )
+
+// ── Plan card (Stitch sdk-paywall 02/03/10/11) ──────────────────────────────────────────────────
+//
+// CARD ANATOMY IS PRESENTATION, so the renderer owns it for EVERY package node — the bundled seeds
+// and every published tenant tree alike, with no data migration. What a tree authors inside a
+// package is its COPY (the plan name and its note); what the SDK draws is the card: a leading radio
+// that reflects the VM's selection, an outline (unselected) or accent ring (selected), the price
+// block right-aligned with its per-period line, a SAVE badge straddling the top edge, and a POPULAR
+// chip beside the title. Every one of those facts comes from data the render already has — the
+// selection, `PackagePrice` (derived from the catalogue), and the package's `recommended` /
+// `is_selected_by_default` flags — never from the tree's own styling, so a price change can never
+// leave a stale badge and a tree can never draw two different-looking plan lists.
+
+/** The plan that wears POPULAR for the current step; provided once by [PaywallTreeContent]. */
+private val LocalPopularRole = staticCompositionLocalOf<String?> { null }
+
+/** The variables the card chrome renders itself; a text built from these is not the plan's copy. */
+private val CHROME_VARIABLES =
+    Regex("""\{\{\s*product\.(price|price_per_period|offer_savings|offer_savings_label)\s*\}\}""")
+
+/**
+ * POPULAR goes to the package the tenant marked `recommended` (v1 `popularPlanSku` bridge, or an
+ * authored override); failing that, to the one the tree preselects (`is_selected_by_default` — the
+ * plan the author chose to lead with). At most one, and never on a single-plan paywall, where
+ * "popular" compares the plan to nothing.
+ */
+internal fun PaywallNode.popularRole(context: RenderContext): String? {
+    val packages = mutableListOf<PaywallNode.Package>()
+    fun walk(n: PaywallNode?) {
+        when (n) {
+            is PaywallNode.Package -> packages += n
+            is PaywallNode.Stack -> n.components.forEach(::walk)
+            is PaywallNode.Footer -> n.components.forEach(::walk)
+            else -> Unit
+        }
+    }
+    walk(this)
+    val sold = packages.filter { context.availableRoles?.contains(it.roleIdentifier) != false }
+    if (sold.size < 2) return null
+    return (
+        sold.firstOrNull { it.effectiveProperties(context, it.roleIdentifier)["recommended"] == "true" }
+            ?: sold.firstOrNull { it.isSelectedByDefault }
+        )?.roleIdentifier
+}
+
+/**
+ * The plan's COPY out of its authored stack: the first text is the title, the rest join into the
+ * note line. Texts that only carry price/savings variables are skipped — the card draws those in
+ * their fixed slots, and drawing them twice is the duplicate-price bug in another shape.
+ */
+internal fun PaywallNode.Package.cardCopy(
+    workflow: PaywallWorkflow,
+    context: RenderContext,
+    price: PackagePrice?,
+): Pair<String?, String?> {
+    val copy = mutableListOf<String>()
+    fun walk(n: PaywallNode) {
+        when (n) {
+            is PaywallNode.Stack -> n.components.forEach(::walk)
+            is PaywallNode.Text -> {
+                val lid = n.effectiveProperties(context, roleIdentifier)["text_lid"] ?: n.textLid
+                val raw = workflow.resolve(lid, context.locale)
+                if (!CHROME_VARIABLES.containsMatchIn(raw)) {
+                    substituteVariables(raw, price).trim().takeIf { it.isNotEmpty() }?.let(copy::add)
+                }
+            }
+            else -> Unit
+        }
+    }
+    walk(stack)
+    return copy.firstOrNull() to copy.drop(1).joinToString(" · ").ifBlank { null }
+}
+
+@Composable
+private fun PlanCard(
+    title: String?,
+    subtitle: String?,
+    price: PackagePrice?,
+    selected: Boolean,
+    popular: Boolean,
+    onSurface: Color,
+    onSurfaceVariant: Color,
+    onClick: () -> Unit,
+) {
+    val colors = PayCraftTheme.colors
+    val shape = RoundedCornerShape(16.dp)
+    val savings = price?.savingsPercent?.takeIf { it > 0 }
+    Box(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                // Room for the badge that straddles the top edge.
+                .padding(top = if (savings != null) BADGE_HALF_HEIGHT else 0.dp)
+                .clip(shape)
+                .background(if (selected) colors.accent.copy(alpha = 0.08f) else onSurface.copy(alpha = 0.03f))
+                .border(
+                    width = if (selected) 2.dp else 1.dp,
+                    color = if (selected) colors.accent else onSurface.copy(alpha = 0.14f),
+                    shape = shape,
+                )
+                .testTag(PayCraftTestTags.PRODUCT_LIST_ITEM)
+                .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioMark(selected = selected, idle = onSurfaceVariant)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (title != null) {
+                        Text(
+                            text = title,
+                            color = onSurface,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                    if (popular) {
+                        Spacer(Modifier.width(8.dp))
+                        PopularChip()
+                    }
+                }
+                if (subtitle != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(text = subtitle, color = onSurfaceVariant, fontSize = 14.sp)
+                }
+            }
+            if (price != null) {
+                Spacer(Modifier.width(12.dp))
+                // Capped so a long cadence note wraps under the price instead of crushing the plan name.
+                Column(Modifier.widthIn(max = 150.dp), horizontalAlignment = Alignment.End) {
+                    Text(text = price.display, color = onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    (price.periodLabel ?: price.perPeriodNote)?.let {
+                        Text(
+                            text = it,
+                            color = if (selected) colors.accent else onSurfaceVariant,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.End,
+                        )
+                    }
+                }
+            }
+        }
+        if (savings != null) {
+            Text(
+                text = stringResource(Res.string.paycraft_plan_save, "$savings%"),
+                color = colors.onAccent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 20.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(colors.accent)
+                    .padding(horizontal = 10.dp, vertical = 3.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RadioMark(selected: Boolean, idle: Color) {
+    val colors = PayCraftTheme.colors
+    Box(
+        modifier = Modifier
+            .size(22.dp)
+            .clip(CircleShape)
+            .then(
+                if (selected) {
+                    Modifier.background(colors.accent)
+                } else {
+                    Modifier.border(2.dp, idle.copy(alpha = 0.5f), CircleShape)
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (selected) Box(Modifier.size(8.dp).clip(CircleShape).background(colors.onAccent))
+    }
+}
+
+@Composable
+private fun PopularChip() {
+    val accent = PayCraftTheme.colors.accent
+    Text(
+        text = stringResource(Res.string.paycraft_popular_badge).uppercase(),
+        color = accent,
+        maxLines = 1,
+        softWrap = false,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.5.sp,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(accent.copy(alpha = 0.12f))
+            .border(1.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}
+
+/**
+ * Trial terms beside the CTA (Stitch content-trial; Play policy). Copy is the tenant's dashboard
+ * template when set, else the SDK default — through the same compliance-checked resolver the
+ * product list uses.
+ */
+@Composable
+private fun TrialDisclosure(days: Int, onSurface: Color, onSurfaceVariant: Color) {
+    val paywall = LocalPayCraftConfig.current?.paywall
+    val title = resolveTrialCopy(
+        template = paywall?.trialDisclosureTitle.orEmpty(),
+        fallback = stringResource(Res.string.paycraft_trial_disclosure_title),
+        days = days,
+        price = null,
+        requirePrice = false,
+    )
+    val body = resolveTrialCopy(
+        template = paywall?.trialDisclosureBody.orEmpty(),
+        fallback = stringResource(Res.string.paycraft_trial_disclosure_body),
+        days = days,
+        price = null,
+        requirePrice = false,
+    )
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(onSurface.copy(alpha = 0.03f))
+            .border(1.dp, onSurface.copy(alpha = 0.14f), shape)
+            .padding(16.dp)
+            .testTag(PayCraftTestTags.PRODUCT_LIST_TRIAL_TERMS),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Outlined.VerifiedUser,
+                contentDescription = null,
+                tint = PayCraftTheme.colors.accent,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(text = title, color = onSurface, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(text = body, color = onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
+    }
+}
+
+private val BADGE_HALF_HEIGHT = 11.dp

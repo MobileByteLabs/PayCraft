@@ -1,6 +1,7 @@
 package com.mobilebytelabs.paycraft.ui.components
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import com.mobilebytelabs.paycraft.PayCraft
@@ -19,7 +20,31 @@ internal class PayCraftSignIn(
     val launch: (OAuthProvider) -> Unit,
     val providers: Set<OAuthProvider>,
     val state: SignInState = SignInState.Idle,
+    /** Abandons the attempt (WaitingForBrowser → Idle). A no-op for a host handler. */
+    val reset: () -> Unit = {},
 )
+
+/** The provider an attempt is running for — buttons disable and the tapped one shows progress. */
+internal val SignInState.busyProvider: OAuthProvider?
+    get() = when (this) {
+        is SignInState.Launching -> provider
+        is SignInState.WaitingForBrowser -> provider
+        is SignInState.Verifying -> provider
+        else -> null
+    }
+
+/**
+ * [VerifiedSignIn] is a singleton, so a screen can open on the previous screen's outcome (a
+ * "Couldn't verify" card on a sheet the user never signed in from). Clears a TERMINAL state once,
+ * on entry; an attempt still in flight is left alone.
+ */
+@Composable
+internal fun ResetStaleSignIn(signIn: PayCraftSignIn?) {
+    LaunchedEffect(Unit) {
+        val s = signIn?.state
+        if (s is SignInState.Linked || s is SignInState.Cancelled || s is SignInState.Failed) signIn.reset()
+    }
+}
 
 /**
  * The sign-in PayCraft's identity screens (restore, device conflict, post-purchase link) use.
@@ -41,5 +66,5 @@ internal fun rememberPayCraftSignIn(): PayCraftSignIn? {
     val providers = remember(suite) { availableProviders(PlatformInfo.platform, suite) }
     if (providers.isEmpty()) return null
     val state = signIn.state.collectAsState().value
-    return remember(signIn, providers, state) { PayCraftSignIn(signIn::launch, providers, state) }
+    return remember(signIn, providers, state) { PayCraftSignIn(signIn::launch, providers, state, signIn::reset) }
 }

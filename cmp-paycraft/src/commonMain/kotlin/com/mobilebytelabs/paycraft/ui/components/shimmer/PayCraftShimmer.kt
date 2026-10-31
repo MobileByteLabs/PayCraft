@@ -61,7 +61,9 @@ fun Modifier.shimmerWave(
     val surface = MaterialTheme.colorScheme.surface
 
     if (reduceMotion) {
-        return@composed background(surfaceVariant)
+        // Shaped: a static placeholder must keep the outline of what it stands in for — a square
+        // where a pill CTA will land is a layout shift the shimmer exists to avoid.
+        return@composed background(surfaceVariant, shape)
     }
 
     val baseColor = surfaceVariant

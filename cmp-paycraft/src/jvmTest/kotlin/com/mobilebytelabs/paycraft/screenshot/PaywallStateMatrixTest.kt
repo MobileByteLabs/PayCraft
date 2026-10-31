@@ -133,11 +133,11 @@ class PaywallStateMatrixTest {
         assertCaptured(P_EMPTY)
     }
 
-    /** AC-27 — both entitlement operations reachable from the premium arm. */
+    /** AC-27 — Manage is the premium arm's ONE action; Restore is never offered to a subscriber. */
     @Test
     fun premium_entitlement_actions_render() = runComposeUiTest {
         setContent { DeterministicTheme { PremiumEntitlementActions(onAction = {}) } }
-        onNodeWithTag(PayCraftTestTags.PAYWALL_RESTORE_BUTTON).assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.PAYWALL_RESTORE_BUTTON).assertDoesNotExist()
         onNodeWithTag(PayCraftTestTags.MANAGE_SUBSCRIPTION_BUTTON).assertIsDisplayed()
         onRoot().captureRoboImage(P_PREMIUM_ACTIONS)
         assertCaptured(P_PREMIUM_ACTIONS)
@@ -148,12 +148,7 @@ class PaywallStateMatrixTest {
     fun premium_actions_dispatch_their_actions() = runComposeUiTest {
         val dispatched = mutableListOf<Any>()
         setContent { DeterministicTheme { PremiumEntitlementActions(onAction = { dispatched += it }) } }
-        onNodeWithTag(PayCraftTestTags.PAYWALL_RESTORE_BUTTON).performClick()
         onNodeWithTag(PayCraftTestTags.MANAGE_SUBSCRIPTION_BUTTON).performClick()
-        assertTrue(
-            dispatched.any { it.toString().contains("OpenRestoreSheet") },
-            "restore button did not dispatch OpenRestoreSheet — got $dispatched",
-        )
         assertTrue(
             dispatched.any { it.toString().contains("ManageSubscription") },
             "manage button did not dispatch ManageSubscription — got $dispatched",

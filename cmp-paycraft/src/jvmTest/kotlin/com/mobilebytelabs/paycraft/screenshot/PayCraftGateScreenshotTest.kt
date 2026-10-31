@@ -33,6 +33,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
+import com.github.takahirom.roborazzi.RoborazziOptions
 import com.mobilebytelabs.paycraft.ui.LocalPayCraftEntitlementOverride
 import com.mobilebytelabs.paycraft.ui.PayCraftAdGate
 import com.mobilebytelabs.paycraft.ui.PayCraftGate
@@ -111,7 +112,15 @@ class PayCraftGateScreenshotTest {
         onNodeWithTag(PayCraftTestTags.GATE_SOFT_LOCKED).assertIsDisplayed()
         onNodeWithTag(PayCraftTestTags.GATE_SOFT_SHIELD).assertExists()
         onNodeWithText(gated).assertIsDisplayed()
-        onRoot().captureRoboImage(P_TEASE_LOCKED)
+        // The Plus chip's 2dp shadow rasterizes differently depending on which tests ran earlier in the
+        // same JVM (passes alone, failed in the full suite on identical code, 2026-11-01). Tolerate
+        // that sub-1% shadow noise; a real change (missing chip, hidden content) is far larger.
+        onRoot().captureRoboImage(
+            P_TEASE_LOCKED,
+            roborazziOptions = RoborazziOptions(
+                compareOptions = RoborazziOptions.CompareOptions(changeThreshold = 0.01f),
+            ),
+        )
         assertCaptured(P_TEASE_LOCKED)
     }
 

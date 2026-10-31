@@ -184,6 +184,22 @@
     <string name="paycraft_ownership_verified_confirm">Transfer here</string>
     <string name="paycraft_ownership_verified_cancel">Cancel</string>
 
+    <!-- sdk-account-link: D6 sign-in states (PLAN-paycraft-verified-identity) shared by the
+         restore sheet, the post-purchase link screen and the device-conflict gate. -->
+    <string name="paycraft_provider_google">Google</string>
+    <string name="paycraft_provider_apple">Apple</string>
+    <string name="paycraft_sign_in_opening">Opening %1$s…</string>
+    <string name="paycraft_sign_in_waiting_title">Finish signing in with %1$s</string>
+    <string name="paycraft_sign_in_waiting_body">Complete sign-in in the browser, then come back to this app. We will pick it up automatically.</string>
+    <string name="paycraft_sign_in_waiting_cancel">Cancel sign-in</string>
+    <string name="paycraft_sign_in_failed_title">Couldn’t verify your account</string>
+    <string name="paycraft_restore_sign_in_cancelled">Sign-in cancelled. You can try again or restore with email.</string>
+    <string name="paycraft_restore_sign_in_failed_body">We couldn’t confirm your sign-in. Try again, or restore with the email you subscribed with.</string>
+    <string name="paycraft_link_cancelled">Sign-in cancelled. Your purchase still works on this phone.</string>
+    <string name="paycraft_link_failed_body">Your purchase is safe on this phone. Try signing in again, or do it later from Restore Purchases.</string>
+    <string name="paycraft_device_conflict_other_device">another device</string>
+    <string name="paycraft_ownership_verified_other_device">the other device</string>
+
     <!-- Empty products (AC-26) — previously a disabled button and nothing else. -->
     <string name="paycraft_empty_products_title">No plans available right now</string>
     <string name="paycraft_empty_products_body">We couldn’t load subscription plans. This is usually temporary — please try again.</string>
@@ -197,7 +213,7 @@
     <!-- Phase 3a surfaces, given localised copy here so AC-28 can pair every state. -->
     <string name="paycraft_config_failed_body">We couldn’t reach the subscription service.</string>
     <string name="paycraft_offline_body">You’re offline. Reconnect to load the latest plans.</string>
-    <string name="paycraft_stale_body">Showing plans cached %1$s ago.</string>
+    <string name="paycraft_stale_body">Showing plans cached %1$s.</string>
 
     <!-- ═══ Resilience surfaces (AC-20..AC-22) — these were shipped as hardcoded English ═══
          The bodies below already existed (added for the AC-28 pairing) but were never referenced;
@@ -230,6 +246,37 @@
     <string name="paycraft_builtin_trial_label">%1$s — %2$d-day trial</string>
     <string name="paycraft_builtin_priced_label">%1$s — %2$s</string>
     <string name="paycraft_builtin_reload">Reload plans</string>
+
+    <!-- sdk-paywall: the paywall frame + Kotlin-owned state arms (Stitch conformance, 2026-11-01).
+         Every one of these was an English literal inside a composable. -->
+    <string name="paycraft_paywall_close_cd">Close paywall</string>
+    <string name="paycraft_paywall_terms">Terms</string>
+    <string name="paycraft_paywall_privacy">Privacy Policy</string>
+    <string name="paycraft_paywall_link_separator">·</string>
+    <string name="paycraft_paywall_attribution">Powered by PayCraft by MobileByteSensei</string>
+    <string name="paycraft_paywall_test_mode">TEST MODE — sandbox only, no real charges</string>
+    <string name="paycraft_paywall_load_failed">This paywall could not be loaded.</string>
+    <string name="paycraft_premium_title">You're Premium</string>
+    <string name="paycraft_premium_plan_line">Plan: %1$s</string>
+    <string name="paycraft_premium_renews_line">Renews %1$s</string>
+    <string name="paycraft_premium_trial_line">Trial: %1$d days remaining</string>
+    <string name="paycraft_status_active">ACTIVE</string>
+    <string name="paycraft_payment_pending_title">Payment pending</string>
+    <string name="paycraft_payment_pending_body">Your store is still processing this payment. It can take a few minutes, or up to a few days for cash and bank payments.</string>
+    <string name="paycraft_payment_pending_reassurance">Premium unlocks automatically once it clears — you don’t need to buy again.</string>
+    <string name="paycraft_plan_save">SAVE %1$s</string>
+    <string name="paycraft_period_week">/ week</string>
+    <string name="paycraft_period_month">/ month</string>
+    <string name="paycraft_period_month_short">/ mo</string>
+    <string name="paycraft_period_quarter">/ quarter</string>
+    <string name="paycraft_period_semiannual">/ 6 months</string>
+    <string name="paycraft_period_year">/ year</string>
+    <string name="paycraft_period_lifetime">one-time</string>
+    <string name="paycraft_provider_picker_title">Choose how to pay</string>
+    <string name="paycraft_provider_picker_close_cd">Close payment options</string>
+    <string name="paycraft_provider_picker_secure">Payments processed securely by your selected provider</string>
+    <string name="paycraft_provider_picker_more">More payment methods (%1$d)</string>
+    <string name="paycraft_provider_picker_hide">Hide</string>
 
     <!-- Subscription settings section (PayCraftPlanSection).
          These are the FALLBACKS for the dashboard-driven settings_* copy (migration 156): the SDK

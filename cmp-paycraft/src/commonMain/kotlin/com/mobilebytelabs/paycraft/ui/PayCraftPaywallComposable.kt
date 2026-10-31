@@ -9,19 +9,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -36,8 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -48,6 +40,15 @@ import com.mobilebytelabs.paycraft.config.ConfigResult
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.config.productForRole
 import com.mobilebytelabs.paycraft.config.roleForSku
+import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_paywall_test_mode
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_period_lifetime
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_period_month
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_period_month_short
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_period_quarter
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_period_semiannual
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_period_week
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_period_year
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Product
@@ -64,15 +65,21 @@ import com.mobilebytelabs.paycraft.presentation.tree.PaywallTreeParser
 import com.mobilebytelabs.paycraft.presentation.tree.PaywallWorkflow
 import com.mobilebytelabs.paycraft.presentation.tree.RenderContext
 import com.mobilebytelabs.paycraft.presentation.tree.defaultSelectedRole
+import com.mobilebytelabs.paycraft.presentation.tree.monthlyEquivalent
 import com.mobilebytelabs.paycraft.presentation.tree.monthlyEquivalentNote
 import com.mobilebytelabs.paycraft.presentation.tree.packageRoles
 import com.mobilebytelabs.paycraft.presentation.tree.savingsVersusMonthly
 import com.mobilebytelabs.paycraft.provider.StripeProvider
 import com.mobilebytelabs.paycraft.ui.components.ConfigUnavailable
+import com.mobilebytelabs.paycraft.ui.components.PaywallErrorBanner
+import com.mobilebytelabs.paycraft.ui.components.PaywallFrame
+import com.mobilebytelabs.paycraft.ui.components.PaywallTopBar
 import com.mobilebytelabs.paycraft.ui.components.PlansUnavailable
 import com.mobilebytelabs.paycraft.ui.components.StaleConfigNotice
 import com.mobilebytelabs.paycraft.ui.components.skeleton.PaywallSkeleton
+import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -200,6 +207,7 @@ fun PayCraftPaywallComposable(
                                     PayCraftPaywallAction.CheckoutWithProvider(sheetTarget, provider),
                                 )
                             },
+                            onDismiss = { viewModel.dispatch(PayCraftPaywallAction.DismissProviderSheet) },
                         )
                     }
                 }
@@ -334,22 +342,8 @@ private fun PayCraftPaywallSurface(
         // while a screenshot of the same frame looked fine because the pill is drawn by the system).
         contentWindowInsets = if (isSheet) WindowInsets(0.dp) else WindowInsets.safeDrawing,
         containerColor = if (isSheet) Color.Transparent else MaterialTheme.colorScheme.surface,
-        topBar = {
-            TopAppBar(
-                title = { /* Template renders its own hero title — top bar stays chromeless. */ },
-                actions = {
-                    IconButton(
-                        onClick = { onAction(PayCraftPaywallAction.Dismiss) },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag(PayCraftTestTags.DISMISS_BUTTON)
-                            .semantics { contentDescription = "Close paywall" },
-                    ) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = null)
-                    }
-                },
-            )
-        },
+        // Chromeless: the circular close (X) only — the tree renders its own hero.
+        topBar = { PaywallTopBar(onClose = { onAction(PayCraftPaywallAction.Dismiss) }) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         val isTestMode = (PayCraft.config?.provider as? StripeProvider)?.isTestMode == true
@@ -364,7 +358,7 @@ private fun PayCraftPaywallSurface(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "⚙ TEST MODE — sandbox only, no real charges",
+                        text = stringResource(Res.string.paycraft_paywall_test_mode),
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
@@ -398,18 +392,24 @@ private fun PayCraftPaywallSurface(
             val productsLoading = configResult.isLoading &&
                 config == null &&
                 state.billingState !is BillingState.Premium
+            val surface = PayCraftTheme.colors.surface
+            val openRestore = { onAction(PayCraftPaywallAction.OpenRestoreSheet) }
             if (productsLoading) {
-                PaywallSkeleton(planCount = 3)
+                PaywallFrame(background = surface, centerContent = false) { PaywallSkeleton(planCount = 3) }
             } else if (config == null && state.billingState !is BillingState.Premium) {
                 // Every layer failed and there is nothing to price. Say so, and offer retry only
                 // when the failure might actually be transient.
-                ConfigUnavailable(
-                    result = configResult,
-                    onRetry = { onAction(PayCraftPaywallAction.RefreshStatus) },
-                    // Non-retryable failures would otherwise leave the user with no action at all;
-                    // Dismiss travels the normal path (VM -> Dismissed event -> host's onDismiss).
-                    onDismiss = { onAction(PayCraftPaywallAction.Dismiss) },
-                )
+                PaywallFrame(background = surface, centerContent = true) {
+                    ConfigUnavailable(
+                        result = configResult,
+                        onRetry = { onAction(PayCraftPaywallAction.RefreshStatus) },
+                        // Non-retryable failures would otherwise leave the user with no action at all;
+                        // Dismiss travels the normal path (VM -> Dismissed event -> host's onDismiss).
+                        onDismiss = { onAction(PayCraftPaywallAction.Dismiss) },
+                        // A buyer who already paid can recover their entitlement without a catalogue.
+                        onRestore = openRestore,
+                    )
+                }
             } else {
                 val template = PaywallTemplate.parse(config?.paywall?.template.orEmpty())
                 val products: List<Product> = config?.products?.let(ProductMapper::paywallProducts) ?: emptyList()
@@ -480,42 +480,59 @@ private fun PayCraftPaywallSurface(
                 }
 
                 if (products.isEmpty() && state.billingState !is BillingState.Premium) {
-                    PlansUnavailable(onDismiss = { onAction(PayCraftPaywallAction.Dismiss) })
+                    PaywallFrame(background = surface, centerContent = true) {
+                        PlansUnavailable(
+                            onDismiss = { onAction(PayCraftPaywallAction.Dismiss) },
+                            onRestore = openRestore,
+                        )
+                    }
                 } else {
                     // AC-21: a warm cache offline renders last week's prices. Saying nothing would
                     // present them as current, which is the one thing a paywall must not do.
-                    if (configResult.isStale) {
-                        StaleConfigNotice(
-                            ageSeconds = (configResult as? ConfigResult.Stale)?.ageSeconds ?: 0L,
-                            onRetry = { onAction(PayCraftPaywallAction.RefreshStatus) },
-                        )
-                    }
-                    // THE TREE PAYWALL HAD NO ERROR SURFACE AT ALL.
                     //
-                    // The ViewModel sets `errorMessage` / `emailError` on every checkout failure,
-                    // and nothing in this render path ever displayed either. Device-observed: a
-                    // buyer taps Continue, the VM records "checkout failed … no checkout URL for
-                    // currency INR", the screen does not change by one pixel, and the only evidence
-                    // that anything happened is logcat. A failure the buyer cannot see is
-                    // indistinguishable from a dead button.
+                    // THE TREE PAYWALL HAD NO ERROR SURFACE AT ALL. The ViewModel sets `errorMessage` /
+                    // `emailError` on every checkout failure and nothing in this render path displayed
+                    // either — a buyer tapped Continue and the screen did not change by one pixel, which
+                    // is indistinguishable from a dead button.
                     //
-                    // Rendered ABOVE the paywall body, not below it. Appended after the renderer it
-                    // sat beneath "RESTORE PURCHASES" — off-screen on a phone, so the failure was
-                    // present in the composition and still invisible to the buyer. The body is
-                    // tenant-authored and cannot be relied on to have a slot for this.
+                    // Both render as the frame's BANNER: inside the scroll, above the paywall body, so
+                    // they are on screen where the buyer is looking (appended below the tree, the failure
+                    // sat beneath RESTORE — off-screen on a phone). The body is tenant-authored and cannot
+                    // be relied on to have a slot for this.
+                    val stale = configResult.isStale
                     val failure = state.errorMessage ?: state.emailError
-                    if (failure != null) {
-                        Text(
-                            text = failure,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp, vertical = 12.dp)
-                                .testTag(PayCraftTestTags.CHECKOUT_ERROR),
-                        )
+                    val banner: (@Composable () -> Unit)? = if (stale || failure != null) {
+                        {
+                            if (stale) {
+                                StaleConfigNotice(
+                                    ageSeconds = (configResult as? ConfigResult.Stale)?.ageSeconds ?: 0L,
+                                    onRetry = { onAction(PayCraftPaywallAction.RefreshStatus) },
+                                )
+                            }
+                            if (failure != null) {
+                                // No retry link: the CTA right below IS the retry.
+                                PaywallErrorBanner(
+                                    text = failure,
+                                    onRetry = null,
+                                    modifier = Modifier.testTag(PayCraftTestTags.CHECKOUT_ERROR),
+                                )
+                            }
+                        }
+                    } else {
+                        null
                     }
+
+                    // The card's cadence line, localized here because the price lambda is not composable.
+                    val periodLabels = mapOf(
+                        Product.Subscription.Interval.WEEK to stringResource(Res.string.paycraft_period_week),
+                        Product.Subscription.Interval.MONTH to stringResource(Res.string.paycraft_period_month),
+                        Product.Subscription.Interval.QUARTER to stringResource(Res.string.paycraft_period_quarter),
+                        Product.Subscription.Interval.SEMIANNUAL to
+                            stringResource(Res.string.paycraft_period_semiannual),
+                        Product.Subscription.Interval.YEAR to stringResource(Res.string.paycraft_period_year),
+                    )
+                    val oneTimeLabel = stringResource(Res.string.paycraft_period_lifetime)
+                    val perMonthSuffix = stringResource(Res.string.paycraft_period_month_short)
 
                     PaywallStateHost(
                         state = state.billingState,
@@ -564,6 +581,13 @@ private fun PayCraftPaywallSurface(
                                         // spelled "7-day free trial" in its copy while the
                                         // catalogue said 14 — and the copy is what the buyer read.
                                         trialDays = dto.trialDurationDays?.takeIf { dto.trialEnabled },
+                                        periodLabel = when (product) {
+                                            is Product.Subscription ->
+                                                product.monthlyEquivalent()?.let { "${it.format()} $perMonthSuffix" }
+                                                    ?: periodLabels[product.interval]
+                                            is Product.Lifetime -> oneTimeLabel
+                                            is Product.Trial -> null
+                                        },
                                     )
                                 }
                             }
@@ -582,6 +606,7 @@ private fun PayCraftPaywallSurface(
                         // v1 `valueProps`/`popularPlanSku` are carried into a BUILT-IN SEED only.
                         // A tenant who authored a tree already said what their paywall contains.
                         enrichFromConfig = treeWorkflow == null,
+                        banner = banner,
                     )
                 }
             }
