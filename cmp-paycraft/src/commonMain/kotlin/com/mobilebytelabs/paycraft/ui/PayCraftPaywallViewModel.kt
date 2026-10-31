@@ -163,6 +163,9 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
             is PayCraftPaywallAction.ClearRestoreResult -> onClearRestoreResult()
             is PayCraftPaywallAction.OpenRestoreSheet -> _state.update { it.copy(isRestoreSheetVisible = true) }
             is PayCraftPaywallAction.CloseRestoreSheet -> _state.update { it.copy(isRestoreSheetVisible = false) }
+            is PayCraftPaywallAction.SurfaceClosed -> _state.update {
+                it.copy(isRestoreSheetVisible = false, providerSheetTarget = null, isSubmitting = false)
+            }
             is PayCraftPaywallAction.LoginWithOAuth -> onLoginWithOAuth(action)
             is PayCraftPaywallAction.ConfirmDeviceTransfer -> onConfirmDeviceTransfer()
             is PayCraftPaywallAction.CancelDeviceTransfer -> onCancelDeviceTransfer()

@@ -36,7 +36,7 @@ import {
   verifyStoreKit2Jws,
 } from "../_shared/receipt-validate.ts";
 import { resolveInboundTenant } from "../_shared/inbound-tenant.ts";
-import { appStoreServerJwt } from "../_shared/apple-jwt.ts";
+import { tenantAppStoreServerJwt } from "../_shared/apple-jwt.ts";
 
 /**
  * App Store Server API — "Get All Subscription Statuses". Identical call to the one
@@ -101,8 +101,11 @@ serve(async (req: Request) => {
     // 3. Authoritative re-fetch. The verified JWS proves the transaction is real, but its state can
     //    already be stale (a refund or cancellation issued after purchase), so Apple is asked.
     //    Environment comes from the signed payload, never from the client body.
+    //    The APP comes from the SIGNED bundleId; it decides both the record's tenant and which App
+    //    Store key may ask Apple (each app connects its own).
     const sandbox = txInfo.environment === "Sandbox";
-    const truth = await getAllSubscriptionStatuses(originalTxn, await appStoreServerJwt(), sandbox);
+    const { tenantId } = await resolveInboundTenant({ appIdentifier: txInfo.bundleId ?? null, provider: "app_store" });
+    const truth = await getAllSubscriptionStatuses(originalTxn, await tenantAppStoreServerJwt(tenantId), sandbox);
 
     // 4. Reconcile ONE canonical record. appleToCanonical resolves grace/billing-retry/revoked the
     //    same way the ASSN-V2 path does, so a later notification for this same subscription
@@ -111,12 +114,9 @@ serve(async (req: Request) => {
     // Bind the record to THIS app user — the canonical mapper keys on the Apple transaction and has
     // no knowledge of our identity namespace.
     canonical.appUserId = appUserId;
-    // Attribute to the APP from the SIGNED bundleId, as apple-server-notifications does — a NULL
-    // tenant never matches get_entitlements' tenant filter, so the purchase would vanish on read.
-    canonical.tenantId = (await resolveInboundTenant({
-      appIdentifier: txInfo.bundleId ?? null,
-      provider: "app_store",
-    })).tenantId;
+    // Attributed to the APP — a NULL tenant never matches get_entitlements' tenant filter, so the
+    // purchase would vanish on read.
+    canonical.tenantId = tenantId;
     await reconcileEntitlement(canonical);
 
     // 5. Return the reconciled entitlement in the SDK EntitlementDto shape (epoch-millis).

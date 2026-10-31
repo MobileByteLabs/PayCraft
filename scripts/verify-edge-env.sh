@@ -78,8 +78,11 @@ for d in supabase/functions/*/; do
     done < <(grep -oE 'from "\./[A-Za-z0-9._-]+"' "$f" 2>/dev/null | sed 's|.*/\./||; s|"$||' | sort -u)
   done
 
+  # `requireEnv("X")` too: apple-jwt.ts reads its four names through that helper, and a literal-only
+  # pattern never saw them — so every iOS purchase failed on unset APPLE_ASSA_* and this gate stayed
+  # green (found 2026-10-31).
   reads="$(cat $srcs 2>/dev/null \
-            | grep -oE 'Deno\.env\.get\("[A-Z_][A-Z0-9_]*"\)' \
+            | grep -oE '(Deno\.env\.get|requireEnv)\("[A-Z_][A-Z0-9_]*"\)' \
             | grep -oE '"[A-Z_][A-Z0-9_]*"' | tr -d '"' | sort -u)"
 
   missing=""

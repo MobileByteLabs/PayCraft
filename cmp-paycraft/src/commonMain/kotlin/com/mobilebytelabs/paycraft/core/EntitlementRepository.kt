@@ -49,6 +49,26 @@ class EntitlementRepository(
      *    subscription bought on platform A becomes active on platform B (different store account,
      *    same app-user-id).
      */
+    /**
+     * Re-present every purchase the store currently holds to the server under [appUserId] — no store
+     * restore prompt, just the store's own cached list (Play `queryPurchasesAsync`, StoreKit current
+     * entitlements). The server re-fetches truth from the store for each, so this both binds them to
+     * this identity and refreshes renewals / cancellations a missed store notification never told us.
+     *
+     * @return how many purchases the server bound.
+     */
+    suspend fun syncHeldPurchases(appUserId: String): Int =
+        service.relinkStorePurchases(native.queryPurchases(), appUserId, platform())
+
+    /**
+     * The server's entitlement for [appUserId], read from the NETWORK (written through to the cache).
+     * Not [streamFresh]: that emits the cached value FIRST, so a caller taking its first emission
+     * reads a stale period instead of the renewal the server already holds. Throws when the server
+     * has none or is unreachable — the two are indistinguishable at this layer (`getEntitlements`
+     * answers null for both), so a caller must not treat a throw as "offline, keep premium".
+     */
+    suspend fun fresh(appUserId: String): Entitlement = cache.store.fresh(EntitlementKey(appUserId))
+
     suspend fun restore(appUserId: String): Entitlement {
         native.sync()
         service.relinkStorePurchases(native.restore(), appUserId, platform())

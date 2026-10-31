@@ -33,6 +33,14 @@ sealed interface PayCraftPaywallAction {
     data object OpenRestoreSheet : PayCraftPaywallAction
     data object CloseRestoreSheet : PayCraftPaywallAction
 
+    /**
+     * The paywall left composition — however it was closed (swipe, back, X, host navigation).
+     * Resets the transient surfaces layered over it (restore sheet, provider picker): the
+     * ViewModel is host-scoped and outlives the sheet, so without this a paywall closed while
+     * restore was showing reopened on restore, every time after.
+     */
+    data object SurfaceClosed : PayCraftPaywallAction
+
     // ─── Device conflict resolution ──────────────────────────────────────────
 
     /**

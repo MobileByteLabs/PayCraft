@@ -23,7 +23,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { googleToCanonical, reconcileEntitlement } from "../_shared/entitlement-reconcile.ts";
 import { claimStoreTransaction, StoreTransactionOwnedError } from "../_shared/receipt-validate.ts";
 import { resolveInboundTenant } from "../_shared/inbound-tenant.ts";
-import { playDeveloperJwt } from "../_shared/play-jwt.ts";
+import { tenantPlayDeveloperJwt } from "../_shared/play-jwt.ts";
 
 // Play Developer API — purchases.subscriptionsv2.get. Re-fetch truth; never trust the client body.
 async function subscriptionsv2Get(pkg: string, token: string, jwt: string): Promise<Record<string, any>> {
@@ -62,17 +62,20 @@ serve(async (req: Request) => {
       );
     }
 
+    // 0. The APP the purchase belongs to — it decides both the record's tenant and WHICH Play
+    //    service account may ask Google about it (each app connects its own).
+    const { tenantId } = await resolveInboundTenant({ appIdentifier: packageName, provider: "google_play" });
+
     // 1. Authoritative re-fetch from Play (never trust the client's productId/state).
-    const jwt = await playDeveloperJwt();
+    const jwt = await tenantPlayDeveloperJwt(tenantId);
     const truth = await subscriptionsv2Get(packageName, purchaseToken, jwt);
 
     // 2. Ownership — Play just proved the token is real, so this only decides WHO holds it.
     await claimStoreTransaction("google_play", purchaseToken, appUserId);
 
-    // 3. Reconcile ONE canonical record (idempotent, out-of-order safe), attributed to the APP the
-    //    same way google-rtdn does — a NULL tenant never matches get_entitlements' tenant filter, so
-    //    the purchase would vanish on the next read (restore included).
-    const { tenantId } = await resolveInboundTenant({ appIdentifier: packageName, provider: "google_play" });
+    // 3. Reconcile ONE canonical record (idempotent, out-of-order safe), attributed to the APP — a
+    //    NULL tenant never matches get_entitlements' tenant filter, so the purchase would vanish on
+    //    the next read (restore included).
     const canonical = { ...googleToCanonical(truth, purchaseToken, appUserId), tenantId };
     await reconcileEntitlement(canonical);
 

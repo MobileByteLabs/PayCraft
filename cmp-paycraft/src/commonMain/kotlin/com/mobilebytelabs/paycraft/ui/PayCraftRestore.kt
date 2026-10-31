@@ -243,6 +243,14 @@ internal fun PayCraftRestoreContent(
         }
     }
 
+    // STORE FIRST. A Google Play / App Store buyer restores through their store account — no email,
+    // no sign-in (Apple requires that a Restore tap works without an account). The email form below
+    // is only for web purchases, and it is all this sheet used to offer: a store-only buyer had no
+    // way to restore at all. Returns false (a no-op) where there is no native store.
+    LaunchedEffect(Unit) {
+        if (billingManager.restoreStorePurchases()) restoreResult = RestoreResult.Success
+    }
+
     // Auto-dismiss 1.5s after success
     LaunchedEffect(restoreResult) {
         if (restoreResult == RestoreResult.Success) {

@@ -244,9 +244,13 @@ export function googleToCanonical(
       canonicalState = "pending";
   }
 
-  const latestEventTs = eventTsOverride ??
-    (line.expiryTime ? new Date(line.expiryTime).toISOString() : null) ??
-    new Date().toISOString();
+  // Ordering timestamp = WHEN THIS TRUTH WAS READ. Every caller hands this mapper a fresh
+  // purchases.subscriptionsv2.get re-fetch, so the newest read is the newest truth. It used to be
+  // the expiryTime — which a cancel, refund, revoke, pause or expiry does NOT move — so the
+  // strictly-newer guard dropped every one of them and only renewals ever landed (a cancelled
+  // subscription stayed `active, will_renew=true`; found on device 2026-10-31). Apple's mapper is
+  // already right for the same reason: its signedDate is stamped when Apple answers.
+  const latestEventTs = eventTsOverride ?? new Date().toISOString();
 
   return {
     appUserId,

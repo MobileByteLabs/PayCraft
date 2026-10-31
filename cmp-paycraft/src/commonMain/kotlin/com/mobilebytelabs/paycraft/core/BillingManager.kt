@@ -118,6 +118,16 @@ internal interface BillingManager {
     fun refreshStatus(force: Boolean = false)
 
     /**
+     * Restore what the STORE holds for this device's store account (Google Play / App Store) — no
+     * email, no sign-in. Re-binds each store purchase to the current app-user-id server-side, then
+     * applies the result. This is what a "Restore Purchases" tap must do first; the email lookup is
+     * only the fallback for web purchases.
+     *
+     * @return true when an active store entitlement was found and premium applied.
+     */
+    suspend fun restoreStorePurchases(): Boolean = false
+
+    /**
      * PRIMARY ownership verification gate (Gate 1).
      *
      * Verifies a Google or Apple ID token via Supabase Auth, extracts the verified email,

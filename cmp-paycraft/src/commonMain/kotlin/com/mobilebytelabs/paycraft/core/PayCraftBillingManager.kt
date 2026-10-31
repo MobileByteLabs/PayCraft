@@ -182,6 +182,11 @@ class PayCraftBillingManager(
         scope.launch {
             val savedEmail = store.getEmail()
             PayCraftLogger.onFlow("init", "savedEmail=${savedEmail ?: "null"}, stripeMode=$stripeMode")
+            // Re-present what the store holds BEFORE deciding premium. The server only hears about a
+            // renewal / cancel from a store notification; when that channel is missing or late the
+            // record goes stale while the store keeps billing. Syncing on launch means a missed
+            // notification can never leave a paying user Free — and a reinstall needs no Restore tap.
+            syncHeldStorePurchases(savedEmail?.takeIf { it.isNotBlank() } ?: PayCraft.deviceId)
             if (savedEmail.isNullOrEmpty()) {
                 // ONLY while still unresolved. This write used to be unconditional, which made init
                 // a late writer that could overwrite a more specific state resolved during its own
@@ -197,9 +202,16 @@ class PayCraftBillingManager(
                 // Loading is the initial value and means "no verdict yet", so gating on it writes
                 // Free exactly when init really is the thing that resolved the question. Same guard
                 // the post-purchase reconcile path below already uses, for the same reason.
+                // A store subscription needs no email: ask the reconciled store entitlement first.
+                val storeStatus = storeEntitlementStatus(PayCraft.deviceId)
                 if (_billingState.value is BillingState.Loading) {
-                    PayCraftLogger.onFlow("init", "No saved email → Free")
-                    _billingState.value = BillingState.Free
+                    if (storeStatus != null) {
+                        PayCraftLogger.onFlow("init", "No saved email → store entitlement is active")
+                        applyStorePremium(storeStatus)
+                    } else {
+                        PayCraftLogger.onFlow("init", "No saved email → Free")
+                        _billingState.value = BillingState.Free
+                    }
                 } else {
                     PayCraftLogger.onFlow(
                         "init",
@@ -629,6 +641,13 @@ class PayCraftBillingManager(
                 )
                 return
             }
+            if (repo != null) {
+                scope.launch {
+                    val storeStatus = storeEntitlementStatus(PayCraft.deviceId)
+                    if (storeStatus != null) applyStorePremium(storeStatus) else _billingState.value = BillingState.Free
+                }
+                return
+            }
             _billingState.value = BillingState.Free
             return
         }
@@ -875,7 +894,42 @@ class PayCraftBillingManager(
         repo?.restore(appUserId)
     }
 
+    override suspend fun restoreStorePurchases(): Boolean {
+        val repo = repo ?: return false
+        val appUserId = _userEmail.value ?: PayCraft.deviceId
+        runCatching { repo.restore(appUserId) }
+            .onFailure { PayCraftLogger.onError("restoreStorePurchases", it.message) }
+        val status = storeEntitlementStatus(appUserId) ?: return false
+        applyStorePremium(status)
+        return true
+    }
+
     // ─── Private helpers ─────────────────────────────────────────────────────
+
+    /**
+     * The reconciled STORE entitlement for [appUserId] as a premium status, or null when there is
+     * none servable (absent, expired, on hold, or the read failed). Network read: this answers "is
+     * the user premium right now", which a stale cache must not decide (device finding 2026-10-31).
+     */
+    // ponytail: no offline fallback — every caller has already reached the server (or shows the
+    // cached status first), and a null here cannot say whether the server was down or empty.
+    private suspend fun storeEntitlementStatus(appUserId: String): SubscriptionStatus? {
+        val repo = repo ?: return null
+        val entitlement = runCatching { repo.fresh(appUserId) }.getOrNull() ?: return null
+        if (!repo.isServableOffline(entitlement, currentTimeMillis())) return null
+        return entitlement.toSubscriptionStatus(email = _userEmail.value)
+    }
+
+    private fun applyStorePremium(status: SubscriptionStatus) {
+        _isPremium.value = true
+        _subscriptionStatus.value = status
+        _billingState.value = BillingState.Premium(status)
+        store.cacheSubscriptionStatus(status)
+        if (!lastObservedPremium) {
+            scope.launch { _subscriptionActivated.emit(SubscriptionActivated(sku = status.plan, isTrial = false)) }
+        }
+        lastObservedPremium = true
+    }
 
     /**
      * Carry every purchase the store holds onto [appUserId] — run when the user signs in.
@@ -886,18 +940,17 @@ class PayCraftBillingManager(
      * moves it only off an anonymous holder, so this can never take a purchase from another account.
      */
     private fun relinkStorePurchasesTo(appUserId: String) {
-        val native = nativeBillingClient ?: return
         scope.launch {
-            val purchases = try {
-                native.queryPurchases()
-            } catch (e: Exception) {
-                PayCraftLogger.onError("relinkStorePurchases", e.message)
-                return@launch
-            }
-            if (service.relinkStorePurchases(purchases, appUserId, currentPlatform()) > 0) {
-                refreshStatus(force = true)
-            }
+            if (syncHeldStorePurchases(appUserId) > 0) refreshStatus(force = true)
         }
+    }
+
+    /** [EntitlementRepository.syncHeldPurchases], failure-tolerant: a sync that cannot run is not an error. */
+    private suspend fun syncHeldStorePurchases(appUserId: String): Int {
+        val repo = repo ?: return 0
+        return runCatching { repo.syncHeldPurchases(appUserId) }
+            .onFailure { PayCraftLogger.onError("syncHeldStorePurchases", it.message) }
+            .getOrDefault(0)
     }
 
     private suspend fun performRegisterAndLogin(email: String) {
@@ -1084,6 +1137,13 @@ class PayCraftBillingManager(
 
             lastObservedPremium = true
         } else {
+            // The web check reads only `subscriptions`; a STORE subscription lives in the reconciled
+            // entitlement. Declaring Free without asking it is how a Play/App Store subscriber lost
+            // premium on their first refresh after buying.
+            storeEntitlementStatus(email)?.let {
+                applyStorePremium(it)
+                return
+            }
             val status = SubscriptionStatus(isPremium = false, email = email)
             _isInTrial.value = false
             _trialEndsAt.value = null

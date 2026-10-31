@@ -12,7 +12,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { resolveInboundTenant } from "../_shared/inbound-tenant.ts";
 import { reconcileEntitlement, googleToCanonical } from "../_shared/entitlement-reconcile.ts";
-import { playDeveloperJwt } from "../_shared/play-jwt.ts";
+import { tenantPlayDeveloperJwt } from "../_shared/play-jwt.ts";
 
 // Play Developer API — purchases.subscriptionsv2.get. Re-fetch truth; never trust the RTDN body.
 async function subscriptionsv2Get(
@@ -87,7 +87,11 @@ serve(async (req: Request) => {
         // silently reversing a spend the player has already made would be worse.
         return new Response("ok", { status: 200 });
       }
-      const jwt = await playDeveloperJwt();
+      const { tenantId: packTenantId } = await resolveInboundTenant({
+        appIdentifier: rtdn.packageName,
+        provider: "google_play",
+      });
+      const jwt = await tenantPlayDeveloperJwt(packTenantId);
       // The obfuscated account id is the app's OWN user id, threaded through the purchase by the
       // SDK. It is the only buyer identity Play exposes — there is no email on a store purchase.
       const appUserId = await oneTimeProductAppUserId(rtdn.packageName, oneTime.sku, oneTime.purchaseToken, jwt);
@@ -121,16 +125,17 @@ serve(async (req: Request) => {
       return new Response("ok", { status: 200 });
     }
 
-    const jwt = await playDeveloperJwt();
-    const truth = await subscriptionsv2Get(rtdn.packageName, sub.purchaseToken, jwt);
     // Attribute to the APP. Until now every Play subscription was reconciled with tenant_id NULL,
     // and a NULL-tenant row never matches check_premium_with_device()'s
     // `tenant_id IS NOT DISTINCT FROM` filter — so is_premium read false for a paying customer on
-    // any multi-tenant deployment. Same resolver the consumable path and the web PSPs use.
+    // any multi-tenant deployment. Same resolver the consumable path and the web PSPs use. Resolved
+    // BEFORE the re-fetch: the app also decides which Play service account may ask Google.
     const { tenantId: subTenantId } = await resolveInboundTenant({
       appIdentifier: rtdn.packageName,
       provider: "google_play",
     });
+    const jwt = await tenantPlayDeveloperJwt(subTenantId);
+    const truth = await subscriptionsv2Get(rtdn.packageName, sub.purchaseToken, jwt);
     // Prefer the developer-supplied obfuscated account id for stable identity linking.
     const appUserId: string = truth.externalAccountIdentifiers?.obfuscatedExternalAccountId ??
       truth.externalAccountIdentifiers?.externalAccountId ??

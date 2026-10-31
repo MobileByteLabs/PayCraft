@@ -12,7 +12,7 @@ import { verifyStoreKit2Jws } from "../_shared/receipt-validate.ts";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { resolveInboundTenant } from "../_shared/inbound-tenant.ts";
 import { reconcileEntitlement, appleToCanonical } from "../_shared/entitlement-reconcile.ts";
-import { appStoreServerJwt } from "../_shared/apple-jwt.ts";
+import { tenantAppStoreServerJwt } from "../_shared/apple-jwt.ts";
 
 // App Store Server API — "Get All Subscription Statuses". NEVER trust the ASSN-V2 payload state;
 // re-fetch the authoritative status for the originalTransactionId.
@@ -105,13 +105,14 @@ serve(async (req: Request) => {
     }
 
     const sandbox = (notif.data?.environment ?? notif.environment) === "Sandbox";
-    const truth = await getAllSubscriptionStatuses(originalTxn, await appStoreServerJwt(), sandbox);
     // Attribute to the APP — see the Play handler: a NULL-tenant entitlement row silently reads as
     // not-premium on a multi-tenant deployment. bundleId is the same string Play calls packageName.
+    // Resolved BEFORE the re-fetch: the app also decides which App Store key may ask Apple.
     const { tenantId: subTenantId } = await resolveInboundTenant({
       appIdentifier: data.bundleId ?? decodeSignedTransaction(data.signedTransactionInfo)?.bundleId ?? null,
       provider: "app_store",
     });
+    const truth = await getAllSubscriptionStatuses(originalTxn, await tenantAppStoreServerJwt(subTenantId), sandbox);
     // preserveOwner: appleToCanonical keys on the appAccountToken UUID, never the SDK's
     // app-user-id — writing it would re-key the row away from get_entitlements on every renewal.
     await reconcileEntitlement({
