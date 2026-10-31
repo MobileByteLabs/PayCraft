@@ -134,8 +134,10 @@ internal data class PlanSectionState(
      * made every caller of this state own the sheet's visibility; [rememberRestorePresenter] now
      * emits the sheet and hands back only this, so there is one place in the SDK where restore is
      * presented rather than one per surface that offers it.
+     *
+     * Null once the user HAS an entitlement (premium or trial) — see [restoreActionFor].
      */
-    val onRestoreClick: () -> Unit,
+    val onRestoreClick: (() -> Unit)?,
 )
 
 /**
@@ -215,9 +217,17 @@ internal fun rememberSubscriptionSettingsState(
         supportingText = supporting,
         canManage = manageUrl != null,
         onManage = { repo.manageSubscription() },
-        onRestoreClick = showRestore,
+        onRestoreClick = restoreActionFor(entitlement.tier, showRestore),
     )
 }
+
+/**
+ * Restore is offered only to someone with NOTHING to show yet. Once the subscription has been
+ * fetched (premium or trial) it is a dead action that reads like "your purchase might be missing"
+ * — device feedback 2026-10-31: Settings showed Manage + Restore for a Premium user.
+ */
+internal fun restoreActionFor(tier: EntitlementTier, restore: () -> Unit): (() -> Unit)? =
+    if (tier == EntitlementTier.FREE) restore else null
 
 /**
  * The plan the card should quote, as a finished line.

@@ -48,6 +48,23 @@ class PayCraftPlanSectionLogicTest {
     private fun isLeap(y: Int) = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
     private fun monthLengths(y: Int) = intArrayOf(31, if (isLeap(y)) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
+    // ── restoreActionFor ─────────────────────────────────────────────────────────────────────────
+    // Restore is for someone who has NOTHING yet. Offering it to a subscriber whose entitlement was
+    // already fetched is a dead action that reads like "your purchase might be missing" (device
+    // feedback, 2026-10-31: Settings showed Manage + Restore for a Premium user).
+
+    @Test
+    fun restore_is_offered_to_a_free_user() {
+        val restore = {}
+        assertEquals(restore, restoreActionFor(EntitlementTier.FREE, restore))
+    }
+
+    @Test
+    fun restore_is_hidden_once_premium_or_trialing() {
+        assertNull(restoreActionFor(EntitlementTier.PREMIUM) {})
+        assertNull(restoreActionFor(EntitlementTier.TRIAL) {})
+    }
+
     // ── daysUntil ────────────────────────────────────────────────────────────────────────────────
 
     @Test

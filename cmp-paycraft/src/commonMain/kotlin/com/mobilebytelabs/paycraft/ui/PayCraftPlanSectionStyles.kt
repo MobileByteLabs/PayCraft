@@ -127,10 +127,12 @@ internal fun MinimalSettings(
             PrimaryAction(state, copy, onUpgrade) { label, tag, _, _, click ->
                 TextButton(onClick = click, modifier = Modifier.testTag(tag)) { Text(label) }
             }
-            TextButton(
-                onClick = state.onRestoreClick,
-                modifier = Modifier.testTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW),
-            ) { Text(copy.restoreLabel) }
+            state.onRestoreClick?.let { restore ->
+                TextButton(
+                    onClick = restore,
+                    modifier = Modifier.testTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW),
+                ) { Text(copy.restoreLabel) }
+            }
         }
     }
 }
@@ -148,15 +150,17 @@ internal fun RowsSettings(
     PrimaryAction(state, copy, onUpgrade) { label, tag, icon, emphasized, click ->
         TappableRow(label, tag, theme, icon, emphasized, click)
     }
-    HorizontalDivider()
-    TappableRow(
-        copy.restoreLabel,
-        PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW,
-        theme,
-        Icons.Default.Restore,
-        emphasized = false,
-        onClick = state.onRestoreClick,
-    )
+    state.onRestoreClick?.let { restore ->
+        HorizontalDivider()
+        TappableRow(
+            copy.restoreLabel,
+            PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW,
+            theme,
+            Icons.Default.Restore,
+            emphasized = false,
+            onClick = restore,
+        )
+    }
 }
 
 // ── Card ─────────────────────────────────────────────────────────────────────────────────────────
@@ -191,15 +195,17 @@ internal fun CardSettings(
         PrimaryAction(state, copy, onUpgrade) { label, tag, icon, emphasized, click ->
             TappableRow(label, tag, theme, icon, emphasized, click)
         }
-        HorizontalDivider()
-        TappableRow(
-            copy.restoreLabel,
-            PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW,
-            theme,
-            Icons.Default.Restore,
-            emphasized = false,
-            onClick = state.onRestoreClick,
-        )
+        state.onRestoreClick?.let { restore ->
+            HorizontalDivider()
+            TappableRow(
+                copy.restoreLabel,
+                PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW,
+                theme,
+                Icons.Default.Restore,
+                emphasized = false,
+                onClick = restore,
+            )
+        }
     }
 }
 
@@ -238,10 +244,12 @@ internal fun HeroSettings(
                 modifier = Modifier.fillMaxWidth().heightIn(min = theme.rowMinHeight).testTag(tag),
             ) { Text(label) }
         }
-        TextButton(
-            onClick = state.onRestoreClick,
-            modifier = Modifier.testTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW),
-        ) { Text(copy.restoreLabel) }
+        state.onRestoreClick?.let { restore ->
+            TextButton(
+                onClick = restore,
+                modifier = Modifier.testTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW),
+            ) { Text(copy.restoreLabel) }
+        }
     }
 }
 
