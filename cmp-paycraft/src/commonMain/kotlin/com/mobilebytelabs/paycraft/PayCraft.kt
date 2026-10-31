@@ -189,22 +189,6 @@ object PayCraft {
     private var configFetchJob: Job? = null
     private var initOptions: InitOptions = InitOptions()
 
-    /**
-     * Native sign-in config for PayCraft's OWN Supabase client (PLAN-paycraft-native-identity D1).
-     * The redirect PATH `/paycraft` keeps it apart from the host app's own sign-in on the shared
-     * Android callback (kmp-supabase-auth 0.3.4 routes by path).
-     */
-    internal val nativeAuthConfig: io.github.mobilebytelabs.supabaseauth.KmpSupabaseAuthConfig
-        get() {
-            val appId = runCatching { com.mobilebytelabs.paycraft.platform.PlatformInfo.appId }.getOrDefault("")
-            return io.github.mobilebytelabs.supabaseauth.KmpSupabaseAuthConfig(
-                projectRef = backend.supabaseUrl.substringAfter("://").substringBefore('.'),
-                googleWebClientId = initOptions.googleWebClientId,
-                appleServiceId = initOptions.appleServiceId,
-                redirectUrl = if (appId.isBlank()) "" else "$appId://login-callback/paycraft",
-            )
-        }
-
     private var _activeCountry: String = CurrencyResolver.DEFAULT_COUNTRY
     private var _activeCurrency: String = CurrencyResolver.FALLBACK_CURRENCY
 
@@ -946,6 +930,7 @@ object PayCraft {
         // this tenant's response yet) leaves the init flag in charge — additive/safe.
         resolvedMonetizationMode = MonetizationModeResolver.resolve(initialMonetizationMode, suite.mode)
         _suiteConfigFlow.value = suite
+        com.mobilebytelabs.paycraft.core.NativeSignIn.onConfig(suite.auth, backend)
         PayCraftLogger.onSuiteConfigApplied(
             source = resolved.source.name,
             productCount = suite.products.size,
@@ -1481,17 +1466,6 @@ data class InitOptions(
      * would have to decide a value and the build-type default could never apply.
      */
     val modeOverride: PayCraft.Mode? = null,
-    /**
-     * The app's Google Cloud **Web** OAuth client id (the one its own sign-in already uses — managed by
-     * `/idea-auth`). Enables NATIVE Google sign-in (Android Credential Manager) on PayCraft's restore,
-     * device-conflict and post-purchase link screens. Blank = Google falls back to an in-app web flow.
-     */
-    val googleWebClientId: String = "",
-    /**
-     * Apple Services ID for the web Apple flow (Android, desktop, web). iOS uses native
-     * `ASAuthorization` and needs nothing here. Blank = Apple is offered on iOS only.
-     */
-    val appleServiceId: String = "",
 )
 
 data class PayCraftConfig(

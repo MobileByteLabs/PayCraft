@@ -56,6 +56,12 @@ data class SuiteConfig(
      * disagreeing about how stale a device may be.
      */
     @SerialName("cache_ttl_seconds") val cacheTtlSeconds: Int = 300,
+    /**
+     * The APP's sign-in clients (migration 167) — PayCraft builds its own native Apple/Google sign-in
+     * from them ([com.mobilebytelabs.paycraft.core.NativeSignIn]). Null = an older backend, or a
+     * bundled/mock config: no PayCraft sign-in is offered.
+     */
+    val auth: AuthClientsDto? = null,
     // Set by the client on receipt; not returned by the server.
     @SerialName("fetched_at_epoch_millis") val fetchedAtEpochMillis: Long = 0L,
 )
@@ -433,3 +439,10 @@ internal fun SuiteConfig.productForCanonicalRole(role: String): ProductDto? {
         else -> null
     }
 }
+
+/** See [SuiteConfig.auth]. Both are public identifiers, never secrets. */
+@Serializable
+data class AuthClientsDto(
+    @SerialName("google_web_client_id") val googleWebClientId: String? = null,
+    @SerialName("apple_services_id") val appleServicesId: String? = null,
+)

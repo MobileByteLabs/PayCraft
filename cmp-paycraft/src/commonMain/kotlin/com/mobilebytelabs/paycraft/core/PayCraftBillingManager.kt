@@ -22,14 +22,19 @@ import com.mobilebytelabs.paycraft.provider.StripeProvider
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.mobilenativefoundation.store.store5.StoreReadResponse
@@ -48,9 +53,10 @@ class PayCraftBillingManager(
     /**
      * PayCraft's own native sign-in client (kmp-supabase-auth on PayCraft's Supabase). A signed-in,
      * non-anonymous user identifies the buyer — [onVerifiedSignIn]. Null = no native sign-in (tests,
-     * hosts that strip it).
+     * hosts that strip it). A FLOW because the client is built only once `/config` delivers the app's
+     * sign-in ids ([NativeSignIn]); null until then.
      */
-    private val identity: io.github.mobilebytelabs.supabaseauth.KmpSupabaseAuthClient? = null,
+    private val identity: Flow<io.github.mobilebytelabs.supabaseauth.KmpSupabaseAuthClient?> = flowOf(null),
     /**
      * Dispatcher for this manager's internal [scope]. Defaults to [Dispatchers.Default], which is
      * what every production caller gets.
@@ -932,9 +938,9 @@ class PayCraftBillingManager(
      * reliable on Android), so this observes it rather than a button callback.
      */
     private fun observeNativeSignIn() {
-        val identity = identity ?: return
         scope.launch {
-            identity.currentUser.collect { user ->
+            @OptIn(ExperimentalCoroutinesApi::class)
+            identity.filterNotNull().flatMapLatest { it.currentUser }.collect { user ->
                 val email = user?.takeIf { !it.isAnonymous }?.email?.takeIf { it.isNotBlank() } ?: return@collect
                 PayCraftLogger.onFlow("observeNativeSignIn", "native sign-in via ${user.provider}")
                 onVerifiedSignIn(email)
