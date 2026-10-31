@@ -9,8 +9,10 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { verifyStoreKit2Jws } from "../_shared/receipt-validate.ts";
+import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
+import { resolveInboundTenant } from "../_shared/inbound-tenant.ts";
 import { reconcileEntitlement, appleToCanonical } from "../_shared/entitlement-reconcile.ts";
-import { appStoreServerJwt } from "../_shared/apple-jwt.ts";
+import { tenantAppStoreServerJwt } from "../_shared/apple-jwt.ts";
 
 // App Store Server API — "Get All Subscription Statuses". NEVER trust the ASSN-V2 payload state;
 // re-fetch the authoritative status for the originalTransactionId.
@@ -32,6 +34,21 @@ async function getAllSubscriptionStatuses(
   return await res.json();
 }
 
+/** Decode the JWS transaction payload (middle segment, base64url). Null when absent/unparseable. */
+function decodeSignedTransaction(signed: string | undefined): Record<string, any> | null {
+  const seg = (signed ?? "").split(".")[1];
+  if (!seg) return null;
+  try {
+    return JSON.parse(
+      new TextDecoder().decode(
+        Uint8Array.from(atob(seg.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)),
+      ),
+    );
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req: Request) => {
   try {
     const body = await req.json();
@@ -39,24 +56,69 @@ serve(async (req: Request) => {
     const notif = await verifyStoreKit2Jws(body.signedPayload);
     const data = notif.data ?? {};
     const originalTxn: string | undefined = data.originalTransactionId ??
-      // Fall back to the signed transaction info payload if the envelope omits it.
-      (() => {
-        const seg = (data.signedTransactionInfo ?? "").split(".")[1];
-        if (!seg) return undefined;
-        const tx = JSON.parse(
-          new TextDecoder().decode(
-            Uint8Array.from(atob(seg.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)),
-          ),
-        );
-        return tx.originalTransactionId;
-      })();
+      // Fall back to the signed transaction info payload if the envelope omits it. Shares the
+      // decoder with the ONE_TIME_CHARGE path below rather than inlining a second copy — the
+      // original inline version also threw on a malformed segment, where the helper returns null.
+      decodeSignedTransaction(data.signedTransactionInfo)?.originalTransactionId;
     if (!originalTxn) {
       return new Response("missing originalTransactionId", { status: 400 });
     }
 
+    // ── One-time charge (consumable pack) ─────────────────────────────────────────────────────
+    // ASSN-V2 fires ONE_TIME_CHARGE for a consumable / non-consumable purchase. It has no
+    // subscription to reconcile, so it previously flowed into getAllSubscriptionStatuses below and
+    // produced nothing useful — the customer was charged and the balance never moved.
+    //
+    // Like Play, this endpoint is per-DEPLOYMENT with no tenant, so the grant derives it from the
+    // catalogue row owning this productId as its app_store_product_id.
+    if (notif.notificationType === "ONE_TIME_CHARGE") {
+      const tx = decodeSignedTransaction(data.signedTransactionInfo);
+      const productId: string | undefined = tx?.productId;
+      // appAccountToken is the app's own user id, set by the SDK at purchase. Apple exposes no
+      // email, and originalTransactionId identifies the PURCHASE rather than the buyer — using it
+      // as identity would mint a fresh subject per purchase and scatter one player's balance.
+      const appUserId: string | undefined = tx?.appAccountToken;
+      if (!productId || !appUserId) {
+        console.error(
+          `[apple-server-notifications] ONE_TIME_CHARGE missing ${!productId ? "productId" : "appAccountToken"} — cannot attribute the grant`,
+        );
+        return new Response("ok", { status: 200 });
+      }
+      const grant = await handleConsumablePurchase({
+        tenantId: null,
+        // bundleId identifies the APP; tenants.app_identifier holds the same string for both
+        // stores (migration 111). Falls back to the signed transaction's copy when the envelope
+        // omits it, the same way originalTransactionId is recovered above.
+        appIdentifier: data.bundleId ?? tx?.bundleId ?? null,
+        storeProductId: productId,
+        identity: { kind: "auth_user", value: appUserId },
+        // transactionId is unique per purchase; originalTransactionId is shared across a renewal
+        // family, so keying on it would make a second pack look like a redelivery of the first.
+        stableTxnId: tx?.transactionId ?? originalTxn,
+        provider: "app_store",
+        eventType: notif.notificationType,
+      });
+      if (!grant.granted) {
+        console.error(`[apple-server-notifications] consumable grant refused for ${productId}: ${grant.reason}`);
+      }
+      return new Response("ok", { status: 200 });
+    }
+
     const sandbox = (notif.data?.environment ?? notif.environment) === "Sandbox";
-    const truth = await getAllSubscriptionStatuses(originalTxn, await appStoreServerJwt(), sandbox);
-    await reconcileEntitlement(appleToCanonical(truth, originalTxn));
+    // Attribute to the APP — see the Play handler: a NULL-tenant entitlement row silently reads as
+    // not-premium on a multi-tenant deployment. bundleId is the same string Play calls packageName.
+    // Resolved BEFORE the re-fetch: the app also decides which App Store key may ask Apple.
+    const { tenantId: subTenantId } = await resolveInboundTenant({
+      appIdentifier: data.bundleId ?? decodeSignedTransaction(data.signedTransactionInfo)?.bundleId ?? null,
+      provider: "app_store",
+    });
+    const truth = await getAllSubscriptionStatuses(originalTxn, await tenantAppStoreServerJwt(subTenantId), sandbox);
+    // preserveOwner: appleToCanonical keys on the appAccountToken UUID, never the SDK's
+    // app-user-id — writing it would re-key the row away from get_entitlements on every renewal.
+    await reconcileEntitlement({
+      ...appleToCanonical(truth, originalTxn),
+      tenantId: subTenantId,
+    }, { preserveOwner: true });
     return new Response("ok", { status: 200 });
   } catch (err) {
     console.error("apple-server-notifications error:", (err as Error).message);

@@ -54,6 +54,20 @@ sealed class Product {
 
 /** Maps the cloud-fetched [ProductDto] into the SDK sealed [Product] hierarchy. */
 object ProductMapper {
+    /**
+     * Types the server sells that the subscription PAYWALL does not render. A consumable pack is
+     * sold by the store section (`PayCraftStoreSection`) and granted into a balance — it has no
+     * card on the paywall. Listing it here is what keeps a catalogue with packs from crashing the
+     * paywall, while a type nobody declared still reaches [fromDto]'s error.
+     */
+    private val NOT_ON_PAYWALL = setOf("consumable")
+
+    /** The active, paywall-renderable products of a catalogue, in display order. */
+    fun paywallProducts(dtos: List<ProductDto>): List<Product> = dtos
+        .filter { it.active && it.type !in NOT_ON_PAYWALL }
+        .map(::fromDto)
+        .sortedBy { it.displayOrder }
+
     fun fromDto(dto: ProductDto): Product = when (dto.type) {
         "subscription" -> Product.Subscription(
             id = dto.id,

@@ -19,10 +19,11 @@ import com.mobilebytelabs.paycraft.repository.PayCraftRepositoryImpl
 import com.mobilebytelabs.paycraft.ui.PayCraftPaywallViewModel
 import com.russhwolf.settings.Settings
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
+import io.github.mobilebytelabs.supabaseauth.compose.kmpSupabaseAuthInstall
+import io.github.mobilebytelabs.supabaseauth.kmpSupabaseAuthClientFor
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
@@ -30,6 +31,9 @@ import kotlinx.serialization.json.Json
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
+
+/** Koin qualifier of PayCraft's own native-sign-in client. */
+internal const val PAYCRAFT_AUTH = "paycraft-auth"
 
 val PayCraftModule = module {
     single<SupabaseClient>(qualifier = named("paycraft")) {
@@ -45,9 +49,17 @@ val PayCraftModule = module {
             supabaseKey = backend.supabaseAnonKey,
         ) {
             install(Postgrest)
-            install(Auth)
+            // Auth WITH native Apple / Google (ComposeAuth) — kmp-supabase-auth installs Auth itself,
+            // so this replaces a bare install(Auth); a second install would replace the first.
+            kmpSupabaseAuthInstall(PayCraft.nativeAuthConfig)(this)
             install(Realtime)
         }
+    }
+
+    // PayCraft's sign-in client, NOT bound to KmpSupabaseAuthClient's type in the host's graph: the
+    // host app may use kmp-supabase-auth for its own sign-in, and that binding is its, not ours.
+    single(qualifier = named(PAYCRAFT_AUTH)) {
+        kmpSupabaseAuthClientFor(get(qualifier = named("paycraft")), PayCraft.nativeAuthConfig)
     }
 
     single<PayCraftService> {
@@ -127,6 +139,7 @@ val PayCraftModule = module {
             service = get(),
             store = get(),
             repo = get(),
+            identity = getOrNull(qualifier = named(PAYCRAFT_AUTH)),
             // The NativeBillingClient defaults to WebCheckoutNativeBillingClient (no-op) and is
             // OVERRIDDEN on Android by paycraftPlayBillingModule → PlayBillingNativeClient, so the
             // Payments-policy Play Billing lane is live once that module is loaded.

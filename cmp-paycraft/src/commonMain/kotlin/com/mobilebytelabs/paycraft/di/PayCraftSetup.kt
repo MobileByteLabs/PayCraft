@@ -1,3 +1,4 @@
+@file:OptIn(kotlin.time.ExperimentalTime::class)
 /*
  * Copyright 2026 MobileByteLabs
  *
@@ -5,12 +6,18 @@
  * If a copy of the MPL was not distributed with this file,
  * You can obtain one at https://mozilla.org/MPL/2.0/.
  */
+
 package com.mobilebytelabs.paycraft.di
 
 import com.mobilebytelabs.paycraft.InitOptions
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.PayCraftBackend
+import com.mobilebytelabs.paycraft.core.AdRewardProvider
 import com.mobilebytelabs.paycraft.core.MonetizationMode
+import com.mobilebytelabs.paycraft.core.PayCraftAdRewards
+import com.mobilebytelabs.paycraft.core.PayCraftBalances
+import com.mobilebytelabs.paycraft.persistence.PayCraftStore
+import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.mobilebytelabs.paycraft.repository.PayCraftRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +30,8 @@ import kotlinx.coroutines.launch
 import org.koin.core.module.Module
 import org.koin.core.scope.Scope
 import org.koin.dsl.module
+import kotlin.random.Random
+import kotlin.time.Clock
 
 /**
  * The ONE call that wires PayCraft into a consumer app.
@@ -85,8 +94,36 @@ fun payCraft(
     options: InitOptions = InitOptions(),
     mode: MonetizationMode = MonetizationMode.AdSupported,
     identity: Scope.() -> Flow<String?> = { emptyFlow() },
+    /**
+     * HOW TO SHOW A REWARDED AD, for apps that let users earn currency by watching one.
+     *
+     * Bound like [identity] and for the same reason: the host already has the ad network it chose,
+     * and PayCraft owning an ad SDK would force AdMob (or whichever) on every consumer, including
+     * those who sell no ads. The host shows the ad; everything after it completes is the SDK's.
+     *
+     * Completing an ad here credits NOTHING by itself — the ad network's signed server-side
+     * verification callback does, via the `ad-reward` edge function. A client that could assert "I
+     * watched an ad" would be minting currency with no attention sold.
+     *
+     * Omit it and watch-to-earn is simply unavailable (`PayCraft.adRewards.isAvailable == false`).
+     */
+    adProvider: (Scope.() -> AdRewardProvider)? = null,
 ): Module = module {
     includes(PayCraftModule)
+
+    // The balance mirror + outbox. Single instance: two would each hold a different idea of the
+    // balance, which is the exact two-ledger defect this replaced.
+    single {
+        PayCraftBalances(
+            repository = get(),
+            store = get(),
+            newIdempotencyKey = {
+                "spend-${Clock.System.now().toEpochMilliseconds()}-${Random.nextInt(Int.MAX_VALUE)}"
+            },
+        )
+    }
+
+    single { PayCraftAdRewards(adProvider?.invoke(this), get(), { DeviceTokenStore.getToken() }) }
 
     // createdAtStart, and that is load-bearing: see (3) in the kdoc above.
     single(createdAtStart = true) {
@@ -97,6 +134,9 @@ fun payCraft(
             // A lambda, not a value: the SDK's own definitions only become resolvable once
             // `initialize` has run, which happens inside the binder's constructor below. See (2).
             repository = { getKoin().getOrNull<PayCraftRepository>() },
+            // Same lambda shape and same reason: the SDK's own definitions only resolve once
+            // `initialize` has run, which happens inside the binder's constructor.
+            store = { getKoin().getOrNull<PayCraftStore>() },
             apiKey = apiKey,
             testApiKey = testApiKey,
             backend = backend,
@@ -115,6 +155,7 @@ fun payCraft(
 internal class PayCraftIdentityBinder(
     email: Flow<String?>,
     repository: () -> PayCraftRepository?,
+    store: () -> PayCraftStore?,
     apiKey: String,
     testApiKey: String?,
     backend: PayCraftBackend,

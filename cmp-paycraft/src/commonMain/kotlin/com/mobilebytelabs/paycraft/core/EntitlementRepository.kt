@@ -25,6 +25,8 @@ class EntitlementRepository(
     private val cache: EntitlementCache,
     private val native: NativeBillingClient,
     private val service: PayCraftService,
+    /** Which store grant endpoint a recovered purchase goes to; injectable so restore is testable. */
+    private val platform: () -> String = ::currentPlatform,
 ) {
     /** Cached read — serves the offline last-known-good from the SoT (refresh = false). */
     fun stream(appUserId: String): Flow<StoreReadResponse<Entitlement>> =
@@ -39,15 +41,37 @@ class EntitlementRepository(
      *
      * 1. [NativeBillingClient.sync] re-links store receipts to the signed-in store account
      *    (StoreKit `AppStore.sync()` / Play `queryPurchasesAsync()`).
-     * 2. [NativeBillingClient.restore] surfaces the recovered native purchases so the engine can
-     *    reconcile them.
+     * 2. [NativeBillingClient.restore] surfaces the recovered native purchases, and each is
+     *    re-bound to [appUserId] server-side ([relinkStorePurchases]). This is what makes a store-only
+     *    buyer survive a reinstall: their anonymous device id changed, the store account did not, and
+     *    the server only learns the new id when the store's purchase is presented under it.
      * 3. `store.fresh(appUserId)` forces one server reconcile → the ONE canonical record, so a
      *    subscription bought on platform A becomes active on platform B (different store account,
      *    same app-user-id).
      */
+    /**
+     * Re-present every purchase the store currently holds to the server under [appUserId] — no store
+     * restore prompt, just the store's own cached list (Play `queryPurchasesAsync`, StoreKit current
+     * entitlements). The server re-fetches truth from the store for each, so this both binds them to
+     * this identity and refreshes renewals / cancellations a missed store notification never told us.
+     *
+     * @return how many purchases the server bound.
+     */
+    suspend fun syncHeldPurchases(appUserId: String): Int =
+        service.relinkStorePurchases(native.queryPurchases(), appUserId, platform())
+
+    /**
+     * The server's entitlement for [appUserId], read from the NETWORK (written through to the cache).
+     * Not [streamFresh]: that emits the cached value FIRST, so a caller taking its first emission
+     * reads a stale period instead of the renewal the server already holds. Throws when the server
+     * has none or is unreachable — the two are indistinguishable at this layer (`getEntitlements`
+     * answers null for both), so a caller must not treat a throw as "offline, keep premium".
+     */
+    suspend fun fresh(appUserId: String): Entitlement = cache.store.fresh(EntitlementKey(appUserId))
+
     suspend fun restore(appUserId: String): Entitlement {
         native.sync()
-        native.restore()
+        service.relinkStorePurchases(native.restore(), appUserId, platform())
         return cache.store.fresh(EntitlementKey(appUserId))
     }
 

@@ -17,7 +17,7 @@ agp = "9.4.0"
 kotlin = "2.4.20"
 # 1.11.1 — the version kmp-toolkit ships. NOT 1.12.x: that pulls androidx.compose 1.12, which
 # also demands compileSdk 37; kmp-toolkit stays on the 1.11 line at compileSdk 36.
-compose-multiplatform = "1.11.1"
+compose-multiplatform = "1.12.0"  # 1.12.0: matches cmp-supabase-auth-compose (native sign-in); AGP 9.4.0 satisfies its 9.1+ floor
 # JetBrains' KMP port of Navigation Compose. Used ONLY by :cmp-paycraft-navigation, never by
 # :cmp-paycraft — the core artifact must not force a navigation library on consumers who use
 # Voyager, Decompose, or their own. Held at the version cappy and the template already resolve,
@@ -80,6 +80,9 @@ androidx-activityCompose = "1.12.2"
 # so it needs a source migration in the same release train. Publishing this without bumping those two
 # consumers reproduces DR-4.
 supabase = "3.8.0"
+# kmp-supabase-auth — native Apple (ASAuthorization) / Google (Credential Manager) sign-in, installed into
+# PayCraft's OWN Supabase client via kmpSupabaseAuthClientFor (0.3.4+). Same org; never copied.
+kmp-supabase-auth = "0.3.4"
 ktor = "3.5.2"
 koin = "4.2.2"
 kotlinxSerialization = "1.11.0"
@@ -141,6 +144,8 @@ androidx-activity-compose = { module = "androidx.activity:activity-compose", ver
 # Supabase
 supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt", version.ref = "supabase" }
 supabase-auth      = { module = "io.github.jan-tennert.supabase:auth-kt",      version.ref = "supabase" }
+kmp-supabase-auth         = { module = "io.github.mobilebytelabs:cmp-supabase-auth",         version.ref = "kmp-supabase-auth" }
+kmp-supabase-auth-compose = { module = "io.github.mobilebytelabs:cmp-supabase-auth-compose", version.ref = "kmp-supabase-auth" }
 supabase-realtime  = { module = "io.github.jan-tennert.supabase:realtime-kt",  version.ref = "supabase" }
 
 # Ktor (required by Supabase)

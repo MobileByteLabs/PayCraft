@@ -201,6 +201,9 @@ kotlin {
             implementation(paycraftLibs.supabase.postgrest)
             implementation(paycraftLibs.supabase.auth)
             implementation(paycraftLibs.supabase.realtime)
+            // Native Apple / Google sign-in on PayCraft's own Supabase client (D1, PLAN-paycraft-native-identity).
+            implementation(paycraftLibs.kmp.supabase.auth)
+            implementation(paycraftLibs.kmp.supabase.auth.compose)
 
             // Koin
             implementation(paycraftLibs.koin.core)

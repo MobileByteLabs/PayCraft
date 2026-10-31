@@ -3,6 +3,7 @@ package com.mobilebytelabs.paycraft.core
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -117,6 +118,23 @@ internal interface BillingManager {
     fun refreshStatus(force: Boolean = false)
 
     /**
+     * Restore what the STORE holds for this device's store account (Google Play / App Store) — no
+     * email, no sign-in. Re-binds each store purchase to the current app-user-id server-side, then
+     * applies the result. This is what a "Restore Purchases" tap must do first; the email lookup is
+     * only the fallback for web purchases.
+     *
+     * @return true when an active store entitlement was found and premium applied.
+     */
+    suspend fun restoreStorePurchases(): Boolean = false
+
+    /**
+     * The app returned to the foreground. Re-syncs what the store holds and re-checks premium —
+     * Google's guidance is to call `queryPurchasesAsync()` in `onResume()` for purchases that
+     * changed while the app was not running. Driven by the SDK itself on Android; no host wiring.
+     */
+    fun onAppForegrounded() {}
+
+    /**
      * PRIMARY ownership verification gate (Gate 1).
      *
      * Verifies a Google or Apple ID token via Supabase Auth, extracts the verified email,
@@ -127,6 +145,13 @@ internal interface BillingManager {
      * [BillingState.DeviceConflict], or [BillingState.Error].
      */
     suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String)
+
+    /**
+     * A native sign-in already produced a verified session for [email] (no id token to verify).
+     * Identifies the buyer exactly like [loginWithOAuth]: resolves a pending device conflict, or
+     * registers + re-links every store purchase to [email] for cross-platform restore.
+     */
+    suspend fun onVerifiedSignIn(email: String) {}
 
     // ─── Device conflict resolution ──────────────────────────────────────────
 
@@ -146,4 +171,65 @@ internal interface BillingManager {
     suspend fun revokeCurrentDevice()
 
     fun logOut()
+
+    // ─── Consumable balances (REQUIREMENTS.md PC-001..006) ───────────────────
+
+    /**
+     * Server-authoritative consumable balances, keyed by sku.
+     *
+     * READ-ONLY and there is deliberately no local increment path (AR-013): a client-writable
+     * balance is forgeable currency. Every value here came from the server — either a
+     * [refreshBalance] read or the new balance a successful [spend] returned. A sku absent from the
+     * map has simply not been read yet; it is NOT the same as a zero balance.
+     *
+     * Default empty so alternate [BillingManager] implementations stay source-compatible.
+     */
+    val balances: StateFlow<Map<String, Int>> get() = MutableStateFlow(emptyMap())
+
+    /**
+     * Re-read [sku]'s balance from the server and publish it to [balances].
+     *
+     * @return the balance, or 0 when it cannot be read. 0 is the safe reading of "unknown" — it
+     *   withholds a spend rather than granting one.
+     */
+    suspend fun refreshBalance(sku: String): Int = 0
+
+    /**
+     * Spend [quantity] of [sku] atomically, server-checked.
+     *
+     * [idempotencyKey] is REQUIRED and has no default (AR-011). A caller retrying after a timeout
+     * must present the SAME key, so the server recognises the replay and returns the original
+     * balance instead of charging twice. Only the caller knows which retry is the same logical
+     * spend, which is why this cannot be defaulted here.
+     *
+     * @return the new balance on success. Insufficient funds is a [Result.failure], NOT an
+     *   exception (AR-012) — a shopper short on currency is an expected outcome of a shop. Never
+     *   grant the purchased thing on a failure.
+     */
+    suspend fun spend(sku: String, quantity: Int, idempotencyKey: String): Result<Int> =
+        Result.failure(UnsupportedOperationException("balances not supported by this BillingManager"))
+
+    /**
+     * Credit an in-app ACTIVITY earn and return the new server balance.
+     *
+     * Throws rather than returning a Result: unlike a spend, there is no "refused" outcome a caller
+     * renders — the server either records it or the call failed, and PayCraftBalances queues the
+     * latter for replay.
+     */
+    suspend fun earn(sku: String, quantity: Int, eventId: String): Int =
+        throw UnsupportedOperationException("balances not supported by this BillingManager")
+
+    // ─── One-time product ownership ──────────────────────────────────────────
+
+    /**
+     * Skus this user owns outright (non-consumable one-time unlocks).
+     *
+     * Server-confirmed only. A sku is absent until [refreshOwnership] gets a `true` back — never
+     * optimistically on purchase return, because Play and StoreKit can both report success for a
+     * transaction that later fails verification.
+     */
+    val ownedSkus: StateFlow<Set<String>> get() = MutableStateFlow(emptySet())
+
+    /** Re-read ownership of [sku] from the server into [ownedSkus]. False when it cannot be read. */
+    suspend fun refreshOwnership(sku: String): Boolean = false
 }

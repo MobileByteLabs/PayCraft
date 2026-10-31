@@ -168,6 +168,12 @@
     <string name="paycraft_device_conflict_account">Account: %1$s</string>
     <string name="paycraft_device_conflict_gate_oauth_google">Sign in with Google</string>
     <string name="paycraft_device_conflict_gate_oauth_apple">Sign in with Apple</string>
+    <!-- Post-purchase account link (PLAN-paycraft-native-identity D4): optional, once, after a store purchase. -->
+    <string name="paycraft_link_title">Keep your subscription on all your devices</string>
+    <string name="paycraft_link_body">Your subscription is linked to this phone right now. Sign in to restore it on any iPhone or Android device, even after reinstalling.</string>
+    <string name="paycraft_link_hint">Use the same account on every device.</string>
+    <string name="paycraft_link_not_now">Not now</string>
+    <string name="paycraft_link_done">Your subscription is linked to %1$s.</string>
     <string name="paycraft_device_conflict_gate_support">Contact %1$s</string>
     <string name="paycraft_device_conflict_gate_support_hint">Can’t use Google or Apple sign-in? Contact support to move your subscription.</string>
 

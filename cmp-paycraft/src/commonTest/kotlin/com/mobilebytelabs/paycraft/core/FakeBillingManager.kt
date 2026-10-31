@@ -92,4 +92,9 @@ class FakeBillingManager(
     fun emitPremium(value: Boolean) {
         _isPremium.value = value
     }
+
+    /** Test-only: an identity (email) the buyer already has, e.g. from web checkout or a sign-in. */
+    fun emitEmail(value: String?) {
+        _userEmail.value = value
+    }
 }

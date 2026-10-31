@@ -50,11 +50,19 @@ export interface CanonicalEvent {
  * Idempotency: the (provider, stable_txn_id) unique key means a replay of the same event
  * targets the same row. Out-of-order guard: we only overwrite when the incoming event is
  * STRICTLY newer than the stored latest_event_ts — a stale or duplicate delivery returns early.
+ *
+ * Ownership: pass `preserveOwner` from a store WEBHOOK. A webhook only knows the store's hashed id
+ * (Play obfuscatedAccountId, Apple appAccountToken), never the SDK's app-user-id, so it keeps the
+ * row's existing owner and updates state only. Ownership belongs to the client grant endpoints
+ * via claimStoreTransaction; the webhook id is used only to create a row nothing has claimed yet.
  */
-export async function reconcileEntitlement(ev: CanonicalEvent): Promise<void> {
+export async function reconcileEntitlement(
+  ev: CanonicalEvent,
+  opts: { preserveOwner?: boolean } = {},
+): Promise<void> {
   const { data: existing, error: selErr } = await supabaseAdmin
     .from("entitlement_records")
-    .select("latest_event_ts")
+    .select("latest_event_ts, app_user_id")
     .eq("provider", ev.provider)
     .eq("stable_txn_id", ev.stableTxnId)
     .maybeSingle();
@@ -65,7 +73,7 @@ export async function reconcileEntitlement(ev: CanonicalEvent): Promise<void> {
 
   const { error } = await supabaseAdmin.from("entitlement_records").upsert(
     {
-      app_user_id: ev.appUserId,
+      app_user_id: opts.preserveOwner && existing?.app_user_id ? existing.app_user_id : ev.appUserId,
       tenant_id: ev.tenantId,
       provider: ev.provider,
       product_id: ev.productId,
@@ -236,9 +244,13 @@ export function googleToCanonical(
       canonicalState = "pending";
   }
 
-  const latestEventTs = eventTsOverride ??
-    (line.expiryTime ? new Date(line.expiryTime).toISOString() : null) ??
-    new Date().toISOString();
+  // Ordering timestamp = WHEN THIS TRUTH WAS READ. Every caller hands this mapper a fresh
+  // purchases.subscriptionsv2.get re-fetch, so the newest read is the newest truth. It used to be
+  // the expiryTime — which a cancel, refund, revoke, pause or expiry does NOT move — so the
+  // strictly-newer guard dropped every one of them and only renewals ever landed (a cancelled
+  // subscription stayed `active, will_renew=true`; found on device 2026-10-31). Apple's mapper is
+  // already right for the same reason: its signedDate is stamped when Apple answers.
+  const latestEventTs = eventTsOverride ?? new Date().toISOString();
 
   return {
     appUserId,

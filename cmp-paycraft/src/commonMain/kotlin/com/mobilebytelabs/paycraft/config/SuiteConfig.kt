@@ -64,7 +64,7 @@ data class SuiteConfig(
 data class ProductDto(
     val id: String,
     val sku: String,
-    val type: String, // "subscription" | "trial" | "lifetime"
+    val type: String, // "subscription" | "trial" | "lifetime" | "consumable"
     @SerialName("display_name") val displayName: String,
     @SerialName("trial_enabled") val trialEnabled: Boolean = true,
     @SerialName("trial_duration_days") val trialDurationDays: Int? = 7,
@@ -73,6 +73,13 @@ data class ProductDto(
     @SerialName("base_price_cents") val basePriceCents: Int = 0,
     @SerialName("base_currency") val baseCurrency: String = "USD",
     @SerialName("display_order") val displayOrder: Int = 0,
+    /**
+     * How many units ONE purchase of a consumable grants (migration 158's `tenant_products
+     * .grant_quantity`). 0 for every other product type, and 0 is also the safe default for an
+     * older server that does not send the field — a pack that grants nothing is visibly broken,
+     * whereas a guessed non-zero default would silently credit currency nobody configured.
+     */
+    @SerialName("grant_quantity") val grantQuantity: Int = 0,
     val active: Boolean = true,
     @SerialName("resolved_price") val resolvedPrice: PriceDto? = null,
     /**

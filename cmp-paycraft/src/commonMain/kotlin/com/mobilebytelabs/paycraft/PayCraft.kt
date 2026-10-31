@@ -189,6 +189,22 @@ object PayCraft {
     private var configFetchJob: Job? = null
     private var initOptions: InitOptions = InitOptions()
 
+    /**
+     * Native sign-in config for PayCraft's OWN Supabase client (PLAN-paycraft-native-identity D1).
+     * The redirect PATH `/paycraft` keeps it apart from the host app's own sign-in on the shared
+     * Android callback (kmp-supabase-auth 0.3.4 routes by path).
+     */
+    internal val nativeAuthConfig: io.github.mobilebytelabs.supabaseauth.KmpSupabaseAuthConfig
+        get() {
+            val appId = runCatching { com.mobilebytelabs.paycraft.platform.PlatformInfo.appId }.getOrDefault("")
+            return io.github.mobilebytelabs.supabaseauth.KmpSupabaseAuthConfig(
+                projectRef = backend.supabaseUrl.substringAfter("://").substringBefore('.'),
+                googleWebClientId = initOptions.googleWebClientId,
+                appleServiceId = initOptions.appleServiceId,
+                redirectUrl = if (appId.isBlank()) "" else "$appId://login-callback/paycraft",
+            )
+        }
+
     private var _activeCountry: String = CurrencyResolver.DEFAULT_COUNTRY
     private var _activeCurrency: String = CurrencyResolver.FALLBACK_CURRENCY
 
@@ -266,6 +282,12 @@ object PayCraft {
     internal val billingManager: BillingManager?
         get() = KoinPlatform.getKoinOrNull()?.getOrNull<BillingManager>()
 
+    /** Platform foreground signal (Android: first Activity started after all were stopped). */
+    internal fun onAppForegrounded() {
+        if (!isConfigured) return
+        billingManager?.onAppForegrounded()
+    }
+
     /**
      * The purchasable plans for HEADLESS integration (mode 2) — rebuilt from the
      * dashboard config + resolved native-store prices. Empty until the first
@@ -273,6 +295,33 @@ object PayCraft {
      * lands). Pass one of these to [checkout].
      */
     val plans: List<BillingPlan> get() = config?.plans ?: emptyList()
+
+    /**
+     * The subscription-ish half of [plans] — everything a PAYWALL may offer.
+     *
+     * [plans] is the whole catalogue (that is what [products] subsets for the store), so once
+     * consumables started reaching it the paywall surfaces had to say which half they meant. They
+     * pick by RANK — `minByOrNull` for the cheapest, `maxByOrNull` for the top tier — and rank is
+     * just catalogue order, so an unfiltered pick could render "300 Ripples" as the upgrade a free
+     * user is offered. A coin pack is not an upgrade path.
+     *
+     * Lifetime and one_time unlocks STAY: they are real entitlements a paywall legitimately sells,
+     * and they were in this list before. Only consumables leave.
+     */
+    public val subscriptionPlans: List<BillingPlan> get() = plans.filterNot { it.isConsumable }
+
+    /**
+     * The non-subscription catalogue — consumable packs and one-time unlocks.
+     *
+     * Deliberately EXCLUDES subscription and trial plans (they belong to the paywall): a store that
+     * lists a plan beside a coin pack invites a user to "buy" a subscription they may already hold,
+     * and the two are bought through different flows.
+     *
+     * Derived from the same [plans] the paywall renders rather than a second fetch, so the two
+     * surfaces can never quote different prices for one sku.
+     */
+    val products: List<BillingPlan>
+        get() = plans.filter { it.isConsumable || it.interval == "lifetime" }
 
     /**
      * The native store's OWN localized price per plan sku (Play `formattedPrice` / StoreKit
@@ -480,6 +529,9 @@ object PayCraft {
             configFetchJob?.cancel()
             configFetchJob = applicationScope.launch { prefetchProducts() }
         }
+        // Re-sync the store whenever the app returns to the foreground (Google's onResume guidance;
+        // the StoreKit twin on iOS). Idempotent per process.
+        installForegroundObserver()
     }
 
     /**
@@ -1429,6 +1481,17 @@ data class InitOptions(
      * would have to decide a value and the build-type default could never apply.
      */
     val modeOverride: PayCraft.Mode? = null,
+    /**
+     * The app's Google Cloud **Web** OAuth client id (the one its own sign-in already uses — managed by
+     * `/idea-auth`). Enables NATIVE Google sign-in (Android Credential Manager) on PayCraft's restore,
+     * device-conflict and post-purchase link screens. Blank = Google falls back to an in-app web flow.
+     */
+    val googleWebClientId: String = "",
+    /**
+     * Apple Services ID for the web Apple flow (Android, desktop, web). iOS uses native
+     * `ASAuthorization` and needs nothing here. Blank = Apple is offered on iOS only.
+     */
+    val appleServiceId: String = "",
 )
 
 data class PayCraftConfig(
@@ -1490,10 +1553,29 @@ private fun List<ProductDto>.toBillingPlans(
     popularSku: String?,
     nativePricesBySku: Map<String, NativeDisplayPrice> = emptyMap(),
 ): List<BillingPlan> {
-    val subscriptions = filter { it.type == "subscription" || it.type == "lifetime" }
+    // EVERY sellable type, and a DENYLIST rather than an allowlist — deliberately.
+    //
+    // This was `filter { type == "subscription" || type == "lifetime" }`, which dropped
+    // `consumable` and `one_time` BEFORE the map below ever ran. The cost was not a missing row
+    // in one list: it made `isConsumable = dto.type == "consumable"` (further down) UNREACHABLE,
+    // so the flag was permanently false for every product in the app, and three unrelated things
+    // broke in ways that each looked like their own bug —
+    //
+    //   * PayCraftStoreSection rendered "No products available" against a tenant that had packs;
+    //   * ConsumableDrainer's `plans.filter { it.isConsumable }` matched nothing, so purchased
+    //     units were never drained into the host (the balance just sat on the server);
+    //   * PayCraftBillingManager.isConsumableStoreProduct returned false, so a pack purchase was
+    //     ACKNOWLEDGED instead of CONSUMED — Play then refuses to sell it again, permanently.
+    //
+    // An allowlist is what let that happen: a type the server learned and this list did not
+    // silently vanishes, and the symptom appears far from the cause. A denylist fails the other
+    // way — a new type SHOWS UP, where it is noticed. `trial` is the one genuine exclusion,
+    // because a trial is not independently sellable: it attaches to a parent product and is
+    // folded into it as `trialDays` below.
+    val sellable = filter { it.type != "trial" }
         .sortedBy { it.displayOrder }
     val trials = filter { it.type == "trial" }
-    return subscriptions.mapIndexed { idx, dto ->
+    return sellable.mapIndexed { idx, dto ->
         val attachedTrial = trials.firstOrNull { it.attachesToProductId == dto.id }
         val trialDays = when {
             attachedTrial != null -> attachedTrial.trialDurationDays
@@ -1549,6 +1631,7 @@ private fun List<ProductDto>.toBillingPlans(
             // "lifetime", which makes a consumable indistinguishable from a one-time unlock —
             // and Play finishes those two with different calls.
             isConsumable = dto.type == "consumable",
+            grantQuantity = dto.grantQuantity,
         )
     }
 }

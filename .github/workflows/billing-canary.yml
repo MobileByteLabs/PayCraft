@@ -1,0 +1,75 @@
+name: Billing canary
+
+# Answers "can a customer pay right now?" hourly, which no other workflow does.
+#
+# `cloud-smoke` checks the marketing site returns 200. `dashboard-ci` checks the build. Neither can
+# see a broken purchase path: a rotated key, a deactivated store product or an unreachable webhook
+# leaves every one of their checks green. This runs scripts/billing-canary.sh, whose exit codes are
+# designed for a scheduler — 1 = a purchase path is broken, 2 = the canary could not run, which is
+# deliberately NOT treated as healthy.
+#
+# Scheduled on a public repo, so GitHub Actions minutes are free (PayCraft is public; the rule of
+# thumb for this org is that private repos do not get scheduled workflows).
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  schedule:
+    # Hourly at :41. Offset from cloud-smoke (:23) and the pg_cron canary (:07) so a shared
+    # failure shows up as three distinct timestamps rather than one ambiguous pile.
+    - cron: "41 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    name: Can a customer pay?
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Run billing canary
+        id: canary
+        env:
+          # L1 — provider config truth via /api/v1/readiness
+          PAYCRAFT_ACCOUNT_KEY: ${{ secrets.PAYCRAFT_ACCOUNT_KEY }}
+          # L2 — webhook delivery verdicts (migration 165). PG* rather than a URL so no
+          # credential-bearing string lands in a process listing or a log line.
+          PGHOST: ${{ secrets.PAYCRAFT_PGHOST }}
+          PGPORT: ${{ secrets.PAYCRAFT_PGPORT }}
+          PGUSER: ${{ secrets.PAYCRAFT_PGUSER }}
+          PGPASSWORD: ${{ secrets.PAYCRAFT_PGPASSWORD }}
+          PGDATABASE: ${{ secrets.PAYCRAFT_PGDATABASE }}
+          PGSSLMODE: require
+          # L3 — chain truth. Absent until a canary tenant exists; the script reports BLOCKED
+          # (exit 2) rather than skipping silently.
+          PAYCRAFT_CANARY_TENANT_ID: ${{ secrets.PAYCRAFT_CANARY_TENANT_ID }}
+          PAYCRAFT_CANARY_SKU: ${{ secrets.PAYCRAFT_CANARY_SKU }}
+          PAYCRAFT_CANARY_API_KEY: ${{ secrets.PAYCRAFT_CANARY_API_KEY }}
+          STRIPE_TEST_KEY: ${{ secrets.PAYCRAFT_STRIPE_TEST_KEY }}
+        run: |
+          set +e
+          bash scripts/billing-canary.sh
+          CODE=$?
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Fail on broken purchase path
+        if: steps.canary.outputs.code == '1'
+        run: |
+          echo "::error title=Purchase path broken::A provider cannot transact. See the canary log above."
+          exit 1
+
+      # Exit 2 is surfaced as a WARNING, not a failure. A missing canary credential is an
+      # operational gap to close, not an outage — but it must stay visible, because a canary that
+      # cannot run looks exactly like a canary that found nothing wrong.
+      - name: Warn on blocked canary
+        if: steps.canary.outputs.code == '2'
+        run: |
+          echo "::warning title=Canary blocked::Checks could not run (missing credential or unreachable API). This is NOT a pass."

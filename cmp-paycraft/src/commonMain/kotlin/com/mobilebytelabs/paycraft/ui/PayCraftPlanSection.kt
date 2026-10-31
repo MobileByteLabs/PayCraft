@@ -192,9 +192,13 @@ internal fun rememberSubscriptionSettingsState(
     // The SAME StateFlow the paywall renders from. Deriving a second price here — off ProductDto's
     // base_price_cents, say — would quote the catalogue price while the paywall quotes the native
     // store's, and the two disagree exactly where it matters (a Play price differs by region/offer).
+    // Consumables excluded: the FREE-tier branch below takes minByOrNull { rank }, which would
+    // otherwise offer a coin pack as the upgrade. Collected (not PayCraft.subscriptionPlans) so a
+    // dashboard edit still reaches an open screen.
     val plans by repo.plans.collectAsState()
+    val sellablePlans = plans.filterNot { it.isConsumable }
 
-    val priced = planLineFor(entitlement.tier, entitlement.planSku, plans, copy)
+    val priced = planLineFor(entitlement.tier, entitlement.planSku, sellablePlans, copy)
 
     return PlanSectionState(
         visible = configured,

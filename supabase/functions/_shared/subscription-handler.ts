@@ -1,5 +1,6 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1";
 import { reconcileEntitlement, type CanonicalState } from "./entitlement-reconcile.ts";
+import { resolveInboundTenant } from "./inbound-tenant.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -47,6 +48,11 @@ interface SubscriptionEvent {
   trialStart?: Date | null;
   /** Provider-emitted trial end. NULL when no trial. Client computes isInTrial from this. */
   trialEnd?: Date | null;
+  /**
+   * The app the event belongs to (Play `packageName` / Apple `bundleId`), when the endpoint is
+   * per-deployment rather than per-tenant. Resolved against `tenants.app_identifier`.
+   */
+  appIdentifier?: string | null;
 }
 
 export async function handleSubscriptionEvent(data: SubscriptionEvent) {
@@ -59,16 +65,16 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
   // provider is configured for exactly ONE tenant, attribute to it. If >1, reject rather
   // than write a NULL-tenant row. Zero provider-tenants ⇒ genuine single-tenant self-hosted
   // deployment ⇒ NULL is correct and preserved.
+  // Delegated to the shared inbound resolver (path → app_identifier → sole provider tenant →
+  // self-hosted null). The rule used to live here and only here, which is why the STORE lanes —
+  // which never call this function — had no attribution at all.
   if (!data.tenantId) {
-    const { data: provRows } = await supabase
-      .from("tenant_providers").select("tenant_id").eq("provider", data.provider);
-    const tenantIds = [...new Set((provRows ?? []).map((r: any) => r.tenant_id).filter(Boolean))];
-    if (tenantIds.length === 1) {
-      data.tenantId = tenantIds[0];
-      console.warn(`[subscription-handler] tenantId absent from webhook URL — attributed to sole ${data.provider} tenant ${data.tenantId}. Fix the webhook endpoint to /${data.provider}-webhook/{tenant_id}.`);
-    } else if (tenantIds.length > 1) {
-      throw new Error(`Ambiguous tenant: ${tenantIds.length} tenants have provider '${data.provider}'. Webhook URL must include /{tenant_id}.`);
-    }
+    const resolved = await resolveInboundTenant({
+      tenantIdFromPath: data.tenantId,
+      appIdentifier: data.appIdentifier ?? null,
+      provider: data.provider,
+    });
+    data.tenantId = resolved.tenantId;
   }
 
   console.log(`Processing subscription event: provider=${data.provider}, sub=${data.subscriptionId}, status=${data.status}, tenant=${data.tenantId || "self-hosted"}`);

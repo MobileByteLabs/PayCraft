@@ -42,9 +42,25 @@ globalThis.fetch = (async (input: Request | URL | string, init?: RequestInit): P
         headers: { "content-type": "application/json" },
       });
     }
+    if (method === "PATCH") {
+      // The transfer is a compare-and-set UPDATE: it must only touch rows still owned by the
+      // owner the claim read, so the filter (incl. app_user_id) is honoured exactly like GET.
+      const patch = JSON.parse(String(init?.body ?? "{}"));
+      const hits = table.filter((r) => matches(r, new URL(url).searchParams));
+      for (const r of hits) Object.assign(r, patch);
+      return new Response(JSON.stringify(hits), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
   }
   return originalFetch(input as Request, init);
 }) as typeof fetch;
+
+/** Current owner of a seeded row — what get_entitlements would key the record on. */
+export function ownerOf(provider: string, stableTxnId: string): unknown {
+  return table.find((r) => r.provider === provider && r.stable_txn_id === stableTxnId)?.app_user_id;
+}
 
 /** Seed an Apple entitlement row so assertAppleTransactionNotReused runs a REAL query. */
 export function seedAppleTransaction(originalTransactionId: string, appUserId: string): Promise<void> {

@@ -75,7 +75,10 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
         val config = PayCraft.config ?: return
         val providers = PayCraft.suiteConfig?.providers ?: emptyList()
         _state.update { current ->
-            val plans = config.plans
+            // The paywall sells PLANS. config.plans is the whole catalogue now that consumables
+            // reach it, so a coin pack would appear in the plan grid beside the subscriptions —
+            // which is exactly what PayCraftStoreSection exists to keep separate.
+            val plans = config.plans.filterNot { it.isConsumable }
             val selection = if (userPickedPlan) {
                 // Preserve the user's pick (re-fetched from the refreshed list so the
                 // BillingPlan instance stays current); fall back if it vanished.
@@ -160,6 +163,9 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
             is PayCraftPaywallAction.ClearRestoreResult -> onClearRestoreResult()
             is PayCraftPaywallAction.OpenRestoreSheet -> _state.update { it.copy(isRestoreSheetVisible = true) }
             is PayCraftPaywallAction.CloseRestoreSheet -> _state.update { it.copy(isRestoreSheetVisible = false) }
+            is PayCraftPaywallAction.SurfaceClosed -> _state.update {
+                it.copy(isRestoreSheetVisible = false, providerSheetTarget = null, isSubmitting = false)
+            }
             is PayCraftPaywallAction.LoginWithOAuth -> onLoginWithOAuth(action)
             is PayCraftPaywallAction.ConfirmDeviceTransfer -> onConfirmDeviceTransfer()
             is PayCraftPaywallAction.CancelDeviceTransfer -> onCancelDeviceTransfer()

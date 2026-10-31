@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.mobilenativefoundation.store.store5.StoreReadResponse
 
@@ -44,6 +45,12 @@ class PayCraftBillingManager(
     private val store: PayCraftStore,
     private val repo: EntitlementRepository? = null,
     private val nativeBillingClient: NativeBillingClient? = null,
+    /**
+     * PayCraft's own native sign-in client (kmp-supabase-auth on PayCraft's Supabase). A signed-in,
+     * non-anonymous user identifies the buyer — [onVerifiedSignIn]. Null = no native sign-in (tests,
+     * hosts that strip it).
+     */
+    private val identity: io.github.mobilebytelabs.supabaseauth.KmpSupabaseAuthClient? = null,
     /**
      * Dispatcher for this manager's internal [scope]. Defaults to [Dispatchers.Default], which is
      * what every production caller gets.
@@ -110,6 +117,16 @@ class PayCraftBillingManager(
     private val _isPremium = MutableStateFlow(false)
     override val isPremium: StateFlow<Boolean> = _isPremium.asStateFlow()
 
+    // Consumable balances. ONLY ever written from a server answer — a refreshBalance() read or the
+    // new balance a successful spend() returned (AR-013: a client-writable balance is forgeable
+    // currency, so there is no local increment path and no setter).
+    private val _balances = MutableStateFlow<Map<String, Int>>(emptyMap())
+    override val balances: StateFlow<Map<String, Int>> = _balances.asStateFlow()
+
+    // Owned one-time skus. Like _balances, only ever written from a server answer.
+    private val _ownedSkus = MutableStateFlow<Set<String>>(emptySet())
+    override val ownedSkus: StateFlow<Set<String>> = _ownedSkus.asStateFlow()
+
     private val _subscriptionStatus = MutableStateFlow(SubscriptionStatus())
     override val subscriptionStatus: StateFlow<SubscriptionStatus> = _subscriptionStatus.asStateFlow()
 
@@ -158,6 +175,7 @@ class PayCraftBillingManager(
         // whether or not the user opens the paywall.
         observeOutOfBandPurchases()
         reconcileUnfinishedPurchases()
+        observeNativeSignIn()
 
         // Synchronous cache read — runs before any UI frame (no Loading flash)
         val cached = store.getCachedSubscriptionStatus()
@@ -171,6 +189,11 @@ class PayCraftBillingManager(
         scope.launch {
             val savedEmail = store.getEmail()
             PayCraftLogger.onFlow("init", "savedEmail=${savedEmail ?: "null"}, stripeMode=$stripeMode")
+            // Re-present what the store holds BEFORE deciding premium. The server only hears about a
+            // renewal / cancel from a store notification; when that channel is missing or late the
+            // record goes stale while the store keeps billing. Syncing on launch means a missed
+            // notification can never leave a paying user Free — and a reinstall needs no Restore tap.
+            syncHeldStorePurchases(savedEmail?.takeIf { it.isNotBlank() } ?: PayCraft.deviceId)
             if (savedEmail.isNullOrEmpty()) {
                 // ONLY while still unresolved. This write used to be unconditional, which made init
                 // a late writer that could overwrite a more specific state resolved during its own
@@ -186,9 +209,16 @@ class PayCraftBillingManager(
                 // Loading is the initial value and means "no verdict yet", so gating on it writes
                 // Free exactly when init really is the thing that resolved the question. Same guard
                 // the post-purchase reconcile path below already uses, for the same reason.
+                // A store subscription needs no email: ask the reconciled store entitlement first.
+                val storeStatus = storeEntitlementStatus(PayCraft.deviceId)
                 if (_billingState.value is BillingState.Loading) {
-                    PayCraftLogger.onFlow("init", "No saved email → Free")
-                    _billingState.value = BillingState.Free
+                    if (storeStatus != null) {
+                        PayCraftLogger.onFlow("init", "No saved email → store entitlement is active")
+                        applyStorePremium(storeStatus)
+                    } else {
+                        PayCraftLogger.onFlow("init", "No saved email → Free")
+                        _billingState.value = BillingState.Free
+                    }
                 } else {
                     PayCraftLogger.onFlow(
                         "init",
@@ -542,22 +572,8 @@ class PayCraftBillingManager(
     /** Register a store purchase server-side, then finish it with the store if that succeeded. */
     private suspend fun registerAndFinish(native: NativeBillingClient, purchase: NativePurchase, tag: String) {
         val appUserId = _userEmail.value ?: PayCraft.deviceId
-        val platform = runCatching { PlatformInfo.platform.lowercase() }.getOrDefault("")
         val entitlement = try {
-            when {
-                platform == "android" -> service.registerPlayPurchase(
-                    purchaseToken = purchase.purchaseToken,
-                    productId = purchase.productId,
-                    appUserId = appUserId,
-                    packageName = purchase.packageName.orEmpty(),
-                )
-                platform == "ios" || platform == "macos" -> service.registerAppStorePurchase(
-                    signedTransaction = purchase.purchaseToken,
-                    appUserId = appUserId,
-                    productId = purchase.productId,
-                )
-                else -> null
-            }
+            service.registerStorePurchase(purchase, appUserId, currentPlatform())
         } catch (e: Exception) {
             PayCraftLogger.onError(tag, "server register failed — NOT finishing purchase: ${e.message}")
             return
@@ -574,21 +590,6 @@ class PayCraftBillingManager(
         finishPurchaseSafely(native, purchase, tag, consumable = isConsumableStoreProduct(purchase.productId))
         refreshStatus(force = true)
     }
-
-    /**
-     * Is this STORE product id a consumable?
-     *
-     * The reconcile path holds only a [NativePurchase], which carries the store's product id — NOT
-     * the PayCraft sku. Those differ (`cappy_plus_annual` vs `com.example.app.sub.year`), so the
-     * lookup must go through [BillingPlan.storeBinding], never `sku`. Matching on sku here would
-     * silently find nothing and default every consumable to acknowledge-only.
-     *
-     * Defaults to FALSE when the catalogue has not loaded or the product is unknown. That is the
-     * safe direction: acknowledging a consumable leaves it unrepurchasable until the next
-     * reconcile, whereas consuming a non-consumable would discard a permanent entitlement.
-     */
-    private fun isConsumableStoreProduct(storeProductId: String): Boolean =
-        PayCraft.plans.firstOrNull { it.storeBinding?.productId == storeProductId }?.isConsumable == true
 
     override suspend fun checkTrialEligibility(): Boolean {
         val token = DeviceTokenStore.getToken()
@@ -647,6 +648,13 @@ class PayCraftBillingManager(
                 )
                 return
             }
+            if (repo != null) {
+                scope.launch {
+                    val storeStatus = storeEntitlementStatus(PayCraft.deviceId)
+                    if (storeStatus != null) applyStorePremium(storeStatus) else _billingState.value = BillingState.Free
+                }
+                return
+            }
             _billingState.value = BillingState.Free
             return
         }
@@ -694,7 +702,22 @@ class PayCraftBillingManager(
             _billingState.value = BillingState.Error("Could not verify your identity. Please try again.")
             return
         }
+        applyVerifiedIdentity(email, priorConflict)
+    }
 
+    /**
+     * A NATIVE sign-in (Apple / Google, via kmp-supabase-auth on PayCraft's own Supabase client) has
+     * produced a verified session for [email]. Same outcome as [loginWithOAuth] — the identity is
+     * already proven by GoTrue, so there is no token left to verify.
+     */
+    override suspend fun onVerifiedSignIn(email: String) {
+        val priorConflict = _billingState.value as? BillingState.DeviceConflict ?: lastConflict
+        if (_userEmail.value.equals(email.trim(), ignoreCase = true) && priorConflict == null) return
+        _billingState.value = BillingState.Loading
+        applyVerifiedIdentity(email, priorConflict)
+    }
+
+    private suspend fun applyVerifiedIdentity(email: String, priorConflict: BillingState.DeviceConflict?) {
         val normalized = email.trim().lowercase()
         _userEmail.value = normalized
         scope.launch {
@@ -893,9 +916,93 @@ class PayCraftBillingManager(
         repo?.restore(appUserId)
     }
 
+    override fun onAppForegrounded() {
+        reconcileUnfinishedPurchases()
+        scope.launch {
+            syncHeldStorePurchases(_userEmail.value ?: PayCraft.deviceId)
+            // Always re-check, not only when something bound: a lapsed or cancelled subscription
+            // is exactly the case where the store returns NOTHING and premium must still drop.
+            refreshStatus(force = true)
+        }
+    }
+
+    /**
+     * A native Apple / Google sign-in on PayCraft's client is the buyer identifying themselves. The
+     * session flow is the source of truth (kmp-supabase-auth: launcher success callbacks are not
+     * reliable on Android), so this observes it rather than a button callback.
+     */
+    private fun observeNativeSignIn() {
+        val identity = identity ?: return
+        scope.launch {
+            identity.currentUser.collect { user ->
+                val email = user?.takeIf { !it.isAnonymous }?.email?.takeIf { it.isNotBlank() } ?: return@collect
+                PayCraftLogger.onFlow("observeNativeSignIn", "native sign-in via ${user.provider}")
+                onVerifiedSignIn(email)
+            }
+        }
+    }
+
+    override suspend fun restoreStorePurchases(): Boolean {
+        val repo = repo ?: return false
+        val appUserId = _userEmail.value ?: PayCraft.deviceId
+        runCatching { repo.restore(appUserId) }
+            .onFailure { PayCraftLogger.onError("restoreStorePurchases", it.message) }
+        val status = storeEntitlementStatus(appUserId) ?: return false
+        applyStorePremium(status)
+        return true
+    }
+
     // ─── Private helpers ─────────────────────────────────────────────────────
 
+    /**
+     * The reconciled STORE entitlement for [appUserId] as a premium status, or null when there is
+     * none servable (absent, expired, on hold, or the read failed). Network read: this answers "is
+     * the user premium right now", which a stale cache must not decide (device finding 2026-10-31).
+     */
+    // ponytail: no offline fallback — every caller has already reached the server (or shows the
+    // cached status first), and a null here cannot say whether the server was down or empty.
+    private suspend fun storeEntitlementStatus(appUserId: String): SubscriptionStatus? {
+        val repo = repo ?: return null
+        val entitlement = runCatching { repo.fresh(appUserId) }.getOrNull() ?: return null
+        if (!repo.isServableOffline(entitlement, currentTimeMillis())) return null
+        return entitlement.toSubscriptionStatus(email = _userEmail.value)
+    }
+
+    private fun applyStorePremium(status: SubscriptionStatus) {
+        _isPremium.value = true
+        _subscriptionStatus.value = status
+        _billingState.value = BillingState.Premium(status)
+        store.cacheSubscriptionStatus(status)
+        if (!lastObservedPremium) {
+            scope.launch { _subscriptionActivated.emit(SubscriptionActivated(sku = status.plan, isTrial = false)) }
+        }
+        lastObservedPremium = true
+    }
+
+    /**
+     * Carry every purchase the store holds onto [appUserId] — run when the user signs in.
+     *
+     * A store purchase made before sign-in is bound to the anonymous device id. Signing in switches
+     * the app-user-id to the email, which is the identity the OTHER platform resolves, so without
+     * this the subscription stays on the device id and the second platform reads Free. The server
+     * moves it only off an anonymous holder, so this can never take a purchase from another account.
+     */
+    private fun relinkStorePurchasesTo(appUserId: String) {
+        scope.launch {
+            if (syncHeldStorePurchases(appUserId) > 0) refreshStatus(force = true)
+        }
+    }
+
+    /** [EntitlementRepository.syncHeldPurchases], failure-tolerant: a sync that cannot run is not an error. */
+    private suspend fun syncHeldStorePurchases(appUserId: String): Int {
+        val repo = repo ?: return 0
+        return runCatching { repo.syncHeldPurchases(appUserId) }
+            .onFailure { PayCraftLogger.onError("syncHeldStorePurchases", it.message) }
+            .getOrDefault(0)
+    }
+
     private suspend fun performRegisterAndLogin(email: String) {
+        relinkStorePurchasesTo(email)
         val mode = stripeMode
         val platform = PlatformInfo.platform
         val deviceName = PlatformInfo.deviceName
@@ -1078,6 +1185,13 @@ class PayCraftBillingManager(
 
             lastObservedPremium = true
         } else {
+            // The web check reads only `subscriptions`; a STORE subscription lives in the reconciled
+            // entitlement. Declaring Free without asking it is how a Play/App Store subscriber lost
+            // premium on their first refresh after buying.
+            storeEntitlementStatus(email)?.let {
+                applyStorePremium(it)
+                return
+            }
             val status = SubscriptionStatus(isPremium = false, email = email)
             _isInTrial.value = false
             _trialEndsAt.value = null
@@ -1094,5 +1208,74 @@ class PayCraftBillingManager(
             )
             lastObservedPremium = false
         }
+    }
+
+    // ─── Consumable balances ────────────────────────────────────────────────────────────────────
+
+    /**
+     * Read [sku]'s balance from the server and publish it to [balances].
+     *
+     * The subject is NOT a parameter: the server derives it from this device's token (migration
+     * 159). Before that, these RPCs took a caller-supplied subject id, which both let one holder of
+     * the publishable key read another user's balance AND made the call impossible to make honestly
+     * — `entitlement_subject_resolve` is service_role-only, so a client could never learn its own
+     * subject id to pass.
+     *
+     * No token (signed out, not yet registered) is 0 WITHOUT a server round-trip, and the map is
+     * left untouched: publishing a 0 here would be indistinguishable from a real zero balance and
+     * would make the UI offer a spend that cannot succeed.
+     */
+    /**
+     * Read ownership of [sku] from the server into [ownedSkus].
+     *
+     * Note this REMOVES the sku on a false, rather than only adding on a true. A refund or a failed
+     * verification has to be able to close a gate that an earlier purchase opened; an add-only set
+     * would leave content unlocked forever after the first true.
+     */
+    override suspend fun refreshOwnership(sku: String): Boolean {
+        val token = DeviceTokenStore.getToken()
+        if (token.isNullOrBlank()) return false
+        val owned = service.owns(token, sku)
+        _ownedSkus.update { if (owned) it + sku else it - sku }
+        return owned
+    }
+
+    override suspend fun refreshBalance(sku: String): Int {
+        val token = DeviceTokenStore.getToken()
+        if (token.isNullOrBlank()) return 0
+        val balance = service.balanceOf(token, sku)
+        _balances.update { it + (sku to balance) }
+        return balance
+    }
+
+    /**
+     * Spend [quantity] of [sku], server-checked and atomic.
+     *
+     * The service returns null for BOTH a transport failure and `insufficient_balance`, and the
+     * distinction cannot be recovered here. Both map to [Result.failure] — which is the safe
+     * collapse, because the one outcome that must never happen is treating a network error as a
+     * successful spend and handing over the goods. The caller's message is the same either way.
+     */
+    override suspend fun spend(sku: String, quantity: Int, idempotencyKey: String): Result<Int> {
+        val token = DeviceTokenStore.getToken()
+        if (token.isNullOrBlank()) {
+            return Result.failure(IllegalStateException("no registered device - cannot spend"))
+        }
+        val newBalance = service.spendBalance(token, sku, quantity, idempotencyKey)
+            ?: return Result.failure(IllegalStateException("spend rejected (insufficient balance or unreachable)"))
+        // Server-returned value, so this is still a server write (AR-013), not a local decrement.
+        _balances.update { it + (sku to newBalance) }
+        return Result.success(newBalance)
+    }
+
+    override suspend fun earn(sku: String, quantity: Int, eventId: String): Int {
+        val token = DeviceTokenStore.getToken()
+            ?: throw IllegalStateException("no registered device - cannot earn")
+        if (token.isBlank()) throw IllegalStateException("no registered device - cannot earn")
+        val newBalance = service.earnBalance(token, sku, quantity, eventId)
+            ?: throw IllegalStateException("earn rejected (unreachable, or sku has no daily_earn_cap)")
+        // Server-returned, and possibly CLAMPED below what was asked — the cap working, not an error.
+        _balances.update { it + (sku to newBalance) }
+        return newBalance
     }
 }

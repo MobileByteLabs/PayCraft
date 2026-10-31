@@ -70,7 +70,8 @@ fun DeviceConflictContent(
     onAction: (PayCraftPaywallAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val oauthHandler = LocalPayCraftOAuthHandler.current
+    // Host override, else native sign-in by default (rememberPayCraftSignIn).
+    val signIn = rememberPayCraftSignIn()
 
     Column(
         modifier = modifier.fillMaxWidth().padding(24.dp),
@@ -98,15 +99,16 @@ fun DeviceConflictContent(
         )
 
         // ── Gate 1: OAuth — only when the host can actually complete it ────────────────────
-        if (oauthHandler != null) {
+        if (signIn != null && OAuthProvider.GOOGLE in signIn.providers) {
             Button(
-                onClick = { oauthHandler(OAuthProvider.GOOGLE) },
+                onClick = { signIn.launch(OAuthProvider.GOOGLE) },
                 modifier = Modifier.fillMaxWidth()
                     .testTag(PayCraftTestTags.DEVICE_CONFLICT_GATE_OAUTH_GOOGLE),
             ) { Text(stringResource(Res.string.paycraft_device_conflict_gate_oauth_google)) }
-
+        }
+        if (signIn != null && OAuthProvider.APPLE in signIn.providers) {
             OutlinedButton(
-                onClick = { oauthHandler(OAuthProvider.APPLE) },
+                onClick = { signIn.launch(OAuthProvider.APPLE) },
                 modifier = Modifier.fillMaxWidth()
                     .testTag(PayCraftTestTags.DEVICE_CONFLICT_GATE_OAUTH_APPLE),
             ) { Text(stringResource(Res.string.paycraft_device_conflict_gate_oauth_apple)) }

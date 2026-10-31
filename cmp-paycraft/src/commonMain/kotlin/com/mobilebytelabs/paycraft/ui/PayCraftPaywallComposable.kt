@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -127,6 +128,12 @@ fun PayCraftPaywallComposable(
     val viewModel: PayCraftPaywallViewModel = koinViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // The ViewModel is host-scoped and outlives this surface; whatever closed it, the next open must
+    // start on the paywall — not on a restore sheet or provider picker left up from last time.
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.dispatch(PayCraftPaywallAction.SurfaceClosed) }
+    }
 
     LaunchedEffect(viewModel.events) {
         viewModel.events.collect { event ->
@@ -405,11 +412,7 @@ private fun PayCraftPaywallSurface(
                 )
             } else {
                 val template = PaywallTemplate.parse(config?.paywall?.template.orEmpty())
-                val products: List<Product> = config?.products
-                    ?.filter { it.active }
-                    ?.map(ProductMapper::fromDto)
-                    ?.sortedBy { it.displayOrder }
-                    ?: emptyList()
+                val products: List<Product> = config?.products?.let(ProductMapper::paywallProducts) ?: emptyList()
 
                 // Config is healthy but there is nothing to sell — a new tenant, or store products
                 // not published yet. Rendering the template here produces a paywall with a hero, no

@@ -15,7 +15,7 @@
 // (one noisy Stripe burst doesn't burn the Razorpay budget). Defaults follow
 // the published SLA: 60 req/60s sustained, allow short 60-burst.
 
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.3?target=deno"
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno"
 import {
   RateLimitError,
   rateLimitHeaders,

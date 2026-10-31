@@ -98,6 +98,21 @@ interface PayCraftRepository {
     val plans: StateFlow<List<BillingPlan>>
 
     /**
+     * Server-authoritative consumable balances by sku (coins, credits, gems).
+     *
+     * READ-ONLY with no local increment path (AR-013) — a client-writable balance is forgeable
+     * currency. An absent sku has not been read yet; that is NOT a zero balance.
+     */
+    val balances: StateFlow<Map<String, Int>>
+
+    /**
+     * Skus owned outright (one-time unlocks). Server-confirmed only — a sku appears here when the
+     * server says so, never optimistically on a purchase return (AR: `owns` is false until the
+     * server confirms the grant).
+     */
+    val ownedSkus: StateFlow<Set<String>>
+
+    /**
      * Start checkout. **Fire-and-observe**, matching `PayCraft.checkout`: it routes to the correct
      * lane (native store vs web) and returns immediately.
      *
@@ -107,6 +122,32 @@ interface PayCraftRepository {
      * Never opens a web checkout for a digital good on Android/iOS; the lane resolution owns that
      * and fails closed rather than committing an anti-steering violation.
      */
+    /** Re-read [sku]'s balance from the server into [balances]; 0 when it cannot be read. */
+    suspend fun refreshBalance(sku: String): Int
+
+    /** Re-read ownership of [sku] into [ownedSkus]; false when it cannot be read. */
+    suspend fun refreshOwnership(sku: String): Boolean
+
+    /**
+     * Spend [quantity] of [sku], server-checked and atomic.
+     *
+     * [idempotencyKey] is REQUIRED (AR-011) so a retry after a timeout replays rather than charges
+     * twice. Insufficient funds is a [Result.failure], not an exception (AR-012).
+     */
+    suspend fun spend(sku: String, quantity: Int, idempotencyKey: String): Result<Int>
+
+    /**
+     * Report an in-app ACTIVITY earn (a completed session, a streak) and return the new balance.
+     *
+     * [eventId] is the idempotency key: it must identify the activity, not the call, or a retry
+     * pays twice. The server CLAMPS to the tenant's daily cap, so the result may be lower than
+     * balance+quantity — an honest client at its ceiling, not an error.
+     *
+     * Activity earns are client-asserted by construction (no server can observe a focus session),
+     * which is exactly why the ceiling is enforced server-side.
+     */
+    suspend fun earn(sku: String, quantity: Int, eventId: String): Int
+
     fun checkout(plan: BillingPlan, email: String? = null)
 
     /**

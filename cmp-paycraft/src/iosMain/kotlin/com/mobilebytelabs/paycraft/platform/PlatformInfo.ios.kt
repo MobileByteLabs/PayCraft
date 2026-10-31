@@ -9,6 +9,7 @@ import platform.UIKit.UIDevice
 
 actual object PlatformInfo {
     actual val platform: String = "ios"
+    actual val appId: String get() = NSBundle.mainBundle.bundleIdentifier.orEmpty()
 
     // ── Build kind, from the APP BUNDLE's provisioning identity ───────────────────────────────
     //

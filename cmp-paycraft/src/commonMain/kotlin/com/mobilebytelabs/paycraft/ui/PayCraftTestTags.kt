@@ -185,6 +185,13 @@ object PayCraftTestTags {
     /** Premium-arm entitlement operations. MANAGE_SUBSCRIPTION_BUTTON already exists — reused. */
     const val PAYWALL_RESTORE_BUTTON = "paycraft_paywall_restore_button"
 
+    // Post-purchase account link (PLAN-paycraft-native-identity D4)
+    const val LINK_ACCOUNT_SCREEN = "paycraft_link_account_screen"
+    const val LINK_ACCOUNT_APPLE = "paycraft_link_account_apple"
+    const val LINK_ACCOUNT_GOOGLE = "paycraft_link_account_google"
+    const val LINK_ACCOUNT_NOT_NOW = "paycraft_link_account_not_now"
+    const val LINK_ACCOUNT_DONE = "paycraft_link_account_done"
+
     /** Phase 3a resilience surfaces, tagged here so AC-28 can pair all eleven states. */
     const val CONFIG_FAILED_MESSAGE = "paycraft_config_failed_message"
     const val CONFIG_FAILED_RETRY = "paycraft_config_failed_retry"
@@ -198,4 +205,13 @@ object PayCraftTestTags {
     const val OFFLINE_MESSAGE = "paycraft_offline_message"
     const val STALE_MESSAGE = "paycraft_stale_message"
     const val STALE_REFRESH = "paycraft_stale_refresh"
+
+    /** Consumable balances + the non-subscription store (coin packs, one-time unlocks). */
+    const val BALANCE = "paycraft_balance"
+    const val STORE_SECTION = "paycraft_store_section"
+    const val EARN_SECTION = "paycraft_earn_section"
+    const val EARN_BUTTON = "paycraft_earn_button"
+    const val STORE_PRODUCT_ROW = "paycraft_store_product_row"
+    const val STORE_EMPTY = "paycraft_store_empty"
+    const val PRODUCT_GATE_UNLOCKED = "paycraft_product_gate_unlocked"
 }
