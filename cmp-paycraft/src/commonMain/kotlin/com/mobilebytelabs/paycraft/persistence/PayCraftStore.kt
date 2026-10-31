@@ -57,6 +57,11 @@ interface PayCraftStore {
     fun getLastSyncedAt(): Long = 0L
     fun clearCache() {}
 
+    // ── Post-purchase account-link prompt (PLAN-paycraft-native-identity D4) ─────────────────────
+    // Offered ONCE after a store purchase made without an identity; "Not now" must not nag.
+    fun isLinkPromptShown(): Boolean = false
+    fun markLinkPromptShown() {}
+
     // ── Ad-unlock grants ─────────────────────────────────────────────────────────────────────────
     //
     // A rewarded-ad unlock is a time-boxed, per-feature grant. It lives here rather than in the

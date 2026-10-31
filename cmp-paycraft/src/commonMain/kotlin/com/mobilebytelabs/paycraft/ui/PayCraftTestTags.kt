@@ -185,6 +185,13 @@ object PayCraftTestTags {
     /** Premium-arm entitlement operations. MANAGE_SUBSCRIPTION_BUTTON already exists — reused. */
     const val PAYWALL_RESTORE_BUTTON = "paycraft_paywall_restore_button"
 
+    // Post-purchase account link (PLAN-paycraft-native-identity D4)
+    const val LINK_ACCOUNT_SCREEN = "paycraft_link_account_screen"
+    const val LINK_ACCOUNT_APPLE = "paycraft_link_account_apple"
+    const val LINK_ACCOUNT_GOOGLE = "paycraft_link_account_google"
+    const val LINK_ACCOUNT_NOT_NOW = "paycraft_link_account_not_now"
+    const val LINK_ACCOUNT_DONE = "paycraft_link_account_done"
+
     /** Phase 3a resilience surfaces, tagged here so AC-28 can pair all eleven states. */
     const val CONFIG_FAILED_MESSAGE = "paycraft_config_failed_message"
     const val CONFIG_FAILED_RETRY = "paycraft_config_failed_retry"

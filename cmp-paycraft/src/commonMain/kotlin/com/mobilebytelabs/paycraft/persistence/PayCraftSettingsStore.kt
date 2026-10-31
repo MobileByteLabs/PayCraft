@@ -55,6 +55,10 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
 
     override fun getLastSyncedAt(): Long = settings.getLong(KEY_CACHED_LAST_SYNCED, 0L)
 
+    override fun isLinkPromptShown(): Boolean = settings.getBoolean(KEY_LINK_PROMPT_SHOWN, false)
+
+    override fun markLinkPromptShown() = settings.putBoolean(KEY_LINK_PROMPT_SHOWN, true)
+
     override fun clearCache() {
         settings.remove(KEY_CACHED_IS_PREMIUM)
         settings.remove(KEY_CACHED_PLAN)
@@ -147,6 +151,7 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
 
     companion object {
         private const val KEY_EMAIL = "paycraft_subscription_email"
+        private const val KEY_LINK_PROMPT_SHOWN = "paycraft_link_prompt_shown"
         private const val KEY_CACHED_IS_PREMIUM = "paycraft_cached_is_premium"
         private const val KEY_CACHED_PLAN = "paycraft_cached_plan"
         private const val KEY_CACHED_PROVIDER = "paycraft_cached_provider"

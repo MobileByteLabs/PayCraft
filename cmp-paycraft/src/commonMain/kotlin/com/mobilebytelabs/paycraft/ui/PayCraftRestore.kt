@@ -82,6 +82,7 @@ import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.ui.components.LocalPayCraftOAuthHandler
 import com.mobilebytelabs.paycraft.ui.components.PayCraftPaywallHeader
+import com.mobilebytelabs.paycraft.ui.components.rememberPayCraftSignIn
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
 import kotlinx.coroutines.delay
@@ -194,12 +195,13 @@ internal fun PayCraftRestoreContent(
     onSuccess: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // A handler is all-or-nothing by design: a host that can run Google sign-in on this platform
-    // can run Apple sign-in too (the SDK asks for a provider), so the previous pair of independent
-    // nullable callbacks modelled a state that does not occur.
-    val oauthHandler = LocalPayCraftOAuthHandler.current
-    val onGoogleSignInClick: (() -> Unit)? = oauthHandler?.let { h -> { h(OAuthProvider.GOOGLE) } }
-    val onAppleSignInClick: (() -> Unit)? = oauthHandler?.let { h -> { h(OAuthProvider.APPLE) } }
+    // Host override, else NATIVE sign-in by default — Apple only where it can complete (iOS, or an
+    // Apple Services ID elsewhere). See rememberPayCraftSignIn.
+    val signIn = rememberPayCraftSignIn()
+    val onGoogleSignInClick: (() -> Unit)? =
+        signIn?.takeIf { OAuthProvider.GOOGLE in it.providers }?.let { s -> { s.launch(OAuthProvider.GOOGLE) } }
+    val onAppleSignInClick: (() -> Unit)? =
+        signIn?.takeIf { OAuthProvider.APPLE in it.providers }?.let { s -> { s.launch(OAuthProvider.APPLE) } }
 
     var email by remember { mutableStateOf("") }
     var emailError by remember { mutableStateOf<String?>(null) }

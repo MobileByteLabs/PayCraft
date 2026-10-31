@@ -46,6 +46,12 @@ class PayCraftBillingManager(
     private val repo: EntitlementRepository? = null,
     private val nativeBillingClient: NativeBillingClient? = null,
     /**
+     * PayCraft's own native sign-in client (kmp-supabase-auth on PayCraft's Supabase). A signed-in,
+     * non-anonymous user identifies the buyer — [onVerifiedSignIn]. Null = no native sign-in (tests,
+     * hosts that strip it).
+     */
+    private val identity: io.github.mobilebytelabs.supabaseauth.KmpSupabaseAuthClient? = null,
+    /**
      * Dispatcher for this manager's internal [scope]. Defaults to [Dispatchers.Default], which is
      * what every production caller gets.
      *
@@ -169,6 +175,7 @@ class PayCraftBillingManager(
         // whether or not the user opens the paywall.
         observeOutOfBandPurchases()
         reconcileUnfinishedPurchases()
+        observeNativeSignIn()
 
         // Synchronous cache read — runs before any UI frame (no Loading flash)
         val cached = store.getCachedSubscriptionStatus()
@@ -695,7 +702,22 @@ class PayCraftBillingManager(
             _billingState.value = BillingState.Error("Could not verify your identity. Please try again.")
             return
         }
+        applyVerifiedIdentity(email, priorConflict)
+    }
 
+    /**
+     * A NATIVE sign-in (Apple / Google, via kmp-supabase-auth on PayCraft's own Supabase client) has
+     * produced a verified session for [email]. Same outcome as [loginWithOAuth] — the identity is
+     * already proven by GoTrue, so there is no token left to verify.
+     */
+    override suspend fun onVerifiedSignIn(email: String) {
+        val priorConflict = _billingState.value as? BillingState.DeviceConflict ?: lastConflict
+        if (_userEmail.value.equals(email.trim(), ignoreCase = true) && priorConflict == null) return
+        _billingState.value = BillingState.Loading
+        applyVerifiedIdentity(email, priorConflict)
+    }
+
+    private suspend fun applyVerifiedIdentity(email: String, priorConflict: BillingState.DeviceConflict?) {
         val normalized = email.trim().lowercase()
         _userEmail.value = normalized
         scope.launch {
@@ -901,6 +923,22 @@ class PayCraftBillingManager(
             // Always re-check, not only when something bound: a lapsed or cancelled subscription
             // is exactly the case where the store returns NOTHING and premium must still drop.
             refreshStatus(force = true)
+        }
+    }
+
+    /**
+     * A native Apple / Google sign-in on PayCraft's client is the buyer identifying themselves. The
+     * session flow is the source of truth (kmp-supabase-auth: launcher success callbacks are not
+     * reliable on Android), so this observes it rather than a button callback.
+     */
+    private fun observeNativeSignIn() {
+        val identity = identity ?: return
+        scope.launch {
+            identity.currentUser.collect { user ->
+                val email = user?.takeIf { !it.isAnonymous }?.email?.takeIf { it.isNotBlank() } ?: return@collect
+                PayCraftLogger.onFlow("observeNativeSignIn", "native sign-in via ${user.provider}")
+                onVerifiedSignIn(email)
+            }
         }
     }
 

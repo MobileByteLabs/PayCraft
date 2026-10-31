@@ -146,6 +146,13 @@ internal interface BillingManager {
      */
     suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String)
 
+    /**
+     * A native sign-in already produced a verified session for [email] (no id token to verify).
+     * Identifies the buyer exactly like [loginWithOAuth]: resolves a pending device conflict, or
+     * registers + re-links every store purchase to [email] for cross-platform restore.
+     */
+    suspend fun onVerifiedSignIn(email: String) {}
+
     // ─── Device conflict resolution ──────────────────────────────────────────
 
     /**
