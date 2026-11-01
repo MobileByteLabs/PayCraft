@@ -136,6 +136,22 @@ const nonEmpty = (xs: Array<string | null | undefined>) =>
 
 const googleWebClientId = () => (Deno.env.get("PAYCRAFT_GOOGLE_WEB_CLIENT_ID") ?? "").trim();
 const googleWebClientSecret = () => (Deno.env.get("PAYCRAFT_GOOGLE_WEB_CLIENT_SECRET") ?? "").trim();
+
+/**
+ * The Google Web client the BROWSER flow runs on: the app's own (tenants.auth_google_web_client_id +
+ * its encrypted secret, migration 169) so Google's consent screen names the app the buyer installed;
+ * PayCraft's own client only when the tenant has not stored a secret. /start and /callback BOTH call
+ * this, so the code is always exchanged by the client that issued it.
+ */
+async function googleWebClientFor(tenantId: string, tenantClientId: string | null): Promise<{ id: string; secret: string }> {
+  const id = (tenantClientId ?? "").trim();
+  if (id) {
+    const { data } = await supabaseAdmin.rpc("tenant_google_client_secret", { p_tenant_id: tenantId });
+    const secret = typeof data === "string" ? data.trim() : "";
+    if (secret) return { id, secret };
+  }
+  return { id: googleWebClientId(), secret: googleWebClientSecret() };
+}
 const selfUrl = () =>
   `${(Deno.env.get("SUPABASE_URL") ?? "").replace(/\/+$/, "")}/functions/v1/identity-token`;
 
@@ -193,7 +209,9 @@ async function handleStart(req: Request): Promise<Response> {
   if (tenant === "error") return json({ error: "tenant_lookup_failed" }, 500);
   if (!tenant) return json({ error: "unknown_or_inactive_api_key" }, 401);
 
-  const clientId = provider === "google" ? googleWebClientId() : (tenant.auth_apple_services_id ?? "").trim();
+  const clientId = provider === "google"
+    ? (await googleWebClientFor(tenant.id, tenant.auth_google_web_client_id)).id
+    : (tenant.auth_apple_services_id ?? "").trim();
   if (!clientId) return json({ error: `${provider}_web_flow_not_configured` }, 503);
 
   const { error } = await supabaseAdmin
@@ -264,8 +282,8 @@ async function handleCallback(req: Request): Promise<Response> {
   let clientId = "";
   let clientSecret = "";
   if (s.provider === "google") {
-    clientId = googleWebClientId();
-    clientSecret = googleWebClientSecret();
+    const tenant = await tenantById(s.tenant_id);
+    ({ id: clientId, secret: clientSecret } = await googleWebClientFor(s.tenant_id, tenant?.auth_google_web_client_id ?? null));
   } else {
     const tenant = await tenantById(s.tenant_id);
     clientId = (tenant?.auth_apple_services_id ?? "").trim();

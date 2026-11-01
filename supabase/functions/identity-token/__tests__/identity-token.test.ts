@@ -55,6 +55,7 @@ type Row = Record<string, unknown>;
 const sessions = new Map<string, Row>();
 let tokenEndpointIdToken = "";
 let lastTokenRequest: URLSearchParams | null = null;
+let tenantGoogleSecret: string | null = null; // migration 169 — null = tenant has not stored one
 
 const ok = (body: unknown, status = 200) =>
   new Response(body === null ? null : JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -82,6 +83,7 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     return tokenEndpointIdToken ? ok({ id_token: tokenEndpointIdToken }) : ok({ error: "invalid_grant" }, 400);
   }
   if (url.pathname === "/rest/v1/rpc/tenant_apple_client_secret") return ok("stub-apple-client-secret");
+  if (url.pathname === "/rest/v1/rpc/tenant_google_client_secret") return ok(tenantGoogleSecret);
   if (url.pathname === "/rest/v1/tenants") {
     const or = url.searchParams.get("or") ?? "";
     const id = url.searchParams.get("id");
@@ -269,4 +271,28 @@ t("/callback with a token for the wrong audience → failed", async () => {
     status: "failed",
     error: "invalid_identity_token",
   });
+});
+
+t("google browser flow uses the APP's own web client once its secret is stored (169)", async () => {
+  tenantGoogleSecret = "stub-tenant-google-secret";
+  try {
+    const session = "g".repeat(64);
+    const res = await start("google", session);
+    assertEquals(res.status, 302);
+    // the consent screen must name the app — its own client, not PayCraft's
+    assertEquals(new URL(res.headers.get("location")!).searchParams.get("client_id"), TENANT.auth_google_web_client_id);
+
+    tokenEndpointIdToken = await googleToken({}, TENANT.auth_google_web_client_id);
+    const cb = await handler(new Request(`${base}/callback?code=abc&state=${session}`));
+    assert((await cb.text()).includes("Signed in."));
+    // the code is exchanged by the SAME client that issued it
+    assertEquals(lastTokenRequest?.get("client_id"), TENANT.auth_google_web_client_id);
+    assertEquals(lastTokenRequest?.get("client_secret"), "stub-tenant-google-secret");
+    assertEquals(await (await post("/result", { api_key: API_KEY, session })).json(), {
+      status: "verified",
+      email: "buyer@example.com",
+    });
+  } finally {
+    tenantGoogleSecret = null;
+  }
 });
