@@ -313,4 +313,7 @@
     <string name="paycraft_strip_payment_pending">Payment pending — premium unlocks automatically</string>
     <string name="paycraft_strip_verify_ownership">Verify ownership to continue</string>
     <string name="paycraft_strip_manage">Manage subscription</string>
+    <!-- sdk-plan-card: test purchases renew in minutes -->
+    <string name="paycraft_date_today_at">today, %1$s</string>
+    <string name="paycraft_plan_card_chip_test">Test</string>
 </resources>

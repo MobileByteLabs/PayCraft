@@ -21,6 +21,7 @@ import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.core.SyncPolicy
 import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_date_today_at
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_get_premium
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_manage_subscription
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_button
@@ -41,8 +42,12 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_trial_s
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.EntitlementTier
 import com.mobilebytelabs.paycraft.repository.PayCraftRepository
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 /**
  * The subscription section of a host's Settings screen — status, manage, restore — resolved from
@@ -140,6 +145,9 @@ internal data class PlanSectionState(
      */
     val cancelled: Boolean = false,
 
+    /** A store TEST purchase — drawn with a "TEST" chip so a 30-minute "yearly" renewal reads as expected. */
+    val isTest: Boolean = false,
+
     /** Opens the provider portal or the platform's store subscriptions page. */
     val onManage: () -> Unit,
     /**
@@ -183,6 +191,7 @@ internal fun rememberSubscriptionSettingsState(
     val configured = PayCraft.isConfigured
     val manageUrl = repo.manageSubscriptionUrl()
 
+    val todayAt = stringResource(Res.string.paycraft_date_today_at)
     val supporting = when (entitlement.tier) {
         EntitlementTier.FREE -> copy.freeSupporting
         EntitlementTier.TRIAL -> {
@@ -200,8 +209,8 @@ internal fun rememberSubscriptionSettingsState(
             val date = status.expiresAt
             when {
                 date == null -> copy.premiumSupporting
-                status.willRenew -> copy.renewsOn(formatDate(date))
-                else -> copy.expiresOn(formatDate(date))
+                status.willRenew -> copy.renewsOn(formatRenewalDate(date, todayAt))
+                else -> copy.expiresOn(formatRenewalDate(date, todayAt))
             }
         }
     }
@@ -226,6 +235,7 @@ internal fun rememberSubscriptionSettingsState(
         billedThrough = billedThroughFor(entitlement.tier, status.provider, copy),
         provider = providerFor(entitlement.tier, status.provider),
         cancelled = entitlement.tier == EntitlementTier.PREMIUM && status.expiresAt != null && !status.willRenew,
+        isTest = entitlement.tier != EntitlementTier.FREE && status.isTest,
         statusLabel = when (entitlement.tier) {
             EntitlementTier.FREE -> copy.freeLabel
             EntitlementTier.TRIAL -> copy.trialLabel
@@ -480,6 +490,27 @@ private const val DAY_MS = 24L * 60 * 60 * 1000
  * a worse answer than a stable unambiguous format. A tenant who needs a different shape controls the
  * surrounding sentence through `settings_renews_on`.
  */
+/**
+ * [formatDate], except a moment that falls on TODAY (device time zone) reads "today, 11:12 PM".
+ *
+ * Store testers renew in minutes — a Play license-tester "yearly" plan renews every 30 minutes — so a
+ * bare date shows today's date for a yearly plan and looks broken (user report 2026-11-01). Same-day
+ * real renewals benefit the same way.
+ */
+internal fun formatRenewalDate(
+    iso: String,
+    todayAtTemplate: String,
+    now: Instant = Clock.System.now(),
+    zone: TimeZone = TimeZone.currentSystemDefault(),
+): String {
+    val at = runCatching { Instant.parse(iso) }.getOrNull() ?: return formatDate(iso)
+    val local = at.toLocalDateTime(zone)
+    if (local.date != now.toLocalDateTime(zone).date) return formatDate(iso)
+    val hour12 = (local.hour % 12).let { if (it == 0) 12 else it }
+    val time = "$hour12:${local.minute.toString().padStart(2, '0')} ${if (local.hour < 12) "AM" else "PM"}"
+    return todayAtTemplate.replace("%1\$s", time)
+}
+
 internal fun formatDate(iso: String): String {
     val date = iso.substringBefore('T').split('-')
     if (date.size != 3) return iso

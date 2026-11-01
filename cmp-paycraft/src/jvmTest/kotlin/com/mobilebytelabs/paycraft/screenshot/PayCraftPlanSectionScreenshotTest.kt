@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -168,6 +169,52 @@ class PayCraftPlanSectionScreenshotTest {
         onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW).assertDoesNotExist()
         onRoot().captureRoboImage(P_CARD)
         assertCaptured(P_CARD)
+    }
+
+    /** A store TEST purchase: "TEST" chip beside ACTIVE, and a same-day renewal reads as a time. */
+    @Test
+    fun card_premium_test_purchase_render() = runComposeUiTest {
+        val test = premium.copy(isTest = true, supportingText = "Renews today, 11:12 PM")
+        setContent { DeterministicTheme { CardSettings(test, copy, theme(), {}) } }
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_TEST_CHIP).assertIsDisplayed()
+        onNodeWithText("TEST").assertIsDisplayed()
+        onRoot().captureRoboImage(P_CARD_TEST)
+        assertCaptured(P_CARD_TEST)
+    }
+
+    /**
+     * Device regression (2026-11-02, CPH2423): a cancelled TEST purchase at a large font scale wrapped the
+     * TEST chip mid-word ("TE/ST") and ellipsised the store name ("Google …"). The chips and the store
+     * name must stay whole; the rows flow onto a second line instead.
+     */
+    @Test
+    fun card_cancelled_test_purchase_large_font_narrow() = runComposeUiTest {
+        val s = premium.copy(isTest = true, cancelled = true, supportingText = "Expires today, 12:12 AM")
+        setContent {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(
+                    density = androidx.compose.ui.platform.LocalDensity.current.density,
+                    fontScale = 1.3f,
+                ),
+            ) {
+                DeterministicTheme {
+                    androidx.compose.foundation.layout.Box(
+                        androidx.compose.ui.Modifier.width(androidx.compose.ui.unit.Dp(340f)),
+                    ) { CardSettings(s, copy, theme(), {}) }
+                }
+            }
+        }
+        onNodeWithText("TEST").assertIsDisplayed()
+        onNodeWithText("CANCELLED").assertIsDisplayed()
+        onNodeWithText("Google Play").assertIsDisplayed()
+        onRoot().captureRoboImage(P_CARD_TEST_LARGE)
+        assertCaptured(P_CARD_TEST_LARGE)
+    }
+
+    @Test
+    fun card_premium_real_purchase_has_no_test_chip() = runComposeUiTest {
+        setContent { DeterministicTheme { CardSettings(premium, copy, theme(), {}) } }
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_TEST_CHIP).assertDoesNotExist()
     }
 
     @Test
@@ -383,6 +430,8 @@ class PayCraftPlanSectionScreenshotTest {
         const val P_MINIMAL = "$DIR/plan_section_minimal_premium.png"
         const val P_ROWS = "$DIR/plan_section_rows_premium.png"
         const val P_CARD = "$DIR/plan_section_card_premium.png"
+        const val P_CARD_TEST = "$DIR/plan_section_card_premium_test.png"
+        const val P_CARD_TEST_LARGE = "$DIR/plan_section_card_test_cancelled_large_font.png"
         const val P_HERO = "$DIR/plan_section_hero_premium.png"
         const val P_COMPACT = "$DIR/plan_section_compact_premium.png"
         const val P_ROWS_FREE = "$DIR/plan_section_rows_free.png"

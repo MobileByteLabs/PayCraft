@@ -221,4 +221,5 @@ object PayCraftTestTags {
     const val STORE_PRODUCT_ROW = "paycraft_store_product_row"
     const val STORE_EMPTY = "paycraft_store_empty"
     const val PRODUCT_GATE_UNLOCKED = "paycraft_product_gate_unlocked"
+    const val SUBSCRIPTION_TEST_CHIP = "paycraft_subscription_test_chip"
 }

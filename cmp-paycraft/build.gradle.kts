@@ -222,6 +222,8 @@ kotlin {
 
             // Serialization
             implementation(paycraftLibs.kotlinx.serialization.json)
+            // Local wall-clock time for "Renews today, 11:12 PM" (test purchases renew in minutes).
+            implementation(paycraftLibs.kotlinx.datetime)
             implementation(paycraftLibs.kotlinx.coroutines.core)
 
             // Settings (email persistence + offline entitlement SourceOfTruth — persistence/EntitlementDao.kt)

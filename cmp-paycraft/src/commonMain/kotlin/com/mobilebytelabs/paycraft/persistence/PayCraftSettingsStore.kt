@@ -38,6 +38,7 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
         status.expiresAt?.let { settings.putString(KEY_CACHED_EXPIRES_AT, it) }
             ?: settings.remove(KEY_CACHED_EXPIRES_AT)
         settings.putBoolean(KEY_CACHED_WILL_RENEW, status.willRenew)
+        settings.putBoolean(KEY_CACHED_IS_TEST, status.isTest)
         settings.putLong(KEY_CACHED_LAST_SYNCED, currentTimeMillis())
     }
 
@@ -50,6 +51,7 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
             provider = settings.getStringOrNull(KEY_CACHED_PROVIDER),
             expiresAt = settings.getStringOrNull(KEY_CACHED_EXPIRES_AT),
             willRenew = settings.getBoolean(KEY_CACHED_WILL_RENEW, true),
+            isTest = settings.getBoolean(KEY_CACHED_IS_TEST, false),
         )
     }
 
@@ -65,6 +67,7 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
         settings.remove(KEY_CACHED_PROVIDER)
         settings.remove(KEY_CACHED_EXPIRES_AT)
         settings.remove(KEY_CACHED_WILL_RENEW)
+        settings.remove(KEY_CACHED_IS_TEST)
         settings.remove(KEY_CACHED_LAST_SYNCED)
     }
 
@@ -157,6 +160,7 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
         private const val KEY_CACHED_PROVIDER = "paycraft_cached_provider"
         private const val KEY_CACHED_EXPIRES_AT = "paycraft_cached_expires_at"
         private const val KEY_CACHED_WILL_RENEW = "paycraft_cached_will_renew"
+        private const val KEY_CACHED_IS_TEST = "paycraft_cached_is_test"
         private const val KEY_CACHED_LAST_SYNCED = "paycraft_cached_last_synced"
         private const val KEY_AD_UNLOCK_PREFIX = "paycraft_ad_unlock_"
         private const val KEY_AD_UNLOCK_INDEX = "paycraft_ad_unlock_idx_"

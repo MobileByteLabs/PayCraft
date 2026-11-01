@@ -50,4 +50,4 @@ fun Entitlement.toSubscriptionStatus(email: String? = null): SubscriptionStatus 
     provider = provider,
     expiresAt = expiresAt,
     willRenew = willRenew,
-)
+).copy(isTest = isSandbox)

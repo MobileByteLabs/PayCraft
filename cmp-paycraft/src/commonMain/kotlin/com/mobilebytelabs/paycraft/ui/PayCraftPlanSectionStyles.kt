@@ -5,13 +5,18 @@
  * If a copy of the MPL was not distributed with this file,
  * You can obtain one at https://mozilla.org/MPL/2.0/.
  */
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.mobilebytelabs.paycraft.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -53,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_active_badge
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_card_chip_cancelled
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_card_chip_test
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_card_manage_subtitle
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_card_manage_subtitle_store
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_card_restore_subtitle
@@ -202,9 +208,12 @@ internal fun HeroSettings(
     ) {
         TierBadge(state.tier, 64.dp, theme)
         Spacer(Modifier.height(12.dp))
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // FLOW, not Row: at large font scales "Premium · CANCELLED · TEST" does not fit one line, and a
+        // Row squeezed the last chip until it wrapped mid-word ("TE/ST", device 2026-11-02).
+        FlowRow(
+            itemVerticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
                 state.statusLabel,
@@ -213,6 +222,7 @@ internal fun HeroSettings(
                 modifier = Modifier.testTag(PayCraftTestTags.SUBSCRIPTION_STATUS_ROW),
             )
             StatusChip(state)
+            TestChip(state)
         }
         state.planLine?.let { line ->
             Spacer(Modifier.height(4.dp))
@@ -418,9 +428,10 @@ private fun StatusBlock(state: PlanSectionState, theme: PayCraftPlanSectionTheme
         ) {
             TierBadge(state.tier, 48.dp, theme)
             Column(Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                FlowRow(
+                    itemVerticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
                         state.statusLabel,
@@ -428,6 +439,7 @@ private fun StatusBlock(state: PlanSectionState, theme: PayCraftPlanSectionTheme
                         color = theme.contentColor,
                     )
                     StatusChip(state)
+                    TestChip(state)
                 }
                 // Price and interval: what the user pays, in the accent — the line a subscription
                 // card is read for.
@@ -458,28 +470,33 @@ private fun ProviderRow(state: PlanSectionState, provider: String, theme: PayCra
     Spacer(Modifier.height(theme.verticalPadding))
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     Spacer(Modifier.height(theme.verticalPadding))
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    // FLOW with SpaceBetween: the pill sits right when it fits and drops below when it does not — a Row
+    // gave the store name `weight(1f)` and the pill ate it ("Google …", device 2026-11-02).
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        itemVerticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(
-            storeIcon(provider),
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = theme.supportingColor,
-        )
-        Text(
-            storeDisplayName(provider),
-            style = theme.supportingTextStyle,
-            color = theme.supportingColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f)
-                .testTag(PayCraftTestTags.SUBSCRIPTION_BILLED_THROUGH)
-                // Read as the full sentence: "Google Play" alone does not say it is the biller.
-                .semantics { state.billedThrough?.let { contentDescription = it } },
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(
+                storeIcon(provider),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = theme.supportingColor,
+            )
+            Text(
+                storeDisplayName(provider),
+                style = theme.supportingTextStyle,
+                color = theme.supportingColor,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier
+                    .testTag(PayCraftTestTags.SUBSCRIPTION_BILLED_THROUGH)
+                    // Read as the full sentence: "Google Play" alone does not say it is the biller.
+                    .semantics { state.billedThrough?.let { contentDescription = it } },
+            )
+        }
         val (pillBg, pillFg) = if (state.cancelled) {
             MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
         } else {
@@ -528,9 +545,31 @@ private fun StatusChip(state: PlanSectionState) {
         fontWeight = FontWeight.Bold,
         letterSpacing = 0.8.sp,
         color = fg,
+        maxLines = 1,
+        softWrap = false,
         modifier = Modifier
             .background(bg, RoundedCornerShape(6.dp))
             .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
+}
+
+/** "TEST" beside the status chip for a store test purchase — never on a real one. */
+@Composable
+private fun TestChip(state: PlanSectionState) {
+    if (!state.isTest) return
+    val colors = MaterialTheme.colorScheme
+    Text(
+        stringResource(Res.string.paycraft_plan_card_chip_test).uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.8.sp,
+        color = colors.onSurfaceVariant,
+        maxLines = 1,
+        softWrap = false,
+        modifier = Modifier
+            .border(1.dp, colors.outlineVariant, RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+            .testTag(PayCraftTestTags.SUBSCRIPTION_TEST_CHIP),
     )
 }
 

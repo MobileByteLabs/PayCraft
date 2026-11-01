@@ -16,6 +16,8 @@ data class SubscriptionStatus(
     val provider: String? = null,
     val expiresAt: String? = null,
     val willRenew: Boolean = true,
+    /** A store TEST purchase (Play license tester / StoreKit sandbox) — renews in minutes, not months. */
+    val isTest: Boolean = false,
 )
 
 sealed interface BillingState {
