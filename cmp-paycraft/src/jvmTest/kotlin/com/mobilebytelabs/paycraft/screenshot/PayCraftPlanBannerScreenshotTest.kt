@@ -19,9 +19,11 @@
 package com.mobilebytelabs.paycraft.screenshot
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
@@ -37,10 +39,13 @@ import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
+import com.mobilebytelabs.paycraft.config.ValuePropTriple
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import com.mobilebytelabs.paycraft.model.TrialInfo
+import com.mobilebytelabs.paycraft.ui.BannerPaywall
 import com.mobilebytelabs.paycraft.ui.FreeBannerCard
 import com.mobilebytelabs.paycraft.ui.PremiumBannerCard
 import com.mobilebytelabs.paycraft.ui.UpsellBannerCard
@@ -57,6 +62,12 @@ class PayCraftPlanBannerScreenshotTest {
         heroSubtitle = "Ad-free, unlimited, 4K downloads",
         ctaGetPremium = "Get Premium",
         restoreLabel = "Restore Your Premium",
+        // Stitch sdk-plan-card 07/08's perk list — dashboard value props, not invented copy.
+        valueProps = listOf(
+            ValuePropTriple(icon = "block", title = "Ad-free experience across the entire app"),
+            ValuePropTriple(icon = "hd", title = "HD & 4K video downloads"),
+            ValuePropTriple(icon = "new", title = "Early access to new features"),
+        ),
     )
 
     private val plans = listOf(
@@ -82,6 +93,8 @@ class PayCraftPlanBannerScreenshotTest {
         // the PaywallDto never reached the render.
         onNodeWithText("Upgrade to Premium", substring = true).assertIsDisplayed()
         onNodeWithText("Get Premium", substring = true).assertIsDisplayed()
+        onNodeWithText("HD & 4K video downloads").assertIsDisplayed()
+        onNodeWithText("Restore Your Premium").assertIsDisplayed()
         onRoot().captureRoboImage(P_ADAPTIVE_FREE)
         assertCaptured(P_ADAPTIVE_FREE)
     }
@@ -114,7 +127,12 @@ class PayCraftPlanBannerScreenshotTest {
         setContent {
             DeterministicTheme {
                 PremiumBannerCard(
-                    status = SubscriptionStatus(isPremium = true),
+                    status = SubscriptionStatus(
+                        isPremium = true,
+                        plan = "annual",
+                        provider = "google_play",
+                        expiresAt = "2026-11-14T10:30:00Z",
+                    ),
                     trial = null,
                     plans = plans,
                     topTierPlan = plans.first(),
@@ -124,6 +142,12 @@ class PayCraftPlanBannerScreenshotTest {
                 )
             }
         }
+        onNodeWithText("Premium Active").assertIsDisplayed()
+        onNodeWithText("ACTIVE").assertIsDisplayed()
+        onNodeWithText("Annual plan").assertIsDisplayed()
+        onNodeWithText("Renews 14 Nov 2026 · Billed through Google Play").assertIsDisplayed()
+        // Restore never appears on the entitled face.
+        onNodeWithText("Restore Your Premium").assertDoesNotExist()
         onRoot().captureRoboImage(P_ADAPTIVE_PREMIUM)
         assertCaptured(P_ADAPTIVE_PREMIUM)
     }
@@ -156,6 +180,7 @@ class PayCraftPlanBannerScreenshotTest {
         }
         onNodeWithText("Go Cappy Plus", substring = true).assertIsDisplayed()
         onNodeWithText("Ad-free, unlimited, 4K downloads", substring = true).assertIsDisplayed()
+        onNodeWithText("Early access to new features").assertIsDisplayed()
         onRoot().captureRoboImage(P_UPSELL_FREE)
         assertCaptured(P_UPSELL_FREE)
     }
@@ -199,6 +224,53 @@ class PayCraftPlanBannerScreenshotTest {
         assertCaptured(P_UPSELL_LOADING)
     }
 
+    // ── Status strip — every BillingState (Stitch sdk-plan-card 10 + the loading strip of 01) ──
+
+    @Test
+    fun strip_states_render() = runComposeUiTest {
+        val status = SubscriptionStatus(isPremium = true, plan = "annual")
+        val states = listOf(
+            BillingState.Loading,
+            BillingState.Free,
+            BillingState.Premium(status),
+            BillingState.Premium(status, trial = TrialInfo(endsAt = "2026-11-10T00:00:00Z", daysRemaining = 9)),
+            BillingState.PaymentPending(productId = "annual"),
+            BillingState.Error("network"),
+            BillingState.DeviceConflict(
+                email = "maya@example.com",
+                pendingToken = "t",
+                conflictingDeviceName = "Pixel 8",
+                conflictingLastSeen = null,
+                supportEmail = "support@example.com",
+            ),
+        )
+        setContent {
+            MaterialTheme(colorScheme = lightColorScheme()) {
+                Column(
+                    modifier = Modifier
+                        .size(width = 411.dp, height = 520.dp)
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    states.forEach { BannerPaywall(state = it, onTap = {}) }
+                }
+            }
+        }
+        // Every label resolves from strings.xml — none of them may render blank or as a key.
+        listOf(
+            "Checking your subscription…",
+            "Upgrade to Premium",
+            "Premium active",
+            "Free trial — 9 days left",
+            "Payment pending — premium unlocks automatically",
+            "Couldn’t sync — tap to retry",
+            "Verify ownership to continue",
+        ).forEach { onNodeWithText(it).assertIsDisplayed() }
+        onRoot().captureRoboImage(P_STRIP_STATES)
+        assertCaptured(P_STRIP_STATES)
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────────────────────
 
     /** Matches production: the public banner wraps its card in a width-filling container. */
@@ -207,7 +279,7 @@ class PayCraftPlanBannerScreenshotTest {
         MaterialTheme(colorScheme = lightColorScheme()) {
             Box(
                 modifier = Modifier
-                    .size(width = 411.dp, height = 360.dp)
+                    .size(width = 411.dp, height = 560.dp)
                     .background(MaterialTheme.colorScheme.surface),
             ) {
                 PayCraftThemeProvider {
@@ -233,5 +305,6 @@ class PayCraftPlanBannerScreenshotTest {
         const val P_UPSELL_FREE = "$DIR/plan_banner_upsell_free.png"
         const val P_UPSELL_PREMIUM = "$DIR/plan_banner_upsell_premium.png"
         const val P_UPSELL_LOADING = "$DIR/plan_banner_upsell_loading.png"
+        const val P_STRIP_STATES = "$DIR/plan_banner_strip_states.png"
     }
 }

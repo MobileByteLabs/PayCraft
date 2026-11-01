@@ -1,15 +1,26 @@
 package com.mobilebytelabs.paycraft.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.HourglassTop
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.ManageAccounts
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.material.icons.outlined.Verified
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -18,13 +29,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_strip_checking
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_strip_manage
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_strip_payment_pending
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_strip_premium_active
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_strip_sync_failed
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_strip_trial_days_left
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_strip_upgrade
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_strip_verify_ownership
 import com.mobilebytelabs.paycraft.model.BillingState
-import com.mobilebytelabs.paycraft.ui.components.skeleton.BannerShimmerRow
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * Compact, state-aware billing strip designed to live on a host screen — typically the
@@ -44,35 +65,49 @@ import com.mobilebytelabs.paycraft.ui.components.skeleton.BannerShimmerRow
 @Composable
 fun BannerPaywall(state: BillingState, onTap: () -> Unit, modifier: Modifier = Modifier) {
     val label: String = when (state) {
-        is BillingState.Free -> "Upgrade to Premium"
+        is BillingState.Free -> stringResource(Res.string.paycraft_strip_upgrade)
         is BillingState.Premium -> when {
-            state.trial != null -> "Free trial — ${state.trial.daysRemaining} days left"
-            else -> "Premium active"
+            state.trial != null -> stringResource(Res.string.paycraft_strip_trial_days_left, state.trial.daysRemaining)
+            else -> stringResource(Res.string.paycraft_strip_premium_active)
         }
-        is BillingState.Loading -> "Checking your subscription…"
-        is BillingState.Error -> "Couldn't sync — tap to retry"
+        is BillingState.Loading -> stringResource(Res.string.paycraft_strip_checking)
+        is BillingState.Error -> stringResource(Res.string.paycraft_strip_sync_failed)
         // Not an error: the store is still collecting the money. Never invite a second purchase.
-        is BillingState.PaymentPending -> "Payment pending — premium unlocks automatically"
-        is BillingState.DeviceConflict -> "Verify ownership to continue"
-        is BillingState.OwnershipVerified -> "Manage subscription"
+        is BillingState.PaymentPending -> stringResource(Res.string.paycraft_strip_payment_pending)
+        is BillingState.DeviceConflict -> stringResource(Res.string.paycraft_strip_verify_ownership)
+        is BillingState.OwnershipVerified -> stringResource(Res.string.paycraft_strip_manage)
     }
 
-    val containerColor: Color = when (state) {
-        is BillingState.Premium -> MaterialTheme.colorScheme.primaryContainer
-        is BillingState.Error -> MaterialTheme.colorScheme.errorContainer
-        else -> MaterialTheme.colorScheme.secondaryContainer
+    // One colour role per state (Stitch sdk-plan-card 10), all from the host MaterialTheme: premium
+    // primary, trial tertiary, error error, pending a neutral surface (it is not a problem), and the
+    // remaining asks — upgrade / verify / manage — secondary.
+    val colors = MaterialTheme.colorScheme
+    val (containerColor, contentColor) = when (state) {
+        is BillingState.Premium ->
+            if (state.trial != null) {
+                colors.tertiaryContainer to colors.onTertiaryContainer
+            } else {
+                colors.primaryContainer to colors.onPrimaryContainer
+            }
+        is BillingState.Error -> colors.errorContainer to colors.onErrorContainer
+        is BillingState.PaymentPending, is BillingState.Loading -> colors.surfaceVariant to colors.onSurfaceVariant
+        else -> colors.secondaryContainer to colors.onSecondaryContainer
     }
 
-    val contentColor: Color = when (state) {
-        is BillingState.Premium -> MaterialTheme.colorScheme.onPrimaryContainer
-        is BillingState.Error -> MaterialTheme.colorScheme.onErrorContainer
-        else -> MaterialTheme.colorScheme.onSecondaryContainer
+    val icon: ImageVector? = when (state) {
+        is BillingState.Free -> Icons.Filled.WorkspacePremium
+        is BillingState.Premium -> if (state.trial != null) Icons.Filled.HourglassTop else Icons.Outlined.Verified
+        is BillingState.Loading -> null
+        is BillingState.Error -> Icons.Filled.ErrorOutline
+        is BillingState.PaymentPending -> Icons.Filled.Sync
+        is BillingState.DeviceConflict -> Icons.Filled.Key
+        is BillingState.OwnershipVerified -> Icons.Filled.ManageAccounts
     }
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(16.dp))
             .testTag(PayCraftTestTags.BANNER_PAYWALL)
             .semantics { contentDescription = label },
         color = containerColor,
@@ -80,32 +115,41 @@ fun BannerPaywall(state: BillingState, onTap: () -> Unit, modifier: Modifier = M
         onClick = onTap,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (state is BillingState.Loading) {
-                // Phase 3 (AC-5, AC-14): the banner Loading branch renders a
-                // layout-matched shimmer pill instead of a CircularProgressIndicator,
-                // so the compact banner keeps the same intrinsic height when
-                // swapping between Loading/Free/Premium and never flashes a spinner.
-                BannerShimmerRow(
-                    modifier = Modifier.weight(1f),
-                )
-            } else {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag(PayCraftTestTags.BANNER_LABEL),
-                )
+            // Leading tile: the state's glyph, or — while the status is unknown — a small spinner
+            // in the same 36dp footprint, so Loading → Free/Premium swaps without a height shift.
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(LocalContentColor.current.copy(alpha = 0.12f), RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (icon != null) {
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+                } else {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = LocalContentColor.current,
+                        trackColor = Color.Transparent,
+                    )
+                }
             }
-            Spacer(Modifier.size(width = 12.dp, height = 0.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag(PayCraftTestTags.BANNER_LABEL),
+            )
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                imageVector = Icons.Filled.ChevronRight,
                 contentDescription = null,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
     }
@@ -137,26 +181,4 @@ fun BannerPaywall(onTap: () -> Unit, modifier: Modifier = Modifier) {
         displayMode = DisplayMode.Banner,
         modifier = modifier,
     )
-}
-
-/**
- * Test / debug helper — resolves the compact banner label for [state] without
- * standing up the full Compose runtime. Kept in sync with [BannerPaywall]'s own
- * `when` above so unit tests can assert the state → label contract cheaply.
- *
- * @suppress internal — public visibility is a lint courtesy for the test harness;
- * this is not part of the SDK's advertised surface.
- */
-@Suppress("unused")
-internal fun bannerPaywallLabelFor(state: BillingState): String = when (state) {
-    is BillingState.Free -> "Upgrade to Premium"
-    is BillingState.Premium -> when {
-        state.trial != null -> "Free trial — ${state.trial.daysRemaining} days left"
-        else -> "Premium active"
-    }
-    is BillingState.Loading -> "Checking your subscription…"
-    is BillingState.Error -> "Couldn't sync — tap to retry"
-    is BillingState.PaymentPending -> "Payment pending — premium unlocks automatically"
-    is BillingState.DeviceConflict -> "Verify ownership to continue"
-    is BillingState.OwnershipVerified -> "Manage subscription"
 }

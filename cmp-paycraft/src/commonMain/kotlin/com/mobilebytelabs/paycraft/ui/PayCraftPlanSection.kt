@@ -125,6 +125,21 @@ internal data class PlanSectionState(
      */
     val billedThrough: String?,
 
+    /**
+     * The billing provider's wire slug (`google_play`, `app_store`, `razorpay`…) behind
+     * [billedThrough] — null exactly when that is. The card draws the store's own name and glyph on
+     * its provider row, and words the Manage subtitle after it ("…in Google Play"), so it needs the
+     * slug rather than the finished sentence.
+     */
+    val provider: String? = null,
+
+    /**
+     * An entitled subscription that will NOT renew — the user turned auto-renew off and keeps
+     * access until [supportingText]'s "Expires …" date. Drives the warning chip and pill: the card
+     * must not wear an "Active" chip for a plan that is already on its way out.
+     */
+    val cancelled: Boolean = false,
+
     /** Opens the provider portal or the platform's store subscriptions page. */
     val onManage: () -> Unit,
     /**
@@ -209,6 +224,8 @@ internal fun rememberSubscriptionSettingsState(
         // Only for someone who actually has a subscription — a free user has no billing owner, and
         // naming one would imply a relationship that does not exist.
         billedThrough = billedThroughFor(entitlement.tier, status.provider, copy),
+        provider = providerFor(entitlement.tier, status.provider),
+        cancelled = entitlement.tier == EntitlementTier.PREMIUM && status.expiresAt != null && !status.willRenew,
         statusLabel = when (entitlement.tier) {
             EntitlementTier.FREE -> copy.freeLabel
             EntitlementTier.TRIAL -> copy.trialLabel
@@ -269,11 +286,12 @@ internal fun planLineFor(
  * behind): naming a billing owner for someone with no subscription implies a relationship that does
  * not exist, and sends them to a store page that will show nothing.
  */
-internal fun billedThroughFor(tier: EntitlementTier, provider: String?, copy: PlanSectionCopy): String? {
-    if (tier == EntitlementTier.FREE) return null
-    val slug = provider?.takeIf { it.isNotBlank() } ?: return null
-    return copy.billedThrough(storeDisplayName(slug))
-}
+internal fun billedThroughFor(tier: EntitlementTier, provider: String?, copy: PlanSectionCopy): String? =
+    providerFor(tier, provider)?.let { copy.billedThrough(storeDisplayName(it)) }
+
+/** The provider slug worth naming on the card — the same rule as [billedThroughFor], unformatted. */
+internal fun providerFor(tier: EntitlementTier, provider: String?): String? =
+    if (tier == EntitlementTier.FREE) null else provider?.takeIf { it.isNotBlank() }
 
 /**
  * A provider slug as a person would read it.
@@ -283,7 +301,7 @@ internal fun billedThroughFor(tier: EntitlementTier, provider: String?, copy: Pl
  * device settings. Anything else — a web provider — is title-cased from its own slug rather than
  * mapped, so a tenant adding a provider does not need an SDK release to have it read properly.
  */
-private fun storeDisplayName(provider: String): String = when (provider) {
+internal fun storeDisplayName(provider: String): String = when (provider) {
     "google_play" -> "Google Play"
     "app_store" -> "App Store"
     else -> provider.split('_', '-').joinToString(" ") { part ->

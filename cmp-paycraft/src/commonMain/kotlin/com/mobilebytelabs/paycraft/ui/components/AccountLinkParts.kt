@@ -14,6 +14,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -214,13 +215,37 @@ internal fun IdentityHeroTile(
 @Composable
 internal fun WaitingForBrowserCard(provider: OAuthProvider, onCancel: () -> Unit, modifier: Modifier = Modifier) {
     val colors = PayCraftTheme.colors
+    IdentityProgressCard(
+        title = stringResource(Res.string.paycraft_sign_in_waiting_title, providerName(provider)),
+        body = stringResource(Res.string.paycraft_sign_in_waiting_body),
+        testTag = PayCraftTestTags.SIGN_IN_WAITING,
+        modifier = modifier,
+    ) {
+        HorizontalDivider(Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        TextButton(
+            onClick = onCancel,
+            modifier = Modifier.align(Alignment.End).testTag(PayCraftTestTags.SIGN_IN_WAITING_CANCEL),
+        ) { Text(stringResource(Res.string.paycraft_sign_in_waiting_cancel), color = colors.accent) }
+    }
+}
+
+/** Spinner + title + body on a soft accent card: something is running (browser sign-in, restore lookup). */
+@Composable
+internal fun IdentityProgressCard(
+    title: String,
+    body: String,
+    testTag: String,
+    modifier: Modifier = Modifier,
+    footer: (@Composable ColumnScope.() -> Unit)? = null,
+) {
+    val colors = PayCraftTheme.colors
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f), CardShape)
             .border(PayCraftTheme.spacing.hairline, colors.accent.copy(alpha = 0.3f), CardShape)
-            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)
-            .testTag(PayCraftTestTags.SIGN_IN_WAITING),
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = if (footer != null) 4.dp else 16.dp)
+            .testTag(testTag),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
             CircularProgressIndicator(
@@ -230,23 +255,19 @@ internal fun WaitingForBrowserCard(provider: OAuthProvider, onCancel: () -> Unit
             )
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    stringResource(Res.string.paycraft_sign_in_waiting_title, providerName(provider)),
+                    title,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    stringResource(Res.string.paycraft_sign_in_waiting_body),
+                    body,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        HorizontalDivider(Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
-        TextButton(
-            onClick = onCancel,
-            modifier = Modifier.align(Alignment.End).testTag(PayCraftTestTags.SIGN_IN_WAITING_CANCEL),
-        ) { Text(stringResource(Res.string.paycraft_sign_in_waiting_cancel), color = colors.accent) }
+        footer?.invoke(this)
     }
 }
 

@@ -705,7 +705,14 @@ class PayCraftBillingManager(
      */
     override suspend fun onVerifiedSignIn(email: String) {
         val priorConflict = _billingState.value as? BillingState.DeviceConflict ?: lastConflict
-        if (_userEmail.value.equals(email.trim(), ignoreCase = true) && priorConflict == null) return
+        if (_userEmail.value.equals(email.trim(), ignoreCase = true) && priorConflict == null) {
+            // Same account re-proven (Restore → sign in with the account already linked). This used to
+            // `return` — built for a session observer re-emitting one identity — which left the restore
+            // sheet with no state change and so no answer. Sign-in is now always an explicit tap: re-check.
+            _billingState.value = BillingState.Loading
+            refreshStatus(force = true)
+            return
+        }
         _billingState.value = BillingState.Loading
         applyVerifiedIdentity(email, priorConflict)
     }

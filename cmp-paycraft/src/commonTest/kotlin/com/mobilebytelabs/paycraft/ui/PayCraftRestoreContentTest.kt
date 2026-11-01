@@ -2,12 +2,12 @@ package com.mobilebytelabs.paycraft.ui
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
+import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.ui.components.ProvidePayCraftOAuthHandler
 import kotlin.test.Test
@@ -31,74 +31,33 @@ class PayCraftRestoreContentTest {
     // ── Rendering — initial idle state ────────────────────────────────────────
 
     @Test
-    fun restore_content_renders_restore_button() = runComposeUiTest {
-        val fake = FakeBillingManager()
+    fun restore_content_has_no_email_path() = runComposeUiTest {
+        // Restore is Google / Apple sign-in only: a typed address is an unverified claim.
         setContent {
-            PayCraftRestoreContent(
-                billingManager = fake,
-                onCancel = {},
-                onSuccess = {},
-            )
+            ProvidePayCraftOAuthHandler(handler = { _: OAuthProvider -> }) {
+                PayCraftRestoreContent(billingManager = FakeBillingManager(), onCancel = {}, onSuccess = {})
+            }
         }
-        onNodeWithTag("paycraft_restore_button").assertExists()
-    }
-
-    @Test
-    fun restore_content_renders_email_field() = runComposeUiTest {
-        val fake = FakeBillingManager()
-        setContent {
-            PayCraftRestoreContent(
-                billingManager = fake,
-                onCancel = {},
-                onSuccess = {},
-            )
-        }
-        onNodeWithTag("paycraft_restore_email_field").assertExists()
+        onNodeWithTag("paycraft_restore_email_field").assertDoesNotExist()
+        onNodeWithTag("paycraft_restore_button").assertDoesNotExist()
+        onNodeWithText("Or restore with email").assertDoesNotExist()
     }
 
     @Test
     fun restore_content_renders_cancel_button() = runComposeUiTest {
-        val fake = FakeBillingManager()
         setContent {
-            PayCraftRestoreContent(
-                billingManager = fake,
-                onCancel = {},
-                onSuccess = {},
-            )
+            PayCraftRestoreContent(billingManager = FakeBillingManager(), onCancel = {}, onSuccess = {})
         }
         onNodeWithTag("paycraft_restore_cancel_button").assertExists()
     }
 
-    // ── Restore button state — disabled when email is blank ───────────────────
-
     @Test
-    fun restore_button_disabled_when_email_is_blank() = runComposeUiTest {
+    fun opening_the_sheet_checks_the_store_first() = runComposeUiTest {
         val fake = FakeBillingManager()
-        setContent {
-            PayCraftRestoreContent(
-                billingManager = fake,
-                onCancel = {},
-                onSuccess = {},
-            )
-        }
-        onNodeWithTag("paycraft_restore_button").assertIsNotEnabled()
+        setContent { PayCraftRestoreContent(billingManager = fake, onCancel = {}, onSuccess = {}) }
+        waitForIdle()
+        assertEquals(1, fake.restoreStorePurchasesCallCount)
     }
-
-    @Test
-    fun restore_button_enabled_when_email_entered() = runComposeUiTest {
-        val fake = FakeBillingManager()
-        setContent {
-            PayCraftRestoreContent(
-                billingManager = fake,
-                onCancel = {},
-                onSuccess = {},
-            )
-        }
-        onNodeWithTag("paycraft_restore_email_field").performTextInput("user@example.com")
-        onNodeWithTag("paycraft_restore_button").assertIsEnabled()
-    }
-
-    // ── Email validation error messages ───────────────────────────────────────
 
     @Test
     fun cancel_fires_onCancel_callback() = runComposeUiTest {
@@ -160,22 +119,52 @@ class PayCraftRestoreContentTest {
         assertEquals(listOf(OAuthProvider.GOOGLE, OAuthProvider.APPLE), asked)
     }
 
-    // ── registerAndLogin wired to restore button ──────────────────────────────
+    // ── Outcomes after a sign-in ──────────────────────────────────────────────
 
     @Test
-    fun tapping_restore_button_with_valid_email_calls_registerAndLogin() = runComposeUiTest {
+    fun nothing_to_restore_names_the_account_and_re_enables_providers() = runComposeUiTest {
         val fake = FakeBillingManager()
         setContent {
-            PayCraftRestoreContent(
-                billingManager = fake,
-                onCancel = {},
-                onSuccess = {},
-            )
+            ProvidePayCraftOAuthHandler(handler = { _: OAuthProvider -> }) {
+                PayCraftRestoreContent(billingManager = fake, onCancel = {}, onSuccess = {})
+            }
         }
-        onNodeWithTag("paycraft_restore_email_field").performTextInput("hello@test.com")
-        onNodeWithTag("paycraft_restore_button").performClick()
+        onNodeWithTag("paycraft_restore_google_button").performClick()
+        fake.emitEmail("maya@workmail.in")
+        fake.emitState(BillingState.Loading)
         waitForIdle()
-        assertEquals(1, fake.registerAndLoginCallCount)
-        assertEquals("hello@test.com", fake.lastRegisteredEmail)
+        onNodeWithTag("paycraft_restore_checking").assertExists()
+        fake.emitState(BillingState.Free)
+        waitForIdle()
+        onNodeWithTag("paycraft_restore_error_message").assertExists()
+        onNodeWithText("maya@workmail.in", substring = true).assertExists()
+        onNodeWithTag("paycraft_restore_google_button").assertIsEnabled()
+        onNodeWithTag("paycraft_restore_apple_button").assertIsEnabled()
+        onNodeWithTag("paycraft_restore_retry_button").assertDoesNotExist()
+    }
+
+    @Test
+    fun try_again_after_a_network_error_re_runs_the_store_restore() = runComposeUiTest {
+        val fake = FakeBillingManager()
+        setContent {
+            ProvidePayCraftOAuthHandler(handler = { _: OAuthProvider -> }) {
+                PayCraftRestoreContent(billingManager = fake, onCancel = {}, onSuccess = {})
+            }
+        }
+        waitForIdle()
+        assertEquals(1, fake.restoreStorePurchasesCallCount) // the store-first check on open
+        onNodeWithTag("paycraft_restore_google_button").performClick()
+        fake.emitState(BillingState.Loading)
+        waitForIdle()
+        fake.emitState(BillingState.Error("timeout"))
+        waitForIdle()
+        onNodeWithTag("paycraft_restore_network_error").assertExists()
+        onNodeWithTag("paycraft_restore_error_message").assertDoesNotExist()
+
+        onNodeWithTag("paycraft_restore_retry_button").performClick()
+        waitForIdle()
+        assertEquals(2, fake.restoreStorePurchasesCallCount)
+        // Still failing (nothing changed server-side in the fake) → the error comes back, retryable.
+        onNodeWithTag("paycraft_restore_retry_button").assertExists()
     }
 }

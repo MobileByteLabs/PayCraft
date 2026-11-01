@@ -28,7 +28,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
 import com.mobilebytelabs.paycraft.core.identity.SignInFailure
@@ -43,12 +42,10 @@ import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import com.mobilebytelabs.paycraft.ui.components.DeviceConflictBody
 import com.mobilebytelabs.paycraft.ui.components.OwnershipVerifiedContent
 import com.mobilebytelabs.paycraft.ui.components.PayCraftSignIn
-import com.mobilebytelabs.paycraft.ui.isPlausibleEmail
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
 import io.github.takahirom.roborazzi.captureRoboImage
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
@@ -87,7 +84,9 @@ class AccountLinkStateScreenshotTest {
         restore(SignInState.Idle)
         onNodeWithTag(TAG_GOOGLE).assertIsEnabled()
         onNodeWithTag(TAG_APPLE).assertIsEnabled()
-        onNodeWithTag(TAG_EMAIL).assertIsDisplayed()
+        // Sign-in only: no typed-email path, no "or restore with email" divider.
+        onNodeWithTag(TAG_EMAIL).assertDoesNotExist()
+        onNodeWithText("Or restore with email").assertDoesNotExist()
         capture("01_restore_idle")
     }
 
@@ -95,7 +94,6 @@ class AccountLinkStateScreenshotTest {
         restore(SignInState.Launching(google))
         onNodeWithText("Opening Google…").assertIsDisplayed()
         onNodeWithTag(TAG_APPLE).assertIsNotEnabled()
-        onNodeWithTag(TAG_EMAIL).assertIsNotEnabled()
         capture("02_restore_launching")
     }
 
@@ -103,7 +101,6 @@ class AccountLinkStateScreenshotTest {
         restore(SignInState.WaitingForBrowser(apple))
         onNodeWithText("Finish signing in with Apple").assertIsDisplayed()
         onNodeWithTag(PayCraftTestTags.SIGN_IN_WAITING_CANCEL).assertIsDisplayed()
-        onNodeWithTag(TAG_EMAIL).assertDoesNotExist()
         capture("03_restore_waiting_browser")
     }
 
@@ -117,11 +114,12 @@ class AccountLinkStateScreenshotTest {
     @Test fun s05_restore_restoring() = runDesktopComposeUiTest(WIDTH, HEIGHT) {
         val billing = FakeBillingManager()
         restore(SignInState.Idle, billing)
-        submitEmail(email)
-        billing.emitState(BillingState.Loading)
+        signIn(billing, email)
         waitForIdle()
-        onNodeWithText("Checking…").assertIsDisplayed()
-        onNodeWithTag(TAG_EMAIL).assertIsNotEnabled()
+        onNodeWithText("Checking your purchases…").assertIsDisplayed()
+        onNodeWithTag(TAG_RESTORE_CANCEL).assertIsDisplayed()
+        // The status card stands where the CTAs were.
+        onNodeWithTag(TAG_GOOGLE).assertDoesNotExist()
         capture("05_restore_restoring")
     }
 
@@ -129,33 +127,40 @@ class AccountLinkStateScreenshotTest {
         val billing = FakeBillingManager()
         mainClock.autoAdvance = false // hold the 1.5 s auto-close
         restore(SignInState.Idle, billing)
-        submitEmail(email)
-        billing.emitState(BillingState.Loading)
+        mainClock.advanceTimeByFrame()
+        signIn(billing, email)
         mainClock.advanceTimeByFrame()
         billing.emitState(premium())
         mainClock.advanceTimeBy(100)
         onNodeWithTag("paycraft_restore_success_message").assertIsDisplayed()
+        onNodeWithText("Signed in as $email").assertIsDisplayed()
         capture("06_restore_restored")
     }
 
     @Test fun s07_restore_nothing_to_restore() = runDesktopComposeUiTest(WIDTH, HEIGHT) {
         val billing = FakeBillingManager()
         restore(SignInState.Idle, billing)
-        submitEmail("maya@workmail.in")
-        billing.emitState(BillingState.Loading)
+        signIn(billing, "maya@workmail.in")
         waitForIdle()
         billing.emitState(BillingState.Free)
         waitForIdle()
-        onNodeWithText("Not Found").assertIsDisplayed()
+        onNodeWithText("No subscription found").assertIsDisplayed()
+        onNodeWithText("maya@workmail.in", substring = true).assertIsDisplayed()
+        onNodeWithTag(TAG_GOOGLE).assertIsEnabled()
+        onNodeWithTag(TAG_APPLE).assertIsEnabled()
         capture("07_restore_nothing_to_restore")
     }
 
     @Test fun s08_restore_error() = runDesktopComposeUiTest(WIDTH, HEIGHT) {
         val billing = FakeBillingManager()
         restore(SignInState.Idle, billing)
-        submitEmail("maya.iyer@gmail")
-        onNodeWithText("Please enter a valid email address").assertIsDisplayed()
-        assertEquals(0, billing.registerAndLoginCallCount)
+        signIn(billing, email)
+        waitForIdle()
+        billing.emitState(BillingState.Error("timeout"))
+        waitForIdle()
+        onNodeWithText("Couldn’t check your purchases").assertIsDisplayed()
+        onNodeWithTag(TAG_RETRY).assertIsEnabled()
+        onNodeWithTag(TAG_GOOGLE).assertIsEnabled()
         capture("08_restore_error")
     }
 
@@ -365,18 +370,13 @@ class AccountLinkStateScreenshotTest {
         assertEquals(0, fake.resets)
     }
 
-    @Test fun email_check_requires_a_dot_after_the_at() {
-        assertTrue(isPlausibleEmail("maya.iyer@gmail.com"))
-        assertFalse(isPlausibleEmail("maya.iyer@gmail"))
-        assertFalse(isPlausibleEmail("@gmail.com"))
-        assertFalse(isPlausibleEmail("maya@gmail."))
-    }
-
     // ── helpers ──────────────────────────────────────────────────────────────────────────
 
-    private fun ComposeUiTest.submitEmail(value: String) {
-        onNodeWithTag(TAG_EMAIL).performTextInput(value)
-        onNodeWithTag(TAG_RESTORE).performClick()
+    /** A verified Google sign-in handed [account] to billing, which is now re-querying store + server. */
+    private fun ComposeUiTest.signIn(billing: FakeBillingManager, account: String) {
+        onNodeWithTag(TAG_GOOGLE).performClick()
+        billing.emitEmail(account)
+        billing.emitState(BillingState.Loading)
     }
 
     private fun premium() = BillingState.Premium(SubscriptionStatus(isPremium = true, plan = "annual", email = email))
@@ -406,7 +406,8 @@ class AccountLinkStateScreenshotTest {
         const val HEIGHT = 900
         const val TAG_GOOGLE = "paycraft_restore_google_button"
         const val TAG_APPLE = "paycraft_restore_apple_button"
-        const val TAG_EMAIL = "paycraft_restore_email_field"
-        const val TAG_RESTORE = "paycraft_restore_button"
+        const val TAG_EMAIL = "paycraft_restore_email_field" // removed path — asserted absent
+        const val TAG_RETRY = "paycraft_restore_retry_button"
+        const val TAG_RESTORE_CANCEL = "paycraft_restore_cancel_button"
     }
 }

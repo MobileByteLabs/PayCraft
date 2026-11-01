@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -57,6 +59,7 @@ import com.mobilebytelabs.paycraft.PayCraftPlatform
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_active_badge
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_cta_get_premium
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_cta_manage
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_cta_top_tier
@@ -71,6 +74,7 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_support_i
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_upgrade_cd
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_upgrade_subtitle
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_upgrade_title
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_billed_through
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_banner_ends_in
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_banner_ends_today
 import com.mobilebytelabs.paycraft.model.BillingBenefit
@@ -320,24 +324,26 @@ internal fun FreeBannerCard(
         // e.g. "Free Video"), falling back to legacy config `benefits` only when unset.
         val valueProps = paywall.valueProps
         if (valueProps.isNotEmpty()) {
-            Spacer(Modifier.height(16.dp))
+            PerkDivider()
             valueProps.forEach { vp ->
                 ValuePropPerkRow(title = vp.title, description = vp.description)
             }
         } else if (benefits.isNotEmpty()) {
-            Spacer(Modifier.height(16.dp))
+            PerkDivider()
             benefits.forEach { benefit ->
                 PerkRow(icon = benefit.icon, textRes = benefit.text)
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(20.dp))
 
-        // CTA button — label uses the deepest stop of the card gradient (a dark shade of the
+        // CTA pill — label uses the deepest stop of the card gradient (a dark shade of the
         // dashboard brand color) so it stays high-contrast on the gold pill without a literal.
+        // Stitch sdk-plan-card 07: label then a trailing arrow, no leading glyph.
         CtaButton(
             gradient = colorCtaGold,
-            icon = Icons.Default.Star,
+            icon = null,
+            trailingIcon = Icons.AutoMirrored.Filled.ArrowForward,
             textColor = gradient.first(),
             text = ctaText,
             testTag = TAG_BANNER_UPGRADE_BTN,
@@ -407,7 +413,13 @@ internal fun PremiumBannerCard(
         onManageClick
     }
 
-    val expiryDateDisplay = status.expiresAt?.substringBefore('T')
+    // Same "14 Nov 2026" shape the settings card renders, so the two surfaces agree on a date.
+    val expiryDateDisplay = status.expiresAt?.let(::formatDate)
+    // Who bills it, when known — "Renews 14 Nov 2026 · Billed through Google Play".
+    val billedThroughTemplate = stringResource(Res.string.paycraft_settings_billed_through)
+    val billedThrough = status.provider?.takeIf { it.isNotBlank() }?.let {
+        billedThroughTemplate.replace(PlanSectionCopy.TOKEN_STORE, storeDisplayName(it))
+    }
 
     GradientCard(
         gradient = gradient,
@@ -421,30 +433,35 @@ internal fun PremiumBannerCard(
             Spacer(Modifier.height(12.dp))
         }
 
-        // Header row
+        // Header row — Stitch sdk-plan-card 09: tile, "Premium Active", and the Active chip on
+        // the SAME line; the plan name is its own line beneath.
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            IconBox(imageVector = Icons.Default.CheckCircle)
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(Res.string.paycraft_banner_premium_active_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(Modifier.height(2.dp))
+            IconBox(imageVector = Icons.Default.CheckCircle, size = 40.dp)
+            Text(
+                text = stringResource(Res.string.paycraft_banner_premium_active_title),
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            ActiveChip()
+        }
+        if (currentPlanName != null || trial != null) {
+            Spacer(Modifier.height(12.dp))
+            Column {
                 if (currentPlanName != null) {
                     // T26: show plan name, not raw plan ID
                     Text(
                         text = stringResource(Res.string.paycraft_banner_plan_subtitle, currentPlanName),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = colorGold,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
-                // Trial countdown (v1.1) — overrides the plan subtitle visually when present.
+                // Trial countdown (v1.1) — shown only while trialing.
                 if (trial != null) {
                     Spacer(Modifier.height(2.dp))
                     val trialText = if (trial.daysRemaining <= 0) {
@@ -482,27 +499,27 @@ internal fun PremiumBannerCard(
                     stringResource(Res.string.paycraft_banner_expires, expiryDateDisplay)
                 }
                 Text(
-                    text = expiryLabel,
+                    text = listOfNotNull(expiryLabel, billedThrough).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.7f),
+                    color = Color.White.copy(alpha = 0.75f),
                 )
             }
         }
 
         Spacer(Modifier.height(16.dp))
 
-        // Support info BEFORE the CTA (matches original design)
+        // Support info BEFORE the CTA, in its own bordered box (Stitch sdk-plan-card 09).
         if (supportEmail.isNotBlank()) {
-            HorizontalDivider(
-                color = Color.White.copy(alpha = 0.15f),
-                modifier = Modifier.padding(vertical = 8.dp),
-            )
             Row(
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { PayCraftPlatform.openUrl("mailto:$supportEmail") },
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.06f))
+                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                    .clickable { PayCraftPlatform.openUrl("mailto:$supportEmail") }
+                    .padding(12.dp),
             ) {
                 Icon(
                     imageVector = Icons.Default.Info,
@@ -513,17 +530,18 @@ internal fun PremiumBannerCard(
                 Text(
                     text = stringResource(Res.string.paycraft_banner_support_info, supportEmail),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.6f),
+                    color = Color.White.copy(alpha = 0.75f),
                     lineHeight = 18.sp,
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
         }
 
         // 4-state CTA button — click handled by the enclosing GradientCard
         CtaButton(
             gradient = colorCtaManage,
-            icon = Icons.AutoMirrored.Filled.ArrowForward,
+            icon = Icons.Outlined.Settings,
+            trailingIcon = Icons.AutoMirrored.Filled.ArrowForward,
             textColor = Color.White,
             text = ctaText,
             testTag = TAG_BANNER_MANAGE_BTN,
@@ -582,18 +600,70 @@ private fun GradientCard(
 }
 
 @Composable
-private fun IconBox(imageVector: ImageVector) {
+private fun IconBox(imageVector: ImageVector, size: androidx.compose.ui.unit.Dp = 52.dp) {
     Box(
         modifier = Modifier
-            .size(52.dp)
-            .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(16.dp)),
+            .size(size)
+            .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(size * 0.3f)),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = imageVector,
             contentDescription = null,
             tint = colorGold,
-            modifier = Modifier.size(30.dp),
+            modifier = Modifier.size(size * 0.56f),
+        )
+    }
+}
+
+/**
+ * "● ACTIVE" pill for the premium card header. Drawn in the card's own white-overlay palette: the
+ * card is a fixed gradient, so a host-theme role (activeBadge resolves to `tertiary`) can land
+ * mauve-on-green, while white-on-gradient reads on every tier's gradient.
+ */
+@Composable
+private fun ActiveChip() {
+    Row(
+        modifier = Modifier
+            .background(Color.White.copy(alpha = 0.18f), RoundedCornerShape(50))
+            .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(50))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(Modifier.size(6.dp).background(colorGold, RoundedCornerShape(50)))
+        Text(
+            text = stringResource(Res.string.paycraft_banner_active_badge).uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp,
+            color = Color.White,
+        )
+    }
+}
+
+/** Hairline between a banner's header and its perk list (Stitch sdk-plan-card 07/08). */
+@Composable
+internal fun PerkDivider(color: Color = Color.White.copy(alpha = 0.15f)) {
+    Spacer(Modifier.height(16.dp))
+    HorizontalDivider(color = color)
+    Spacer(Modifier.height(12.dp))
+}
+
+/** A perk's check mark, set in a soft circle so the list reads as ticked items. */
+@Composable
+private fun PerkCheck(tint: Color) {
+    Box(
+        modifier = Modifier
+            .size(22.dp)
+            .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(50)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Check,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(14.dp),
         )
     }
 }
@@ -604,7 +674,12 @@ private fun IconBox(imageVector: ImageVector) {
  * dashboard copy (e.g. "Free Video") appears on both surfaces.
  */
 @Composable
-private fun ValuePropPerkRow(title: String, description: String?, modifier: Modifier = Modifier) {
+internal fun ValuePropPerkRow(
+    title: String,
+    description: String?,
+    modifier: Modifier = Modifier,
+    checkTint: Color = colorGold,
+) {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -612,12 +687,7 @@ private fun ValuePropPerkRow(title: String, description: String?, modifier: Modi
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Icon(
-            imageVector = Icons.Default.Check,
-            contentDescription = null,
-            tint = colorGold,
-            modifier = Modifier.size(18.dp).padding(top = 2.dp),
-        )
+        PerkCheck(checkTint)
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = title,
@@ -647,12 +717,14 @@ private fun PerkRow(icon: ImageVector, textRes: StringResource, modifier: Modifi
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = colorGold,
-            modifier = Modifier.size(18.dp),
-        )
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(50)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(imageVector = icon, contentDescription = null, tint = colorGold, modifier = Modifier.size(14.dp))
+        }
         Text(
             text = text,
             style = MaterialTheme.typography.bodyMedium,
@@ -707,16 +779,19 @@ fun PayCraftInlinePaywallBanner(onDismiss: () -> Unit, modifier: Modifier = Modi
 @Composable
 private fun CtaButton(
     gradient: Brush,
-    icon: ImageVector,
+    icon: ImageVector?,
     textColor: Color,
     text: String,
     testTag: String,
     modifier: Modifier = Modifier,
+    trailingIcon: ImageVector? = null,
 ) {
+    // A full pill, per the Stitch banners — the card's 24dp corners and a 14dp button read as two
+    // unrelated shapes stacked together.
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(gradient, RoundedCornerShape(14.dp))
+            .background(gradient, RoundedCornerShape(50))
             .padding(vertical = 14.dp)
             .testTag(testTag),
         contentAlignment = Alignment.Center,
@@ -725,18 +800,18 @@ private fun CtaButton(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = textColor,
-                modifier = Modifier.size(20.dp),
-            )
+            icon?.let {
+                Icon(imageVector = it, contentDescription = null, tint = textColor, modifier = Modifier.size(20.dp))
+            }
             Text(
                 text = text,
                 style = MaterialTheme.typography.titleSmall,
                 color = textColor,
                 fontWeight = FontWeight.ExtraBold,
             )
+            trailingIcon?.let {
+                Icon(imageVector = it, contentDescription = null, tint = textColor, modifier = Modifier.size(18.dp))
+            }
         }
     }
 }

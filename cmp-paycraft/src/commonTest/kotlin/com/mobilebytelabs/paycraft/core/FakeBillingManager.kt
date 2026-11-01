@@ -73,6 +73,13 @@ class FakeBillingManager(
 
     override fun refreshStatus(force: Boolean) { /* no-op in tests */ }
 
+    var restoreStorePurchasesCallCount = 0
+
+    override suspend fun restoreStorePurchases(): Boolean {
+        restoreStorePurchasesCallCount++
+        return false
+    }
+
     override suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String) { /* no-op */ }
 
     override suspend fun confirmDeviceTransfer() { /* no-op */ }

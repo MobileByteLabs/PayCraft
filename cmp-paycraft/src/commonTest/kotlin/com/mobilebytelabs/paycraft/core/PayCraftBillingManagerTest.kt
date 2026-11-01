@@ -339,6 +339,31 @@ class PayCraftBillingManagerTest {
         assertIs<BillingState.Free>(manager.billingState.value, "no email → Free")
     }
 
+    /**
+     * Restore → sign in with the account ALREADY linked. The early return (built for a session observer
+     * re-emitting the same identity) made this a silent no-op: the restore sheet saw no state change and
+     * fell back to idle. A sign-in is now always an explicit tap, so it must re-check the server.
+     */
+    @Test
+    fun onVerifiedSignIn_sameAccount_reChecksInsteadOfDoingNothing() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val service = FakePayCraftService()
+        val manager = PayCraftBillingManager(
+            service = service,
+            store = FakePayCraftStore(cached = null, lastSynced = 0L, email = "buyer@example.com"),
+            dispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        val settled = manager.billingState.value
+        assertFalse(settled is BillingState.Loading, "precondition: settled before the re-sign-in")
+
+        manager.onVerifiedSignIn("Buyer@Example.com")
+
+        assertIs<BillingState.Loading>(manager.billingState.value, "same account must start a re-check")
+        advanceUntilIdle()
+        assertFalse(manager.billingState.value is BillingState.Loading, "and the re-check must resolve")
+    }
+
     // ── refreshStatus must not clear an Error it did not disprove ────────────────────────────────
     //
     // `refreshStatus` with no email takes a branch that makes NO server call — it just asserts Free
