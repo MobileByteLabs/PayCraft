@@ -278,10 +278,20 @@ internal fun IdentityResultCard(
             tint = accent,
             modifier = Modifier.size(22.dp),
         )
+        // TEXT never takes the accent on success: a host's badge colour (cappy: amber) on its own 12% tint
+        // fails contrast — device capture 2026-11-01 read amber-on-cream. Icon + border carry the colour;
+        // words use the surface pair, readable on any host palette. Error keeps its designed container pair.
+        val titleColor = if (isSuccess) MaterialTheme.colorScheme.onSurface else accent
+        val bodyColor = if (isSuccess) MaterialTheme.colorScheme.onSurfaceVariant else accent.copy(alpha = 0.85f)
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = accent)
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = titleColor,
+            )
             if (message != null) {
-                Text(message, style = MaterialTheme.typography.bodySmall, color = accent.copy(alpha = 0.85f))
+                Text(message, style = MaterialTheme.typography.bodySmall, color = bodyColor)
             }
         }
     }
