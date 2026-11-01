@@ -183,6 +183,8 @@
     <string name="paycraft_sign_in_opening">Opening %1$s…</string>
     <string name="paycraft_sign_in_waiting_title">Finish signing in with %1$s</string>
     <string name="paycraft_sign_in_waiting_body">Complete sign-in in the browser, then come back to this app. We will pick it up automatically.</string>
+    <!-- Android Custom Tab / iOS ASWebAuthenticationSession: the callback page brings the user back (D2b). -->
+    <string name="paycraft_sign_in_waiting_body_in_app">Finish signing in. You’ll be brought back automatically.</string>
     <string name="paycraft_sign_in_waiting_cancel">Cancel sign-in</string>
     <string name="paycraft_sign_in_failed_title">Couldn’t verify your account</string>
     <string name="paycraft_restore_sign_in_cancelled">Sign-in cancelled. Choose an account to try again.</string>

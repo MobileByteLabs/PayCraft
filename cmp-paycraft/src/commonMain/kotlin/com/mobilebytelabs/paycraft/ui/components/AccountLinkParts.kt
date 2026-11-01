@@ -57,9 +57,11 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_provider_google
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_verifying_identity
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_sign_in_opening
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_sign_in_waiting_body
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_sign_in_waiting_body_in_app
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_sign_in_waiting_cancel
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_sign_in_waiting_title
 import com.mobilebytelabs.paycraft.model.OAuthProvider
+import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import org.jetbrains.compose.resources.painterResource
@@ -217,7 +219,14 @@ internal fun WaitingForBrowserCard(provider: OAuthProvider, onCancel: () -> Unit
     val colors = PayCraftTheme.colors
     IdentityProgressCard(
         title = stringResource(Res.string.paycraft_sign_in_waiting_title, providerName(provider)),
-        body = stringResource(Res.string.paycraft_sign_in_waiting_body),
+        // Android/iOS run it in an in-app browser that hands back by itself; desktop/web use a browser tab.
+        body = stringResource(
+            if (PlatformInfo.platform == "android" || PlatformInfo.platform == "ios") {
+                Res.string.paycraft_sign_in_waiting_body_in_app
+            } else {
+                Res.string.paycraft_sign_in_waiting_body
+            },
+        ),
         testTag = PayCraftTestTags.SIGN_IN_WAITING,
         modifier = modifier,
     ) {

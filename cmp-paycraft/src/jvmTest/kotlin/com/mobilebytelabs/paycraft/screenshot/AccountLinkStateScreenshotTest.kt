@@ -87,7 +87,26 @@ class AccountLinkStateScreenshotTest {
         // Sign-in only: no typed-email path, no "or restore with email" divider.
         onNodeWithTag(TAG_EMAIL).assertDoesNotExist()
         onNodeWithText("Or restore with email").assertDoesNotExist()
+        // Full screen like the paywall: circular close top-right, Cancel at the bottom.
+        onNodeWithTag(TAG_RESTORE_CLOSE).assertIsDisplayed()
+        onNodeWithTag(TAG_RESTORE_CANCEL).assertIsDisplayed()
         capture("01_restore_idle")
+    }
+
+    @Test fun restore_close_button_cancels() = runDesktopComposeUiTest(WIDTH, HEIGHT) {
+        var cancelled = 0
+        setContent {
+            Frame {
+                PayCraftRestoreContent(
+                    FakeBillingManager(),
+                    onCancel = { cancelled++ },
+                    onSuccess = {},
+                    signIn = FakeSignIn(SignInState.Idle).handle,
+                )
+            }
+        }
+        onNodeWithTag(TAG_RESTORE_CLOSE).performClick()
+        assertEquals(1, cancelled)
     }
 
     @Test fun s02_restore_launching() = runDesktopComposeUiTest(WIDTH, HEIGHT) {
@@ -409,5 +428,6 @@ class AccountLinkStateScreenshotTest {
         const val TAG_EMAIL = "paycraft_restore_email_field" // removed path — asserted absent
         const val TAG_RETRY = "paycraft_restore_retry_button"
         const val TAG_RESTORE_CANCEL = "paycraft_restore_cancel_button"
+        const val TAG_RESTORE_CLOSE = "paycraft_restore_close_button"
     }
 }

@@ -102,13 +102,15 @@ internal class IdentityTokenClient(
     private val http: HttpClient,
     private val backend: PayCraftBackend,
     private val apiKey: String?,
+    /** Sent to /start so /callback can hand control straight back to this app (D2b). */
+    private val platform: String = authPlatform(com.mobilebytelabs.paycraft.core.currentPlatform()),
 ) {
     private val base get() = "${backend.supabaseUrl}/functions/v1/identity-token"
 
     val isConfigured: Boolean get() = !apiKey.isNullOrBlank()
 
     fun startUrl(provider: OAuthProvider, session: String): String =
-        "$base/start?api_key=${apiKey.orEmpty().encodeURLParameter()}&provider=${provider.wire}&session=$session"
+        "$base/start?api_key=${apiKey.orEmpty().encodeURLParameter()}&provider=${provider.wire}&session=$session&platform=$platform"
 
     suspend fun verify(provider: OAuthProvider, idToken: String, nonce: String?): VerifyOutcome = try {
         val response = post("verify") {
@@ -168,6 +170,12 @@ internal class IdentityTokenClient(
 
 internal val OAuthProvider.wire: String get() = name.lowercase()
 
+/** identity-token's `platform` vocabulary: android | ios | web | desktop (macOS and anything else → desktop). */
+internal fun authPlatform(platform: String): String = when (platform) {
+    "android", "ios", "web" -> platform
+    else -> "desktop"
+}
+
 /**
  * PayCraft's in-SDK sign-in WITHOUT Supabase users (PLAN-paycraft-verified-identity D5/D6): get a provider
  * ID token natively ([nativeToken]) or via the server-hosted browser flow, have `identity-token/verify`
@@ -177,7 +185,9 @@ internal class VerifiedSignIn(
     private val client: IdentityTokenClient,
     private val onVerified: suspend (String) -> Unit,
     private val nativeToken: suspend (OAuthProvider, String) -> NativeTokenResult = NativeIdTokenProvider::idToken,
-    private val openBrowser: (String) -> Unit = { com.mobilebytelabs.paycraft.PayCraftPlatform.openUrl(it) },
+    private val openBrowser: (String, (BrowserReturn) -> Unit) -> Unit = { url, onReturn ->
+        InAppAuthBrowser.open(url, onReturn)
+    },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
     private val _state = MutableStateFlow<SignInState>(SignInState.Idle)
@@ -257,7 +267,7 @@ internal class VerifiedSignIn(
         val id = randomUrlSafe()
         session = id
         _state.value = SignInState.WaitingForBrowser(provider)
-        runCatching { openBrowser(client.startUrl(provider, id)) }.onFailure {
+        runCatching { openBrowser(client.startUrl(provider, id)) { onBrowserReturned(id, it) } }.onFailure {
             PayCraftLogger.onError("signIn", "openBrowser: ${it.message}")
             session = null
             _state.value = SignInState.Failed(provider, SignInFailure.Unknown)
@@ -268,6 +278,24 @@ internal class VerifiedSignIn(
             repeat(BACKGROUND_POLLS) {
                 delay(BACKGROUND_POLL_MS)
                 if (pollBrowser(notFoundIsPending = true)) return@launch
+            }
+        }
+    }
+
+    /**
+     * The in-app browser reported its end (iOS). Completed → read `/result` now: the callback page only
+     * redirects after the session row is final. Cancelled → the user closed the sheet.
+     */
+    private fun onBrowserReturned(id: String, how: BrowserReturn) {
+        when (how) {
+            BrowserReturn.Completed -> onForeground()
+            BrowserReturn.Cancelled -> scope.launch {
+                pollLock.withLock {
+                    val waiting = _state.value as? SignInState.WaitingForBrowser ?: return@launch
+                    if (session != id) return@launch
+                    browserPoll?.cancel()
+                    finish(SignInState.Cancelled(waiting.provider))
+                }
             }
         }
     }

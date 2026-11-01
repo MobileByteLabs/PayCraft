@@ -64,15 +64,22 @@ class VerifiedSignInTest {
         opened: MutableList<String> = mutableListOf(),
         verified: MutableList<String> = mutableListOf(),
         apiKey: String? = "pk_test_1",
+        platform: String = "desktop",
+        returns: MutableList<(BrowserReturn) -> Unit> = mutableListOf(),
     ) = VerifiedSignIn(
         client = IdentityTokenClient(
             HttpClient(server.engine) { install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) } },
             backend,
             apiKey,
+            platform,
         ),
         onVerified = { verified += it },
         nativeToken = { _, _ -> native },
-        openBrowser = { opened += it },
+        // The InAppAuthBrowser seam: Custom Tab (Android) / ASWebAuthenticationSession (iOS) in production.
+        openBrowser = { url, onReturn ->
+            opened += url
+            returns += onReturn
+        },
         scope = this, // foreground: advanceUntilIdle drives the polls; every browser test ends terminal
     )
 
@@ -151,8 +158,74 @@ class VerifiedSignInTest {
 
         assertEquals(SignInState.Linked("apple@example.com", OAuthProvider.APPLE), sut.state.value)
         assertEquals(listOf("apple@example.com"), verified)
-        val session = url.substringAfter("session=")
+        val session = url.substringAfter("session=").substringBefore('&')
         assertTrue(server.requests.filter { it.first == "result" }.all { session in it.second })
+    }
+
+    @Test
+    fun browser_start_sends_the_platform_and_dispatches_to_the_in_app_browser() = runTest {
+        for (platform in listOf("android", "ios", "desktop", "web")) {
+            val opened = mutableListOf<String>()
+            val returns = mutableListOf<(BrowserReturn) -> Unit>()
+            val sut = signIn(
+                Server(StandardTestDispatcher(testScheduler)),
+                NativeTokenResult.Unavailable,
+                opened,
+                platform = platform,
+                returns = returns,
+            )
+            sut.signIn(OAuthProvider.GOOGLE)
+            assertTrue("platform=$platform" in opened.single(), opened.single())
+            assertEquals(1, returns.size, "the in-app browser gets a return callback")
+            sut.reset()
+        }
+        assertEquals("desktop", authPlatform("macos"))
+        assertEquals("desktop", authPlatform(""))
+        assertEquals("ios", authPlatform("ios"))
+    }
+
+    @Test
+    fun ios_completion_reads_result_at_once_and_links() = runTest {
+        val server = Server(StandardTestDispatcher(testScheduler))
+        val returns = mutableListOf<(BrowserReturn) -> Unit>()
+        val verified = mutableListOf<String>()
+        val sut =
+            signIn(server, NativeTokenResult.Unavailable, verified = verified, platform = "ios", returns = returns)
+        sut.signIn(OAuthProvider.GOOGLE)
+        server.results += HttpStatusCode.OK to """{"status":"verified","email":"ios@example.com"}"""
+
+        returns.single()(BrowserReturn.Completed)
+        runCurrent() // no virtual time passes: no foreground wait, no background-poll delay
+
+        assertEquals(SignInState.Linked("ios@example.com", OAuthProvider.GOOGLE), sut.state.value)
+        assertEquals(listOf("ios@example.com"), verified)
+        assertEquals(1, server.requests.count { it.first == "result" })
+    }
+
+    @Test
+    fun ios_sheet_closed_is_cancelled_without_reading_result() = runTest {
+        val server = Server(StandardTestDispatcher(testScheduler))
+        val returns = mutableListOf<(BrowserReturn) -> Unit>()
+        val sut = signIn(server, NativeTokenResult.Unavailable, platform = "ios", returns = returns)
+        sut.signIn(OAuthProvider.APPLE)
+        returns.single()(BrowserReturn.Cancelled)
+        runCurrent()
+        assertEquals(SignInState.Cancelled(OAuthProvider.APPLE), sut.state.value)
+        assertTrue(server.requests.none { it.first == "result" })
+    }
+
+    @Test
+    fun android_return_after_a_completed_callback_links_on_the_first_poll() = runTest {
+        // The callback page only hands back once the session row is final, so the very first
+        // foreground read must link — no backoff wait.
+        val server = Server(StandardTestDispatcher(testScheduler))
+        val sut = signIn(server, NativeTokenResult.Unavailable, platform = "android")
+        sut.signIn(OAuthProvider.GOOGLE)
+        server.results += HttpStatusCode.OK to """{"status":"verified","email":"droid@example.com"}"""
+        sut.onForeground()
+        runCurrent()
+        assertEquals(SignInState.Linked("droid@example.com", OAuthProvider.GOOGLE), sut.state.value)
+        assertEquals(1, server.requests.count { it.first == "result" })
     }
 
     @Test

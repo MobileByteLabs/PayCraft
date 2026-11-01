@@ -1,17 +1,22 @@
 package com.mobilebytelabs.paycraft.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
@@ -19,14 +24,12 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -41,6 +44,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.identity.SignInState
@@ -74,6 +79,7 @@ import com.mobilebytelabs.paycraft.ui.components.IdentityResultCard
 import com.mobilebytelabs.paycraft.ui.components.LocalPayCraftOAuthHandler
 import com.mobilebytelabs.paycraft.ui.components.PayCraftPaywallHeader
 import com.mobilebytelabs.paycraft.ui.components.PayCraftSignIn
+import com.mobilebytelabs.paycraft.ui.components.PaywallTopBar
 import com.mobilebytelabs.paycraft.ui.components.ProviderButton
 import com.mobilebytelabs.paycraft.ui.components.ResetStaleSignIn
 import com.mobilebytelabs.paycraft.ui.components.WaitingForBrowserCard
@@ -88,6 +94,7 @@ import org.koin.compose.koinInject
 
 private const val TAG_RESTORE_SHEET = "paycraft_restore_sheet"
 private const val TAG_RESTORE_CANCEL = "paycraft_restore_cancel_button"
+private const val TAG_RESTORE_CLOSE = "paycraft_restore_close_button"
 private const val TAG_RESTORE_SUCCESS = "paycraft_restore_success_message"
 private const val TAG_RESTORE_ERROR = "paycraft_restore_error_message"
 private const val TAG_RESTORE_NETWORK_ERROR = "paycraft_restore_network_error"
@@ -100,7 +107,7 @@ private const val TAG_RESTORE_APPLE = "paycraft_restore_apple_button"
 private enum class RestoreOutcome { Restored, NotFound, Failed }
 
 /**
- * Modal bottom sheet that lets a user restore their subscription.
+ * Full-screen restore surface (same Dialog shape as the paywall) that lets a user restore their subscription.
  *
  * Store first (no account), then Google / Apple sign-in — shown when the SDK or the host can complete
  * one ([rememberPayCraftSignIn]). There is NO typed-email path: a typed address is an unverified claim
@@ -115,7 +122,7 @@ private enum class RestoreOutcome { Restored, NotFound, Failed }
  * Platform OAuth goes through [LocalPayCraftOAuthHandler] (shared with [DeviceConflictContent]),
  * provided once around the app.
  *
- * @param visible Whether the bottom sheet is shown.
+ * @param visible Whether the restore screen is shown.
  * @param onDismiss Called when the user cancels or restore completes.
  */
 @Composable
@@ -141,37 +148,37 @@ internal fun PayCraftRestore(visible: Boolean, onDismiss: () -> Unit, modifier: 
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PayCraftRestoreSheet(onDismiss: () -> Unit, modifier: Modifier, billingManager: BillingManager) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    // Re-apply the dashboard brand theme at the sheet boundary. Material3
-    // ModalBottomSheet hosts its content in a separate window layer that does NOT
-    // inherit the PayCraftThemeProvider wrapping the paywall, so without this the
-    // restore sheet renders in the host app's MaterialTheme (e.g. reels-downloader's
-    // blue) instead of PayCraft's configured brand. Mirrors PayCraftPaywallSheet.
+    // Re-apply the dashboard brand theme at the dialog boundary: a Dialog is a separate window that
+    // does NOT inherit the PayCraftThemeProvider wrapping the paywall, so without this restore renders
+    // in the host app's MaterialTheme instead of PayCraft's brand. Mirrors PayCraftPaywallSheet.
     val liveConfig = PayCraft.suiteConfigFlow.collectAsState().value
     PayCraftThemeProvider(config = liveConfig) {
-        ModalBottomSheet(
+        // FULL SCREEN, exactly like PayCraftPaywallSheet (user decision 2026-11-01 — was a bottom
+        // sheet). Opened from the paywall it is composed inside the paywall's Dialog, so its window
+        // stacks above it; closing returns there.
+        Dialog(
             onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            dragHandle = null,
-            containerColor = PayCraftTheme.colors.surface,
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-            modifier = modifier.testTag(TAG_RESTORE_SHEET),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
-            PayCraftRestoreContent(
-                billingManager = billingManager,
-                onCancel = onDismiss,
-                onSuccess = onDismiss,
-            )
+            Surface(
+                color = PayCraftTheme.colors.surface,
+                modifier = modifier.fillMaxSize().testTag(TAG_RESTORE_SHEET),
+            ) {
+                PayCraftRestoreContent(
+                    billingManager = billingManager,
+                    onCancel = onDismiss,
+                    onSuccess = onDismiss,
+                )
+            }
         }
     }
 }
 
 /**
- * Stateless restore content. Can be placed in any container (sheet, dialog, screen).
+ * Stateless restore content — the whole full-screen page: close (X) top-right, a centred column, the
+ * privacy line + Cancel at the bottom. Scrolls when a state is taller than the window.
  *
  * The OAuth buttons come from [LocalPayCraftOAuthHandler] rather than from parameters — one
  * mechanism for "ask the host to run platform sign-in", shared with [DeviceConflictContent].
@@ -282,154 +289,156 @@ internal fun PayCraftRestoreContent(
     // premium star so the restore surface matches the paywall's branded header.
     val heroIconSvg = PayCraft.suiteConfigFlow.collectAsState().value?.paywall?.heroIconSvg
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = spacing.lg)
-            .padding(top = spacing.sm, bottom = 36.dp),
-        verticalArrangement = Arrangement.spacedBy(spacing.md),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        // Grabber — subtle drag affordance (the sheet uses dragHandle = null).
-        Box(
-            modifier = Modifier
-                .padding(bottom = spacing.xs)
-                .size(width = 36.dp, height = 4.dp)
-                .background(
-                    color = paycraftColors.onSurfaceVariant.copy(alpha = 0.28f),
-                    shape = RoundedCornerShape(2.dp),
-                ),
-        )
+    Column(modifier = modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+        PaywallTopBar(onClose = onCancel, closeTestTag = TAG_RESTORE_CLOSE)
+        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    // At least the viewport: weighted spacers centre a short state and push the
+                    // privacy line + Cancel to the bottom; a tall one simply scrolls.
+                    .heightIn(min = maxHeight)
+                    .padding(horizontal = spacing.lg)
+                    .padding(bottom = spacing.lg),
+                verticalArrangement = Arrangement.spacedBy(spacing.md),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(Modifier.weight(1f))
 
-        // Branded hero header — same component + language as the paywall.
-        PayCraftPaywallHeader(
-            title = stringResource(Res.string.paycraft_restore_title),
-            subtitle = stringResource(Res.string.paycraft_restore_description),
-            icon = Icons.Filled.Star,
-            heroIconSvg = heroIconSvg,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Spacer(modifier = Modifier.height(spacing.xs))
-
-        if (signInState is SignInState.Failed && outcome == null) {
-            IdentityResultCard(
-                title = stringResource(Res.string.paycraft_sign_in_failed_title),
-                message = stringResource(Res.string.paycraft_restore_sign_in_failed_body),
-                isSuccess = false,
-                testTag = PayCraftTestTags.SIGN_IN_FAILED,
-            )
-        }
-        if (waiting != null) {
-            WaitingForBrowserCard(provider = waiting.provider, onCancel = { signIn?.reset() })
-        }
-
-        when (outcome) {
-            RestoreOutcome.Restored -> {
-                IdentityResultCard(
-                    title = stringResource(Res.string.paycraft_restore_success_title),
-                    message = stringResource(Res.string.paycraft_restore_success_message),
-                    isSuccess = true,
-                    testTag = TAG_RESTORE_SUCCESS,
+                // Branded hero header — same component + language as the paywall.
+                PayCraftPaywallHeader(
+                    title = stringResource(Res.string.paycraft_restore_title),
+                    subtitle = stringResource(Res.string.paycraft_restore_description),
+                    icon = Icons.Filled.Star,
+                    heroIconSvg = heroIconSvg,
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                if (account != null) SignedInAs(account)
-            }
-            RestoreOutcome.NotFound -> IdentityResultCard(
-                title = stringResource(Res.string.paycraft_restore_failed_title),
-                message = account?.let { stringResource(Res.string.paycraft_restore_failed_message, it) },
-                isSuccess = false,
-                testTag = TAG_RESTORE_ERROR,
-            )
-            RestoreOutcome.Failed -> {
-                IdentityResultCard(
-                    title = stringResource(Res.string.paycraft_restore_network_title),
-                    message = stringResource(Res.string.paycraft_restore_network_body),
-                    isSuccess = false,
-                    testTag = TAG_RESTORE_NETWORK_ERROR,
-                )
-                Button(
-                    onClick = retry,
-                    modifier = Modifier.fillMaxWidth().height(IdentityCtaHeight).testTag(TAG_RESTORE_RETRY),
-                    shape = IdentityCtaShape,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = paycraftColors.accent,
-                        contentColor = paycraftColors.onAccent,
-                    ),
-                ) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(spacing.sm))
-                    Text(stringResource(Res.string.paycraft_restore_retry), fontWeight = FontWeight.SemiBold)
+
+                Spacer(modifier = Modifier.height(spacing.xs))
+
+                if (signInState is SignInState.Failed && outcome == null) {
+                    IdentityResultCard(
+                        title = stringResource(Res.string.paycraft_sign_in_failed_title),
+                        message = stringResource(Res.string.paycraft_restore_sign_in_failed_body),
+                        isSuccess = false,
+                        testTag = PayCraftTestTags.SIGN_IN_FAILED,
+                    )
                 }
-                if (hasOAuth) HorizontalDivider(color = paycraftColors.divider)
-            }
-            null -> {}
-        }
+                if (waiting != null) {
+                    WaitingForBrowserCard(provider = waiting.provider, onCancel = { signIn?.reset() })
+                }
 
-        if (isRestoring) {
-            IdentityProgressCard(
-                title = stringResource(Res.string.paycraft_restore_checking),
-                body = stringResource(Res.string.paycraft_restore_checking_body),
-                testTag = TAG_RESTORE_CHECKING,
-            )
-        } else if (outcome != RestoreOutcome.Restored) {
-            // Provider CTAs: the only way to restore beyond the store. Re-enabled after not-found /
-            // error / cancel / failure so the buyer can try another account.
-            if (onGoogleSignInClick != null) {
-                ProviderButton(
-                    provider = OAuthProvider.GOOGLE,
-                    label = stringResource(Res.string.paycraft_restore_sign_in_google),
-                    state = signInState,
-                    onClick = startSignIn(onGoogleSignInClick),
-                    modifier = Modifier.testTag(TAG_RESTORE_GOOGLE),
-                )
-            }
-            if (onAppleSignInClick != null) {
-                ProviderButton(
-                    provider = OAuthProvider.APPLE,
-                    label = stringResource(Res.string.paycraft_restore_sign_in_apple),
-                    state = signInState,
-                    onClick = startSignIn(onAppleSignInClick),
-                    modifier = Modifier.testTag(TAG_RESTORE_APPLE),
-                )
-            }
-            if (signInState is SignInState.Cancelled) {
-                IdentityNote(
-                    text = stringResource(Res.string.paycraft_restore_sign_in_cancelled),
-                    testTag = PayCraftTestTags.SIGN_IN_CANCELLED,
-                )
-            }
-        }
+                when (outcome) {
+                    RestoreOutcome.Restored -> {
+                        IdentityResultCard(
+                            title = stringResource(Res.string.paycraft_restore_success_title),
+                            message = stringResource(Res.string.paycraft_restore_success_message),
+                            isSuccess = true,
+                            testTag = TAG_RESTORE_SUCCESS,
+                        )
+                        if (account != null) SignedInAs(account)
+                    }
+                    RestoreOutcome.NotFound -> IdentityResultCard(
+                        title = stringResource(Res.string.paycraft_restore_failed_title),
+                        message = account?.let { stringResource(Res.string.paycraft_restore_failed_message, it) },
+                        isSuccess = false,
+                        testTag = TAG_RESTORE_ERROR,
+                    )
+                    RestoreOutcome.Failed -> {
+                        IdentityResultCard(
+                            title = stringResource(Res.string.paycraft_restore_network_title),
+                            message = stringResource(Res.string.paycraft_restore_network_body),
+                            isSuccess = false,
+                            testTag = TAG_RESTORE_NETWORK_ERROR,
+                        )
+                        Button(
+                            onClick = retry,
+                            modifier = Modifier.fillMaxWidth().height(IdentityCtaHeight).testTag(TAG_RESTORE_RETRY),
+                            shape = IdentityCtaShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = paycraftColors.accent,
+                                contentColor = paycraftColors.onAccent,
+                            ),
+                        ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(spacing.sm))
+                            Text(stringResource(Res.string.paycraft_restore_retry), fontWeight = FontWeight.SemiBold)
+                        }
+                        if (hasOAuth) HorizontalDivider(color = paycraftColors.divider)
+                    }
+                    null -> {}
+                }
 
-        // Trust line — what happens to the account the buyer signs in with.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Lock,
-                contentDescription = null,
-                tint = paycraftColors.onSurfaceVariant,
-                modifier = Modifier.size(14.dp),
-            )
-            Text(
-                text = stringResource(Res.string.paycraft_restore_privacy),
-                style = MaterialTheme.typography.labelSmall,
-                color = paycraftColors.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-        }
+                if (isRestoring) {
+                    IdentityProgressCard(
+                        title = stringResource(Res.string.paycraft_restore_checking),
+                        body = stringResource(Res.string.paycraft_restore_checking_body),
+                        testTag = TAG_RESTORE_CHECKING,
+                    )
+                } else if (outcome != RestoreOutcome.Restored) {
+                    // Provider CTAs: the only way to restore beyond the store. Re-enabled after not-found /
+                    // error / cancel / failure so the buyer can try another account.
+                    if (onGoogleSignInClick != null) {
+                        ProviderButton(
+                            provider = OAuthProvider.GOOGLE,
+                            label = stringResource(Res.string.paycraft_restore_sign_in_google),
+                            state = signInState,
+                            onClick = startSignIn(onGoogleSignInClick),
+                            modifier = Modifier.testTag(TAG_RESTORE_GOOGLE),
+                        )
+                    }
+                    if (onAppleSignInClick != null) {
+                        ProviderButton(
+                            provider = OAuthProvider.APPLE,
+                            label = stringResource(Res.string.paycraft_restore_sign_in_apple),
+                            state = signInState,
+                            onClick = startSignIn(onAppleSignInClick),
+                            modifier = Modifier.testTag(TAG_RESTORE_APPLE),
+                        )
+                    }
+                    if (signInState is SignInState.Cancelled) {
+                        IdentityNote(
+                            text = stringResource(Res.string.paycraft_restore_sign_in_cancelled),
+                            testTag = PayCraftTestTags.SIGN_IN_CANCELLED,
+                        )
+                    }
+                }
 
-        TextButton(
-            onClick = onCancel,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .testTag(TAG_RESTORE_CANCEL),
-        ) {
-            Text(
-                text = stringResource(Res.string.paycraft_restore_cancel),
-                color = paycraftColors.onSurfaceVariant,
-            )
+                Spacer(Modifier.weight(1f))
+
+                // Trust line — what happens to the account the buyer signs in with.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Lock,
+                        contentDescription = null,
+                        tint = paycraftColors.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Text(
+                        text = stringResource(Res.string.paycraft_restore_privacy),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = paycraftColors.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+
+                TextButton(
+                    onClick = onCancel,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag(TAG_RESTORE_CANCEL),
+                ) {
+                    Text(
+                        text = stringResource(Res.string.paycraft_restore_cancel),
+                        color = paycraftColors.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }

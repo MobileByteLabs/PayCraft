@@ -201,10 +201,15 @@ internal fun PaywallFrame(
 
 /**
  * The chromeless top bar: nothing but a circular, outlined close button at the trailing edge.
- * The tree renders its own hero, so a title here would be a second headline.
+ * The tree renders its own hero, so a title here would be a second headline. Also the restore
+ * screen's close (own [closeTestTag], so it never collides with the paywall's beneath it).
  */
 @Composable
-internal fun PaywallTopBar(onClose: () -> Unit, modifier: Modifier = Modifier) {
+internal fun PaywallTopBar(
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+    closeTestTag: String = PayCraftTestTags.DISMISS_BUTTON,
+) {
     val colors = PayCraftTheme.colors
     val closeCd = stringResource(Res.string.paycraft_paywall_close_cd)
     Row(
@@ -218,7 +223,7 @@ internal fun PaywallTopBar(onClose: () -> Unit, modifier: Modifier = Modifier) {
                 .clip(CircleShape)
                 .background(colors.onSurface.copy(alpha = 0.06f))
                 .border(1.dp, colors.divider, CircleShape)
-                .testTag(PayCraftTestTags.DISMISS_BUTTON)
+                .testTag(closeTestTag)
                 .semantics { contentDescription = closeCd },
         ) {
             Icon(

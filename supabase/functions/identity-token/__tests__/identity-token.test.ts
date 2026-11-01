@@ -296,3 +296,81 @@ t("google browser flow uses the APP's own web client once its secret is stored (
     tenantGoogleSecret = null;
   }
 });
+
+// ── D2b: /callback hands control back to the in-app browser's app ───────────────────────────────
+const startOn = (platform: string, session: string, provider = "google") =>
+  handler(new Request(`${base}/start?api_key=${API_KEY}&provider=${provider}&session=${session}&platform=${platform}`));
+const callbackPage = async (session: string, query = "code=abc") => {
+  tokenEndpointIdToken = await googleToken({}, "paycraft-web.apps.googleusercontent.com");
+  return await (await handler(new Request(`${base}/callback?${query}&state=${session}`))).text();
+};
+
+t("/start stores the platform; an unknown one is stored as null", async () => {
+  const a = "p".repeat(40);
+  assertEquals((await startOn("android", a)).status, 302);
+  assertEquals(sessions.get(a)?.platform, "android");
+  const b = "q".repeat(40);
+  assertEquals((await startOn("toaster", b)).status, 302);
+  assertEquals(sessions.get(b)?.platform, null);
+  const c = "r".repeat(40);
+  await start("google", c); // older SDK: no platform param
+  assertEquals(sessions.get(c)?.platform, null);
+});
+
+t("android callback → intent:// to the app's package, with a visible fallback link", async () => {
+  const session = "e".repeat(48);
+  await startOn("android", session);
+  const page = await callbackPage(session);
+  const intent = "intent://signin-complete#Intent;scheme=com.example.app.paycraft;package=com.example.app;end";
+  assert(page.includes(`location.replace("${intent}")`), page);
+  assert(page.includes(`<a href="${intent}">`), page);
+  assert(page.includes("Signed in."));
+  assert(!page.includes(tokenEndpointIdToken), "token must never be echoed");
+  // the session row is already verified when the app comes back — its first /result poll links
+  assertEquals(await (await post("/result", { api_key: API_KEY, session })).json(), {
+    status: "verified",
+    email: "buyer@example.com",
+  });
+});
+
+t("android callback failure also hands back", async () => {
+  const session = "f".repeat(48);
+  await startOn("android", session);
+  const page = await callbackPage(session, "error=access_denied");
+  assert(page.includes("Sign-in failed."));
+  assert(page.includes("location.replace(\"intent://signin-complete#Intent;"), page);
+});
+
+t("ios callback → <bundle id>.paycraft://signin-complete?session=…", async () => {
+  const session = "h".repeat(48);
+  await startOn("ios", session);
+  const page = await callbackPage(session);
+  const back = `com.example.app.paycraft://signin-complete?session=${session}`;
+  assert(page.includes(`location.replace("${back}")`), page);
+  assert(page.includes(`<a href="${back}">`), page);
+  assert(!page.includes(tokenEndpointIdToken), "token must never be echoed");
+});
+
+t("desktop / web callback → the plain text page, no redirect", async () => {
+  for (const [platform, session] of [["desktop", "i".repeat(48)], ["web", "j".repeat(48)]]) {
+    await startOn(platform, session);
+    const page = await callbackPage(session);
+    assert(page.includes("Signed in. You can return to the app."), page);
+    assert(!page.includes("<script"), page);
+  }
+});
+
+t("an app identifier that is unsafe to embed is never put in the page", async () => {
+  const original = TENANT.app_identifier;
+  TENANT.app_identifier = `com.evil");alert(1)//`;
+  try {
+    const session = "k".repeat(48);
+    await startOn("android", session);
+    const page = await callbackPage(session);
+    assert(!page.includes("com.evil"), page);
+    assert(!page.includes("<script"), page);
+    assert(page.includes("Signed in. You can return to the app."));
+  } finally {
+    TENANT.app_identifier = original;
+  }
+});

@@ -246,6 +246,8 @@ kotlin {
             implementation(paycraftLibs.androidx.credentials)
             implementation(paycraftLibs.androidx.credentials.play.services.auth)
             implementation(paycraftLibs.googleid)
+            // In-app browser sign-in (Chrome Custom Tab) — D2b.
+            implementation(paycraftLibs.androidx.browser)
         }
 
         iosMain.dependencies {

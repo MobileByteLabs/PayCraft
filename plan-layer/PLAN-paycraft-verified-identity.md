@@ -17,6 +17,17 @@ provider's ID token ourselves and record the email. Zero `auth.users`, no MAU, n
   verified email on the one-time `session` → HTML "Signed in — return to the app" →
   the app polls `POST identity-token/result {api_key, session}` on foreground (once, then deleted).
   Apple Return URL becomes `https://<ref>.supabase.co/functions/v1/identity-token/callback`.
+- **D2b In-app browser, auto-return (2026-11-01, user-flagged "why not native / in-app browser").** Native
+  where a native API exists (Android Google = Credential Manager, iOS Apple = ASAuthorization). Everywhere
+  else — Apple has NO Android SDK; Google has no library-embeddable iOS SDK — the browser flow runs IN-APP,
+  never the external browser: Android = Chrome Custom Tab (androidx.browser); iOS = ASWebAuthenticationSession.
+  `/start` records the caller `platform`; `/callback`'s page then hands control straight back: Android →
+  `intent://signin-complete#Intent;scheme=<app_identifier>.paycraft;package=<app_identifier>;end` (as built:
+  Chrome adds CATEGORY_BROWSABLE to every web-launched intent, so it needs a BROWSABLE target — the SDK's own
+  manifest merges `PayCraftAuthActivity` (singleTask, scheme `${applicationId}.paycraft`), which hosts the
+  Custom Tab and clears it on return; still zero host-app manifest change), iOS →
+  `<app_identifier>.paycraft://signin-complete` which ASWebAuthenticationSession intercepts by its
+  callbackURLScheme (no Info.plist change). The app then reads `/result` immediately — no "switch back" step.
 - **D3 Verification (edge fn `identity-token`, route `POST /verify {api_key, provider, id_token, nonce}`).**
   JWKS + `jose.jwtVerify`. Google: JWKS `https://www.googleapis.com/oauth2/v3/certs`, iss
   `accounts.google.com|https://accounts.google.com`, aud == `tenants.auth_google_web_client_id`,

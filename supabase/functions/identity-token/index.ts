@@ -6,8 +6,8 @@
  * against the provider's PUBLIC JWKS and only the email comes back. Zero auth.users.
  *
  *   POST /verify   {api_key, provider, id_token, nonce?} → 200 {email, provider}          (D3)
- *   GET  /start    ?api_key&provider&session             → 302 to Google/Apple            (D2)
- *   GET|POST /callback  code+state (Apple: form_post)    → HTML "return to the app"       (D2)
+ *   GET  /start    ?api_key&provider&session[&platform]  → 302 to Google/Apple            (D2)
+ *   GET|POST /callback  code+state (Apple: form_post)    → HTML that hands back to the app (D2b)
  *   POST /result   {api_key, session}                    → {status, email?} (one-time)    (D2)
  *
  * Every token failure answers ONE shape (401 invalid_identity_token): distinguishing signature vs
@@ -47,11 +47,34 @@ const SESSION_PURGE_MS = 60 * 60 * 1000;
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-const html = (ok: boolean) =>
+type Platform = "android" | "ios" | "web" | "desktop";
+const PLATFORMS: readonly Platform[] = ["android", "ios", "web", "desktop"];
+// Embedded in a URL, an href and a JS string — so only characters that need no escaping in any of them.
+const APP_ID_RE = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * Where /callback's page sends the in-app browser when the flow ends (D2b). Android: an intent to the
+ * app's package, caught by the SDK's merged BROWSABLE trampoline (`<applicationId>.paycraft` scheme) —
+ * Chrome adds CATEGORY_BROWSABLE to every web-launched intent, so a plain launcher intent cannot match.
+ * iOS: `<bundle id>.paycraft://`, intercepted by ASWebAuthenticationSession's callbackURLScheme.
+ * null (desktop/web/unknown, or an app id that is not safe to embed) → the plain text page.
+ */
+export function returnUrl(platform: string | null, appId: string | null, session: string): string | null {
+  const id = (appId ?? "").trim();
+  if (!APP_ID_RE.test(id) || !SESSION_RE.test(session)) return null;
+  if (platform === "android") return `intent://signin-complete#Intent;scheme=${id}.paycraft;package=${id};end`;
+  if (platform === "ios") return `${id}.paycraft://signin-complete?session=${session}`;
+  return null;
+}
+
+const html = (ok: boolean, back: string | null = null) =>
   new Response(
     `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
       `<title>PayCraft sign-in</title></head><body style="font-family:system-ui;text-align:center;padding:48px 16px">` +
-      `<p>${ok ? "Signed in. You can return to the app." : "Sign-in failed. Return to the app and try again."}</p>` +
+      (back
+        ? `<p>${ok ? "Signed in. Returning to the app…" : "Sign-in failed. Returning to the app…"}</p>` +
+          `<p><a href="${back}">Return to the app</a></p><script>location.replace("${back}")</script>`
+        : `<p>${ok ? "Signed in. You can return to the app." : "Sign-in failed. Return to the app and try again."}</p>`) +
       `</body></html>`,
     { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
   );
@@ -202,6 +225,8 @@ async function handleStart(req: Request): Promise<Response> {
   const apiKey = (q.get("api_key") ?? "").trim();
   const provider = asProvider(q.get("provider"));
   const session = q.get("session") ?? "";
+  // Optional (older SDKs omit it); anything unrecognised is stored as NULL → plain page.
+  const platform = PLATFORMS.find((p) => p === q.get("platform")) ?? null;
   if (!apiKey || !provider) return json({ error: "api_key and provider (google|apple) are required" }, 400);
   if (!SESSION_RE.test(session)) return json({ error: "invalid_session" }, 400);
 
@@ -216,7 +241,7 @@ async function handleStart(req: Request): Promise<Response> {
 
   const { error } = await supabaseAdmin
     .from("identity_sessions")
-    .insert({ id: session, tenant_id: tenant.id, provider, status: "pending" });
+    .insert({ id: session, tenant_id: tenant.id, provider, status: "pending", platform });
   if (error) {
     return error.code === "23505" ? json({ error: "session_exists" }, 409) : json({ error: "session_create_failed" }, 500);
   }
@@ -266,15 +291,20 @@ async function handleCallback(req: Request): Promise<Response> {
 
   const { data: row } = await supabaseAdmin
     .from("identity_sessions")
-    .select("id, tenant_id, provider, status, created_at")
+    .select("id, tenant_id, provider, status, created_at, platform")
     .eq("id", state)
     .maybeSingle();
-  const s = row as { id: string; tenant_id: string; provider: Provider; status: string; created_at: string } | null;
-  if (!s || s.status !== "pending" || Date.now() - Date.parse(s.created_at) > SESSION_TTL_MS) return html(false);
+  const s = row as
+    | { id: string; tenant_id: string; provider: Provider; status: string; created_at: string; platform: string | null }
+    | null;
+  if (!s) return html(false);
+  const tenant = await tenantById(s.tenant_id);
+  const back = returnUrl(s.platform, tenant?.app_identifier ?? null, s.id);
+  if (s.status !== "pending" || Date.now() - Date.parse(s.created_at) > SESSION_TTL_MS) return html(false, back);
 
   const finish = async (patch: { status: "verified" | "failed"; email?: string; error?: string }) => {
     await supabaseAdmin.from("identity_sessions").update(patch).eq("id", s.id).eq("status", "pending");
-    return html(patch.status === "verified");
+    return html(patch.status === "verified", back);
   };
 
   if (params.get("error") || !code) return finish({ status: "failed", error: "cancelled" });
@@ -282,10 +312,8 @@ async function handleCallback(req: Request): Promise<Response> {
   let clientId = "";
   let clientSecret = "";
   if (s.provider === "google") {
-    const tenant = await tenantById(s.tenant_id);
     ({ id: clientId, secret: clientSecret } = await googleWebClientFor(s.tenant_id, tenant?.auth_google_web_client_id ?? null));
   } else {
-    const tenant = await tenantById(s.tenant_id);
     clientId = (tenant?.auth_apple_services_id ?? "").trim();
     const { data: secret } = await supabaseAdmin.rpc("tenant_apple_client_secret", { p_tenant_id: s.tenant_id });
     clientSecret = typeof secret === "string" ? secret : "";
