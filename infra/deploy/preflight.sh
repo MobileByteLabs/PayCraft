@@ -34,9 +34,12 @@ check() {
 
 echo "─── Phase 1: PRE-FLIGHT ───────────────────────────────"
 
-# 1. Active project bound
-check "Active project = mbs/PayCraft" \
-    "[ \"\$(bash ${FW_ROOT}/core/scripts/session-resolve.sh)\" = mbs/PayCraft ]"
+# 1. The checkout being deployed IS mbs/PayCraft — resolved by target, not by session binding.
+#    The deploy ships $PAYCRAFT_SRC, so that is what must be proven. Checking the binding instead
+#    refused every deploy launched from a session bound to a consumer app (/idea-paycraft --deploy
+#    from mbs/reels-downloader, 2026-11-06), forcing a rebind the framework forbids.
+check "Deploy checkout = mbs/PayCraft" \
+    "[ \"\$(cd ${FW_ROOT} && bash core/scripts/implement-target-resolve.sh mbs-PayCraft --mode build | sed -n 's/^source_path=//p' | xargs -I{} sh -c 'cd \"{}\" && pwd')\" = \"${PAYCRAFT_SRC}\" ]"
 
 # 2. CLIs — dashboard deploys to Cloudflare Pages (wrangler via npx), not Vercel.
 # wrangler auth uses the CLOUDFLARE_API_TOKEN pulled from the vault at deploy time,
