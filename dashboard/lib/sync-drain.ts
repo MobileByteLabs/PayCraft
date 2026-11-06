@@ -199,6 +199,43 @@ export async function runSyncDrain(
     }
   }
 
+  // `sync-stuck` — a run the platform killed left this provider at `syncing`. Re-sync just that
+  // product + provider; runProductSync's terminal write replaces the abandoned marker.
+  for (const f of findings.filter((x) => x.kind === "sync-stuck" && x.subject_id && x.provider)) {
+    try {
+      const loaded = await loadProductSyncBody(supabase, tenantId, f.subject_id!)
+      if (!loaded) {
+        results.push({ subject: f.subject, ok: false, detail: "product row disappeared mid-drain" })
+        continue
+      }
+      await runProductSync(supabase, {
+        tenantId: tenantId,
+        productId: f.subject_id!,
+        body: loaded.body,
+        productName: loaded.product.display_name ?? loaded.product.sku,
+        runId,
+        onlyProvider: f.provider!,
+        existingStripeProductId: loaded.product.stripe_product_id ?? undefined,
+        existingPrices: loaded.product.stripe_price_id_by_currency ?? undefined,
+        existingStripeProductIdTest: loaded.product.stripe_product_id_test ?? undefined,
+        existingPricesTest: loaded.product.stripe_price_id_by_currency_test ?? undefined,
+        existingRazorpayPlanIds: loaded.product.razorpay_plan_id_by_currency ?? undefined,
+        existingRazorpayPlanIdsTest: loaded.product.razorpay_plan_id_by_currency_test ?? undefined,
+        existingPlayProductId: loaded.product.play_product_id ?? undefined,
+        existingAppStoreProductId: loaded.product.app_store_product_id ?? undefined,
+      })
+      const v = await providerVerdict(f.subject_id!, f.provider!)
+      results.push({
+        subject: f.subject,
+        ok: v.status === "synced" || v.status === "ok",
+        skipped: v.status === "skipped",
+        detail: v.status === "synced" || v.status === "ok" ? undefined : `${v.status}${v.detail ? ` — ${v.detail}` : ""}`,
+      })
+    } catch (e) {
+      results.push({ subject: f.subject, ok: false, detail: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
   const payload = {
     ok: true,
     synced: results.filter((r) => r.ok).length,
@@ -210,6 +247,7 @@ export async function runSyncDrain(
         f.kind !== "missing-currency-for-country" &&
         f.kind !== "active-provider-zero-links" &&
         f.kind !== "test-links-missing" &&
+        !(f.kind === "sync-stuck" && f.subject_id && f.provider) &&
         (f.kind !== "product-missing-at-provider" || !f.subject_id),
     ),
     run_id: runId,

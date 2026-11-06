@@ -794,6 +794,12 @@ export interface ProviderSyncEntry {
    * no pricing / product type unsupported / DRAFT-until-published / real error).
    */
   reason?: string
+  /**
+   * When a `syncing` marker was written. A run killed by the platform (Cloudflare drops a request
+   * at 100s) never overwrites its marker, so without a start time an abandoned sync and a running
+   * one look identical — and the drift drain, seeing neither, left them stuck forever.
+   */
+  started_at?: string
 }
 
 export interface ProductSyncSummary {
@@ -934,8 +940,9 @@ export async function runProductSync(
   //
   // Only the keys in THIS run are reset; providers not being synced keep their recorded state,
   // which is the merge semantics the RPC exists for (a single-provider retry must not wipe the rest).
+  const startedAt = new Date().toISOString()
   const inFlight = Object.fromEntries(
-    keys.map((k) => [k, { status: "syncing", reason: "sync in progress" } as ProviderSyncEntry]),
+    keys.map((k) => [k, { status: "syncing", reason: "sync in progress", started_at: startedAt } as ProviderSyncEntry]),
   )
   await supabase.rpc("tenant_products_set_sync_state", {
     p_id: productId,
@@ -1050,7 +1057,11 @@ async function verifyStripeProduct(
       const reason = "stripe reported synced but no stripe_product_id was recorded"
       return { status: "failed", error: reason, reason }
     }
-    const stripe = await getConnectedStripeClient(opts.tenantId, "live")
+    // Pass the caller's client: the sync above authenticated with it, so the readback must too.
+    // Without it the lookup falls back to the cookie session, which an API/MCP call does not have,
+    // runs as anon, and reports "No Stripe live credentials" for a tenant that is billing fine
+    // (reels-downloader via MCP, 2026-11-06).
+    const stripe = await getConnectedStripeClient(opts.tenantId, "live", supabase)
     if (!stripe) return null // no live client resolvable here — the live-readiness gate owns that
     const remote = await stripe.products.retrieve(id)
     if (!remote || remote.active === false) {
