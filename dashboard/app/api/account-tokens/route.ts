@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
+import { patchKeyScopes } from "@/lib/api-key-scopes"
 
 export const dynamic = "force-dynamic"
 
@@ -152,4 +153,12 @@ export async function DELETE(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ revoked: true })
+}
+
+/** Edit an existing token's scopes in place — the token value does not change (migration 174). */
+export async function PATCH(req: Request) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 })
+  return patchKeyScopes(req, supabase, SCOPES)
 }

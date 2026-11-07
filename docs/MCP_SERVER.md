@@ -20,7 +20,9 @@ Transport is Streamable HTTP; authentication is the same `pcsk_` bearer token as
 
 ## Connect
 
-Create a key under **Settings → Developer API** and grant it only the scopes the assistant needs.
+Create a key under **Settings → Developer API** and grant it only the scopes the assistant needs. Need
+more later? Use **Edit scopes** on the existing key — it takes effect immediately and the key value
+stays the same, so the assistant's configuration does not change.
 
 ### Claude Code
 

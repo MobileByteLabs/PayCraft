@@ -78,6 +78,10 @@ authentication.
 | `webhooks:read` | `GET /v1/webhooks` |
 | `audit:read` | `GET /v1/audit` |
 
+Scopes can be changed after creation: **Edit scopes** on a key in **Settings → Developer API** (or
+**Settings → Access tokens**) applies the new set to that key immediately. The key value does not
+change, so nothing holding it needs updating.
+
 A valid key used on an endpoint it lacks the scope for returns **403**, not 401 — the credential is
 fine, the permission is not, and retrying will never help.
 

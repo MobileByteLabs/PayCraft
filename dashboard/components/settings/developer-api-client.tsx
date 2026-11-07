@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { KeyRound, Loader2, Plus, ShieldAlert, Trash2, Check, Copy, ExternalLink } from "lucide-react"
+import { KeyRound, Loader2, Plus, ShieldAlert, Trash2, Check, Copy, ExternalLink, Pencil } from "lucide-react"
 import { Card, CardBody, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 
@@ -30,6 +30,40 @@ const SCOPES: { id: string; label: string; detail: string; write?: boolean }[] =
 
 const fmt = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—"
+
+/** The scope checklist — shared by the create form and "Edit scopes". */
+function ScopeChecklist({ selected, onChange }: { selected: string[]; onChange: (next: string[]) => void }) {
+  return (
+    <div className="space-y-1.5">
+      {SCOPES.map((s) => (
+        <label
+          key={s.id}
+          className="flex items-start gap-2.5 px-3 py-2 rounded-lg border border-ink-200 hover:bg-ink-50 cursor-pointer"
+        >
+          <input
+            type="checkbox"
+            checked={selected.includes(s.id)}
+            onChange={(e) =>
+              onChange(e.target.checked ? [...selected, s.id] : selected.filter((x) => x !== s.id))
+            }
+            className="mt-0.5"
+          />
+          <span className="min-w-0">
+            <span className="font-mono text-xs font-semibold text-ink-800">{s.label}</span>
+            {s.write && (
+              <span className="ml-2 text-[10px] font-bold uppercase tracking-wide text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                writes live
+              </span>
+            )}
+            <span className="block text-[11px] text-ink-500 mt-0.5">{s.detail}</span>
+          </span>
+        </label>
+      ))}
+    </div>
+  )
+}
+
+const isExpired = (k: KeyRow) => !!k.expires_at && new Date(k.expires_at).getTime() <= Date.now()
 
 export function DeveloperApiClient() {
   const [keys, setKeys] = useState<KeyRow[]>([])
@@ -80,6 +114,30 @@ export function DeveloperApiClient() {
       setName("")
       setSelected(["readiness:read"])
       setCreating(false)
+      await load()
+    } catch (e: any) {
+      setError(String(e?.message ?? e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // "Edit scopes": which key is open, and its working copy of the scope set.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editScopes, setEditScopes] = useState<string[]>([])
+
+  async function saveScopes(id: string) {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/developer-keys", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, scopes: editScopes }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? "could not update scopes")
+      setEditingId(null)
       await load()
     } catch (e: any) {
       setError(String(e?.message ?? e))
@@ -199,34 +257,7 @@ export function DeveloperApiClient() {
 
             <div>
               <label className="block text-xs font-semibold text-ink-700 mb-1.5">Scopes</label>
-              <div className="space-y-1.5">
-                {SCOPES.map((s) => (
-                  <label
-                    key={s.id}
-                    className="flex items-start gap-2.5 px-3 py-2 rounded-lg border border-ink-200 hover:bg-ink-50 cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(s.id)}
-                      onChange={(e) =>
-                        setSelected((prev) =>
-                          e.target.checked ? [...prev, s.id] : prev.filter((x) => x !== s.id),
-                        )
-                      }
-                      className="mt-0.5"
-                    />
-                    <span className="min-w-0">
-                      <span className="font-mono text-xs font-semibold text-ink-800">{s.label}</span>
-                      {s.write && (
-                        <span className="ml-2 text-[10px] font-bold uppercase tracking-wide text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-                          writes live
-                        </span>
-                      )}
-                      <span className="block text-[11px] text-ink-500 mt-0.5">{s.detail}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
+              <ScopeChecklist selected={selected} onChange={setSelected} />
               <p className="text-[11px] text-ink-400 mt-1.5">
                 Grant only what the caller needs. A read key cannot bulk-write to live providers even
                 though both use the same authentication.
@@ -265,7 +296,7 @@ export function DeveloperApiClient() {
                   key={k.id}
                   className="flex items-start justify-between gap-4 px-3 py-2.5 rounded-lg border border-ink-200"
                 >
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-sm text-ink-900">{k.name}</span>
                       <code className="font-mono text-[11px] text-ink-500 bg-ink-100 px-1.5 py-0.5 rounded">
@@ -290,15 +321,58 @@ export function DeveloperApiClient() {
                       Created {fmt(k.created_at)} · Last used{" "}
                       {k.last_used_at ? fmt(k.last_used_at) : "never"}
                     </p>
+                    {editingId === k.id && (
+                      <div className="mt-3 space-y-3 border-t border-ink-100 pt-3">
+                        <ScopeChecklist selected={editScopes} onChange={setEditScopes} />
+                        {/* This screen offers four scopes; a key minted elsewhere may hold more. Say so
+                            rather than silently stripping them on save. */}
+                        {k.scopes.some((s) => !SCOPES.some((x) => x.id === s)) && (
+                          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                            Saving removes scopes this screen cannot grant:{" "}
+                            <span className="font-mono">
+                              {k.scopes.filter((s) => !SCOPES.some((x) => x.id === s)).join(", ")}
+                            </span>
+                          </p>
+                        )}
+                        <p className="text-[11px] text-ink-500">
+                          Applies to this key immediately. The key value is unchanged — nothing using
+                          it needs updating.
+                        </p>
+                        <div className="flex gap-2">
+                          <Button onClick={() => saveScopes(k.id)} disabled={busy || !editScopes.length}>
+                            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                            Save scopes
+                          </Button>
+                          <Button variant="ghost" onClick={() => setEditingId(null)} disabled={busy}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <button
-                    onClick={() => revoke(k)}
-                    disabled={busy}
-                    className="text-ink-400 hover:text-danger-600 p-1.5 rounded disabled:opacity-40"
-                    title="Revoke"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center shrink-0">
+                    {!isExpired(k) && editingId !== k.id && (
+                      <button
+                        onClick={() => {
+                          setEditingId(k.id)
+                          setEditScopes(k.scopes.filter((s) => SCOPES.some((x) => x.id === s)))
+                        }}
+                        disabled={busy}
+                        className="text-ink-400 hover:text-indigo-600 p-1.5 rounded disabled:opacity-40"
+                        title="Edit scopes"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => revoke(k)}
+                      disabled={busy}
+                      className="text-ink-400 hover:text-danger-600 p-1.5 rounded disabled:opacity-40"
+                      title="Revoke"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
