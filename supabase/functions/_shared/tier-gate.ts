@@ -1,7 +1,7 @@
 // supabase/functions/_shared/tier-gate.ts
 // Shared tier-gate helper used at every edge function entry.
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.106.1"
 
 export class TierGateError extends Error {
   constructor(public gate: string) {

@@ -10,7 +10,7 @@
 //   }
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1"
 import { diverges, resolveServed, resolveShadow } from "../_shared/pricing-shadow.ts"
 import {
   RateLimitError,
@@ -388,7 +388,7 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
       .eq("is_active", true),
     supabase
       .from("tenants")
-      .select("plan,entitlements,config_cache_ttl_seconds")
+      .select("plan,entitlements,config_cache_ttl_seconds,auth_google_web_client_id,auth_apple_services_id")
       .eq("id", tenantId)
       .single(),
     // D8/AC-11 — offerings→packages→skus. 088 created these tables and nothing ever surfaced them,
@@ -750,6 +750,13 @@ export async function handleConfigRequest(req: Request): Promise<Response> {
     // of an operator's choice. 0 is impossible by CHECK: the SDK uses cacheTtlSeconds=0 as its STALE
     // sentinel, so serving 0 would make every cached read look permanently expired.
     cache_ttl_seconds: tenantRes.data?.config_cache_ttl_seconds ?? 300,
+    // The APP's sign-in clients (migration 167) — the SDK builds its own native Apple/Google sign-in
+    // from these, so a consumer passes nothing. Always present (nulls = not configured): the SDK
+    // treats an `auth` block as "the server has spoken" and a missing one as an older backend.
+    auth: {
+      google_web_client_id: tenantRes.data?.auth_google_web_client_id ?? null,
+      apple_services_id: tenantRes.data?.auth_apple_services_id ?? null,
+    },
   }
 
   return new Response(JSON.stringify(body), {

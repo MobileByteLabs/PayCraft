@@ -1,15 +1,13 @@
 package com.mobilebytelabs.paycraft.network
 
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.core.identity.IdentityTokenClient
+import com.mobilebytelabs.paycraft.core.identity.VerifyOutcome
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionState
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.auth.providers.Apple
-import io.github.jan.supabase.auth.providers.Google
-import io.github.jan.supabase.auth.providers.builtin.IDToken
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import io.ktor.client.HttpClient
@@ -133,8 +131,8 @@ interface PayCraftService {
     suspend fun revokeDevice(serverToken: String, targetToken: String): Boolean
 
     /**
-     * Verifies a Google or Apple ID token via Supabase Auth (Gate 1).
-     * Returns the verified email address, or null if verification fails.
+     * Verifies a host-supplied Google or Apple ID token via the `identity-token` edge function (Gate 1)
+     * — no Supabase user is created. Returns the verified email, or null if verification fails.
      */
     suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String?
 
@@ -171,7 +169,19 @@ interface PayCraftService {
      * Default 0 so alternate [PayCraftService] fakes stay source-compatible, and because 0 is the
      * safe reading of "unknown" — it withholds a spend rather than granting one.
      */
-    suspend fun balanceOf(subjectId: String, sku: String): Int = 0
+    suspend fun balanceOf(serverToken: String, sku: String): Int = 0
+
+    /**
+     * Whether this device's owner already owns the one-time product [sku].
+     *
+     * Distinct from [isPremium], which answers a SUBSCRIPTION question. A store needs the narrower
+     * one so it stops selling something already bought.
+     *
+     * Default false so alternate [PayCraftService] fakes stay source-compatible, and because false
+     * is the safe reading of "unknown" — it offers the product for sale rather than unlocking
+     * content nobody paid for.
+     */
+    suspend fun owns(serverToken: String, sku: String): Boolean = false
 
     /**
      * Spend [quantity] of [sku], atomically.
@@ -184,7 +194,14 @@ interface PayCraftService {
      * @return the new balance, or null when the server rejected it — insufficient funds is the
      *   expected case and is NOT an exception (AR-012): a shopper short on coins is normal.
      */
-    suspend fun spendBalance(subjectId: String, sku: String, quantity: Int, idempotencyKey: String): Int? = null
+    suspend fun spendBalance(serverToken: String, sku: String, quantity: Int, idempotencyKey: String): Int? = null
+
+    /**
+     * Credit an in-app ACTIVITY earn; null when unreachable, or when the sku has no server-side
+     * `daily_earn_cap` (activity earning is opt-in per sku, because enabling it is what lets a
+     * modified client mint up to that ceiling).
+     */
+    suspend fun earnBalance(serverToken: String, sku: String, quantity: Int, eventId: String): Int? = null
 
     /**
      * Register a completed **Google Play** purchase server-side (Payments-policy native lane).
@@ -248,7 +265,6 @@ data class RegisterAppStoreResponse(val entitlement: EntitlementDto? = null)
 class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey: String? = null) : PayCraftService {
 
     private val postgrest get() = client.postgrest
-    private val auth get() = client.auth
 
     override suspend fun isPremium(serverToken: String): Boolean = try {
         PayCraftLogger.onRpcCall("is_premium", "token=${serverToken.take(12)}...")
@@ -286,16 +302,44 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         null
     }
 
-    override suspend fun balanceOf(subjectId: String, sku: String): Int = try {
+    override suspend fun owns(serverToken: String, sku: String): Boolean = try {
+        PayCraftLogger.onRpcCall("entitlement_owns", "sku=$sku")
+        val result = postgrest.rpc(
+            function = "entitlement_owns",
+            parameters = buildJsonObject {
+                // Same shape as the balance RPCs since 159/160: the subject is the SERVER's to
+                // derive from the device token, never the caller's to name.
+                put("p_server_token", serverToken)
+                put("p_api_key", apiKey)
+                put("p_sku", sku)
+            },
+        ).data
+        val decoded = result.trim().equals("true", ignoreCase = true)
+        PayCraftLogger.onRpcResult("entitlement_owns", decoded.toString())
+        decoded
+    } catch (e: Exception) {
+        // false on failure, NEVER optimistic. Play and StoreKit can both report success for a
+        // transaction that later fails verification, so ownership is only ever the server's word.
+        PayCraftLogger.onRpcError("entitlement_owns", e.message)
+        false
+    }
+
+    override suspend fun balanceOf(serverToken: String, sku: String): Int = try {
         PayCraftLogger.onRpcCall("entitlement_balance_get", "sku=$sku")
         val result = postgrest.rpc(
             function = "entitlement_balance_get",
             parameters = buildJsonObject {
-                // The publishable key, NOT a tenant id. The server resolves the tenant from it
-                // (resolve_tenant, the house pattern since migration 016) so a client cannot name
-                // someone else's tenant and read their balances.
+                // NEITHER id is the caller's to supply. The tenant resolves from the publishable key
+                // (resolve_tenant, the house pattern since migration 016) and the SUBJECT resolves
+                // from the device token (migration 159, matching is_premium/get_subscription).
+                //
+                // This took p_subject_id until 159. The key ships in every client binary, so a
+                // caller-supplied subject let anyone holding it read — and via spend, DRAIN —
+                // another user's balance within the same tenant. It was also why this method had no
+                // callers: entitlement_subject_resolve is service_role-only, so a legitimate client
+                // could never learn its own subject id to pass here.
+                put("p_server_token", serverToken)
                 put("p_api_key", apiKey)
-                put("p_subject_id", subjectId)
                 put("p_sku", sku)
             },
         ).data
@@ -309,14 +353,43 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         0
     }
 
-    override suspend fun spendBalance(subjectId: String, sku: String, quantity: Int, idempotencyKey: String): Int? =
+    override suspend fun earnBalance(serverToken: String, sku: String, quantity: Int, eventId: String): Int? = try {
+        PayCraftLogger.onRpcCall("entitlement_balance_earn", "sku=$sku qty=$quantity")
+        val result = postgrest.rpc(
+            function = "entitlement_balance_earn",
+            parameters = buildJsonObject {
+                // Token, not subject id — same reason as spend below. `eventId` IS the
+                // idempotency key: it identifies the ACTIVITY, so a replayed sync cannot pay
+                // twice. The server clamps to the tenant's daily cap, so the returned balance
+                // may be lower than balance+quantity; that is the cap, not a failure.
+                put("p_server_token", serverToken)
+                put("p_api_key", apiKey)
+                put("p_sku", sku)
+                put("p_quantity", quantity)
+                put("p_idempotency_key", eventId)
+            },
+        ).data
+        val decoded = result.trim().toIntOrNull()
+        PayCraftLogger.onRpcResult("entitlement_balance_earn", decoded?.toString() ?: "rejected")
+        decoded
+    } catch (e: Exception) {
+        // Null covers unreachable AND the sku having no daily_earn_cap (the RPC raises). The
+        // caller queues for replay either way, which is correct for both.
+        PayCraftLogger.onError("entitlement_balance_earn", e.message ?: "earn failed")
+        null
+    }
+
+    override suspend fun spendBalance(serverToken: String, sku: String, quantity: Int, idempotencyKey: String): Int? =
         try {
             PayCraftLogger.onRpcCall("entitlement_balance_spend", "sku=$sku qty=$quantity")
             val result = postgrest.rpc(
                 function = "entitlement_balance_spend",
                 parameters = buildJsonObject {
+                    // Token, not subject id — see balanceOf above and migration 159. On a SPEND the
+                    // old shape was worse than a leak: it let one holder of the publishable key
+                    // drain another subject's balance.
+                    put("p_server_token", serverToken)
                     put("p_api_key", apiKey)
-                    put("p_subject_id", subjectId)
                     put("p_sku", sku)
                     put("p_quantity", quantity)
                     put("p_idempotency_key", idempotencyKey)
@@ -440,24 +513,13 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         return r["revoked"]?.jsonPrimitive?.boolean ?: false
     }
 
-    override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String? = try {
+    override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String? {
         PayCraftLogger.onRpcCall("verifyOAuthToken", provider.name)
-        when (provider) {
-            OAuthProvider.GOOGLE -> auth.signInWith(IDToken) {
-                this.idToken = idToken
-                this.provider = Google
-            }
-            OAuthProvider.APPLE -> auth.signInWith(IDToken) {
-                this.idToken = idToken
-                this.provider = Apple
-            }
-        }
-        val email = auth.currentSessionOrNull()?.user?.email
-        PayCraftLogger.onRpcResult("verifyOAuthToken", "email=${email ?: "null"}")
-        email
-    } catch (e: Exception) {
-        PayCraftLogger.onRpcError("verifyOAuthToken", e.message)
-        null
+        // A host-supplied token carries a nonce we never saw, so none is sent (the server then skips it).
+        val outcome = IdentityTokenClient(http, PayCraft.backend, apiKey).verify(provider, idToken, nonce = null)
+        val email = (outcome as? VerifyOutcome.Verified)?.email
+        PayCraftLogger.onRpcResult("verifyOAuthToken", "email=${email ?: "null"} ($outcome)")
+        return email
     }
 
     override suspend fun getEntitlements(appUserId: String): EntitlementDto? = try {

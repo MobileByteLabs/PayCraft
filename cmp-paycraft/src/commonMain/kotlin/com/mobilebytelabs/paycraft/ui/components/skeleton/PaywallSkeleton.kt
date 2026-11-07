@@ -9,11 +9,9 @@
  */
 package com.mobilebytelabs.paycraft.ui.components.skeleton
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -27,6 +25,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import com.mobilebytelabs.paycraft.ui.components.shimmer.shimmerWave
@@ -51,56 +50,62 @@ import com.mobilebytelabs.paycraft.ui.components.shimmer.shimmerWave
  */
 @Composable
 fun PaywallSkeleton(planCount: Int = 3, reduceMotion: Boolean = false, modifier: Modifier = Modifier) {
+    val bar = RoundedCornerShape(8.dp)
+
+    @Composable
+    fun Bar(widthFraction: Float, height: Dp) = Box(
+        Modifier
+            .fillMaxWidth(widthFraction)
+            .height(height)
+            .shimmerWave(shape = bar, reduceMotion = reduceMotion),
+    )
     Column(
+        // WIDTH only: the frame owns height (and pins the footer below this), so a skeleton that
+        // claimed the full height would push the footer off the first screen.
         modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 24.dp)
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 16.dp)
             .testTag(PayCraftTestTags.PAYWALL_SHIMMER)
             .semantics {
                 contentDescription = "Loading paywall"
                 stateDescription = "loading"
             },
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Hero icon tile — matches BrandedStackTemplate.PaywallHeroIcon 72dp square.
+        // Hero tile — the loaded paywall's 72dp rounded-square icon.
         Box(
             modifier = Modifier
                 .size(72.dp)
                 .shimmerWave(shape = RoundedCornerShape(20.dp), reduceMotion = reduceMotion),
         )
-        Spacer(Modifier.height(4.dp))
-        // Hero title placeholder (~26.sp title height).
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.7f)
-                .height(28.dp)
-                .shimmerWave(shape = RoundedCornerShape(6.dp), reduceMotion = reduceMotion),
-        )
-        // Subtitle placeholder (~14.sp body height).
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.9f)
-                .height(16.dp)
-                .shimmerWave(shape = RoundedCornerShape(6.dp), reduceMotion = reduceMotion),
-        )
+        Spacer(Modifier.height(24.dp))
+        // Headline — two lines at the 26sp title size.
+        Bar(0.62f, 28.dp)
+        Spacer(Modifier.height(10.dp))
+        Bar(0.4f, 28.dp)
+        Spacer(Modifier.height(14.dp))
+        // Subtitle — two body lines.
+        Bar(0.8f, 14.dp)
         Spacer(Modifier.height(8.dp))
-        // Plans grid — count parity with the loaded product list (AC-6). Fills the
-        // remaining vertical space so the CTA stays pinned near the bottom, same as
-        // the loaded template.
+        Bar(0.6f, 14.dp)
+        Spacer(Modifier.height(28.dp))
+        // Plan cards — count parity with the loaded product list (AC-6).
         ProductListSkeleton(
             count = planCount,
             reduceMotion = reduceMotion,
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(8.dp))
-        // CTA placeholder — matches BrandedStackContinueButton 52dp pill height.
+        Spacer(Modifier.height(24.dp))
+        // CTA — the loaded 56dp pill.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp)
-                .shimmerWave(shape = RoundedCornerShape(26.dp), reduceMotion = reduceMotion),
+                .height(56.dp)
+                .shimmerWave(shape = RoundedCornerShape(28.dp), reduceMotion = reduceMotion),
         )
+        Spacer(Modifier.height(18.dp))
+        // RESTORE link.
+        Bar(0.42f, 12.dp)
     }
 }
 

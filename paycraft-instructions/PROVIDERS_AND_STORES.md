@@ -1,4 +1,4 @@
-example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
+example-provenance: d17c43b42c05b30b9029e3cbcbbfa314a8bd372b
 
 # PROVIDERS_AND_STORES.md — checkout lanes, provider adapters, store product sync
 
@@ -141,9 +141,46 @@ product is only fully configured when all three agree:
 
 | Layer | Field |
 |---|---|
-| PayCraft dashboard | `ProductDto.sku`, `type`, `interval`, `basePriceCents`/`baseCurrency`, and a routing rule naming this platform's primary provider |
-| Google Play Console | a subscription/base-plan whose id equals the resolved `storeBinding.productId` |
-| App Store Connect | a subscription whose id equals the resolved `storeBinding.productId` |
+| PayCraft dashboard | `ProductDto.sku`, `type`, `interval`, `basePriceCents`/`baseCurrency`, `grant_quantity` (consumables), and a routing rule naming this platform's primary provider |
+| Google Play Console | a subscription/base-plan, or a ONE-TIME PRODUCT, whose id equals the resolved `storeBinding.productId` |
+| App Store Connect | a subscription, or an in-app purchase, whose id equals the resolved `storeBinding.productId` |
+
+### Consumables are a different RESOURCE in both stores
+
+A subscription and a coin pack are not two shapes of one store object — they live at different
+endpoints, with different bodies and different activation rules. Getting this wrong fails in the
+quiet direction: the product exists, the sync says synced, nobody can buy it.
+
+**Google Play.** One-time products are `monetization.onetimeproducts`. The legacy `inappproducts`
+resource is RETIRED — every call answers `403 PERMISSION_DENIED: "Please migrate to the new
+publishing API"`, which reads like a credentials problem and is not. Three things bite:
+
+- **Path casing is inconsistent in Google's own API.** `get`/`list` are served at `oneTimeProducts`
+  (camelCase); `patch` at `onetimeproducts` (all lowercase). The wrong spelling returns an HTML 404,
+  so it reads as "resource does not exist" rather than as a typo.
+- **There is no `insert`.** Creation is `patch` + `allowMissing=true`, which makes the write
+  naturally idempotent. `updateMask` and `regionsVersion.version` are both required.
+- **Creation does not make it sellable.** `purchaseOptions[].state` is OUTPUT-ONLY; the product
+  lands in `DRAFT` and only `purchaseOptions:batchUpdateStates` with an
+  `activatePurchaseOptionRequest` flips it to `ACTIVE`. A pack can sit in Play Console with correct
+  prices in every region, report `play_product_id` written back, and still be invisible.
+
+Set `buyOption.legacyCompatible: true` on exactly one purchase option. Purchase options are a newer
+Play Billing concept, and a client querying the way most shipped apps do gets nothing back for a
+product without one. Also send `newRegionsConfig` (USD + EUR): without it a market Play launches
+later inherits no price and silently stops being purchasable there.
+
+Prices are a `Money` of `{currencyCode, units, nanos}` — NOT the legacy `priceMicros` string.
+
+**App Store Connect.** In-app purchases are `/v2/inAppPurchases`, separate from `/v1/subscriptions`.
+`inAppPurchaseType` is **IMMUTABLE after creation**: a coin pack created as `NON_CONSUMABLE` can be
+bought exactly once per Apple ID, forever, and the only remedy is a new product under a new id. A
+newly created IAP also sits in `MISSING_METADATA` until a review screenshot is attached and it is
+submitted with an app version.
+
+**Both stores:** a freshly created native product is normally NOT yet purchasable — Play needs a
+published release, Apple needs review metadata. A sync that reports success without saying so is
+reporting what it asked for, not what the storefront will honour.
 
 Failure signature per layer:
 

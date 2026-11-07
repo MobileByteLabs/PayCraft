@@ -199,7 +199,6 @@ kotlin {
 
             // Supabase
             implementation(paycraftLibs.supabase.postgrest)
-            implementation(paycraftLibs.supabase.auth)
             implementation(paycraftLibs.supabase.realtime)
 
             // Koin
@@ -223,6 +222,8 @@ kotlin {
 
             // Serialization
             implementation(paycraftLibs.kotlinx.serialization.json)
+            // Local wall-clock time for "Renews today, 11:12 PM" (test purchases renew in minutes).
+            implementation(paycraftLibs.kotlinx.datetime)
             implementation(paycraftLibs.kotlinx.coroutines.core)
 
             // Settings (email persistence + offline entitlement SourceOfTruth — persistence/EntitlementDao.kt)
@@ -242,6 +243,13 @@ kotlin {
             // Google Play Billing v8 — native Android IAP client (Phase 3, D8/D13).
             // PlayBillingNativeClient wraps BillingClient v9 (billing/NativeBillingClient.android.kt).
             implementation(paycraftLibs.google.billing.ktx)
+            // Native Google sign-in (Credential Manager → Google ID token), verified server-side by
+            // identity-token — PLAN-paycraft-verified-identity D1.
+            implementation(paycraftLibs.androidx.credentials)
+            implementation(paycraftLibs.androidx.credentials.play.services.auth)
+            implementation(paycraftLibs.googleid)
+            // In-app browser sign-in (Chrome Custom Tab) — D2b.
+            implementation(paycraftLibs.androidx.browser)
         }
 
         iosMain.dependencies {

@@ -73,6 +73,13 @@ class FakeBillingManager(
 
     override fun refreshStatus(force: Boolean) { /* no-op in tests */ }
 
+    var restoreStorePurchasesCallCount = 0
+
+    override suspend fun restoreStorePurchases(): Boolean {
+        restoreStorePurchasesCallCount++
+        return false
+    }
+
     override suspend fun loginWithOAuth(provider: OAuthProvider, idToken: String) { /* no-op */ }
 
     override suspend fun confirmDeviceTransfer() { /* no-op */ }
@@ -91,5 +98,10 @@ class FakeBillingManager(
     /** Test-only: drive the gating signal independently, to assert a collector reacted. */
     fun emitPremium(value: Boolean) {
         _isPremium.value = value
+    }
+
+    /** Test-only: an identity (email) the buyer already has, e.g. from web checkout or a sign-in. */
+    fun emitEmail(value: String?) {
+        _userEmail.value = value
     }
 }

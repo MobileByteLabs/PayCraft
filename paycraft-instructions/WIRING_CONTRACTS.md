@@ -1,4 +1,4 @@
-example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
+example-provenance: d17c43b42c05b30b9029e3cbcbbfa314a8bd372b
 
 # WIRING_CONTRACTS.md — DI, initialization order, and the repository seam
 
@@ -56,6 +56,30 @@ Platform-specific pieces are additive Koin modules layered on top, never a secon
 | `HttpClient` | Ktor + `ContentNegotiation(json)` | |
 | `CouponClient` | | |
 | `PayCraftPaywallViewModel` | `viewModelOf` | **`internal`** — the bundled paywall's own MVI engine |
+
+### The two things `payCraft(...)` takes from the host
+
+Everything above is wired FOR the consumer. The host supplies exactly two facts, because only it
+can know them — both as `Scope.()`-receiver lambdas so they may `get()` the app's own bindings:
+
+| Parameter | What the host states | Why it cannot be inferred |
+|---|---|---|
+| `identity: Scope.() -> Flow<String?>` | the signed-in email | The SDK cannot know the app's auth session. It reads ONLY the address — no profile mapping, no second mapper competing with the app's own |
+| `onUnitsGranted: (Scope.() -> ConsumableGrantSink)?` | how to credit the app's OWN ledger | Units mean something only the host defines. Omit it and nothing drains — an app without consumables pays nothing |
+
+`onUnitsGranted` is a `Scope.() -> sink` rather than a bare sink for the same reason `identity` is:
+the credit lands in the host's storage, so the lambda has to reach the host's database. Resolve the
+DAO once in the outer lambda and let the returned sink close over it — the SDK invokes the sink off
+the Koin thread.
+
+```kotlin
+includes(payCraft(apiKey = …, testApiKey = …, identity = { … }, onUnitsGranted = { … }))
+```
+
+**Do not hand-write a bootstrap around this.** The one-call form replaced a 74-line
+`PayCraftBootstrap` in the first consumer (init-before-Koin ordering, an eager `createdAtStart`
+single, a lambda-wrapped repository lookup, `distinctUntilChanged` + blank-filtering on the identity
+stream) and later a 118-line top-up manager. Each was an invariant of the SDK living in the app.
 
 **The qualifier matters.** Because the `SupabaseClient` is registered under
 `named("paycraft")`, an app that already binds its own unqualified `SupabaseClient` keeps it. Do not

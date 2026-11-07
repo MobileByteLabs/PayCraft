@@ -34,6 +34,17 @@ export const VALID_INTERVALS = ["week", "month", "quarter", "semiannual", "year"
 /** `product_type` enum values. */
 export const VALID_PRODUCT_TYPES = ["subscription", "one_time", "consumable"] as const
 
+/**
+ * What a sync lane may be handed.
+ *
+ * The live enum is `subscription | one_time | consumable`; `trial` and `lifetime` are LEGACY names
+ * that predate it and still reach these functions from older rows and callers. Keeping them in the
+ * type is deliberate — the lanes all branch on `=== "subscription"` and treat everything else as a
+ * one-time charge, which is the correct behaviour for every member of this union, so narrowing it
+ * would reject rows the system still has to sell rather than fix anything.
+ */
+export type SyncProductType = (typeof VALID_PRODUCT_TYPES)[number] | "trial" | "lifetime"
+
 /** `pricing_mode` enum values. */
 export const VALID_PRICING_MODES = ["auto", "global", "manual"] as const
 
@@ -61,6 +72,11 @@ export const MERGEABLE_COLUMNS = [
   "global_currency",
   "discount_percent",
   "discount_ends_at",
+  "grant_quantity",
+  "grant_sku",
+  "daily_earn_cap",
+  "ad_reward_quantity",
+  "daily_ad_reward_cap",
 ] as const
 
 /** Columns the caller may never set directly. */
@@ -160,6 +176,37 @@ function validateField(key: string, raw: unknown): { value: unknown } | Validati
       if (!/^[A-Z]{3}$/.test(v)) return { error: `${key}_must_be_iso_4217` }
       return { value: v }
     }
+    case "grant_quantity": {
+      // Units one purchase of a consumable grants. Non-negative; 0 is legitimate for every other
+      // product type, which is why this is not simply `>= 1` here — the cross-field rule below is
+      // what refuses a consumable that grants nothing.
+      if (raw === null) return { value: null }
+      if (!Number.isInteger(raw) || (raw as number) < 0) {
+        return { error: "grant_quantity_must_be_non_negative_integer" }
+      }
+      return { value: raw }
+    }
+    case "grant_sku": {
+      // The currency this product credits. null = the product's own sku (unchanged behaviour).
+      // Not validated against tenant_products: a currency id deliberately has no product row of its
+      // own — it is a ledger partition key, not a sellable thing (migration 164).
+      if (raw === null) return { value: null }
+      if (typeof raw !== "string" || !raw.trim()) return { error: "grant_sku_must_be_a_non_empty_string" }
+      return { value: raw.trim() }
+    }
+    case "daily_earn_cap":
+    case "ad_reward_quantity":
+    case "daily_ad_reward_cap": {
+      // All three are OPT-INS, and null is the meaningful default: null daily_earn_cap disables
+      // activity earning for the sku, null ad_reward_quantity disables ad rewards, null
+      // daily_ad_reward_cap leaves ad rewards uncapped. 0 would be an ambiguous way to say "off"
+      // for the first two and "no rewards ever" for the third, so it is refused — say null.
+      if (raw === null) return { value: null }
+      if (!Number.isInteger(raw) || (raw as number) < 1) {
+        return { error: `${key}_must_be_a_positive_integer_or_null` }
+      }
+      return { value: raw }
+    }
     case "display_order": {
       if (!Number.isInteger(raw)) return { error: "display_order_must_be_integer" }
       return { value: raw }
@@ -251,6 +298,14 @@ export function buildProductRow(
     if (!("pricing_mode" in row)) row.pricing_mode = "auto"
     if (!row.display_name) return { error: "display_name_required" }
     if (!row.interval && row.type === "subscription") return { error: "interval_required_for_subscription" }
+    // A consumable exists to GRANT something. Shipping one with grant_quantity 0 is the silent
+    // failure this rule prevents: the purchase succeeds, Play consumes it so it is non-refundable
+    // by the usual route, the webhook grants zero, and the buyer's balance never moves. Nothing
+    // errors anywhere — the money is simply gone. Refusing at the API is the only place this is
+    // still cheap to catch, which is why it mirrors interval_required_for_subscription above.
+    if (row.type === "consumable" && !(Number(row.grant_quantity) > 0)) {
+      return { error: "grant_quantity_required_for_consumable" }
+    }
   }
 
   return { row }

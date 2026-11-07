@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { KeyRound, Loader2, Plus, ShieldAlert, Trash2, Check, Copy, Boxes } from "lucide-react"
+import { KeyRound, Loader2, Plus, ShieldAlert, Trash2, Check, Copy, Boxes, Pencil } from "lucide-react"
 import { Card, CardBody, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 
@@ -52,6 +52,7 @@ const GROUPS: { title: string; detail: string; write?: boolean; scopes: { id: st
       { id: "coupons:read", detail: "Coupon definitions" },
       { id: "audit:read", detail: "Audit log" },
       { id: "webhooks:read", detail: "Webhook registrations and health" },
+      { id: "onboarding:read", detail: "Onboarding progress per app (steps + evidence)" },
     ],
   },
   {
@@ -63,6 +64,7 @@ const GROUPS: { title: string; detail: string; write?: boolean; scopes: { id: st
       { id: "products:write", detail: "Create and edit products" },
       { id: "paywall:write", detail: "Edit paywall configuration" },
       { id: "providers:write", detail: "Edit provider connections" },
+      { id: "onboarding:write", detail: "Record onboarding steps (passed / failed / blocked)" },
     ],
   },
   {
@@ -70,6 +72,7 @@ const GROUPS: { title: string; detail: string; write?: boolean; scopes: { id: st
     detail: "Spans apps. Grant only to tooling that provisions or rotates.",
     write: true,
     scopes: [
+      { id: "apps:write", detail: "Create apps through the API / MCP (POST /v1/apps)" },
       { id: "apps:provision", detail: "Create new apps on this account" },
       { id: "keys:rotate", detail: "Rotate an app's publishable key — invalidates released builds" },
     ],
@@ -90,6 +93,49 @@ const fmt = (iso: string | null) =>
 function daysUntil(iso: string | null): number | null {
   if (!iso) return null
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000)
+}
+
+const toggled = (list: string[], id: string) =>
+  list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
+
+const isWrite = (list: string[]) =>
+  list.some((s) => GROUPS.filter((g) => g.write).some((g) => g.scopes.some((x) => x.id === s)))
+
+/** The grouped permission checklist — shared by the create form and "Edit scopes". */
+function ScopeChecklist({ selected, onToggle }: { selected: string[]; onToggle: (id: string) => void }) {
+  return (
+    <div className="space-y-4">
+      {GROUPS.map((g) => (
+        <div key={g.title}>
+          <div className="flex items-baseline gap-2 mb-1.5">
+            <span className="text-xs font-semibold text-ink-800">{g.title}</span>
+            {g.write && (
+              <span className="text-[10px] uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                changes data
+              </span>
+            )}
+            <span className="text-xs text-ink-500">{g.detail}</span>
+          </div>
+          <div className="space-y-1">
+            {g.scopes.map((s) => (
+              <label key={s.id} className="flex items-start gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={selected.includes(s.id)}
+                  onChange={() => onToggle(s.id)}
+                />
+                <span>
+                  <code className="font-mono text-ink-800">{s.id}</code>
+                  <span className="text-ink-500"> — {s.detail}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export function AccountTokensClient() {
@@ -129,8 +175,27 @@ export function AccountTokensClient() {
     void load()
   }, [])
 
-  function toggle(id: string) {
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+  // "Edit scopes": which token is open, and its working copy of the scope set.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editScopes, setEditScopes] = useState<string[]>([])
+
+  async function saveScopes(id: string) {
+    setBusy(true)
+    try {
+      const res = await fetch("/api/account-tokens", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, scopes: editScopes }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? "could not update scopes")
+      setEditingId(null)
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function create() {
@@ -166,9 +231,7 @@ export function AccountTokensClient() {
     }
   }
 
-  const writeSelected = selected.some((s) =>
-    GROUPS.filter((g) => g.write).some((g) => g.scopes.some((x) => x.id === s)),
-  )
+  const writeSelected = isWrite(selected)
 
   return (
     <div className="space-y-6">
@@ -310,37 +373,7 @@ export function AccountTokensClient() {
                 <label className="block text-xs font-semibold text-ink-700 mb-2">
                   Permissions — nothing is granted by default
                 </label>
-                <div className="space-y-4">
-                  {GROUPS.map((g) => (
-                    <div key={g.title}>
-                      <div className="flex items-baseline gap-2 mb-1.5">
-                        <span className="text-xs font-semibold text-ink-800">{g.title}</span>
-                        {g.write && (
-                          <span className="text-[10px] uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-                            changes data
-                          </span>
-                        )}
-                        <span className="text-xs text-ink-500">{g.detail}</span>
-                      </div>
-                      <div className="space-y-1">
-                        {g.scopes.map((s) => (
-                          <label key={s.id} className="flex items-start gap-2 text-xs cursor-pointer">
-                            <input
-                              type="checkbox"
-                              className="mt-0.5"
-                              checked={selected.includes(s.id)}
-                              onChange={() => toggle(s.id)}
-                            />
-                            <span>
-                              <code className="font-mono text-ink-800">{s.id}</code>
-                              <span className="text-ink-500"> — {s.detail}</span>
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <ScopeChecklist selected={selected} onToggle={(id) => setSelected((s) => toggled(s, id))} />
               </div>
 
               {writeSelected && (
@@ -382,7 +415,7 @@ export function AccountTokensClient() {
                     key={t.id}
                     className="flex items-start justify-between gap-4 border border-ink-100 rounded-lg px-3 py-2.5"
                   >
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-semibold text-ink-900">{t.name}</span>
                         <code className="text-xs font-mono text-ink-500">{t.key_prefix}…</code>
@@ -406,14 +439,58 @@ export function AccountTokensClient() {
                         Created {fmt(t.created_at)} · Last used {fmt(t.last_used_at)} · Expires{" "}
                         {fmt(t.expires_at)}
                       </p>
+                      {editingId === t.id && (
+                        <div className="mt-3 space-y-3 border-t border-ink-100 pt-3">
+                          <ScopeChecklist
+                            selected={editScopes}
+                            onToggle={(id) => setEditScopes((s) => toggled(s, id))}
+                          />
+                          {isWrite(editScopes) && (
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                              Write scopes apply to <strong>every</strong> app you administer.
+                            </div>
+                          )}
+                          <p className="text-xs text-ink-500">
+                            Applies to this token immediately. The key value is unchanged — nothing
+                            using it needs updating.
+                          </p>
+                          <div className="flex gap-2">
+                            <Button onClick={() => saveScopes(t.id)} disabled={busy || editScopes.length === 0}>
+                              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                              Save scopes
+                            </Button>
+                            <Button variant="ghost" onClick={() => setEditingId(null)} disabled={busy}>
+                              Cancel
+                            </Button>
+                          </div>
+                          {editScopes.length === 0 && (
+                            <p className="text-xs text-ink-500">Select at least one permission.</p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <button
-                      onClick={() => revoke(t.id, t.name)}
-                      className="text-ink-400 hover:text-rose-600 shrink-0"
-                      aria-label={`Revoke ${t.name}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {(left === null || left > 0) && editingId !== t.id && (
+                        <button
+                          onClick={() => {
+                            setEditingId(t.id)
+                            setEditScopes(t.scopes)
+                          }}
+                          className="text-ink-400 hover:text-indigo-600"
+                          aria-label={`Edit scopes of ${t.name}`}
+                          title="Edit scopes"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => revoke(t.id, t.name)}
+                        className="text-ink-400 hover:text-rose-600"
+                        aria-label={`Revoke ${t.name}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 )
               })}

@@ -7,27 +7,34 @@
  */
 package com.mobilebytelabs.paycraft.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.mobilebytelabs.paycraft.config.ConfigResult
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_age_days
@@ -50,6 +57,7 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_retry
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_stale_body
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_stale_refresh
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
+import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -65,10 +73,10 @@ import org.jetbrains.compose.resources.stringResource
  * on [ConfigResult.isRetryable] — offering a button that cannot work is a dead clickable dressed as
  * help — so the non-retryable path gets [onDismiss] instead, which always works. Never zero actions.
  *
- * ## Why there is an animation
- * This screen is reached when billing is already broken. A looping Lottie costs ~6 KB and is the
- * cheapest signal that this path was designed rather than fallen into; a bare line of grey text on a
- * blank surface is indistinguishable from a crash.
+ * ## Why there is a hero tile
+ * This screen is reached when billing is already broken. A bare line of grey text on a blank surface
+ * is indistinguishable from a crash, so it carries the same hero tile as every other paywall state
+ * (Stitch config-error) — with a glyph that names the failure: no connection, our side, or unknown.
  *
  * @param onDismiss closes the paywall. Optional only so existing callers compile; when absent, a
  *   non-retryable failure falls back to the previous no-action rendering.
@@ -79,6 +87,7 @@ fun ConfigUnavailable(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
     onDismiss: (() -> Unit)? = null,
+    onRestore: (() -> Unit)? = null,
 ) {
     // Localised, not literal. These strings existed in strings.xml from the moment this surface was
     // written — added for the AC-28 pairing — and the composable carried English literals anyway,
@@ -110,57 +119,52 @@ fun ConfigUnavailable(
 
     val reason = (result as? ConfigResult.Failed)?.reason
 
-    Column(
-        modifier = modifier.fillMaxWidth().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        // Offline gets its own motion: "we can't reach you" and "the server answered wrong" are
-        // different problems, and the picture should not claim the user's connection is at fault.
-        PayCraftStateAnimation(
-            kind = if (reason == ConfigResult.Failed.Reason.OFFLINE) {
-                PayCraftStateAnimationKind.Offline
-            } else {
-                PayCraftStateAnimationKind.ConfigError
-            },
-        )
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            text = body,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            // Tagged per-reason so AC-28 can pair the offline and http-error goldens separately —
-            // they differ only in wording, and the wording is the whole product decision.
-            modifier = Modifier.testTag(
-                if (reason == ConfigResult.Failed.Reason.OFFLINE) {
-                    PayCraftTestTags.OFFLINE_MESSAGE
-                } else {
-                    PayCraftTestTags.CONFIG_FAILED_MESSAGE
+    PaywallStateScreen(
+        modifier = modifier,
+        hero = {
+            PaywallStateHero(
+                icon = when (reason) {
+                    ConfigResult.Failed.Reason.OFFLINE -> Icons.Filled.WifiOff
+                    ConfigResult.Failed.Reason.HTTP_ERROR -> Icons.Outlined.CloudOff
+                    else -> Icons.Outlined.ErrorOutline
                 },
-            ),
-        )
-        Spacer(Modifier.height(4.dp))
-        when {
-            result.isRetryable -> Button(
-                onClick = onRetry,
-                shape = RoundedCornerShape(26.dp),
-                contentPadding = ButtonDefaults.ContentPadding,
-                modifier = Modifier.testTag(PayCraftTestTags.CONFIG_FAILED_RETRY),
-            ) { Text(stringResource(Res.string.paycraft_retry)) }
-
+                title = title,
+                body = body,
+                // Tagged per-reason so AC-28 can pair the offline and http-error goldens separately —
+                // they differ only in wording, and the wording is the whole product decision.
+                bodyModifier = Modifier.testTag(
+                    if (reason == ConfigResult.Failed.Reason.OFFLINE) {
+                        PayCraftTestTags.OFFLINE_MESSAGE
+                    } else {
+                        PayCraftTestTags.CONFIG_FAILED_MESSAGE
+                    },
+                ),
+            )
+        },
+        primary = when {
+            result.isRetryable -> {
+                {
+                    PaywallPrimaryButton(
+                        text = stringResource(Res.string.paycraft_retry),
+                        onClick = onRetry,
+                        modifier = Modifier.testTag(PayCraftTestTags.CONFIG_FAILED_RETRY),
+                    )
+                }
+            }
             // Not retryable, but never a dead end — this button always does something real.
-            onDismiss != null -> OutlinedButton(
-                onClick = onDismiss,
-                shape = RoundedCornerShape(26.dp),
-                modifier = Modifier.testTag(PayCraftTestTags.CONFIG_FAILED_DISMISS),
-            ) { Text(stringResource(Res.string.paycraft_close)) }
-        }
-    }
+            onDismiss != null -> {
+                {
+                    PaywallPrimaryButton(
+                        text = stringResource(Res.string.paycraft_close),
+                        onClick = onDismiss,
+                        modifier = Modifier.testTag(PayCraftTestTags.CONFIG_FAILED_DISMISS),
+                    )
+                }
+            }
+            else -> null
+        },
+        onRestore = onRestore,
+    )
 }
 
 /**
@@ -175,32 +179,27 @@ fun ConfigUnavailable(
  * honest action is to leave.
  */
 @Composable
-fun PlansUnavailable(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.fillMaxWidth().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        PayCraftStateAnimation(kind = PayCraftStateAnimationKind.ConfigError)
-        Text(
-            text = stringResource(Res.string.paycraft_no_plans_title),
-            style = MaterialTheme.typography.titleMedium,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            text = stringResource(Res.string.paycraft_no_plans_body),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.testTag(PayCraftTestTags.NO_PLANS_MESSAGE),
-        )
-        Spacer(Modifier.height(4.dp))
-        OutlinedButton(
-            onClick = onDismiss,
-            shape = RoundedCornerShape(26.dp),
-            modifier = Modifier.testTag(PayCraftTestTags.NO_PLANS_DISMISS),
-        ) { Text(stringResource(Res.string.paycraft_close)) }
-    }
+fun PlansUnavailable(onDismiss: () -> Unit, modifier: Modifier = Modifier, onRestore: (() -> Unit)? = null) {
+    PaywallStateScreen(
+        modifier = modifier,
+        hero = {
+            PaywallStateHero(
+                icon = Icons.Outlined.StarOutline,
+                title = stringResource(Res.string.paycraft_no_plans_title),
+                body = stringResource(Res.string.paycraft_no_plans_body),
+                bodyModifier = Modifier.testTag(PayCraftTestTags.NO_PLANS_MESSAGE),
+            )
+        },
+        primary = {
+            PaywallPrimaryButton(
+                text = stringResource(Res.string.paycraft_close),
+                onClick = onDismiss,
+                modifier = Modifier.testTag(PayCraftTestTags.NO_PLANS_DISMISS),
+            )
+        },
+        // A buyer who already paid is not stranded by a catalogue with nothing on sale.
+        onRestore = onRestore,
+    )
 }
 
 /**
@@ -211,27 +210,53 @@ fun PlansUnavailable(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
  */
 @Composable
 fun StaleConfigNotice(ageSeconds: Long, onRetry: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+    // Stitch stale-cache: a warning-toned outlined strip. Warning is the theme's TERTIARY role — the
+    // SDK has no amber of its own, and a hardcoded one would ignore the host's palette.
+    val tokens = PayCraftTheme.colors
+    val warn = MaterialTheme.colorScheme.tertiary
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .background(warn.copy(alpha = 0.10f), shape)
+            .border(1.dp, warn.copy(alpha = 0.45f), shape)
+            .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(
+            imageVector = Icons.Filled.History,
+            contentDescription = null,
+            tint = warn,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = stringResource(Res.string.paycraft_stale_body, humanizeAge(ageSeconds)),
+            color = tokens.onSurface,
+            fontSize = 13.sp,
+            modifier = Modifier.weight(1f).padding(vertical = 10.dp).testTag(PayCraftTestTags.STALE_MESSAGE),
+        )
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onRetry)
+                .padding(horizontal = 8.dp, vertical = 8.dp)
+                .testTag(PayCraftTestTags.STALE_REFRESH),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = stringResource(Res.string.paycraft_stale_body, humanizeAge(ageSeconds)),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f).testTag(PayCraftTestTags.STALE_MESSAGE),
-            )
-            Text(
                 text = stringResource(Res.string.paycraft_stale_refresh),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.clickable(onClick = onRetry).testTag(PayCraftTestTags.STALE_REFRESH),
+                color = tokens.accent,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                imageVector = Icons.Filled.Refresh,
+                contentDescription = null,
+                tint = tokens.accent,
+                modifier = Modifier.size(16.dp),
             )
         }
     }

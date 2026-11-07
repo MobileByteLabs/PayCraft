@@ -28,6 +28,12 @@ expect object PlatformInfo {
     /** One of: "android" | "ios" | "macos" | "desktop" | "web" */
     val platform: String
 
+    /**
+     * The host app's own id — Android package name, iOS bundle id; "" where there is none (desktop,
+     * web). Used to build PayCraft's OAuth redirect `<appId>://login-callback/paycraft`.
+     */
+    val appId: String
+
     /** Human-readable name shown in conflict dialog, e.g. "Rajan's Pixel 8", "iPhone 15 Pro" */
     val deviceName: String
 

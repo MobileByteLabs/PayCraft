@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
+import { patchKeyScopes } from "@/lib/api-key-scopes"
 
 export const dynamic = "force-dynamic"
 
@@ -23,7 +24,7 @@ export const dynamic = "force-dynamic"
  */
 
 /**
- * Scopes selectable here. Mirrors the CHECK constraint (migrations 136 + 150) and `ApiScope`.
+ * Scopes selectable here. Mirrors the CHECK constraint (migrations 136 + 150 + 173) and `ApiScope`.
  *
  * Read and write are listed separately rather than as a single "full access" toggle so the default
  * is genuinely nothing and each grant is a deliberate click — the same reason Supabase's own token
@@ -47,6 +48,8 @@ const SCOPES = [
   "apps:write",
   "apps:provision",
   "keys:rotate",
+  "onboarding:read",
+  "onboarding:write",
 ] as const
 
 /** Expiry is mandatory for this tier; the DB enforces it too (tenant_api_keys_account_expires). */
@@ -141,13 +144,23 @@ export async function DELETE(req: Request) {
   const id = searchParams.get("id")
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
 
-  // Scoped to the caller's own tokens by owner_user_id — a revoke cannot reach someone else's.
-  const { error } = await supabase
-    .from("tenant_api_keys")
-    .update({ revoked_at: new Date().toISOString() })
-    .eq("id", id)
-    .eq("owner_user_id", user.id)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  // Through the RPC (migration 175), never a direct UPDATE. tenant_api_keys has RLS with a SELECT-only
+  // policy, so the direct update this used to run matched ZERO rows, raised nothing, and this route
+  // still answered {revoked:true} — the token stayed live. The RPC checks ownership itself (owner only
+  // for account keys), revokes, and audits in every app the token reached.
+  const { error } = await supabase.rpc("tenant_api_key_revoke", { p_id: id })
+  if (error) {
+    const msg = error.message ?? ""
+    const status = msg.includes("forbidden") ? 403 : msg.includes("unknown_key") ? 404 : 500
+    return NextResponse.json({ error: msg }, { status })
+  }
   return NextResponse.json({ revoked: true })
+}
+
+/** Edit an existing token's scopes in place — the token value does not change (migration 174). */
+export async function PATCH(req: Request) {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 })
+  return patchKeyScopes(req, supabase, SCOPES)
 }

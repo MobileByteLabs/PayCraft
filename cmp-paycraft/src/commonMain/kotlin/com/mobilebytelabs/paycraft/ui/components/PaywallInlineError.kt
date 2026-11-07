@@ -1,21 +1,32 @@
 package com.mobilebytelabs.paycraft.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_retry
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * A billing failure reported WITHOUT taking the paywall down.
@@ -38,29 +49,72 @@ import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
  */
 @Composable
 fun PaywallInlineError(message: String, onRetry: () -> Unit) {
+    PaywallErrorBanner(
+        text = humanBillingError(message),
+        onRetry = onRetry,
+        connectivity = message.isConnectivityFailure(),
+    )
+}
+
+/**
+ * The error banner itself — Stitch inline-error: an error-tinted, outlined strip with a leading glyph,
+ * the sentence, and an underlined Retry link. Also carries the surface's checkout failure, which has
+ * no retry (the CTA is the retry), so [onRetry] is optional and [modifier] takes that caller's tag.
+ */
+@Composable
+internal fun PaywallErrorBanner(
+    text: String,
+    onRetry: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    connectivity: Boolean = false,
+) {
     val tokens = PayCraftTheme
+    val error = MaterialTheme.colorScheme.error
+    val shape = RoundedCornerShape(14.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .background(tokens.colors.accent.copy(alpha = 0.10f), RoundedCornerShape(12.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .background(tokens.colors.errorContainer.copy(alpha = 0.35f), shape)
+            .border(1.dp, error.copy(alpha = 0.45f), shape)
+            .padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)
+            .then(modifier),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = humanBillingError(message),
-                color = tokens.colors.onSurface,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-            )
-        }
-        TextButton(onClick = onRetry) {
-            Text("Retry", color = tokens.colors.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Icon(
+            imageVector = if (connectivity) Icons.Filled.WifiOff else Icons.Outlined.ErrorOutline,
+            contentDescription = null,
+            tint = error,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = text,
+            color = tokens.colors.onSurface,
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
+            modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+        )
+        if (onRetry != null) {
+            TextButton(onClick = onRetry) {
+                Text(
+                    text = stringResource(Res.string.paycraft_retry),
+                    color = tokens.colors.accent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textDecoration = TextDecoration.Underline,
+                )
+            }
+        } else {
+            Spacer(Modifier.width(10.dp))
         }
     }
 }
+
+/** The connectivity class of failure — picks the wifi-off glyph instead of the generic one. */
+private fun String.isConnectivityFailure(): Boolean = contains("network", ignoreCase = true) ||
+    contains("timeout", ignoreCase = true) ||
+    contains("offline", ignoreCase = true)
 
 /**
  * Turn a billing failure into a sentence a paying customer can act on.

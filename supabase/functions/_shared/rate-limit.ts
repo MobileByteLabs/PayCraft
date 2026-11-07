@@ -5,7 +5,7 @@
 // pre-auth webhook handlers + response headers (X-RateLimit-*) so clients can
 // pace themselves without hitting 429s.
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.106.1"
 
 export class RateLimitError extends Error {
   constructor(public bucket: string) {

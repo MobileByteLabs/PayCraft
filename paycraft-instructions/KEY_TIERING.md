@@ -1,4 +1,4 @@
-example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
+example-provenance: d17c43b42c05b30b9029e3cbcbbfa314a8bd372b
 
 # KEY_TIERING.md — publishable vs secret, and how each reaches its consumer
 
@@ -154,3 +154,27 @@ the remedy is rotation plus a proper handoff — never "copy it into the repo so
   per-ecosystem local formats and has no `.env` at all.
 - Use a service-role key anywhere a client could reach it — including "just for a moment" inside an
   edge function that could have used an account token instead.
+
+## What a publishable key must NOT be able to reach
+
+The `pk_` key is shipped in client source, so it is public by construction. The tier is only
+meaningful if every RPC it reaches is safe for an ANONYMOUS caller to invoke with arbitrary
+arguments — and that is a property of the RPC SIGNATURE, not of the key.
+
+The balance RPCs are the worked example. They originally took a **subject id** as a parameter while
+being granted to anon/authenticated:
+
+```
+entitlement_balance_get(p_subject_id, p_api_key, p_sku)      -- WRONG
+entitlement_balance_get(p_server_token, p_api_key, p_sku)    -- correct
+```
+
+Taking the subject verbatim meant one holder of the publishable key — i.e. anyone who had installed
+the app — could read, and then DRAIN, another subject's balance by passing their id. The key was
+behaving exactly as designed; the signature was the hole. The fix was to make the server derive the
+subject from the device's `server_token`, so the caller can only ever name itself, and to REVOKE the
+old signatures from anon/authenticated rather than leave them beside the new ones.
+
+The rule this leaves: **an RPC that a `pk_` key can call must never accept an identity as an
+argument.** It derives identity from a credential the caller had to possess. When reviewing a new
+client-facing RPC, read its parameter list first — any `p_*_id` naming a principal is the defect.

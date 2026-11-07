@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
+import { patchKeyScopes } from "@/lib/api-key-scopes"
 
 export const dynamic = "force-dynamic"
 
@@ -73,4 +74,11 @@ export async function DELETE(req: Request) {
   const { error } = await supabase.rpc("tenant_api_key_revoke", { p_id: id })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
+}
+
+/** Edit an existing key's scopes in place — the key value does not change. The RPC (migration 174)
+ *  requires owner/admin of the key's tenant, so a forged id is refused there. */
+export async function PATCH(req: Request) {
+  await requireTenant()
+  return patchKeyScopes(req, createClient(), SCOPES)
 }

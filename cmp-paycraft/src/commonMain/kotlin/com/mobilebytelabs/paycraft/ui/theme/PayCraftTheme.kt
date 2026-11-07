@@ -98,6 +98,9 @@ data class PayCraftTheme(
             return PayCraftTheme(
                 colors = PayCraftColors(
                     accent = mat.primary,
+                    // Mapped, not defaulted: a dark host's primary is LIGHT, and the White default
+                    // put white CTA text on a pale pill.
+                    onAccent = mat.onPrimary,
                     accentContainer = mat.primaryContainer,
                     onAccentContainer = mat.onPrimaryContainer,
                     activeBadge = mat.tertiary,

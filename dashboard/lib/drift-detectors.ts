@@ -46,6 +46,7 @@ export type DriftKind =
   | "missing-currency-for-country"
   | "no-test-credential"
   | "test-links-missing"
+  | "sync-stuck"
 
 export interface DriftFinding {
   kind: DriftKind
@@ -62,6 +63,8 @@ export interface DriftFinding {
    * automatically, which is how a "needs attention" list becomes a list nobody can clear.
    */
   subject_id?: string
+  /** The single provider a product-scoped finding is about, so a drain can re-sync only that one. */
+  provider?: "stripe" | "razorpay" | "cashfree" | "google_play" | "app_store"
 }
 
 /** Class 1 — a product PayCraft believes is synced that the provider cannot return. */
@@ -692,6 +695,59 @@ export async function detectTestLinksMissing(
   return out
 }
 
+/**
+ * Class 9 — a provider left `syncing` by a run that died.
+ *
+ * `runProductSync` writes a `syncing` marker before each provider call and overwrites it when the
+ * call finishes. A run the PLATFORM kills (Cloudflare ends a request at 100s; App Store pricing and
+ * introductory offers can take longer) never reaches that write, so the marker stands forever. Every
+ * other detector reads provider state, not the marker, so none saw it — the drain reported
+ * "0 findings" while three reels-downloader products sat at `syncing` (2026-11-06).
+ *
+ * A marker older than STUCK_AFTER_MS is treated as abandoned. Markers written before `started_at`
+ * existed fall back to the row's `updated_at`, which the marker write itself bumped.
+ */
+export const STUCK_AFTER_MS = 10 * 60 * 1000
+const SYNC_PROVIDERS = ["stripe", "razorpay", "cashfree", "google_play", "app_store"] as const
+
+export async function detectSyncStuck(
+  supa: SupabaseClient,
+  tenantId: string,
+  now: number = Date.now(),
+): Promise<DriftFinding[]> {
+  const { data, error } = await supa
+    .from("tenant_products")
+    .select("id, sku, sync_state, updated_at")
+    .eq("tenant_id", tenantId)
+  if (error) throw new Error(`sync-stuck: ${error.message}`)
+
+  const findings: DriftFinding[] = []
+  for (const row of (data ?? []) as Array<{
+    id: string
+    sku: string
+    sync_state: Record<string, { status?: string; started_at?: string }> | null
+    updated_at: string | null
+  }>) {
+    for (const provider of SYNC_PROVIDERS) {
+      const entry = row.sync_state?.[provider]
+      if (entry?.status !== "syncing") continue
+      const since = Date.parse(entry.started_at ?? row.updated_at ?? "")
+      if (Number.isNaN(since) || now - since < STUCK_AFTER_MS) continue
+      const minutes = Math.round((now - since) / 60000)
+      findings.push({
+        kind: "sync-stuck",
+        tenant_id: tenantId,
+        subject: `product:${row.sku}/${provider}`,
+        detail: `${provider} has shown "syncing" for ${minutes} min — the run that wrote it is gone`,
+        action_hint: `Re-sync ${row.sku} to ${provider} (POST /api/sync/all re-syncs it)`,
+        subject_id: row.id,
+        provider,
+      })
+    }
+  }
+  return findings
+}
+
 export const DRIFT_DETECTORS = [
   detectProductMissingAtProvider,
   detectPaywallNotPublished,
@@ -700,6 +756,7 @@ export const DRIFT_DETECTORS = [
   detectTestLinksMissing,
   detectMissingCurrencyForCountry,
   detectNoTestCredential,
+  detectSyncStuck,
 ] as const
 
 export const DRIFT_KINDS: DriftKind[] = [
@@ -711,4 +768,5 @@ export const DRIFT_KINDS: DriftKind[] = [
   "test-links-missing",
   "active-provider-zero-links",
   "missing-currency-for-country",
+  "sync-stuck",
 ]

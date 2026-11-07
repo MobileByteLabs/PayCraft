@@ -55,7 +55,12 @@ interface StubOpts {
     provider: string;
     supported_locales?: string[] | null;
   }>;
-  tenantRow?: { plan: string; entitlements: string[] } | null;
+  tenantRow?: {
+    plan: string;
+    entitlements: string[];
+    auth_google_web_client_id?: string | null;
+    auth_apple_services_id?: string | null;
+  } | null;
   rateLimitOk?: boolean;
 }
 
@@ -526,6 +531,28 @@ Deno.test({
       assertEquals(res.status, 405);
     } finally {
       restore();
+    }
+  },
+});
+
+Deno.test({
+  sanitizeOps: false,
+  sanitizeResources: false,
+  name: "167: the app's sign-in clients ride in `auth` — and the block is present when unset",
+  async fn() {
+    const product = { id: "p1", name: "Pro", pricing_mode: "global" as const, base_price_cents: 999, base_currency: "USD" };
+    const cases: Array<[StubOpts["tenantRow"], string | null, string | null]> = [
+      [{ plan: "pro", entitlements: [], auth_google_web_client_id: "web.apps.googleusercontent.com", auth_apple_services_id: "com.app.signin" }, "web.apps.googleusercontent.com", "com.app.signin"],
+      [{ plan: "pro", entitlements: [] }, null, null],
+    ];
+    for (const [row, google, apple] of cases) {
+      const { restore } = installFetchStub({ products: [product], tenantRow: row });
+      try {
+        const body = await (await handler(buildRequest({ acceptLanguage: "en-US" }))).json();
+        assertEquals(body.auth, { google_web_client_id: google, apple_services_id: apple });
+      } finally {
+        restore();
+      }
     }
   },
 });

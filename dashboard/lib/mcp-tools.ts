@@ -16,6 +16,12 @@ import { GET as webhooksGET } from "@/app/api/v1/webhooks/route"
 import { GET as auditGET } from "@/app/api/v1/audit/route"
 import { GET as tenantGET } from "@/app/api/v1/tenant/route"
 import { GET as syncEventsGET } from "@/app/api/v1/sync/events/route"
+import { PATCH as paywallPATCH } from "@/app/api/v1/paywall/route"
+import { POST as paywallTemplatePOST } from "@/app/api/v1/paywall/templates/route"
+import { PUT as paywallWorkflowPUT, POST as paywallPublishPOST } from "@/app/api/v1/paywall/workflow/route"
+import { GET as onboardingGET, PATCH as onboardingPATCH } from "@/app/api/v1/onboarding/state/route"
+import { GET as storeReadinessGET } from "@/app/api/v1/products/store-readiness/route"
+import { BLOCKED_REASONS, STATUSES } from "@/lib/onboarding-state"
 
 /**
  * MCP tools, defined as a thin mapping onto the REST handlers.
@@ -209,6 +215,11 @@ export const MCP_TOOLS: McpTool[] = [
           description: "Billing cadence. Required for a subscription.",
         },
         type: { type: "string", enum: ["subscription", "one_time", "consumable"], description: "Default: subscription." },
+        grant_quantity: { type: "integer", minimum: 0, description: "Units ONE purchase grants (e.g. 550 Ripples). REQUIRED and > 0 for type:consumable — a consumable granting 0 takes the money, is consumed at the store so it cannot be bought again for free, and credits nothing. Ignored for other types." },
+        grant_sku: { type: ["string", "null"], description: "The CURRENCY this product credits, when that is not the product itself. null (default) = its own sku. Give every pack size of one currency the SAME value (e.g. three Ripples packs all grant_sku 'ripples') or their balances will not add up — a user who buys the big pack sees coins that do not combine with the small one." },
+        daily_earn_cap: { type: ["integer", "null"], minimum: 1, description: "Max units this sku may be credited by IN-APP ACTIVITY (reason=activity) per user per UTC day. null (default) DISABLES activity earning. Activity earns are client-asserted — no server can observe a focus session — so this ceiling is the only thing bounding what a modified client can mint. Enable deliberately." },
+        ad_reward_quantity: { type: ["integer", "null"], minimum: 1, description: "Units credited per VERIFIED rewarded-ad view (reason=ad_reward). null (default) disables ad rewards. Deliberately NOT read from the ad network's callback: its reward_amount is set in the ad console, outside this system, so trusting it would let that console price your currency." },
+        daily_ad_reward_cap: { type: ["integer", "null"], minimum: 1, description: "Max units creditable by ad_reward per user per UTC day. null = uncapped, which is only safe if the ad network's own frequency capping is trusted to be the limit." },
         base_price_cents: { type: "integer", minimum: 0, description: "Reference price in MINOR units. Per-country prices go through paycraft_set_product_pricing." },
         base_currency: { type: "string", description: "ISO 4217 for base_price_cents. Default USD." },
         trial_enabled: { type: "boolean" },
@@ -255,6 +266,7 @@ export const MCP_TOOLS: McpTool[] = [
           description: "Billing cadence. Required for a subscription.",
         },
         type: { type: "string", enum: ["subscription", "one_time", "consumable"], description: "Default: subscription." },
+        grant_quantity: { type: "integer", minimum: 0, description: "Units ONE purchase grants (e.g. 550 Ripples). REQUIRED and > 0 for type:consumable — a consumable granting 0 takes the money, is consumed at the store so it cannot be bought again for free, and credits nothing. Ignored for other types." },
         base_price_cents: { type: "integer", minimum: 0, description: "Reference price in MINOR units. Per-country prices go through paycraft_set_product_pricing." },
         base_currency: { type: "string", description: "ISO 4217 for base_price_cents. Default USD." },
         trial_enabled: { type: "boolean" },
@@ -416,7 +428,12 @@ export const MCP_TOOLS: McpTool[] = [
     title: "Sync one product (writes to live providers)",
     description:
       "Pushes a single product to its providers. No confirm_count — the subject is named explicitly. " +
-      "Optionally narrow to one provider. Requires products:sync.",
+      "Optionally narrow to one provider. Requires products:sync. Handles every product type: a "  +
+      "subscription becomes a Play base plan / App Store subscription, while a consumable or "     +
+      "one_time becomes a Play MANAGED PRODUCT (inappproducts) / App Store in-app purchase. A "    +
+      "freshly created native product is normally NOT yet purchasable — Play needs a published "   +
+      "APK and the App Store needs a review screenshot — and the response says so as a warning "   +
+      "rather than reporting a success the storefront will not honour.",
     inputSchema: obj(
       { ...TENANT,
         id: { type: "string", description: "Product UUID." },
@@ -522,6 +539,116 @@ export const MCP_TOOLS: McpTool[] = [
       "What the SDK renders. Useful as a snapshot to diff between deploys. Requires paywall:read.",
     inputSchema: obj({ ...TENANT }),
     invoke: (_a, auth, origin) => call(paywallGET, "GET", "/api/v1/paywall", auth, origin),
+  },
+  {
+    name: "paycraft_paywall_apply_template",
+    title: "Apply a paywall template to the draft",
+    description:
+      "Applies a gallery template to the app's DRAFT paywall tree (mode create replaces the draft, " +
+      "update re-applies keeping localizations). Draft only — buyers see nothing until " +
+      "paycraft_paywall_publish. Requires paywall:write.",
+    inputSchema: obj(
+      {
+        ...TENANT,
+        slug: { type: "string", description: "Template slug from the gallery." },
+        mode: { type: "string", enum: ["create", "update"], description: "Default create." },
+      },
+      ["slug"],
+    ),
+    invoke: (a, auth, origin) =>
+      call(paywallTemplatePOST, "POST", "/api/v1/paywall/templates", auth, origin, undefined, {
+        slug: a.slug,
+        ...(a.mode !== undefined ? { mode: a.mode } : {}),
+      }),
+  },
+  {
+    name: "paycraft_paywall_save_workflow",
+    title: "Save the draft paywall workflow",
+    description:
+      "Replaces the DRAFT paywall component tree. Validated server-side (unknown component types, " +
+      "missing step ids and scripts are refused with the validator's message). Draft only — call " +
+      "paycraft_paywall_publish to ship it. Requires paywall:write.",
+    inputSchema: obj(
+      { ...TENANT, workflow: { type: "object", description: "The whole workflow tree (schema_version, steps, initial_step_id)." } },
+      ["workflow"],
+    ),
+    invoke: (a, auth, origin) =>
+      call(paywallWorkflowPUT, "PUT", "/api/v1/paywall/workflow", auth, origin, undefined, { workflow: a.workflow }),
+  },
+  {
+    name: "paycraft_paywall_update_copy",
+    title: "Update paywall copy fields",
+    description:
+      "Changes NAMED flat paywall fields (hero_title, value_props, cta_*, trial_disclosure_*, " +
+      "settings_* …) and leaves every other column exactly as it was — merged server-side, because " +
+      "the underlying upsert overwrites every column. Unknown keys are refused, not ignored. Takes " +
+      "effect for the SDK immediately (these columns have no draft). Requires paywall:write.",
+    inputSchema: obj(
+      { ...TENANT, fields: { type: "object", description: "Only the fields to change, e.g. {\"hero_title\": \"Go Pro\"}." } },
+      ["fields"],
+    ),
+    // Live copy — no draft for these columns — so flagged like publish.
+    destructive: true,
+    invoke: (a, auth, origin) =>
+      call(paywallPATCH, "PATCH", "/api/v1/paywall", auth, origin, undefined, { fields: a.fields }),
+  },
+  {
+    name: "paycraft_paywall_publish",
+    title: "Publish the draft paywall (buyers see it)",
+    description:
+      "Publishes the draft workflow — the one paywall call that changes what a customer sees. " +
+      "Refused when there is no draft. Requires paywall:write.",
+    inputSchema: obj({ ...TENANT }),
+    destructive: true,
+    invoke: (_a, auth, origin) => call(paywallPublishPOST, "POST", "/api/v1/paywall/workflow", auth, origin),
+  },
+  {
+    name: "paycraft_onboarding_state",
+    title: "Onboarding state for an app",
+    description:
+      "The onboarding SoT for this app: current_step and every step with its status " +
+      "(passed/failed/blocked) and evidence, plus the account owner's customer state when the key " +
+      "is account-scoped. A passed step is a CLAIM — re-verify it before trusting it. Requires " +
+      "onboarding:read.",
+    inputSchema: obj({ ...TENANT }),
+    invoke: (_a, auth, origin) => call(onboardingGET, "GET", "/api/v1/onboarding/state", auth, origin),
+  },
+  {
+    name: "paycraft_onboarding_record",
+    title: "Record an onboarding step",
+    description:
+      "Writes one app step to the onboarding SoT. passed needs evidence (the proof); failed needs " +
+      "evidence (the observed failure — record it BEFORE healing so the SoT shows the drift); " +
+      "blocked needs blocked_reason from the closed set. Same validation as the dashboard. " +
+      "Requires onboarding:write.",
+    inputSchema: obj(
+      {
+        ...TENANT,
+        step_id: { type: "string", description: "e.g. A5." },
+        status: { type: "string", enum: [...STATUSES] },
+        evidence: { type: "object", description: "Probe result (passed) or observed failure (failed)." },
+        blocked_reason: {
+          type: "string",
+          enum: [...BLOCKED_REASONS],
+        },
+      },
+      ["step_id", "status"],
+    ),
+    invoke: (a, auth, origin) => {
+      const { tenant_id: _t, ...body } = a
+      return call(onboardingPATCH, "PATCH", "/api/v1/onboarding/state", auth, origin, undefined, body)
+    },
+  },
+  {
+    name: "paycraft_store_readiness",
+    title: "Are the store products sellable?",
+    description:
+      "Asks the App Store and Google Play whether each product is actually SELLABLE (metadata, " +
+      "territories, base plans) — not whether a sync once returned an id. Same payload as the " +
+      "dashboard's store-readiness check. Requires products:read.",
+    inputSchema: obj({ ...TENANT }),
+    invoke: (_a, auth, origin) =>
+      call(storeReadinessGET, "GET", "/api/v1/products/store-readiness", auth, origin),
   },
   {
     name: "paycraft_webhooks",

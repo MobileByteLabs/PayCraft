@@ -8,6 +8,8 @@ import com.mobilebytelabs.paycraft.config.ConfigCache
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.EntitlementRepository
 import com.mobilebytelabs.paycraft.core.PayCraftBillingManager
+import com.mobilebytelabs.paycraft.core.identity.IdentityTokenClient
+import com.mobilebytelabs.paycraft.core.identity.VerifiedSignIn
 import com.mobilebytelabs.paycraft.network.CouponClient
 import com.mobilebytelabs.paycraft.network.PayCraftRealtime
 import com.mobilebytelabs.paycraft.network.PayCraftService
@@ -19,7 +21,6 @@ import com.mobilebytelabs.paycraft.repository.PayCraftRepositoryImpl
 import com.mobilebytelabs.paycraft.ui.PayCraftPaywallViewModel
 import com.russhwolf.settings.Settings
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
@@ -45,7 +46,8 @@ val PayCraftModule = module {
             supabaseKey = backend.supabaseAnonKey,
         ) {
             install(Postgrest)
-            install(Auth)
+            // No Auth: buyers never become Supabase users (PLAN-paycraft-verified-identity) — ID tokens
+            // are verified by the identity-token edge function.
             install(Realtime)
         }
     }
@@ -159,6 +161,14 @@ val PayCraftModule = module {
         CouponClient(
             httpClient = get(),
             backend = PayCraft.backend,
+        )
+    }
+
+    // In-SDK Apple/Google sign-in: native token or browser flow → identity-token/verify → billing.
+    single {
+        VerifiedSignIn(
+            client = IdentityTokenClient(http = get(), backend = PayCraft.backend, apiKey = PayCraft.apiKey),
+            onVerified = { email -> get<BillingManager>().onVerifiedSignIn(email) },
         )
     }
 

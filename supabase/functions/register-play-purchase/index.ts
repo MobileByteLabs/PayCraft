@@ -6,21 +6,24 @@
 // so entitlement truth is established SERVER-SIDE (never trusting the client). The engine:
 //   1. re-fetches truth from the Play Developer API (purchases.subscriptionsv2.get) — the exact
 //      same authoritative source the google-rtdn webhook uses; the request body is never trusted;
-//   2. rejects a purchaseToken already bound to a different app_user_id (replay / token theft) via
-//      the shared assertPlayTokenNotReused (E2 receipt-validate);
+//   2. binds the token to app_user_id via the shared claimStoreTransaction: a token held by an
+//      ANONYMOUS device id transfers (reinstall / new phone / sign-in linking), one held by a
+//      signed-in identity is refused with 409 { code: "sign_in_required" };
 //   3. reconciles ONE canonical entitlement record through the shared reconcileEntitlement (E2);
 //   4. returns the reconciled entitlement in the SDK's EntitlementDto wire shape so the client can
 //      unlock premium immediately.
 //
 // Request  (POST JSON): { purchase_token, product_id, app_user_id, package_name, api_key? }
-// Response (200 JSON):  { entitlement: EntitlementDto } | (4xx/5xx) { error: string }
+// Response (200 JSON):  { entitlement: EntitlementDto } | (409) { error, code: "sign_in_required" }
+//                       | (4xx/5xx) { error: string }
 //
 // Service-account credentials for the Play re-fetch come from GOOGLE_PLAY_SA_JSON (wired in E6).
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { googleToCanonical, reconcileEntitlement } from "../_shared/entitlement-reconcile.ts";
-import { assertPlayTokenNotReused } from "../_shared/receipt-validate.ts";
-import { playDeveloperJwt } from "../_shared/play-jwt.ts";
+import { claimStoreTransaction, StoreTransactionOwnedError } from "../_shared/receipt-validate.ts";
+import { resolveInboundTenant } from "../_shared/inbound-tenant.ts";
+import { tenantPlayDeveloperJwt } from "../_shared/play-jwt.ts";
 
 // Play Developer API — purchases.subscriptionsv2.get. Re-fetch truth; never trust the client body.
 async function subscriptionsv2Get(pkg: string, token: string, jwt: string): Promise<Record<string, any>> {
@@ -59,15 +62,21 @@ serve(async (req: Request) => {
       );
     }
 
+    // 0. The APP the purchase belongs to — it decides both the record's tenant and WHICH Play
+    //    service account may ask Google about it (each app connects its own).
+    const { tenantId } = await resolveInboundTenant({ appIdentifier: packageName, provider: "google_play" });
+
     // 1. Authoritative re-fetch from Play (never trust the client's productId/state).
-    const jwt = await playDeveloperJwt();
+    const jwt = await tenantPlayDeveloperJwt(tenantId);
     const truth = await subscriptionsv2Get(packageName, purchaseToken, jwt);
 
-    // 2. Replay guard — a token surfacing under a new user is theft.
-    await assertPlayTokenNotReused(purchaseToken, appUserId);
+    // 2. Ownership — Play just proved the token is real, so this only decides WHO holds it.
+    await claimStoreTransaction("google_play", purchaseToken, appUserId);
 
-    // 3. Reconcile ONE canonical record (idempotent, out-of-order safe).
-    const canonical = googleToCanonical(truth, purchaseToken, appUserId);
+    // 3. Reconcile ONE canonical record (idempotent, out-of-order safe), attributed to the APP — a
+    //    NULL tenant never matches get_entitlements' tenant filter, so the purchase would vanish on
+    //    the next read (restore included).
+    const canonical = { ...googleToCanonical(truth, purchaseToken, appUserId), tenantId };
     await reconcileEntitlement(canonical);
 
     // 4. Return the reconciled entitlement in the SDK EntitlementDto shape (epoch-millis timestamps).
@@ -86,6 +95,9 @@ serve(async (req: Request) => {
 
     return Response.json({ entitlement }, { status: 200 });
   } catch (err) {
+    if (err instanceof StoreTransactionOwnedError) {
+      return Response.json({ error: err.message, code: err.code }, { status: 409 });
+    }
     console.error("register-play-purchase error:", (err as Error).message);
     return Response.json({ error: (err as Error).message }, { status: 500 });
   }

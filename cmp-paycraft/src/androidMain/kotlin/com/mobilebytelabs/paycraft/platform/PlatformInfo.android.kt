@@ -12,6 +12,7 @@ actual object PlatformInfo {
     private const val DEBUG_KEYSTORE_CN = "CN=Android Debug"
 
     actual val platform: String = "android"
+    actual val appId: String get() = DeviceTokenStore.applicationContext?.packageName.orEmpty()
     actual val deviceName: String
         get() = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}"
     actual val deviceId: String

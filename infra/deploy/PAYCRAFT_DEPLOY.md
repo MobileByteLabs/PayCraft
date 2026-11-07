@@ -72,7 +72,7 @@ Behavior:
 | Phase | Name | What it does |
 |---|---|---|
 | 1 | PRE-FLIGHT | Verify CLIs / vault / Cloudflare / gh; warn on un-pushed `dev` commits; **typecheck** the dashboard (`tsc --noEmit`) so a broken build never ships (`--skip-build` bypasses) |
-| 2 | SECRETS SYNC | vault → Cloudflare Pages secrets, driven by `dashboard/cloudflare-secrets.map` (`wrangler pages secret put <ENV> --project-name paycraft`). Best-effort: a nullable alias missing from the vault is skipped, not fatal |
+| 2 | SECRETS SYNC | vault → Cloudflare Pages secrets, driven by `dashboard/cloudflare-secrets.map` (`wrangler pages secret put <ENV> --project-name paycraft`, with the vault CF token exported). Every entry is required unless the map marks it `\| optional: <reason>`; a missing required alias or ANY failed put FAILS the phase (wrangler's error is printed) |
 | 3 | MIGRATIONS | Detect pending (`db push --dry-run`) → DESTRUCTIVE-op scan (gated by `--allow-destructive`) → pre-push schema BACKUP → `supabase db push` → POST-PUSH VERIFY (0 pending). Aborts the chain on any failure |
 | 3.5 | FUNCTIONS DEPLOY | Vault-mediated `supabase functions deploy` per directory under `supabase/functions/` that has an `index.ts` (`_shared` + `__tests__` have none, so they are skipped by construction) |
 | 4 | PROMOTE | **Retired** — `dev` is the deploy branch; the phase reports SKIP |

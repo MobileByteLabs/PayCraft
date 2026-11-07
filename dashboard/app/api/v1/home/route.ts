@@ -28,6 +28,13 @@ const ENDPOINTS: [string, string, string, string][] = [
   ["GET", "/v1/entitlements", "subscribers:read", "Canonical entitlement state"],
   ["GET", "/v1/coupons", "coupons:read", "Discount codes and provider counterparts"],
   ["GET", "/v1/paywall", "paywall:read", "Paywall configuration the SDK renders"],
+  ["PATCH", "/v1/paywall", "paywall:write", "Change named copy fields (merged server-side)"],
+  ["POST", "/v1/paywall/templates", "paywall:write", "Apply a template to the draft"],
+  ["PUT", "/v1/paywall/workflow", "paywall:write", "Save the draft workflow"],
+  ["POST", "/v1/paywall/workflow", "paywall:write", "Publish the draft"],
+  ["GET", "/v1/onboarding/state", "onboarding:read", "Onboarding steps + evidence"],
+  ["PATCH", "/v1/onboarding/state", "onboarding:write", "Record a step (passed / failed / blocked)"],
+  ["GET", "/v1/products/store-readiness", "products:read", "Are store products sellable"],
   ["GET", "/v1/webhooks", "webhooks:read", "Inbound webhook deliveries"],
   ["GET", "/v1/audit", "audit:read", "Who changed what, including this API"],
 ]
@@ -139,7 +146,7 @@ const HTML = `<!doctype html>
   code { font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace; }
   .m { font:11px/1 ui-monospace,monospace; font-weight:700; padding:4px 7px; border-radius:5px; }
   .m-get { background:var(--accent-soft); color:var(--accent); }
-  .m-post { background:var(--warn-soft); color:var(--warn); }
+  .m-post, .m-put, .m-patch { background:var(--warn-soft); color:var(--warn); }
   .scope { font:11px ui-monospace,monospace; color:var(--muted); }
   .scope.w { color:var(--warn); font-weight:700; }
   .d { color:var(--muted); }

@@ -44,9 +44,39 @@ class FakePayCraftService(
 
     val cancelledProviders = mutableListOf<String>()
 
+    /** Every store grant call, as (purchaseToken, appUserId) — what the server was asked to bind. */
+    val registered = mutableListOf<Pair<String, String>>()
+
+    /**
+     * What the STORE says each purchase token is worth. A grant binds that entitlement to the
+     * caller's appUserId — the server-side claim, modelled: the store, not the client, is truth.
+     */
+    val storeTruth = mutableMapOf<String, EntitlementDto>()
+
     fun seed(dto: EntitlementDto) {
         entitlements[dto.appUserId] = dto
     }
+
+    private fun grant(token: String, appUserId: String): EntitlementDto? {
+        registered += token to appUserId
+        val bound = storeTruth[token]?.copy(appUserId = appUserId) ?: return null
+        entitlements.entries.removeAll { it.value.subscriptionId == bound.subscriptionId } // moves, never copies
+        entitlements[appUserId] = bound
+        return bound
+    }
+
+    override suspend fun registerPlayPurchase(
+        purchaseToken: String,
+        productId: String,
+        appUserId: String,
+        packageName: String,
+    ): EntitlementDto? = grant(purchaseToken, appUserId)
+
+    override suspend fun registerAppStorePurchase(
+        signedTransaction: String,
+        appUserId: String,
+        productId: String,
+    ): EntitlementDto? = grant(signedTransaction, appUserId)
 
     override suspend fun getEntitlements(appUserId: String): EntitlementDto? {
         if (!networkUp) error("offline: get_entitlements unavailable")
@@ -83,6 +113,9 @@ class SpyNativeBillingClient : NativeBillingClient {
     var manageCalls = 0
     var finishCalls = 0
 
+    /** What the store returns to THIS device's store account — for restore() and queryPurchases(). */
+    var storePurchases: List<NativePurchase> = emptyList()
+
     /** The `consumable` flag of the LAST finishPurchase call — null until one happens. */
     var lastFinishConsumable: Boolean? = null
     val manageProductIds = mutableListOf<String?>()
@@ -101,13 +134,13 @@ class SpyNativeBillingClient : NativeBillingClient {
         lastFinishConsumable = consumable
     }
 
-    override suspend fun queryPurchases(): List<NativePurchase> = emptyList()
+    override suspend fun queryPurchases(): List<NativePurchase> = storePurchases
     override suspend fun sync() {
         syncCalls++
     }
     override suspend fun restore(): List<NativePurchase> {
         restoreCalls++
-        return emptyList()
+        return storePurchases
     }
     override suspend fun manageSubscription(productId: String?) {
         manageCalls++

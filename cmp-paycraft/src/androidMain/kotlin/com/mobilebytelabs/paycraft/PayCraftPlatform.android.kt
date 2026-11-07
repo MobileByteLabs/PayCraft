@@ -46,6 +46,21 @@ actual object PayCraftPlatform {
      */
     internal fun startActivityTracking(app: Application) {
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+            // Started-activity count → a background→foreground transition. The very first start is
+            // skipped: process start already syncs in the billing manager's init.
+            private var started = 0
+            private var seenFirstStart = false
+
+            override fun onActivityStarted(activity: Activity) {
+                if (started++ == 0) {
+                    if (seenFirstStart) PayCraft.onAppForegrounded() else seenFirstStart = true
+                }
+            }
+
+            override fun onActivityStopped(activity: Activity) {
+                if (started > 0) started--
+            }
+
             override fun onActivityResumed(activity: Activity) {
                 currentActivityRef = WeakReference(activity)
             }
@@ -55,8 +70,6 @@ actual object PayCraftPlatform {
             }
 
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
-            override fun onActivityStarted(activity: Activity) = Unit
-            override fun onActivityStopped(activity: Activity) = Unit
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
             override fun onActivityDestroyed(activity: Activity) = Unit
         })

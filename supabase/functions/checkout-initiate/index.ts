@@ -30,7 +30,7 @@
 // `paycraft_tenant_id`, `paycraft_product_id` — so `subscription.authenticated` / `.charged` flow
 // into the existing entitlement handler with no further work.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1";
 import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/rate-limit.ts";
 
 const RAZORPAY_API = "https://api.razorpay.com/v1";

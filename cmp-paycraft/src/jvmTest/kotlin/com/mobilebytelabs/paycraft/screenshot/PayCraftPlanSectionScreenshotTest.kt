@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -53,6 +54,7 @@ import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import com.mobilebytelabs.paycraft.ui.PlanSectionCopy
 import com.mobilebytelabs.paycraft.ui.PlanSectionState
 import com.mobilebytelabs.paycraft.ui.RowsSettings
+import com.mobilebytelabs.paycraft.ui.restoreActionFor
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
 import io.github.takahirom.roborazzi.captureRoboImage
 import kotlin.test.Test
@@ -91,11 +93,14 @@ class PayCraftPlanSectionScreenshotTest {
         tier: EntitlementTier,
         supporting: String,
         canManage: Boolean = tier != EntitlementTier.FREE,
-        planLine: String? = if (tier == EntitlementTier.FREE) "From ₹89 per week" else "₹1259 per year",
-        billedThrough: String? = if (tier == EntitlementTier.FREE) null else "Billed through Google Play",
+        planLine: String? = if (tier == EntitlementTier.FREE) "From ₹89 per week" else "₹89 per week",
+        provider: String? = if (tier == EntitlementTier.FREE) null else "google_play",
+        cancelled: Boolean = false,
     ) = PlanSectionState(
         planLine = planLine,
-        billedThrough = billedThrough,
+        billedThrough = provider?.let { copy.billedThrough(if (it == "app_store") "App Store" else "Google Play") },
+        provider = provider,
+        cancelled = cancelled,
         visible = true,
         tier = tier,
         statusLabel = when (tier) {
@@ -106,12 +111,22 @@ class PayCraftPlanSectionScreenshotTest {
         supportingText = supporting,
         canManage = canManage,
         onManage = {},
-        onRestoreClick = {},
+        // The PRODUCTION rule, not a stub: restore exists for FREE only. Hardcoding `{}` here used
+        // to render a Restore row under every premium golden — the defect device feedback flagged.
+        onRestoreClick = restoreActionFor(tier) {},
     )
 
-    private val premium = state(EntitlementTier.PREMIUM, copy.renewsOn("14 Nov 2026"))
+    // Cappy on device, 2026-11-01: ₹89 per week, renews 1 Nov 2026, billed through Google Play.
+    private val premium = state(EntitlementTier.PREMIUM, copy.renewsOn("1 Nov 2026"))
     private val free = state(EntitlementTier.FREE, copy.freeSupporting)
-    private val trial = state(EntitlementTier.TRIAL, copy.trialDaysLeft(6))
+    private val trial = state(EntitlementTier.TRIAL, copy.trialDaysLeft(9), planLine = "₹1259 per year")
+    private val cancelled = state(
+        EntitlementTier.PREMIUM,
+        copy.expiresOn("30 Nov 2026"),
+        planLine = "₹299 per month",
+        provider = "app_store",
+        cancelled = true,
+    )
 
     // ── The five presets, premium tier ───────────────────────────────────────────────────────────
     //
@@ -125,7 +140,7 @@ class PayCraftPlanSectionScreenshotTest {
         // Both the tier NAME and the date, on one line. This assertion is why the fix exists:
         // Minimal rendered the date alone and dropped `statusLabel`, so the row read "renews what?"
         // in a settings list with no header. Caught on the first render of these styles.
-        onNodeWithText("Premium · Renews 14 Nov 2026").assertIsDisplayed()
+        onNodeWithText("Premium · Renews 1 Nov 2026").assertIsDisplayed()
         onRoot().captureRoboImage(P_MINIMAL)
         assertCaptured(P_MINIMAL)
     }
@@ -134,10 +149,13 @@ class PayCraftPlanSectionScreenshotTest {
     fun rows_premium_render() = runComposeUiTest {
         setContent { DeterministicTheme { RowsSettings(premium, copy, theme(), {}) } }
         onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_STATUS_ROW).assertIsDisplayed()
-        // Manage is the action a premium user came for; Restore must also be reachable (store
-        // review rejects an app with no restore path — FAILURE_MODES F39).
+        // Manage is the action a premium user came for — and the subtitle names WHERE it cancels.
+        // Restore is absent once entitled (restoreActionFor; the free card carries the restore path).
         onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_MANAGE_ROW).assertIsDisplayed()
-        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW).assertIsDisplayed()
+        onNodeWithText("Cancel or change your plan in Google Play").assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW).assertDoesNotExist()
+        onNodeWithText("ACTIVE").assertIsDisplayed()
+        onNodeWithText("Renews 1 Nov 2026").assertIsDisplayed()
         onRoot().captureRoboImage(P_ROWS)
         assertCaptured(P_ROWS)
     }
@@ -147,8 +165,56 @@ class PayCraftPlanSectionScreenshotTest {
         setContent { DeterministicTheme { CardSettings(premium, copy, theme(), {}) } }
         onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_STATUS_ROW).assertIsDisplayed()
         onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_MANAGE_ROW).assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_BILLED_THROUGH).assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW).assertDoesNotExist()
         onRoot().captureRoboImage(P_CARD)
         assertCaptured(P_CARD)
+    }
+
+    /** A store TEST purchase: "TEST" chip beside ACTIVE, and a same-day renewal reads as a time. */
+    @Test
+    fun card_premium_test_purchase_render() = runComposeUiTest {
+        val test = premium.copy(isTest = true, supportingText = "Renews today, 11:12 PM")
+        setContent { DeterministicTheme { CardSettings(test, copy, theme(), {}) } }
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_TEST_CHIP).assertIsDisplayed()
+        onNodeWithText("TEST").assertIsDisplayed()
+        onRoot().captureRoboImage(P_CARD_TEST)
+        assertCaptured(P_CARD_TEST)
+    }
+
+    /**
+     * Device regression (2026-11-02, CPH2423): a cancelled TEST purchase at a large font scale wrapped the
+     * TEST chip mid-word ("TE/ST") and ellipsised the store name ("Google …"). The chips and the store
+     * name must stay whole; the rows flow onto a second line instead.
+     */
+    @Test
+    fun card_cancelled_test_purchase_large_font_narrow() = runComposeUiTest {
+        val s = premium.copy(isTest = true, cancelled = true, supportingText = "Expires today, 12:12 AM")
+        setContent {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(
+                    density = androidx.compose.ui.platform.LocalDensity.current.density,
+                    fontScale = 1.3f,
+                ),
+            ) {
+                DeterministicTheme {
+                    androidx.compose.foundation.layout.Box(
+                        androidx.compose.ui.Modifier.width(androidx.compose.ui.unit.Dp(340f)),
+                    ) { CardSettings(s, copy, theme(), {}) }
+                }
+            }
+        }
+        onNodeWithText("TEST").assertIsDisplayed()
+        onNodeWithText("CANCELLED").assertIsDisplayed()
+        onNodeWithText("Google Play").assertIsDisplayed()
+        onRoot().captureRoboImage(P_CARD_TEST_LARGE)
+        assertCaptured(P_CARD_TEST_LARGE)
+    }
+
+    @Test
+    fun card_premium_real_purchase_has_no_test_chip() = runComposeUiTest {
+        setContent { DeterministicTheme { CardSettings(premium, copy, theme(), {}) } }
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_TEST_CHIP).assertDoesNotExist()
     }
 
     @Test
@@ -180,6 +246,8 @@ class PayCraftPlanSectionScreenshotTest {
         onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_UPGRADE_ROW).assertIsDisplayed()
         onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_MANAGE_ROW).assertDoesNotExist()
         onNodeWithText("Free plan — no active subscription").assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW).assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_BILLED_THROUGH).assertDoesNotExist()
         onRoot().captureRoboImage(P_ROWS_FREE)
         assertCaptured(P_ROWS_FREE)
     }
@@ -189,7 +257,8 @@ class PayCraftPlanSectionScreenshotTest {
         // The {days} substitution, rendered. A template that failed to substitute would show the
         // literal "{days}" — visible here, invisible to a test that only checks the template field.
         setContent { DeterministicTheme { RowsSettings(trial, copy, theme(), {}) } }
-        onNodeWithText("Trial — 6 days left").assertIsDisplayed()
+        onNodeWithText("Trial — 9 days left").assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW).assertDoesNotExist()
         onRoot().captureRoboImage(P_ROWS_TRIAL)
         assertCaptured(P_ROWS_TRIAL)
     }
@@ -202,9 +271,74 @@ class PayCraftPlanSectionScreenshotTest {
         setContent { DeterministicTheme { RowsSettings(noTarget, copy, theme(), {}) } }
         onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_STATUS_ROW).assertIsDisplayed()
         onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_MANAGE_ROW).assertDoesNotExist()
-        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW).assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW).assertDoesNotExist()
         onRoot().captureRoboImage(P_ROWS_NO_MANAGE)
         assertCaptured(P_ROWS_NO_MANAGE)
+    }
+
+    // ── Free tier, every style (Stitch sdk-plan-card 02 + 06) ────────────────────────────────────
+
+    @Test
+    fun card_free_render() = freeStyle(P_CARD_FREE) { CardSettings(free, copy, theme(), {}) }
+
+    @Test
+    fun minimal_free_render() = freeStyle(P_MINIMAL_FREE) { MinimalSettings(free, copy, theme(), {}) }
+
+    @Test
+    fun hero_free_render() = freeStyle(P_HERO_FREE) { HeroSettings(free, copy, theme(), {}) }
+
+    @Test
+    fun compact_free_render() = runComposeUiTest {
+        // Compact has room for ONE action: a free user's row opens the paywall; no restore inline.
+        setContent { DeterministicTheme { CompactSettings(free, theme(), {}) } }
+        onNodeWithText("Free plan — no active subscription").assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW).assertDoesNotExist()
+        onRoot().captureRoboImage(P_COMPACT_FREE)
+        assertCaptured(P_COMPACT_FREE)
+    }
+
+    private fun freeStyle(path: String, body: @Composable () -> Unit) = runComposeUiTest {
+        setContent { DeterministicTheme { body() } }
+        // Upgrade AND Restore, never Manage, and no billing owner — the free contract in every style.
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_UPGRADE_ROW).assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW).assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_MANAGE_ROW).assertDoesNotExist()
+        onRoot().captureRoboImage(path)
+        assertCaptured(path)
+    }
+
+    // ── Trial + cancelled, in the Card style the device ships (Stitch 03 / 05) ───────────────────
+
+    @Test
+    fun card_trial_render() = runComposeUiTest {
+        setContent { DeterministicTheme { CardSettings(trial, copy, theme(), {}) } }
+        onNodeWithText("Trial — 9 days left").assertIsDisplayed()
+        onNodeWithText("ACTIVE").assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_MANAGE_ROW).assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW).assertDoesNotExist()
+        onRoot().captureRoboImage(P_CARD_TRIAL)
+        assertCaptured(P_CARD_TRIAL)
+    }
+
+    @Test
+    fun card_cancelled_render() = runComposeUiTest {
+        // Auto-renew off: the chip must say CANCELLED, not ACTIVE, and Manage names the App Store.
+        setContent { DeterministicTheme { CardSettings(cancelled, copy, theme(), {}) } }
+        onNodeWithText("CANCELLED").assertIsDisplayed()
+        onNodeWithText("ACTIVE").assertDoesNotExist()
+        onNodeWithText("Expires 30 Nov 2026").assertIsDisplayed()
+        onNodeWithText("Cancel or change your plan in App Store").assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_RESTORE_ROW).assertDoesNotExist()
+        onRoot().captureRoboImage(P_CARD_CANCELLED)
+        assertCaptured(P_CARD_CANCELLED)
+    }
+
+    @Test
+    fun rows_cancelled_render() = runComposeUiTest {
+        setContent { DeterministicTheme { RowsSettings(cancelled, copy, theme(), {}) } }
+        onNodeWithText("CANCELLED").assertIsDisplayed()
+        onRoot().captureRoboImage(P_ROWS_CANCELLED)
+        assertCaptured(P_ROWS_CANCELLED)
     }
 
     // ── Theming ──────────────────────────────────────────────────────────────────────────────────
@@ -273,7 +407,7 @@ class PayCraftPlanSectionScreenshotTest {
         MaterialTheme(colorScheme = lightColorScheme()) {
             Box(
                 modifier = Modifier
-                    .size(width = 411.dp, height = 320.dp)
+                    .size(width = 411.dp, height = 400.dp)
                     .background(MaterialTheme.colorScheme.surface),
             ) {
                 PayCraftThemeProvider {
@@ -296,6 +430,8 @@ class PayCraftPlanSectionScreenshotTest {
         const val P_MINIMAL = "$DIR/plan_section_minimal_premium.png"
         const val P_ROWS = "$DIR/plan_section_rows_premium.png"
         const val P_CARD = "$DIR/plan_section_card_premium.png"
+        const val P_CARD_TEST = "$DIR/plan_section_card_premium_test.png"
+        const val P_CARD_TEST_LARGE = "$DIR/plan_section_card_test_cancelled_large_font.png"
         const val P_HERO = "$DIR/plan_section_hero_premium.png"
         const val P_COMPACT = "$DIR/plan_section_compact_premium.png"
         const val P_ROWS_FREE = "$DIR/plan_section_rows_free.png"
@@ -303,5 +439,12 @@ class PayCraftPlanSectionScreenshotTest {
         const val P_ROWS_NO_MANAGE = "$DIR/plan_section_rows_premium_no_manage.png"
         const val P_CARD_BADGE = "$DIR/plan_section_card_premium_badge.png"
         const val P_CARD_NO_BADGE = "$DIR/plan_section_card_premium_no_badge.png"
+        const val P_CARD_FREE = "$DIR/plan_section_card_free.png"
+        const val P_MINIMAL_FREE = "$DIR/plan_section_minimal_free.png"
+        const val P_HERO_FREE = "$DIR/plan_section_hero_free.png"
+        const val P_COMPACT_FREE = "$DIR/plan_section_compact_free.png"
+        const val P_CARD_TRIAL = "$DIR/plan_section_card_trial.png"
+        const val P_CARD_CANCELLED = "$DIR/plan_section_card_cancelled.png"
+        const val P_ROWS_CANCELLED = "$DIR/plan_section_rows_cancelled.png"
     }
 }

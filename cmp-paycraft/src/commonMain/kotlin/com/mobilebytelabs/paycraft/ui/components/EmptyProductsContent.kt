@@ -5,19 +5,11 @@
  */
 package com.mobilebytelabs.paycraft.ui.components
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_empty_products_body
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_empty_products_retry
@@ -38,26 +30,23 @@ import org.jetbrains.compose.resources.stringResource
  */
 @Composable
 fun EmptyProductsContent(onAction: (PayCraftPaywallAction) -> Unit, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.fillMaxWidth().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(
-            text = stringResource(Res.string.paycraft_empty_products_title),
-            style = MaterialTheme.typography.titleMedium,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            text = stringResource(Res.string.paycraft_empty_products_body),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.testTag(PayCraftTestTags.EMPTY_PRODUCTS_MESSAGE),
-        )
-        Button(
-            onClick = { onAction(PayCraftPaywallAction.RefreshStatus) },
-            modifier = Modifier.testTag(PayCraftTestTags.EMPTY_PRODUCTS_RETRY),
-        ) { Text(stringResource(Res.string.paycraft_empty_products_retry)) }
-    }
+    PaywallStateScreen(
+        modifier = modifier,
+        hero = {
+            PaywallStateHero(
+                icon = Icons.Outlined.StarOutline,
+                title = stringResource(Res.string.paycraft_empty_products_title),
+                body = stringResource(Res.string.paycraft_empty_products_body),
+                bodyModifier = Modifier.testTag(PayCraftTestTags.EMPTY_PRODUCTS_MESSAGE),
+            )
+        },
+        primary = {
+            PaywallPrimaryButton(
+                text = stringResource(Res.string.paycraft_empty_products_retry),
+                onClick = { onAction(PayCraftPaywallAction.RefreshStatus) },
+                modifier = Modifier.testTag(PayCraftTestTags.EMPTY_PRODUCTS_RETRY),
+            )
+        },
+        onRestore = { onAction(PayCraftPaywallAction.OpenRestoreSheet) },
+    )
 }

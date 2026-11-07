@@ -18,7 +18,7 @@
 // happens later via Stripe Checkout — this endpoint never mutates state.
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1"
 import {
   RateLimitError,
   rateLimitResponse,
@@ -57,7 +57,12 @@ serve(async (req: Request): Promise<Response> => {
   // 2. Per-tenant rate limit (60 attempts burst, 1 refill/sec) — protects
   //    against code-guessing brute force.
   try {
-    await requireRateLimit(supabase, tenantId, "coupon_validate", 60, 1)
+    // ipAddress was MISSING, so every argument shifted one place: the bucket became "60", maxTokens
+    // became 1 and refillPerSec was undefined — the comment above promised a 60-burst/1-per-sec
+    // limit and the call delivered a one-token bucket that never refilled. It is also the fallback
+    // key for a caller with no tenant, which a brute-force guard cannot do without.
+    const ipAddress = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown"
+    await requireRateLimit(supabase, tenantId, ipAddress, "coupon_validate", 60, 1)
   } catch (e) {
     if (e instanceof RateLimitError) return rateLimitResponse(e)
     throw e

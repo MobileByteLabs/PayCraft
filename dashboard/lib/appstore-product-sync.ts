@@ -706,7 +706,12 @@ async function ensureIntroductoryOffer(
 
   const failures: string[] = []
   let created = 0
-  for (const territory of missing) {
+  // Bounded concurrency, same as ensurePrice. One offer per priced territory is ~174 POSTs, and a
+  // serial loop at ~0.5s each runs past Cloudflare's 100s request limit: the platform kills the
+  // run before its terminal write, leaving the product at `syncing` (reels-downloader, 2026-11-06,
+  // when a 14-day trial was turned on). Ten at a time stays under App Store Connect's rate limit.
+  const OFFER_CONCURRENCY = 10
+  const createOffer = async (territory: string) => {
     const createRes = await ascFetch(token, `/v1/subscriptionIntroductoryOffers`, {
       method: "POST",
       body: JSON.stringify({
@@ -728,7 +733,7 @@ async function ensureIntroductoryOffer(
     })
     if (createRes.ok) {
       created++
-      continue
+      return
     }
     const body = await createRes.text()
     console.warn(
@@ -740,6 +745,9 @@ async function ensureIntroductoryOffer(
     // relationship is absent). The body was already being logged to a console nobody reads while
     // the actionable half was dropped from the message that actually reaches the dashboard.
     failures.push(`${territory} (${createRes.status}${ascErrorDetail(body)})`)
+  }
+  for (let i = 0; i < missing.length; i += OFFER_CONCURRENCY) {
+    await Promise.all(missing.slice(i, i + OFFER_CONCURRENCY).map(createOffer))
   }
 
   const totalCovered = covered.size + created

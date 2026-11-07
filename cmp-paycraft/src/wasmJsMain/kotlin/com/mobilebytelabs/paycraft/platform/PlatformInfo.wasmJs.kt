@@ -36,6 +36,7 @@ external fun detectWasmCountry(): String
 
 actual object PlatformInfo {
     actual val platform: String = "web"
+    actual val appId: String = ""
     actual val deviceName: String
         get() = detectWasmBrowserName()
     actual val deviceId: String

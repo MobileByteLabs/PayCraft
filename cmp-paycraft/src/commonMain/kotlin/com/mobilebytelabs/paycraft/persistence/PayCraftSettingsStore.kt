@@ -38,6 +38,7 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
         status.expiresAt?.let { settings.putString(KEY_CACHED_EXPIRES_AT, it) }
             ?: settings.remove(KEY_CACHED_EXPIRES_AT)
         settings.putBoolean(KEY_CACHED_WILL_RENEW, status.willRenew)
+        settings.putBoolean(KEY_CACHED_IS_TEST, status.isTest)
         settings.putLong(KEY_CACHED_LAST_SYNCED, currentTimeMillis())
     }
 
@@ -50,10 +51,15 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
             provider = settings.getStringOrNull(KEY_CACHED_PROVIDER),
             expiresAt = settings.getStringOrNull(KEY_CACHED_EXPIRES_AT),
             willRenew = settings.getBoolean(KEY_CACHED_WILL_RENEW, true),
+            isTest = settings.getBoolean(KEY_CACHED_IS_TEST, false),
         )
     }
 
     override fun getLastSyncedAt(): Long = settings.getLong(KEY_CACHED_LAST_SYNCED, 0L)
+
+    override fun isLinkPromptShown(): Boolean = settings.getBoolean(KEY_LINK_PROMPT_SHOWN, false)
+
+    override fun markLinkPromptShown() = settings.putBoolean(KEY_LINK_PROMPT_SHOWN, true)
 
     override fun clearCache() {
         settings.remove(KEY_CACHED_IS_PREMIUM)
@@ -61,6 +67,7 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
         settings.remove(KEY_CACHED_PROVIDER)
         settings.remove(KEY_CACHED_EXPIRES_AT)
         settings.remove(KEY_CACHED_WILL_RENEW)
+        settings.remove(KEY_CACHED_IS_TEST)
         settings.remove(KEY_CACHED_LAST_SYNCED)
     }
 
@@ -111,18 +118,54 @@ class PayCraftSettingsStore(private val settings: Settings = Settings()) : PayCr
 
     override fun clearDeviceToken() = settings.remove(KEY_DEVICE_TOKEN)
 
+    // ── Balance outbox ───────────────────────────────────────────────────────────────────────────
+    //
+    // One Settings key per queued write, prefixed by kind. A map rather than a single slot because
+    // several spends can be queued while offline, and collapsing them would lose all but the last.
+    // The VALUE carries sku + quantity; the KEY carries the idempotency key, which is the thing a
+    // replay must preserve.
+
+    override fun enqueueSpend(key: String, sku: String, quantity: Int) =
+        settings.putString(KEY_OUTBOX_SPEND + key, "$sku|$quantity")
+
+    override fun dequeueSpend(key: String) = settings.remove(KEY_OUTBOX_SPEND + key)
+
+    override fun pendingSpends(): List<PendingBalanceWrite> = readOutbox(KEY_OUTBOX_SPEND)
+
+    override fun enqueueEarn(eventId: String, sku: String, quantity: Int) =
+        settings.putString(KEY_OUTBOX_EARN + eventId, "$sku|$quantity")
+
+    override fun dequeueEarn(eventId: String) = settings.remove(KEY_OUTBOX_EARN + eventId)
+
+    override fun pendingEarns(): List<PendingBalanceWrite> = readOutbox(KEY_OUTBOX_EARN)
+
+    private fun readOutbox(prefix: String): List<PendingBalanceWrite> = settings.keys
+        .asSequence()
+        .filter { it.startsWith(prefix) }
+        .mapNotNull { k ->
+            val raw = settings.getStringOrNull(k) ?: return@mapNotNull null
+            val parts = raw.split("|")
+            val qty = parts.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
+            PendingBalanceWrite(id = k.removePrefix(prefix), sku = parts[0], quantity = qty)
+        }
+        .toList()
+
     private fun adUnlockKey(featureKey: String) = KEY_AD_UNLOCK_PREFIX + featureKey
 
     companion object {
         private const val KEY_EMAIL = "paycraft_subscription_email"
+        private const val KEY_LINK_PROMPT_SHOWN = "paycraft_link_prompt_shown"
         private const val KEY_CACHED_IS_PREMIUM = "paycraft_cached_is_premium"
         private const val KEY_CACHED_PLAN = "paycraft_cached_plan"
         private const val KEY_CACHED_PROVIDER = "paycraft_cached_provider"
         private const val KEY_CACHED_EXPIRES_AT = "paycraft_cached_expires_at"
         private const val KEY_CACHED_WILL_RENEW = "paycraft_cached_will_renew"
+        private const val KEY_CACHED_IS_TEST = "paycraft_cached_is_test"
         private const val KEY_CACHED_LAST_SYNCED = "paycraft_cached_last_synced"
         private const val KEY_AD_UNLOCK_PREFIX = "paycraft_ad_unlock_"
         private const val KEY_AD_UNLOCK_INDEX = "paycraft_ad_unlock_idx_"
         private const val KEY_DEVICE_TOKEN = "paycraft_device_token"
+        private const val KEY_OUTBOX_SPEND = "paycraft_outbox_spend_"
+        private const val KEY_OUTBOX_EARN = "paycraft_outbox_earn_"
     }
 }

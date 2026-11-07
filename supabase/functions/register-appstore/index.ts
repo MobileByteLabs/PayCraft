@@ -15,7 +15,9 @@
 // about; every field that decides entitlement comes from Apple:
 //   1. cryptographically verify the client's signed transaction JWS (x5c chain pinned to Apple
 //      Root CA - G3, ES256 signature) — a forged receipt cannot get past this;
-//   2. reject an originalTransactionId already bound to a different app_user_id (receipt sharing);
+//   2. bind the originalTransactionId to app_user_id via claimStoreTransaction — an ANONYMOUS
+//      holder transfers (reinstall / new phone / sign-in), a signed-in holder is refused with 409
+//      { code: "sign_in_required" };
 //   3. re-fetch authoritative status from the App Store Server API — the SAME source the
 //      apple-server-notifications webhook uses;
 //   4. reconcile ONE canonical entitlement record (idempotent, out-of-order safe);
@@ -28,8 +30,13 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { appleToCanonical, reconcileEntitlement } from "../_shared/entitlement-reconcile.ts";
-import { assertAppleTransactionNotReused, verifyStoreKit2Jws } from "../_shared/receipt-validate.ts";
-import { appStoreServerJwt } from "../_shared/apple-jwt.ts";
+import {
+  claimStoreTransaction,
+  StoreTransactionOwnedError,
+  verifyStoreKit2Jws,
+} from "../_shared/receipt-validate.ts";
+import { resolveInboundTenant } from "../_shared/inbound-tenant.ts";
+import { tenantAppStoreServerJwt } from "../_shared/apple-jwt.ts";
 
 /**
  * App Store Server API — "Get All Subscription Statuses". Identical call to the one
@@ -88,14 +95,17 @@ serve(async (req: Request) => {
       );
     }
 
-    // 2. Replay guard — the same subscription surfacing under a new app user is receipt sharing.
-    await assertAppleTransactionNotReused(originalTxn, appUserId);
+    // 2. Ownership — the JWS is verified, so this only decides WHO holds the subscription.
+    await claimStoreTransaction("app_store", originalTxn, appUserId);
 
     // 3. Authoritative re-fetch. The verified JWS proves the transaction is real, but its state can
     //    already be stale (a refund or cancellation issued after purchase), so Apple is asked.
     //    Environment comes from the signed payload, never from the client body.
+    //    The APP comes from the SIGNED bundleId; it decides both the record's tenant and which App
+    //    Store key may ask Apple (each app connects its own).
     const sandbox = txInfo.environment === "Sandbox";
-    const truth = await getAllSubscriptionStatuses(originalTxn, await appStoreServerJwt(), sandbox);
+    const { tenantId } = await resolveInboundTenant({ appIdentifier: txInfo.bundleId ?? null, provider: "app_store" });
+    const truth = await getAllSubscriptionStatuses(originalTxn, await tenantAppStoreServerJwt(tenantId), sandbox);
 
     // 4. Reconcile ONE canonical record. appleToCanonical resolves grace/billing-retry/revoked the
     //    same way the ASSN-V2 path does, so a later notification for this same subscription
@@ -104,6 +114,9 @@ serve(async (req: Request) => {
     // Bind the record to THIS app user — the canonical mapper keys on the Apple transaction and has
     // no knowledge of our identity namespace.
     canonical.appUserId = appUserId;
+    // Attributed to the APP — a NULL tenant never matches get_entitlements' tenant filter, so the
+    // purchase would vanish on read.
+    canonical.tenantId = tenantId;
     await reconcileEntitlement(canonical);
 
     // 5. Return the reconciled entitlement in the SDK EntitlementDto shape (epoch-millis).
@@ -122,6 +135,9 @@ serve(async (req: Request) => {
 
     return Response.json({ entitlement }, { status: 200 });
   } catch (err) {
+    if (err instanceof StoreTransactionOwnedError) {
+      return Response.json({ error: err.message, code: err.code }, { status: 409 });
+    }
     console.error("register-appstore error:", (err as Error).message);
     return Response.json({ error: (err as Error).message }, { status: 500 });
   }

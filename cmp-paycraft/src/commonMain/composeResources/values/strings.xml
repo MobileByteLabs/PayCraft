@@ -37,20 +37,13 @@
     <string name="paycraft_banner_premium_cd">Premium active</string>
     <string name="paycraft_banner_support_info">Having issues with your subscription? Email us at %1$s or create a ticket via Settings → Request Feature. Don’t forget to mention your email.</string>
 
-    <!-- Email input -->
-    <string name="paycraft_email_label">Email address</string>
-    <string name="paycraft_email_hint">you@example.com</string>
-    <string name="paycraft_email_error_empty">Please enter your email address</string>
-    <string name="paycraft_email_error_invalid">Please enter a valid email address</string>
-
-    <!-- Restore sheet -->
+    <!-- Restore sheet (Google / Apple sign-in only — the typed-email path was removed 2026-11-01) -->
     <string name="paycraft_restore_title">Restore Purchases</string>
-    <string name="paycraft_restore_description">Enter the email address you used when subscribing. We’ll check your subscription status.</string>
-    <string name="paycraft_restore_email_cd">Email address for subscription restore</string>
-    <string name="paycraft_restore_checking">Checking…</string>
+    <string name="paycraft_restore_description">Sign in with the account you subscribed with to restore your subscription on this device.</string>
+    <string name="paycraft_restore_checking">Checking your purchases…</string>
+    <string name="paycraft_restore_checking_body">Looking for your subscription in the store and on your account.</string>
     <string name="paycraft_restore_button">Restore Purchases</string>
     <string name="paycraft_restore_cancel">Cancel</string>
-    <string name="paycraft_restore_not_found">No subscription found for this email. Please check the address and try again.</string>
     <string name="paycraft_restore_success">Subscription restored successfully!</string>
 
     <!-- Subscribe CTA -->
@@ -101,22 +94,21 @@
     <string name="paycraft_plan_upgrade_description">%1$s — upgrade from your current plan</string>
 
     <!-- Restore — OAuth (Gate 1) -->
-    <string name="paycraft_restore_oauth_description">Sign in to instantly verify ownership of your subscription.</string>
     <string name="paycraft_restore_sign_in_google">Continue with Google</string>
     <string name="paycraft_restore_sign_in_apple">Continue with Apple</string>
-    <string name="paycraft_restore_or_email">Or restore with email</string>
     <string name="paycraft_restore_verifying_identity">Verifying identity…</string>
 
     <!-- Restore sheet — additional -->
-    <string name="paycraft_restore_hint">This is the email you used when you first subscribed or made a purchase.</string>
-    <!-- The lock-icon footer. Distinct from paycraft_restore_hint on purpose: both slots rendered
-         the SAME sentence, so the sheet said one thing twice and the padlock explained nothing.
-         A padlock promises privacy, so this says what happens to the address. -->
-    <string name="paycraft_restore_privacy">We only use this to look up your subscription. It is never shared.</string>
+    <!-- The lock-icon footer: a padlock promises privacy, so this says what happens to the account. -->
+    <string name="paycraft_restore_privacy">We only use your account to find your subscription. It is never shared.</string>
     <string name="paycraft_restore_success_title">Subscription Restored</string>
     <string name="paycraft_restore_success_message">Welcome back! Your premium access is now active.</string>
-    <string name="paycraft_restore_failed_title">Not Found</string>
-    <string name="paycraft_restore_failed_message">No active subscription found for this email. Check the address and try again, or contact support.</string>
+    <string name="paycraft_restore_signed_in_as">Signed in as %1$s</string>
+    <string name="paycraft_restore_failed_title">No subscription found</string>
+    <string name="paycraft_restore_failed_message">We couldn’t find an active subscription for %1$s. Try the account you subscribed with.</string>
+    <string name="paycraft_restore_network_title">Couldn’t check your purchases</string>
+    <string name="paycraft_restore_network_body">Check your connection and try again.</string>
+    <string name="paycraft_restore_retry">Try again</string>
 
     <!-- Banner — CTA variants -->
     <string name="paycraft_banner_cta_upgrade">Upgrade Plan</string>
@@ -168,6 +160,12 @@
     <string name="paycraft_device_conflict_account">Account: %1$s</string>
     <string name="paycraft_device_conflict_gate_oauth_google">Sign in with Google</string>
     <string name="paycraft_device_conflict_gate_oauth_apple">Sign in with Apple</string>
+    <!-- Post-purchase account link (PLAN-paycraft-native-identity D4): optional, once, after a store purchase. -->
+    <string name="paycraft_link_title">Keep your subscription on all your devices</string>
+    <string name="paycraft_link_body">Your subscription is linked to this phone right now. Sign in to restore it on any iPhone or Android device, even after reinstalling.</string>
+    <string name="paycraft_link_hint">Use the same account on every device.</string>
+    <string name="paycraft_link_not_now">Not now</string>
+    <string name="paycraft_link_done">Your subscription is linked to %1$s.</string>
     <string name="paycraft_device_conflict_gate_support">Contact %1$s</string>
     <string name="paycraft_device_conflict_gate_support_hint">Can’t use Google or Apple sign-in? Contact support to move your subscription.</string>
 
@@ -177,6 +175,24 @@
     <string name="paycraft_ownership_verified_body">Deactivate %1$s and transfer your subscription to this device?</string>
     <string name="paycraft_ownership_verified_confirm">Transfer here</string>
     <string name="paycraft_ownership_verified_cancel">Cancel</string>
+
+    <!-- sdk-account-link: D6 sign-in states (PLAN-paycraft-verified-identity) shared by the
+         restore sheet, the post-purchase link screen and the device-conflict gate. -->
+    <string name="paycraft_provider_google">Google</string>
+    <string name="paycraft_provider_apple">Apple</string>
+    <string name="paycraft_sign_in_opening">Opening %1$s…</string>
+    <string name="paycraft_sign_in_waiting_title">Finish signing in with %1$s</string>
+    <string name="paycraft_sign_in_waiting_body">Complete sign-in in the browser, then come back to this app. We will pick it up automatically.</string>
+    <!-- Android Custom Tab / iOS ASWebAuthenticationSession: the callback page brings the user back (D2b). -->
+    <string name="paycraft_sign_in_waiting_body_in_app">Finish signing in. You’ll be brought back automatically.</string>
+    <string name="paycraft_sign_in_waiting_cancel">Cancel sign-in</string>
+    <string name="paycraft_sign_in_failed_title">Couldn’t verify your account</string>
+    <string name="paycraft_restore_sign_in_cancelled">Sign-in cancelled. Choose an account to try again.</string>
+    <string name="paycraft_restore_sign_in_failed_body">We couldn’t confirm your sign-in. Please try again.</string>
+    <string name="paycraft_link_cancelled">Sign-in cancelled. Your purchase still works on this phone.</string>
+    <string name="paycraft_link_failed_body">Your purchase is safe on this phone. Try signing in again, or do it later from Restore Purchases.</string>
+    <string name="paycraft_device_conflict_other_device">another device</string>
+    <string name="paycraft_ownership_verified_other_device">the other device</string>
 
     <!-- Empty products (AC-26) — previously a disabled button and nothing else. -->
     <string name="paycraft_empty_products_title">No plans available right now</string>
@@ -191,7 +207,7 @@
     <!-- Phase 3a surfaces, given localised copy here so AC-28 can pair every state. -->
     <string name="paycraft_config_failed_body">We couldn’t reach the subscription service.</string>
     <string name="paycraft_offline_body">You’re offline. Reconnect to load the latest plans.</string>
-    <string name="paycraft_stale_body">Showing plans cached %1$s ago.</string>
+    <string name="paycraft_stale_body">Showing plans cached %1$s.</string>
 
     <!-- ═══ Resilience surfaces (AC-20..AC-22) — these were shipped as hardcoded English ═══
          The bodies below already existed (added for the AC-28 pairing) but were never referenced;
@@ -225,6 +241,37 @@
     <string name="paycraft_builtin_priced_label">%1$s — %2$s</string>
     <string name="paycraft_builtin_reload">Reload plans</string>
 
+    <!-- sdk-paywall: the paywall frame + Kotlin-owned state arms (Stitch conformance, 2026-11-01).
+         Every one of these was an English literal inside a composable. -->
+    <string name="paycraft_paywall_close_cd">Close paywall</string>
+    <string name="paycraft_paywall_terms">Terms</string>
+    <string name="paycraft_paywall_privacy">Privacy Policy</string>
+    <string name="paycraft_paywall_link_separator">·</string>
+    <string name="paycraft_paywall_attribution">Powered by PayCraft by MobileByteSensei</string>
+    <string name="paycraft_paywall_test_mode">TEST MODE — sandbox only, no real charges</string>
+    <string name="paycraft_paywall_load_failed">This paywall could not be loaded.</string>
+    <string name="paycraft_premium_title">You're Premium</string>
+    <string name="paycraft_premium_plan_line">Plan: %1$s</string>
+    <string name="paycraft_premium_renews_line">Renews %1$s</string>
+    <string name="paycraft_premium_trial_line">Trial: %1$d days remaining</string>
+    <string name="paycraft_status_active">ACTIVE</string>
+    <string name="paycraft_payment_pending_title">Payment pending</string>
+    <string name="paycraft_payment_pending_body">Your store is still processing this payment. It can take a few minutes, or up to a few days for cash and bank payments.</string>
+    <string name="paycraft_payment_pending_reassurance">Premium unlocks automatically once it clears — you don’t need to buy again.</string>
+    <string name="paycraft_plan_save">SAVE %1$s</string>
+    <string name="paycraft_period_week">/ week</string>
+    <string name="paycraft_period_month">/ month</string>
+    <string name="paycraft_period_month_short">/ mo</string>
+    <string name="paycraft_period_quarter">/ quarter</string>
+    <string name="paycraft_period_semiannual">/ 6 months</string>
+    <string name="paycraft_period_year">/ year</string>
+    <string name="paycraft_period_lifetime">one-time</string>
+    <string name="paycraft_provider_picker_title">Choose how to pay</string>
+    <string name="paycraft_provider_picker_close_cd">Close payment options</string>
+    <string name="paycraft_provider_picker_secure">Payments processed securely by your selected provider</string>
+    <string name="paycraft_provider_picker_more">More payment methods (%1$d)</string>
+    <string name="paycraft_provider_picker_hide">Hide</string>
+
     <!-- Subscription settings section (PayCraftPlanSection).
          These are the FALLBACKS for the dashboard-driven settings_* copy (migration 156): the SDK
          renders a tenant's value when they set one and these when they have not, so a tenant who
@@ -249,4 +296,24 @@
     <string name="paycraft_settings_premium_supporting">Subscription active</string>
     <string name="paycraft_settings_renews_on">Renews {date}</string>
     <string name="paycraft_settings_expires_on">Expires {date}</string>
+
+    <!-- sdk-plan-card: settings plan card + status strip (Stitch conformance, 2026-11-01).
+         The card's status chip reuses paycraft_banner_active_badge ("Active"); the provider row
+         reuses paycraft_settings_billed_through for its accessibility label. The strip labels moved
+         here from BannerPaywall.kt, where they were hardcoded English. -->
+    <string name="paycraft_plan_card_chip_cancelled">Cancelled</string>
+    <string name="paycraft_plan_card_manage_subtitle_store">Cancel or change your plan in %1$s</string>
+    <string name="paycraft_plan_card_manage_subtitle">Cancel or change your plan</string>
+    <string name="paycraft_plan_card_restore_subtitle">Recover a purchase you already made</string>
+    <string name="paycraft_strip_upgrade">Upgrade to Premium</string>
+    <string name="paycraft_strip_premium_active">Premium active</string>
+    <string name="paycraft_strip_trial_days_left">Free trial — %1$d days left</string>
+    <string name="paycraft_strip_checking">Checking your subscription…</string>
+    <string name="paycraft_strip_sync_failed">Couldn’t sync — tap to retry</string>
+    <string name="paycraft_strip_payment_pending">Payment pending — premium unlocks automatically</string>
+    <string name="paycraft_strip_verify_ownership">Verify ownership to continue</string>
+    <string name="paycraft_strip_manage">Manage subscription</string>
+    <!-- sdk-plan-card: test purchases renew in minutes -->
+    <string name="paycraft_date_today_at">today, %1$s</string>
+    <string name="paycraft_plan_card_chip_test">Test</string>
 </resources>

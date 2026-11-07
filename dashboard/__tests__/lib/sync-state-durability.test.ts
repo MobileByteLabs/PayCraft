@@ -84,6 +84,14 @@ describe("runProductSync — sync_state durability", () => {
     expect(verify).toMatch(/e\?\.message/)
   })
 
+  it("reads back with the CALLER'S client, never the cookie-session fallback", () => {
+    // An API/MCP sync has no cookies: omitting the client made the readback run as anon, fail to
+    // decrypt, and report "No Stripe live credentials" for a tenant that was billing fine
+    // (mbs/reels-downloader via MCP, 2026-11-06).
+    const verify = SRC.slice(SRC.indexOf("async function verifyStripeProduct("))
+    expect(verify).toMatch(/getConnectedStripeClient\(opts\.tenantId, "live", supabase\)/)
+  })
+
   it("never rolls an in-flight provider up to 'synced'", () => {
     const body = runProductSyncBody()
     // `syncing` is non-terminal, so a leftover in-flight entry must degrade the rollup.

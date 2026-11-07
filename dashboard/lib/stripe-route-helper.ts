@@ -1,6 +1,8 @@
 import { syncProductToStripe, toStripeInterval, type PriceInput } from "@/lib/stripe-product-sync"
 import { syncProductToRazorpay } from "@/lib/razorpay-product-sync"
 import { syncProductToCashfree } from "@/lib/cashfree-product-sync"
+import { syncInAppProductToGooglePlay } from "./googleplay-inapp-sync"
+import { syncInAppPurchaseToAppStore } from "./appstore-inapp-sync"
 import { syncProductToGooglePlay } from "@/lib/googleplay-product-sync"
 import { syncProductToAppStore } from "@/lib/appstore-product-sync"
 import { createClient } from "@/lib/supabase-server"
@@ -481,9 +483,11 @@ export async function googlePlaySyncProduct(
 ): Promise<{ error?: string; warning?: string; skipped?: boolean; reason?: string }> {
   const { tenantId, productId, body, existingPlayProductId } = opts
   try {
-    if (body.type !== "subscription") {
-      return { skipped: true, reason: "native stores only sync subscription products" }
-    }
+    // Managed products (consumable / one-time) are a DIFFERENT Play resource — `inappproducts`,
+    // not `monetization.subscriptions` — so they route to their own module below rather than being
+    // skipped. Until 2026-10-20 this returned "native stores only sync subscription products",
+    // which was honest but meant a coin pack could never reach Play through PayCraft at all.
+    const isManagedProduct = body.type === "consumable" || body.type === "one_time"
 
     const { data: status } = await supabase
       .rpc("tenant_providers_store_status", { p_tenant_id: tenantId, p_provider: "google_play" })
@@ -509,6 +513,34 @@ export async function googlePlaySyncProduct(
     // cart actually grants the trial the paywall advertises (Subscriptions policy).
     // Android reads the per-platform 'android' value (0 → W2 teardown removes the offer).
     const trialDays = resolvePlatformTrialDays(body, "android")
+
+    if (isManagedProduct) {
+      const inapp = await syncInAppProductToGooglePlay(
+        { serviceAccountJson: decrypted.credential, packageName },
+        productId,
+        body.sku,
+        body.display_name,
+        prices,
+        typeof body.grant_quantity === "number" ? body.grant_quantity : null,
+        existingPlayProductId,
+        body.store_description ?? null,
+      )
+      if (inapp.error) return { error: inapp.error }
+      await supabase.rpc("tenant_products_set_store_ids", {
+        p_id: productId,
+        p_play_product_id: inapp.playProductId,
+        p_app_store_product_id: null,
+      })
+      // Same reporting discipline as the subscription path: a managed product that exists but is
+      // not yet purchasable is a WARNING the operator must see, never a silent success.
+      if (!inapp.active) {
+        return {
+          warning:
+            "synced, but the Play managed product is not active — publish the app on Play (upload an APK/AAB), then re-sync",
+        }
+      }
+      return {}
+    }
 
     const result = await syncProductToGooglePlay(
       { serviceAccountJson: decrypted.credential, packageName },
@@ -580,9 +612,11 @@ export async function appStoreSyncProduct(
 ): Promise<{ error?: string; warning?: string; skipped?: boolean; reason?: string }> {
   const { tenantId, productId, body, existingAppStoreProductId } = opts
   try {
-    if (body.type !== "subscription") {
-      return { skipped: true, reason: "native stores only sync subscription products" }
-    }
+    // Consumables / one-time unlocks are a different ASC resource (`inAppPurchases`, no
+    // subscription group, no cadence, price via a SCHEDULE), so they route to their own module
+    // below. Apple — unlike Play — models consumable-ness explicitly, and the type is IMMUTABLE
+    // after creation, so it is derived from the PayCraft row rather than defaulted.
+    const isInAppPurchase = body.type === "consumable" || body.type === "one_time"
 
     const { data: status } = await supabase
       .rpc("tenant_providers_store_status", { p_tenant_id: tenantId, p_provider: "app_store" })
@@ -607,6 +641,42 @@ export async function appStoreSyncProduct(
     // iOS (App Store) reads the per-platform 'ios' value (0 → W2 teardown removes
     // the StoreKit introductory offer).
     const trialDays = resolvePlatformTrialDays(body, "ios")
+
+    if (isInAppPurchase) {
+      const iap = await syncInAppPurchaseToAppStore(
+        {
+          keyId: cfg.key_id,
+          issuerId: cfg.issuer_id,
+          bundleId: cfg.bundle_id,
+          privateKeyP8: decrypted.credential,
+        },
+        productId,
+        body.sku,
+        body.display_name,
+        body.type,
+        prices,
+        typeof body.grant_quantity === "number" ? body.grant_quantity : null,
+        existingAppStoreProductId,
+        body.store_description ?? null,
+      )
+      if (iap.error) return { error: iap.error }
+      await supabase.rpc("tenant_products_set_store_ids", {
+        p_id: productId,
+        p_play_product_id: null,
+        p_app_store_product_id: iap.appStoreProductId,
+      })
+      // MISSING_METADATA is the NORMAL state of a freshly created IAP — it needs a localization,
+      // a price and a review screenshot before it can be submitted. Reported as a warning so the
+      // operator knows there is a step left, never as success and never as failure.
+      if (iap.warning || iap.state === "MISSING_METADATA") {
+        return {
+          warning:
+            iap.warning ??
+            "synced, but the App Store in-app purchase is still MISSING_METADATA — add a review screenshot in App Store Connect, then submit it with your next app version",
+        }
+      }
+      return {}
+    }
 
     const result = await syncProductToAppStore(
       {
@@ -724,6 +794,12 @@ export interface ProviderSyncEntry {
    * no pricing / product type unsupported / DRAFT-until-published / real error).
    */
   reason?: string
+  /**
+   * When a `syncing` marker was written. A run killed by the platform (Cloudflare drops a request
+   * at 100s) never overwrites its marker, so without a start time an abandoned sync and a running
+   * one look identical — and the drift drain, seeing neither, left them stuck forever.
+   */
+  started_at?: string
 }
 
 export interface ProductSyncSummary {
@@ -864,8 +940,9 @@ export async function runProductSync(
   //
   // Only the keys in THIS run are reset; providers not being synced keep their recorded state,
   // which is the merge semantics the RPC exists for (a single-provider retry must not wipe the rest).
+  const startedAt = new Date().toISOString()
   const inFlight = Object.fromEntries(
-    keys.map((k) => [k, { status: "syncing", reason: "sync in progress" } as ProviderSyncEntry]),
+    keys.map((k) => [k, { status: "syncing", reason: "sync in progress", started_at: startedAt } as ProviderSyncEntry]),
   )
   await supabase.rpc("tenant_products_set_sync_state", {
     p_id: productId,
@@ -980,7 +1057,11 @@ async function verifyStripeProduct(
       const reason = "stripe reported synced but no stripe_product_id was recorded"
       return { status: "failed", error: reason, reason }
     }
-    const stripe = await getConnectedStripeClient(opts.tenantId, "live")
+    // Pass the caller's client: the sync above authenticated with it, so the readback must too.
+    // Without it the lookup falls back to the cookie session, which an API/MCP call does not have,
+    // runs as anon, and reports "No Stripe live credentials" for a tenant that is billing fine
+    // (reels-downloader via MCP, 2026-11-06).
+    const stripe = await getConnectedStripeClient(opts.tenantId, "live", supabase)
     if (!stripe) return null // no live client resolvable here — the live-readiness gate owns that
     const remote = await stripe.products.retrieve(id)
     if (!remote || remote.active === false) {

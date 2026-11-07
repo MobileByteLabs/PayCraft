@@ -510,6 +510,11 @@ verify_jwt = false
 verify_jwt = false
 [functions.register-appstore]
 verify_jwt = false
+# identity-token: /start and /callback are BROWSER redirects (Google GET, Apple form_post) that can
+# hold no Supabase JWT. Each route authenticates itself: /verify + /start + /result require the
+# tenant api_key, /callback only acts on a one-time pending session id and a provider-signed token.
+[functions.identity-token]
+verify_jwt = false
 
 # ── Store server-to-server callbacks: verify_jwt MUST be false ────────────────────────────────────
 #

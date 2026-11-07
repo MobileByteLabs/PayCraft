@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
@@ -58,10 +58,20 @@ export default function OnboardingPage() {
   const [loadingState, setLoadingState] = useState(true)
   const step: Step = deriveStep(serverState)
 
+  // Which app this wizard is onboarding. Pinned once known (provisioned here, or resolved by the
+  // server on first load) and sent on every read: without it the server resolves the ACTIVE app,
+  // which right after provisioning is still the previously-selected one.
+  const wizardTenantId = useRef<string | null>(null)
+
   const refreshState = useCallback(async () => {
     try {
-      const res = await fetch("/api/onboarding/state")
-      if (res.ok) setServerState((await res.json()) as CustomerState)
+      const q = wizardTenantId.current ? `?tenant_id=${encodeURIComponent(wizardTenantId.current)}` : ""
+      const res = await fetch(`/api/onboarding/state${q}`)
+      if (res.ok) {
+        const state = (await res.json()) as CustomerState
+        wizardTenantId.current = state.tenant?.id ?? wizardTenantId.current
+        setServerState(state)
+      }
     } finally {
       setLoadingState(false)
     }
@@ -109,6 +119,7 @@ export default function OnboardingPage() {
     }
     const t = await res.json()
     setTenant(t)
+    wizardTenantId.current = t?.id ?? wizardTenantId.current
     // No local step bump: the tenant now exists, so deriveStep moves to 2 on its own.
     await refreshState()
   }

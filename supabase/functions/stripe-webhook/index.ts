@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
 import Stripe from "https://esm.sh/stripe@14.0.0?target=deno";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3?target=deno";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno";
+import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
 /**
@@ -63,7 +64,7 @@ async function loadTenantCreds(
       p_provider: "stripe",
       p_mode: mode,
     })
-    .maybeSingle();
+    .maybeSingle<{ secret_key: string | null; webhook_secret: string | null; key_id: string | null; credential: string | null }>();
   if (error) {
     console.error(
       `[stripe-webhook] tenant_providers_decrypt_for_webhook failed (tenant=${tenantId}, mode=${mode}): ${error.message}`,
@@ -241,6 +242,35 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
               `[stripe-webhook] payment-mode session ${session.id} not yet paid (payment_status=${session.payment_status}); awaiting settlement`,
             );
             break;
+          }
+
+          // CONSUMABLE / one-time packs are credited to a BALANCE, not granted as access. Without
+          // this branch a coin pack bought on Stripe synthesized the lifetime-entitlement row
+          // below — handing the buyer permanent premium instead of the currency they paid for,
+          // and still leaving their balance at zero. Routed by the CATALOGUE's type, so the
+          // decision cannot drift from what the product actually is.
+          const consumableSku = session.metadata?.plan_id || null;
+          const consumable = await handleConsumablePurchase({
+            tenantId,
+            email,
+            sku: consumableSku,
+            stableTxnId: (session.payment_intent as string) || `cs-${session.id}`,
+            provider: "stripe",
+            eventType: event.type,
+          });
+          if (consumable.granted) {
+            console.log(
+              `[stripe-webhook] granted ${consumable.quantity} of ${consumableSku} to ${email} (balance ${consumable.balance})`,
+            );
+            break;
+          }
+          // Not a consumable → fall through to the lifetime path. Anything else is logged with the
+          // reason: the buyer HAS been charged, so a refusal must never be silent.
+          if (consumable.reason && !consumable.reason.includes("not in this tenant's catalogue") &&
+              !consumable.reason.includes("not a consumable")) {
+            console.error(
+              `[stripe-webhook] consumable grant refused for ${consumableSku}: ${consumable.reason}`,
+            );
           }
 
           // ~100 years out — mirrors the SQL `NOW() + INTERVAL '100 years'`.
@@ -431,7 +461,10 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
  * increments are acceptable for this counter.
  */
 async function maybeIncrementCouponRedemption(
-  supabase: ReturnType<typeof createClient>,
+  // SupabaseClient, not ReturnType<typeof createClient>: the bare return type carries an EMPTY
+  // schema, which types every rpc() argument object as `undefined` and makes a correct call a
+  // compile error. The explicit client type is what the rest of the edge functions use.
+  supabase: SupabaseClient,
   sub: Stripe.Subscription,
 ): Promise<void> {
   const legacyCouponId = (sub as any).discount?.coupon?.id as string | undefined;

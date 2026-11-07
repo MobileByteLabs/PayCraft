@@ -1,7 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
-import { createHmac } from "https://deno.land/std@0.177.0/crypto/mod.ts";
 
 /**
  * Paddle Webhook Handler.

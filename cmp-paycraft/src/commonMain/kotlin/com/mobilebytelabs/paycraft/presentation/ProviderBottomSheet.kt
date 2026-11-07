@@ -2,6 +2,7 @@ package com.mobilebytelabs.paycraft.presentation
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,13 +17,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -35,20 +39,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.mobilebytelabs.paycraft.config.ProviderDto
+import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_provider_picker_close_cd
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_provider_picker_hide
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_provider_picker_more
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_provider_picker_secure
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_provider_picker_title
 import com.mobilebytelabs.paycraft.model.BillingPlan
+import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * Modal bottom sheet that lets the user choose a payment provider after selecting a plan.
  *
  * Shown by [ProviderPicker.AutoSkipWhenSingle] when 2+ providers are available,
  * or always when [ProviderPicker.BottomSheet] is the active strategy.
- *
- * Layout per provider: brand-coloured tile + provider name + locale-aware
- * recommendation badge + concrete payment-method chips (so the buyer can see
- * exactly which methods they'll be offered before committing).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,12 +75,14 @@ fun ProviderBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        containerColor = PayCraftTheme.colors.surface,
     ) {
         ProviderPickerContent(
             providers = providers,
             selectedPlan = selectedPlan,
             maxVisible = maxVisible,
             onProviderPicked = onProviderPicked,
+            onDismiss = onDismiss,
         )
     }
 }
@@ -82,6 +95,15 @@ fun ProviderBottomSheet(
  * window on top of it. Nested modal sheets each carry their own scrim and window, which stack
  * unpredictably and darken the sheet underneath (UI-3).
  *
+ * Layout follows Stitch sdk-paywall 04: title + close, the plan summary row between hairlines, one
+ * row per provider (brand tile, name, what it accepts), and the security footnote.
+ *
+ * BEHAVIOUR DIFFERS FROM STITCH ON PURPOSE: Stitch draws radios with an implied confirm step. Here a
+ * row tap starts that provider's checkout immediately — the existing purchase contract
+ * ([PayCraftPaywallAction.CheckoutWithProvider] per tap). So rows carry a chevron, not a radio, and
+ * the locale-recommended provider is ringed rather than "selected": a radio that does not select
+ * would lie about what the tap does.
+ *
  * [ProviderBottomSheet] remains the right entry point when the paywall is rendered full-screen.
  */
 @Composable
@@ -90,30 +112,67 @@ fun ProviderPickerContent(
     selectedPlan: BillingPlan? = null,
     maxVisible: Int = 4,
     onProviderPicked: (ProviderDto) -> Unit,
+    onDismiss: (() -> Unit)? = null,
 ) {
+    val colors = PayCraftTheme.colors
     val recommended = recommendedProviderKey(providers, selectedPlan)
-    Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
-        // Header — title + plan summary
-        Text(
-            text = "Choose a payment method",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-        )
-        if (selectedPlan != null) {
-            Spacer(Modifier.height(2.dp))
+    Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 24.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "${selectedPlan.name} · ${selectedPlan.price}/${planIntervalSuffix(selectedPlan.interval)}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = stringResource(Res.string.paycraft_provider_picker_title),
+                color = colors.onSurface,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
             )
+            if (onDismiss != null) {
+                val closeCd = stringResource(Res.string.paycraft_provider_picker_close_cd)
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(colors.onSurface.copy(alpha = 0.06f))
+                        .semantics { contentDescription = closeCd },
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = null,
+                        tint = colors.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        HorizontalDivider(color = colors.divider)
+        if (selectedPlan != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = selectedPlan.name,
+                    color = colors.onSurfaceVariant,
+                    fontSize = 15.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "${selectedPlan.price} / ${planIntervalSuffix(selectedPlan.interval)}",
+                    color = colors.onSurface,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            HorizontalDivider(color = colors.divider)
         }
         Spacer(Modifier.height(16.dp))
 
         val visible = providers.take(maxVisible)
         val overflow = providers.drop(maxVisible)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(visible, key = { it.provider }) { p ->
-                ProviderTile(
+                ProviderRow(
                     provider = p,
                     isRecommended = p.provider == recommended,
                     onClick = { onProviderPicked(p) },
@@ -126,71 +185,70 @@ fun ProviderPickerContent(
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(20.dp))
         SecureFooter()
     }
 }
 
 @Composable
-private fun ProviderTile(provider: ProviderDto, isRecommended: Boolean, onClick: () -> Unit) {
-    val brand = brandColorFor(provider.provider)
-    val borderColor = if (isRecommended) brand else Color.Transparent
-    Card(
-        onClick = onClick,
+private fun ProviderRow(provider: ProviderDto, isRecommended: Boolean, onClick: () -> Unit) {
+    val colors = PayCraftTheme.colors
+    val shape = RoundedCornerShape(16.dp)
+    Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(shape)
+            .background(if (isRecommended) colors.accent.copy(alpha = 0.08f) else colors.onSurface.copy(alpha = 0.03f))
             .border(
-                width = if (isRecommended) 2.dp else 0.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(12.dp),
-            ),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-        ),
+                width = if (isRecommended) 1.5.dp else 1.dp,
+                color = if (isRecommended) colors.accent else colors.onSurface.copy(alpha = 0.14f),
+                shape = shape,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            if (isRecommended) {
-                RecommendedBadge(brand)
-                Spacer(Modifier.height(8.dp))
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ProviderBadge(provider.provider, brand)
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = displayLabelFor(provider.provider),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = taglineFor(provider.provider),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            MethodChips(methodsFor(provider.provider))
+        ProviderBadge(provider.provider)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = displayLabelFor(provider.provider),
+                color = colors.onSurface,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = taglineFor(provider.provider),
+                color = colors.onSurfaceVariant,
+                fontSize = 13.sp,
+            )
         }
+        Spacer(Modifier.width(8.dp))
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = if (isRecommended) colors.accent else colors.onSurfaceVariant,
+            modifier = Modifier.size(22.dp),
+        )
     }
 }
 
+/** Rounded-square brand tile (Stitch 04). Bundled marks keep their own brand fill. */
 @Composable
-private fun ProviderBadge(providerKey: String, brand: Color) {
+private fun ProviderBadge(providerKey: String) {
     val icon = providerIconFor(providerKey)
+    val brand = brandColorFor(providerKey)
+    val shape = RoundedCornerShape(12.dp)
     Box(
         modifier = Modifier
             .size(44.dp)
-            .clip(CircleShape)
-            .background(if (icon != null) Color.White else brand),
+            .clip(shape)
+            .background(if (icon != null) Color.White else brand)
+            .border(1.dp, PayCraftTheme.colors.divider, shape),
         contentAlignment = Alignment.Center,
     ) {
         if (icon != null) {
-            // Render the brand wordmark inset within the white circle so the
-            // mark reads cleanly at small sizes; the icon's own SolidColor
-            // fill carries the brand color.
             Icon(
                 imageVector = icon,
                 contentDescription = providerKey,
@@ -199,9 +257,8 @@ private fun ProviderBadge(providerKey: String, brand: Color) {
             )
         } else {
             // Fallback for providers without a bundled icon — initials on brand colour.
-            val short = providerKey.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
             Text(
-                text = short,
+                text = providerKey.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
@@ -211,63 +268,24 @@ private fun ProviderBadge(providerKey: String, brand: Color) {
 }
 
 @Composable
-private fun RecommendedBadge(brand: Color) {
-    Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = brand.copy(alpha = 0.12f),
-    ) {
-        Text(
-            text = "Recommended for you",
-            style = MaterialTheme.typography.labelSmall,
-            color = brand,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-        )
-    }
-}
-
-@Composable
-private fun MethodChips(methods: List<String>) {
-    // Plain Row + manual wrap into rows of 3-4 chips per row. Avoids depending
-    // on FlowRow (material3 wrapper) to keep KMP common-source bundle lean.
-    val rows = methods.chunked(3)
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        rows.forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                row.forEach { m -> MethodChip(m) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MethodChip(label: String) {
-    Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-        )
-    }
-}
-
-@Composable
 private fun SecureFooter() {
+    val colors = PayCraftTheme.colors
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
+        Icon(
+            imageVector = Icons.Outlined.Lock,
+            contentDescription = null,
+            tint = colors.onSurfaceVariant,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(6.dp))
         Text(
-            text = "🔒  Payments processed securely by your selected provider",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            text = stringResource(Res.string.paycraft_provider_picker_secure),
+            color = colors.onSurfaceVariant,
+            fontSize = 12.sp,
         )
     }
 }
@@ -276,12 +294,18 @@ private fun SecureFooter() {
 private fun ExpandableMoreProviders(rest: List<ProviderDto>, onPick: (ProviderDto) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     TextButton(onClick = { expanded = !expanded }) {
-        Text(text = if (expanded) "Hide" else "More payment methods (${rest.size})")
+        Text(
+            text = if (expanded) {
+                stringResource(Res.string.paycraft_provider_picker_hide)
+            } else {
+                stringResource(Res.string.paycraft_provider_picker_more, rest.size)
+            },
+        )
     }
     if (expanded) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             rest.forEach { p ->
-                ProviderTile(p, isRecommended = false) { onPick(p) }
+                ProviderRow(p, isRecommended = false) { onPick(p) }
             }
         }
     }

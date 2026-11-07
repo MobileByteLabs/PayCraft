@@ -1,3 +1,4 @@
+import type { SyncProductType } from "./product-write"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type Stripe from "stripe"
 import { getConnectedStripeClient } from "./stripe-client"
@@ -71,7 +72,7 @@ export async function syncProductToStripe(
   tenantId: string,
   productId: string,
   productName: string,
-  productType: "subscription" | "trial" | "lifetime",
+  productType: SyncProductType,
   stripeInterval: StripeInterval | null,
   prices: PriceInput[],
   existing: SyncProductOptions = {},

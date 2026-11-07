@@ -21,6 +21,7 @@ import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.core.SyncPolicy
 import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_date_today_at
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_get_premium
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_manage_subscription
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_button
@@ -41,8 +42,12 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_trial_s
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.EntitlementTier
 import com.mobilebytelabs.paycraft.repository.PayCraftRepository
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 /**
  * The subscription section of a host's Settings screen — status, manage, restore — resolved from
@@ -125,6 +130,24 @@ internal data class PlanSectionState(
      */
     val billedThrough: String?,
 
+    /**
+     * The billing provider's wire slug (`google_play`, `app_store`, `razorpay`…) behind
+     * [billedThrough] — null exactly when that is. The card draws the store's own name and glyph on
+     * its provider row, and words the Manage subtitle after it ("…in Google Play"), so it needs the
+     * slug rather than the finished sentence.
+     */
+    val provider: String? = null,
+
+    /**
+     * An entitled subscription that will NOT renew — the user turned auto-renew off and keeps
+     * access until [supportingText]'s "Expires …" date. Drives the warning chip and pill: the card
+     * must not wear an "Active" chip for a plan that is already on its way out.
+     */
+    val cancelled: Boolean = false,
+
+    /** A store TEST purchase — drawn with a "TEST" chip so a 30-minute "yearly" renewal reads as expected. */
+    val isTest: Boolean = false,
+
     /** Opens the provider portal or the platform's store subscriptions page. */
     val onManage: () -> Unit,
     /**
@@ -134,8 +157,10 @@ internal data class PlanSectionState(
      * made every caller of this state own the sheet's visibility; [rememberRestorePresenter] now
      * emits the sheet and hands back only this, so there is one place in the SDK where restore is
      * presented rather than one per surface that offers it.
+     *
+     * Null once the user HAS an entitlement (premium or trial) — see [restoreActionFor].
      */
-    val onRestoreClick: () -> Unit,
+    val onRestoreClick: (() -> Unit)?,
 )
 
 /**
@@ -166,6 +191,7 @@ internal fun rememberSubscriptionSettingsState(
     val configured = PayCraft.isConfigured
     val manageUrl = repo.manageSubscriptionUrl()
 
+    val todayAt = stringResource(Res.string.paycraft_date_today_at)
     val supporting = when (entitlement.tier) {
         EntitlementTier.FREE -> copy.freeSupporting
         EntitlementTier.TRIAL -> {
@@ -183,8 +209,8 @@ internal fun rememberSubscriptionSettingsState(
             val date = status.expiresAt
             when {
                 date == null -> copy.premiumSupporting
-                status.willRenew -> copy.renewsOn(formatDate(date))
-                else -> copy.expiresOn(formatDate(date))
+                status.willRenew -> copy.renewsOn(formatRenewalDate(date, todayAt))
+                else -> copy.expiresOn(formatRenewalDate(date, todayAt))
             }
         }
     }
@@ -192,9 +218,13 @@ internal fun rememberSubscriptionSettingsState(
     // The SAME StateFlow the paywall renders from. Deriving a second price here — off ProductDto's
     // base_price_cents, say — would quote the catalogue price while the paywall quotes the native
     // store's, and the two disagree exactly where it matters (a Play price differs by region/offer).
+    // Consumables excluded: the FREE-tier branch below takes minByOrNull { rank }, which would
+    // otherwise offer a coin pack as the upgrade. Collected (not PayCraft.subscriptionPlans) so a
+    // dashboard edit still reaches an open screen.
     val plans by repo.plans.collectAsState()
+    val sellablePlans = plans.filterNot { it.isConsumable }
 
-    val priced = planLineFor(entitlement.tier, entitlement.planSku, plans, copy)
+    val priced = planLineFor(entitlement.tier, entitlement.planSku, sellablePlans, copy)
 
     return PlanSectionState(
         visible = configured,
@@ -203,6 +233,9 @@ internal fun rememberSubscriptionSettingsState(
         // Only for someone who actually has a subscription — a free user has no billing owner, and
         // naming one would imply a relationship that does not exist.
         billedThrough = billedThroughFor(entitlement.tier, status.provider, copy),
+        provider = providerFor(entitlement.tier, status.provider),
+        cancelled = entitlement.tier == EntitlementTier.PREMIUM && status.expiresAt != null && !status.willRenew,
+        isTest = entitlement.tier != EntitlementTier.FREE && status.isTest,
         statusLabel = when (entitlement.tier) {
             EntitlementTier.FREE -> copy.freeLabel
             EntitlementTier.TRIAL -> copy.trialLabel
@@ -211,9 +244,17 @@ internal fun rememberSubscriptionSettingsState(
         supportingText = supporting,
         canManage = manageUrl != null,
         onManage = { repo.manageSubscription() },
-        onRestoreClick = showRestore,
+        onRestoreClick = restoreActionFor(entitlement.tier, showRestore),
     )
 }
+
+/**
+ * Restore is offered only to someone with NOTHING to show yet. Once the subscription has been
+ * fetched (premium or trial) it is a dead action that reads like "your purchase might be missing"
+ * — device feedback 2026-10-31: Settings showed Manage + Restore for a Premium user.
+ */
+internal fun restoreActionFor(tier: EntitlementTier, restore: () -> Unit): (() -> Unit)? =
+    if (tier == EntitlementTier.FREE) restore else null
 
 /**
  * The plan the card should quote, as a finished line.
@@ -255,11 +296,12 @@ internal fun planLineFor(
  * behind): naming a billing owner for someone with no subscription implies a relationship that does
  * not exist, and sends them to a store page that will show nothing.
  */
-internal fun billedThroughFor(tier: EntitlementTier, provider: String?, copy: PlanSectionCopy): String? {
-    if (tier == EntitlementTier.FREE) return null
-    val slug = provider?.takeIf { it.isNotBlank() } ?: return null
-    return copy.billedThrough(storeDisplayName(slug))
-}
+internal fun billedThroughFor(tier: EntitlementTier, provider: String?, copy: PlanSectionCopy): String? =
+    providerFor(tier, provider)?.let { copy.billedThrough(storeDisplayName(it)) }
+
+/** The provider slug worth naming on the card — the same rule as [billedThroughFor], unformatted. */
+internal fun providerFor(tier: EntitlementTier, provider: String?): String? =
+    if (tier == EntitlementTier.FREE) null else provider?.takeIf { it.isNotBlank() }
 
 /**
  * A provider slug as a person would read it.
@@ -269,7 +311,7 @@ internal fun billedThroughFor(tier: EntitlementTier, provider: String?, copy: Pl
  * device settings. Anything else — a web provider — is title-cased from its own slug rather than
  * mapped, so a tenant adding a provider does not need an SDK release to have it read properly.
  */
-private fun storeDisplayName(provider: String): String = when (provider) {
+internal fun storeDisplayName(provider: String): String = when (provider) {
     "google_play" -> "Google Play"
     "app_store" -> "App Store"
     else -> provider.split('_', '-').joinToString(" ") { part ->
@@ -448,6 +490,27 @@ private const val DAY_MS = 24L * 60 * 60 * 1000
  * a worse answer than a stable unambiguous format. A tenant who needs a different shape controls the
  * surrounding sentence through `settings_renews_on`.
  */
+/**
+ * [formatDate], except a moment that falls on TODAY (device time zone) reads "today, 11:12 PM".
+ *
+ * Store testers renew in minutes — a Play license-tester "yearly" plan renews every 30 minutes — so a
+ * bare date shows today's date for a yearly plan and looks broken (user report 2026-11-01). Same-day
+ * real renewals benefit the same way.
+ */
+internal fun formatRenewalDate(
+    iso: String,
+    todayAtTemplate: String,
+    now: Instant = Clock.System.now(),
+    zone: TimeZone = TimeZone.currentSystemDefault(),
+): String {
+    val at = runCatching { Instant.parse(iso) }.getOrNull() ?: return formatDate(iso)
+    val local = at.toLocalDateTime(zone)
+    if (local.date != now.toLocalDateTime(zone).date) return formatDate(iso)
+    val hour12 = (local.hour % 12).let { if (it == 0) 12 else it }
+    val time = "$hour12:${local.minute.toString().padStart(2, '0')} ${if (local.hour < 12) "AM" else "PM"}"
+    return todayAtTemplate.replace("%1\$s", time)
+}
+
 internal fun formatDate(iso: String): String {
     val date = iso.substringBefore('T').split('-')
     if (date.size != 3) return iso

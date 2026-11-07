@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_builtin_disclaimer
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_builtin_priced_label
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_builtin_reload
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_builtin_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_builtin_trial_label
 import com.mobilebytelabs.paycraft.model.Product
@@ -101,7 +102,7 @@ fun BuiltInPaywall(
             onClick = onRetry,
             modifier = Modifier.fillMaxWidth().testTag(PayCraftTestTags.CONFIG_FAILED_RETRY),
         ) {
-            Text("Reload plans")
+            Text(stringResource(Res.string.paycraft_builtin_reload))
         }
     }
 }

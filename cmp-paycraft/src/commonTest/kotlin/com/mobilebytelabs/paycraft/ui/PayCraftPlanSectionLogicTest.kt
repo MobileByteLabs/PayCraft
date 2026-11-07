@@ -3,6 +3,7 @@ package com.mobilebytelabs.paycraft.ui
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.EntitlementTier
+import com.mobilebytelabs.paycraft.model.toSubscriptionStatus
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -47,6 +48,23 @@ class PayCraftPlanSectionLogicTest {
 
     private fun isLeap(y: Int) = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
     private fun monthLengths(y: Int) = intArrayOf(31, if (isLeap(y)) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+
+    // ── restoreActionFor ─────────────────────────────────────────────────────────────────────────
+    // Restore is for someone who has NOTHING yet. Offering it to a subscriber whose entitlement was
+    // already fetched is a dead action that reads like "your purchase might be missing" (device
+    // feedback, 2026-10-31: Settings showed Manage + Restore for a Premium user).
+
+    @Test
+    fun restore_is_offered_to_a_free_user() {
+        val restore = {}
+        assertEquals(restore, restoreActionFor(EntitlementTier.FREE, restore))
+    }
+
+    @Test
+    fun restore_is_hidden_once_premium_or_trialing() {
+        assertNull(restoreActionFor(EntitlementTier.PREMIUM) {})
+        assertNull(restoreActionFor(EntitlementTier.TRIAL) {})
+    }
 
     // ── daysUntil ────────────────────────────────────────────────────────────────────────────────
 
@@ -272,6 +290,44 @@ class PayCraftPlanSectionLogicTest {
         assertNull(billedThroughFor(EntitlementTier.FREE, "google_play", bundled))
         assertNull(billedThroughFor(EntitlementTier.PREMIUM, null, bundled))
         assertNull(billedThroughFor(EntitlementTier.PREMIUM, "  ", bundled))
+    }
+
+    // ── test purchases renew in minutes (Play license tester: yearly = 30 min) ──────────────────
+    private val utc = kotlinx.datetime.TimeZone.UTC
+    private val now = kotlin.time.Instant.parse("2026-11-01T17:30:00Z")
+
+    @Test
+    fun a_renewal_later_today_reads_as_a_time() {
+        assertEquals("today, 5:42 PM", formatRenewalDate("2026-11-01T17:42:11Z", "today, %1\$s", now, utc))
+        assertEquals("today, 12:05 AM", formatRenewalDate("2026-11-01T00:05:00Z", "today, %1\$s", now, utc))
+        assertEquals("today, 12:00 PM", formatRenewalDate("2026-11-01T12:00:00Z", "today, %1\$s", now, utc))
+    }
+
+    @Test
+    fun a_renewal_on_another_day_stays_a_date() {
+        assertEquals("1 Nov 2027", formatRenewalDate("2027-11-01T17:42:11Z", "today, %1\$s", now, utc))
+        assertEquals("2 Nov 2026", formatRenewalDate("2026-11-02T00:00:01Z", "today, %1\$s", now, utc))
+    }
+
+    @Test
+    fun an_unparseable_moment_falls_back_to_the_date_formatter() {
+        assertEquals(formatDate("2026-11-01"), formatRenewalDate("2026-11-01", "today, %1\$s", now, utc))
+    }
+
+    @Test
+    fun a_sandbox_entitlement_is_a_test_purchase() {
+        val e = com.mobilebytelabs.paycraft.model.Entitlement(
+            userId = "u",
+            provider = "google_play",
+            product = "sub.year",
+            canonicalState = com.mobilebytelabs.paycraft.model.SubscriptionState.Active,
+            expiresAt = "2026-11-01T17:42:11Z",
+            willRenew = true,
+            isSandbox = true,
+            latestEventTs = 0L,
+        )
+        assertTrue(e.toSubscriptionStatus().isTest)
+        assertTrue(!e.copy(isSandbox = false).toSubscriptionStatus().isTest)
     }
 }
 

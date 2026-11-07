@@ -12,23 +12,11 @@ import com.mobilebytelabs.paycraft.model.sessionDisplayPrice
  */
 internal fun Product.monthlyEquivalentNote(): String? {
     val sub = this as? Product.Subscription ?: return null
-    val months = when (sub.interval) {
-        Product.Subscription.Interval.YEAR -> 12
-        Product.Subscription.Interval.SEMIANNUAL -> 6
-        Product.Subscription.Interval.QUARTER -> 3
-        // WEEK: no monthly-equivalent and no saving to claim. A weekly plan costs MORE per
-        // month than monthly ($2.99/wk is ~$12.95/mo), so a "SAVE x%" chip or a /mo anchor
-        // here would be a false claim on a payment surface — which is the very thing the
-        // null-rather-than-zero rule above exists to prevent.
-        Product.Subscription.Interval.WEEK -> return null
-        Product.Subscription.Interval.MONTH -> return null
-    }
     // RESOLVED price, not basePrice. Device-observed 2026-09-18: this line rendered
     // "$3.49 / mo billed annually" directly beneath a "₹1259" headline — the headline went through
     // the resolver and this note did not, so one card quoted two currencies. `4199 / 12 = 349` is
     // exactly the USD base showing through. A buyer cannot tell which figure they will be charged.
-    val resolved = sub.sessionDisplayPrice() ?: sub.basePrice
-    val per = Money(resolved.amountMinor / months, resolved.currency)
+    val per = monthlyEquivalent() ?: return null
     // "yearly" is what `Interval.YEAR.name.lowercase() + "ly"` produces; the templates say
     // "annually". Spelled out rather than derived so the two renderers read identically.
     val cadence = when (sub.interval) {
@@ -75,4 +63,21 @@ internal fun Product.savingsVersusMonthly(all: List<Product>): Int? {
     // which renderer drew it. Truncation also always understates the offer, so the tree would
     // consistently undersell the annual plan against its own marketing.
     return kotlin.math.round(pct).toInt().takeIf { it > 0 }
+}
+
+/**
+ * The plan's price per month — RESOLVED price, never base (see [monthlyEquivalentNote]) — for plans
+ * longer than a month; null for weekly/monthly/non-subscriptions, which have no honest monthly anchor.
+ */
+internal fun Product.monthlyEquivalent(): Money? {
+    val sub = this as? Product.Subscription ?: return null
+    val months = when (sub.interval) {
+        Product.Subscription.Interval.YEAR -> 12
+        Product.Subscription.Interval.SEMIANNUAL -> 6
+        Product.Subscription.Interval.QUARTER -> 3
+        // WEEK costs MORE per month than monthly; a /mo anchor there would be a false claim.
+        Product.Subscription.Interval.WEEK, Product.Subscription.Interval.MONTH -> return null
+    }
+    val resolved = sub.sessionDisplayPrice() ?: sub.basePrice
+    return Money(resolved.amountMinor / months, resolved.currency)
 }

@@ -193,3 +193,78 @@ describe("toRpcRow", () => {
     expect(out.active).toBe("false")
   })
 })
+
+/**
+ * Consumable packs — the `grant_quantity` column (migration 158).
+ *
+ * The DB has accepted this column since `tenant_products_upsert` was fixed to pass it, but nothing
+ * in the API layer carried it: not the merge set, not validation, not the MCP schemas. That makes
+ * two silent failures possible, and both end with a buyer who paid and received nothing:
+ *
+ *  1. a consumable created with no grant_quantity sells for real money and credits zero;
+ *  2. a product created correctly then PATCHed for any unrelated field has grant_quantity dropped
+ *     by the upsert's UPDATE arm — the same "everything the patch didn't mention got nulled" class
+ *     this file exists for, on the one column that represents what the customer bought.
+ */
+describe("grant_quantity (consumable packs)", () => {
+  const pack = {
+    ...existing,
+    id: "p-2",
+    sku: "cappy_ripples_550",
+    type: "consumable",
+    display_name: "550 Ripples",
+    interval: null,
+    grant_quantity: 550,
+  }
+
+  it("refuses a consumable that grants nothing", () => {
+    const r = buildProductRow(TENANT, "cappy_ripples_550", null, {
+      display_name: "550 Ripples",
+      type: "consumable",
+      base_price_cents: 499,
+    })
+    expect(r).toHaveProperty("error", "grant_quantity_required_for_consumable")
+  })
+
+  it("refuses a consumable whose grant is explicitly zero", () => {
+    const r = buildProductRow(TENANT, "cappy_ripples_550", null, {
+      display_name: "550 Ripples",
+      type: "consumable",
+      grant_quantity: 0,
+    })
+    expect(r).toHaveProperty("error", "grant_quantity_required_for_consumable")
+  })
+
+  it("accepts a consumable that grants a positive amount", () => {
+    const r = buildProductRow(TENANT, "cappy_ripples_550", null, {
+      display_name: "550 Ripples",
+      type: "consumable",
+      grant_quantity: 550,
+    }) as { row: Record<string, unknown> }
+    expect(r).not.toHaveProperty("error")
+    expect(r.row.grant_quantity).toBe(550)
+  })
+
+  it("carries grant_quantity through a patch that does not mention it", () => {
+    // The regression that matters: renaming a pack must not quietly make it grant nothing.
+    const r = buildProductRow(TENANT, "cappy_ripples_550", pack, {
+      display_name: "550 Ripples (Best value)",
+    }) as { row: Record<string, unknown> }
+    expect(r).not.toHaveProperty("error")
+    expect(r.row.grant_quantity).toBe(550)
+    expect(r.row.display_name).toBe("550 Ripples (Best value)")
+  })
+
+  it("rejects a negative grant", () => {
+    const r = buildProductRow(TENANT, "cappy_ripples_550", pack, { grant_quantity: -1 })
+    expect(r).toHaveProperty("error", "grant_quantity_must_be_non_negative_integer")
+  })
+
+  it("leaves non-consumables alone", () => {
+    // A subscription has nothing to grant; requiring one here would break every existing product.
+    const r = buildProductRow(TENANT, "cappy_plus_annual", existing, {
+      display_name: "Cappy Annual 2",
+    })
+    expect(r).not.toHaveProperty("error")
+  })
+})

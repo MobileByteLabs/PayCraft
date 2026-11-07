@@ -4,8 +4,9 @@
 //   • verifyStoreKit2Jws     — real ES256 JWS verification of an Apple StoreKit2 / ASSN-V2
 //                              signed payload: builds the x5c cert chain, pins the root to
 //                              Apple Root CA - G3, and cryptographically verifies the signature.
-//   • assertPlayTokenNotReused — refuses a Play purchaseToken already bound to a DIFFERENT
-//                              app_user_id (replay / token theft).
+//   • claimStoreTransaction  — binds a store-verified Play token / Apple transaction to an
+//                              app_user_id: transfers from an anonymous holder (restore),
+//                              refuses one held by a signed-in identity (sign_in_required).
 //
 // Crypto is real (jose + @peculiar/x509 + WebCrypto) — no stubbed signature checks. Live Apple/
 // Play credentials are wired in E6; the verification code itself is production here.
@@ -93,44 +94,74 @@ export async function verifyStoreKit2Jws(signedTransaction: string): Promise<Rec
   }
 }
 
-/**
- * Reject an Apple originalTransactionId already bound to a DIFFERENT app_user_id.
- *
- * Apple's `originalTransactionId` is stable for the whole renewal chain (and survives restore on a
- * new device), so the same id surfacing under a new app user is a replay / receipt-sharing attempt
- * — the StoreKit twin of [assertPlayTokenNotReused]. Same-user re-presentation is allowed, which is
- * exactly what a legitimate restore looks like.
- */
-export async function assertAppleTransactionNotReused(
-  originalTransactionId: string,
-  appUserId: string,
-): Promise<void> {
-  const { data, error } = await supabaseAdmin
-    .from("entitlement_records")
-    .select("app_user_id")
-    .eq("provider", "app_store")
-    .eq("stable_txn_id", originalTransactionId)
-    .maybeSingle();
-  if (error) throw new Error(`apple transaction lookup failed: ${error.message}`);
-  if (data && data.app_user_id !== appUserId) {
-    throw new Error("Apple originalTransactionId reuse rejected");
+/** A store transaction is bound to a signed-in identity the requester has not proven. */
+export class StoreTransactionOwnedError extends Error {
+  /** Machine-readable cue for the SDK: run sign-in, then retry the restore as that identity. */
+  readonly code = "sign_in_required";
+  constructor(provider: string) {
+    super(`${provider} transaction is owned by a signed-in account — sign in to restore it`);
+    this.name = "StoreTransactionOwnedError";
   }
 }
 
 /**
- * Reject a Play purchaseToken already bound to a DIFFERENT app_user_id. A subscription's
- * purchaseToken is stable across renewals, so a token surfacing under a new user is a replay /
- * theft attempt. Same-user re-presentation is allowed (idempotent restore).
+ * The SDK's app-user-id is `email ?: deviceId`, so an id without `@` is an anonymous device id.
+ * Rows a webhook keyed on a hashed store id (Play obfuscatedAccountId, Apple appAccountToken) are
+ * anonymous too — which is right: a claim moves them onto the id the SDK actually reads.
  */
-export async function assertPlayTokenNotReused(token: string, appUserId: string): Promise<void> {
+// ponytail: '@' heuristic mirrors the SDK's email-or-device rule; key on entitlement_identities
+// (migration 154) once entitlement_records carries a subject_id.
+function isAnonymousAppUserId(appUserId: string): boolean {
+  return !appUserId.includes("@");
+}
+
+/**
+ * Bind a store transaction to [appUserId] — the ONE ownership rule for both store lanes.
+ *
+ * The stable id (Play purchaseToken, Apple originalTransactionId) survives renewals and restore,
+ * and the store only hands it to the store account that owns it. So a caller presenting a
+ * store-verified id is that account. The cases:
+ *
+ *   - unseen, or already this user           → ok, nothing to move.
+ *   - owned by an ANONYMOUS device id         → TRANSFER to the caller. This is a reinstall or a new
+ *     phone (the device id changed, the store account did not) and sign-in linking a store-only
+ *     purchase to an email. It MOVES, never copies: at most one app user holds it, so a shared
+ *     token cannot fan out to many installs — the last restorer has it.
+ *   - owned by a SIGNED-IN identity           → refused with [StoreTransactionOwnedError]. The
+ *     account protects it; the caller must sign in as that account.
+ *
+ * Callers MUST verify the id with the store first (Play API re-fetch / StoreKit JWS) — this
+ * function trusts that the transaction is real and only decides who holds it.
+ *
+ * @return the previous owner when the transaction was transferred, else null.
+ */
+export async function claimStoreTransaction(
+  provider: "google_play" | "app_store",
+  stableTxnId: string,
+  appUserId: string,
+): Promise<{ transferredFrom: string | null }> {
   const { data, error } = await supabaseAdmin
     .from("entitlement_records")
     .select("app_user_id")
-    .eq("provider", "google_play")
-    .eq("stable_txn_id", token)
+    .eq("provider", provider)
+    .eq("stable_txn_id", stableTxnId)
     .maybeSingle();
-  if (error) throw new Error(`play token lookup failed: ${error.message}`);
-  if (data && data.app_user_id !== appUserId) {
-    throw new Error("Play purchaseToken reuse rejected");
-  }
+  if (error) throw new Error(`${provider} transaction lookup failed: ${error.message}`);
+
+  const owner = data?.app_user_id as string | undefined;
+  if (!owner || owner === appUserId) return { transferredFrom: null };
+  if (!isAnonymousAppUserId(owner)) throw new StoreTransactionOwnedError(provider);
+
+  // Compare-and-set on the owner we read: a concurrent claim that moved it first wins, and this
+  // update then touches nothing rather than clobbering it.
+  const { error: updErr } = await supabaseAdmin
+    .from("entitlement_records")
+    .update({ app_user_id: appUserId, updated_at: new Date().toISOString() })
+    .eq("provider", provider)
+    .eq("stable_txn_id", stableTxnId)
+    .eq("app_user_id", owner);
+  if (updErr) throw new Error(`${provider} transaction transfer failed: ${updErr.message}`);
+
+  console.log(`[claim] ${provider} ${stableTxnId.slice(0, 12)}… transferred from anonymous ${owner.slice(0, 6)}…`);
+  return { transferredFrom: owner };
 }

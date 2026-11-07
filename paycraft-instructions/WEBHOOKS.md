@@ -1,4 +1,4 @@
-example-provenance: f7c1ee26733dbc28e3e1528c2456dbfe43946a04
+example-provenance: d17c43b42c05b30b9029e3cbcbbfa314a8bd372b
 
 # WEBHOOKS.md — endpoints, verification discipline, reachability probe
 
@@ -57,6 +57,28 @@ one reconciled record), `receipt-validate.ts` (replay guard), `play-jwt.ts` + `a
 3. **Reconcile to ONE canonical record.** Every path funnels into `reconcileEntitlement` with a
    provider-specific `*ToCanonical` mapper, so the same subscription never produces two competing
    rows with different vocabularies.
+
+## Consumable purchases — the grant path
+
+A one-time purchase does not reconcile an entitlement; it CREDITS A BALANCE. Every provider funnels
+into one shared handler rather than per-provider grant logic, because the only provider-specific
+facts are "what did they call the sku" and "what is the stable transaction id". How much to grant
+belongs to the CATALOGUE, and six copies of that decision is six chances to disagree.
+
+- **The amount never comes from the payload.** It is read from the catalogue's `grant_quantity` by
+  sku. A webhook body is attacker-adjacent on a self-hosted deployment and, more mundanely, goes
+  stale after a catalogue edit.
+- **The idempotency key is `provider:stableTxnId`.** Providers redeliver; a redelivery is normal
+  traffic, not a fault. The grant absorbs duplicates and still returns the current balance, so the
+  caller cannot tell a replay from a first delivery. A per-call random key would grant again every
+  time. The stable id is Stripe's payment_intent, Razorpay's payment id, Play's purchaseToken,
+  Apple's originalTransactionId.
+- **Attribution is per-APP, never per-product.** Two tenants can both sell a sku called
+  `coins_550`, so resolving on the product id alone either errors on multiple rows or credits the
+  wrong app's ledger. Store lanes resolve the tenant from the app identifier (Play `packageName` /
+  Apple `bundleId`); web PSPs carry the tenant in the webhook URL path.
+- **An unattributable grant is REFUSED, not guessed.** Money the buyer paid and cannot spend is
+  found only via a support ticket, so each refusal names exactly what was missing.
 
 ### `register-play-purchase` contract
 

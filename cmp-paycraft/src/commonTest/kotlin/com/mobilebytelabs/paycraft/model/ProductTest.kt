@@ -134,6 +134,60 @@ class ProductTest {
         assertNull(trial.displayPrice(config))
     }
 
+    /**
+     * Regression (device, 2026-10-31): cappy's catalogue carries consumable coin packs, and opening
+     * the paywall crashed the app with `unknown product type: consumable`. Packs are sold by the
+     * store section, not the subscription paywall — the paywall must leave them out, not die on them.
+     */
+    @Test
+    fun paywall_products_skip_consumables_instead_of_crashing() {
+        val dtos = listOf(
+            ProductDto(
+                id = "c",
+                sku = "coins_550",
+                type = "consumable",
+                displayName = "550 coins",
+                displayOrder = 0,
+                grantQuantity = 550,
+            ),
+            ProductDto(
+                id = "y",
+                sku = "plus_year",
+                type = "subscription",
+                displayName = "Yearly",
+                interval = "year",
+                displayOrder = 2,
+            ),
+            ProductDto(
+                id = "m",
+                sku = "plus_month",
+                type = "subscription",
+                displayName = "Monthly",
+                interval = "month",
+                displayOrder = 1,
+            ),
+            ProductDto(
+                id = "x",
+                sku = "retired",
+                type = "subscription",
+                displayName = "Old",
+                interval = "month",
+                active = false,
+            ),
+        )
+
+        val products = ProductMapper.paywallProducts(dtos)
+
+        assertEquals(listOf("plus_month", "plus_year"), products.map { it.sku }, "active, sorted, consumables excluded")
+    }
+
+    @Test
+    fun paywall_products_still_fail_loudly_on_a_genuinely_unknown_type() {
+        assertFails {
+            ProductMapper.paywallProducts(listOf(ProductDto(id = "z", sku = "z", type = "mystery", displayName = "Z")))
+        }
+    }
+
     private fun monthlySub() = Product.Subscription(
         id = "p1",
         sku = "sub-monthly",
