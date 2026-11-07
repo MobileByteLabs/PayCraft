@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **Requires compileSdk 37 (breaking for consumers on 36).** Compose Multiplatform 1.12.0 pulls androidx.compose
+  1.12, whose AAR metadata refuses compileSdk < 37. targetSdk is unchanged (36). Same move as mbs/kmp-toolkit #172.
+- **Store purchases restore with no login.** A Google Play / App Store subscription now comes back after a
+  reinstall or on a new device automatically: held purchases are re-registered at launch and on foreground, an
+  anonymous owner transfers to the new device, and premium is read from the reconciled store entitlement.
+- **Optional Apple / Google sign-in carries a subscription across platforms — with zero consumer wiring.** The SDK
+  signs the buyer in natively where a native API exists (Android Google via Credential Manager, iOS Apple) and in an
+  in-app browser elsewhere (Android Custom Tab, iOS ASWebAuthenticationSession), then PayCraft's `identity-token`
+  service verifies the provider's token. **No Supabase users are created** (no MAU cost). The app's sign-in client
+  ids come from the PayCraft backend per app; `kmp-supabase-auth` is no longer a dependency.
+- **SDK UI rebuilt from Stitch designs, host-themed.** Paywall (plan cards with selection, POPULAR, SAVE badge,
+  per-period price, trial disclosure), a full-screen Restore with Google/Apple sign-in only (the typed-email path
+  is removed — it was an unverified claim), the post-purchase link screen, device conflict, and the settings plan
+  card / banners / strip. Restore is never offered to an entitled user.
+- **Store test purchases are labelled.** A Play license-tester / StoreKit sandbox entitlement shows a `TEST` chip,
+  and a renewal or expiry falling today reads "Renews today, 11:12 PM" — testers renew in minutes, so a bare date
+  looked wrong. `SubscriptionStatus.isTest` is new (additive, defaults to false).
+
 - **iOS no longer asks the app to supply StoreKit.** The StoreKit 2 shim is Swift by necessity —
   StoreKit 2 has no Objective-C surface, so Kotlin/Native cannot cinterop it — but it used to
   conform to a Kotlin-exported protocol, which forced `import <SharedFramework>`. That module name
