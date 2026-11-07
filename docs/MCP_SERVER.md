@@ -84,6 +84,13 @@ never initiates messages, so it declines to hold open a stream that would only e
 | `paycraft_entitlements` | Canonical entitlement state | `subscribers:read` |
 | `paycraft_coupons` | Discount codes | `coupons:read` |
 | `paycraft_paywall` | Paywall configuration | `paywall:read` |
+| `paycraft_paywall_apply_template` | **Applies a gallery template to the draft** | `paywall:write` |
+| `paycraft_paywall_save_workflow` | **Saves the draft workflow tree** | `paywall:write` |
+| `paycraft_paywall_update_copy` | **Changes named copy fields** (merged server-side; unknown keys refused; live) | `paywall:write` |
+| `paycraft_paywall_publish` | **Publishes the draft** — buyers see it | `paywall:write` |
+| `paycraft_onboarding_state` | Onboarding steps + evidence for the app | `onboarding:read` |
+| `paycraft_onboarding_record` | **Records one step** (`passed`/`failed` need evidence; `blocked` needs a reason) | `onboarding:write` |
+| `paycraft_store_readiness` | Are the store products sellable (asked of the stores) | `products:read` |
 | `paycraft_webhooks` | Inbound webhook deliveries | `webhooks:read` |
 | `paycraft_audit` | Audit trail | `audit:read` |
 

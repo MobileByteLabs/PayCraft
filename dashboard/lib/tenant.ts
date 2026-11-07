@@ -22,17 +22,44 @@ export async function requireTenant(): Promise<{ tenant: Tenant; userId: string 
     redirect("/onboarding")
   }
 
-  // Honor the active-app cookie if it points to a tenant the user is a member of.
-  const cookieStore = cookies()
-  const activeCookieId = cookieStore.get("paycraft_active_app_id")?.value
-  const tenantIds: string[] = memberships.map((m: any) => m.tenant_id)
+  const { tenantId } = pickActiveTenant(memberships.map((m: any) => m.tenant_id))
+  return loadTenant(supabase, tenantId!, user!.id)
+}
 
-  const activeTenantId =
-    activeCookieId && tenantIds.includes(activeCookieId)
-      ? activeCookieId
-      : tenantIds[0]
+export type TenantResolution =
+  | { tenantId: string; resolvedFrom: "query" | "cookie" | "default" }
+  | { tenantId: null; resolvedFrom: "none" | "not_a_member" }
 
-  return loadTenant(supabase, activeTenantId, user!.id)
+/**
+ * Which app this request means, from the caller's memberships. THE one resolution rule — used by
+ * requireTenant and by API routes that must not redirect.
+ *
+ *   explicit `requested` (e.g. `?tenant_id=`) wins, but ONLY if the user is a member; a non-member
+ *   id is reported as `not_a_member`, never silently swapped for another app (that swap is how a
+ *   caller reconciling one app ends up reading another's state);
+ *   else the `paycraft_active_app_id` cookie, if it names a membership;
+ *   else the first membership.
+ */
+export function pickActiveTenant(tenantIds: string[], requested?: string | null): TenantResolution {
+  if (requested) {
+    return tenantIds.includes(requested)
+      ? { tenantId: requested, resolvedFrom: "query" }
+      : { tenantId: null, resolvedFrom: "not_a_member" }
+  }
+  const activeCookieId = cookies().get("paycraft_active_app_id")?.value
+  if (activeCookieId && tenantIds.includes(activeCookieId)) {
+    return { tenantId: activeCookieId, resolvedFrom: "cookie" }
+  }
+  return tenantIds.length ? { tenantId: tenantIds[0], resolvedFrom: "default" } : { tenantId: null, resolvedFrom: "none" }
+}
+
+/** Resolve the caller's tenant without redirecting. Membership comes from the same RPC requireTenant uses. */
+export async function resolveTenantForUser(
+  supabase: ReturnType<typeof createClient>,
+  requested?: string | null,
+): Promise<TenantResolution> {
+  const { data: memberships } = await supabase.rpc("tenant_admins_list_for_user")
+  return pickActiveTenant((memberships ?? []).map((m: any) => m.tenant_id), requested)
 }
 
 async function loadTenant(

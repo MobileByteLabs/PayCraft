@@ -58,7 +58,7 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 /**
- * Scopes the API recognises. Mirrors the CHECK constraint in migrations 136 + 150 — keep in step.
+ * Scopes the API recognises. Mirrors the CHECK constraint in migrations 136 + 150 + 173 — keep in step.
  *
  * A scope absent from the DB constraint cannot be granted, so adding one here alone is inert; a
  * scope absent HERE cannot be demanded by a route, so adding one there alone is unreachable.
@@ -83,6 +83,10 @@ export type ApiScope =
   | "apps:write"
   | "apps:provision"
   | "keys:rotate"
+  // Added by migration 173 — the onboarding SoT over the API (/v1/onboarding/state). Separate from
+  // paywall/products so a token that edits copy cannot rewrite what onboarding claims is done.
+  | "onboarding:read"
+  | "onboarding:write"
 
 export interface ApiKeyContext {
   /**

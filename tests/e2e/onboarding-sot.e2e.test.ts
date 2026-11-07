@@ -14,8 +14,9 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts"
 import { dropTenant, psql, psqlRows, seedTenant, sqlLit } from "./harness.ts"
 
+// The allowlists live in the shared validator both writers use (cookie route + /api/v1 route).
 const ROUTE = new URL(
-  "../../dashboard/app/api/onboarding/state/route.ts",
+  "../../dashboard/lib/onboarding-state.ts",
   import.meta.url,
 )
 
@@ -33,7 +34,7 @@ Deno.test("route blocked_reason allowlist matches the onboarding_blocked_reason 
 
   const src = await routeSource()
   const block = src.match(/const BLOCKED_REASONS = \[([\s\S]*?)\] as const/)
-  assert(block, "BLOCKED_REASONS literal not found in the route")
+  assert(block, "BLOCKED_REASONS literal not found in lib/onboarding-state.ts")
   const routeValues = [...block[1].matchAll(/"([a-z-]+)"/g)].map((m) => m[1]).sort()
 
   assertEquals(
@@ -90,5 +91,35 @@ Deno.test("trigger refuses blocked-without-reason, and accepts a valid one", asy
   } finally {
     await psql(`DELETE FROM onboarding_app_state WHERE tenant_id = ${sqlLit(tenant)}`).catch(() => {})
     await dropTenant(tenant)
+  }
+})
+
+Deno.test("route STATUSES include failed, and the trigger refuses failed-without-evidence (172)", async () => {
+  const src = await routeSource()
+  const block = src.match(/const STATUSES = \[([\s\S]*?)\] as const/)
+  assert(block, "STATUSES literal not found in lib/onboarding-state.ts")
+  const statuses = [...block[1].matchAll(/"([a-z-]+)"/g)].map((m) => m[1]).sort()
+  assertEquals(statuses, ["blocked", "failed", "passed"])
+
+  const t = await seedTenant({ name: "sot_failed" })
+  try {
+    const bad = await psql(
+      `INSERT INTO onboarding_app_state (tenant_id, current_step, steps)
+       VALUES (${sqlLit(t.id)}, 'A5', '[{"id":"A5","status":"failed"}]'::jsonb)`,
+    ).catch((e) => String(e))
+    assert(/failed without evidence|23514/i.test(bad), `expected refusal, got: ${bad.slice(0, 200)}`)
+
+    await psql(
+      `INSERT INTO onboarding_app_state (tenant_id, current_step, steps)
+       VALUES (${sqlLit(t.id)}, 'A5',
+         '[{"id":"A5","status":"failed","evidence":{"probe":"store-readiness","ready":false}}]'::jsonb)`,
+    )
+    const rows = await psqlRows(
+      `SELECT steps->0->>'status' FROM onboarding_app_state WHERE tenant_id = ${sqlLit(t.id)}`,
+    )
+    assertEquals(rows[0], ["failed"])
+  } finally {
+    await psql(`DELETE FROM onboarding_app_state WHERE tenant_id = ${sqlLit(t.id)}`).catch(() => {})
+    await dropTenant(t.id)
   }
 })

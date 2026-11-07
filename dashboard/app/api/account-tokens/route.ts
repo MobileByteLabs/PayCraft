@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic"
  */
 
 /**
- * Scopes selectable here. Mirrors the CHECK constraint (migrations 136 + 150) and `ApiScope`.
+ * Scopes selectable here. Mirrors the CHECK constraint (migrations 136 + 150 + 173) and `ApiScope`.
  *
  * Read and write are listed separately rather than as a single "full access" toggle so the default
  * is genuinely nothing and each grant is a deliberate click — the same reason Supabase's own token
@@ -47,6 +47,8 @@ const SCOPES = [
   "apps:write",
   "apps:provision",
   "keys:rotate",
+  "onboarding:read",
+  "onboarding:write",
 ] as const
 
 /** Expiry is mandatory for this tier; the DB enforces it too (tenant_api_keys_account_expires). */

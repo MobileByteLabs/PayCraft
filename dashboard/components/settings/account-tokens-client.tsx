@@ -52,6 +52,7 @@ const GROUPS: { title: string; detail: string; write?: boolean; scopes: { id: st
       { id: "coupons:read", detail: "Coupon definitions" },
       { id: "audit:read", detail: "Audit log" },
       { id: "webhooks:read", detail: "Webhook registrations and health" },
+      { id: "onboarding:read", detail: "Onboarding progress per app (steps + evidence)" },
     ],
   },
   {
@@ -63,6 +64,7 @@ const GROUPS: { title: string; detail: string; write?: boolean; scopes: { id: st
       { id: "products:write", detail: "Create and edit products" },
       { id: "paywall:write", detail: "Edit paywall configuration" },
       { id: "providers:write", detail: "Edit provider connections" },
+      { id: "onboarding:write", detail: "Record onboarding steps (passed / failed / blocked)" },
     ],
   },
   {
