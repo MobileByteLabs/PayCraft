@@ -1010,7 +1010,7 @@ class PayCraftBillingManager(
                 "performRegisterAndLogin",
                 "fastPath check: tokenValid=${check?.tokenValid}, isPremium=${check?.isPremium}",
             )
-            if (check?.tokenValid == true) {
+            if (check?.tokenValid == true && check.isBoundTo(email)) {
                 PayCraftLogger.onFlow("performRegisterAndLogin", "→ Fast path: token valid, applying result")
                 applyPremiumResult(email, check.isPremium, mode)
                 return
@@ -1080,8 +1080,10 @@ class PayCraftBillingManager(
                 "checkPremiumWithDeviceToken",
                 "result: isPremium=${result.isPremium}, tokenValid=${result.tokenValid}",
             )
-            if (!result.tokenValid) {
-                PayCraftLogger.onFlow("checkPremiumWithDeviceToken", "→ Token invalid, clearing and re-registering")
+            // A token registered for ANOTHER account (user switched sign-in on this device) answers for
+            // that account — re-register for the current one, same as an invalid token.
+            if (!result.tokenValid || !result.isBoundTo(email)) {
+                PayCraftLogger.onFlow("checkPremiumWithDeviceToken", "→ Token invalid or bound to another account, re-registering")
                 DeviceTokenStore.clearToken()
                 performRegisterAndLogin(email)
                 return
