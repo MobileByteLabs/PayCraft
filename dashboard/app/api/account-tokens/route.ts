@@ -144,14 +144,16 @@ export async function DELETE(req: Request) {
   const id = searchParams.get("id")
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
 
-  // Scoped to the caller's own tokens by owner_user_id — a revoke cannot reach someone else's.
-  const { error } = await supabase
-    .from("tenant_api_keys")
-    .update({ revoked_at: new Date().toISOString() })
-    .eq("id", id)
-    .eq("owner_user_id", user.id)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  // Through the RPC (migration 175), never a direct UPDATE. tenant_api_keys has RLS with a SELECT-only
+  // policy, so the direct update this used to run matched ZERO rows, raised nothing, and this route
+  // still answered {revoked:true} — the token stayed live. The RPC checks ownership itself (owner only
+  // for account keys), revokes, and audits in every app the token reached.
+  const { error } = await supabase.rpc("tenant_api_key_revoke", { p_id: id })
+  if (error) {
+    const msg = error.message ?? ""
+    const status = msg.includes("forbidden") ? 403 : msg.includes("unknown_key") ? 404 : 500
+    return NextResponse.json({ error: msg }, { status })
+  }
   return NextResponse.json({ revoked: true })
 }
 
