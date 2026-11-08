@@ -50,13 +50,13 @@ class StripeProvider(
             ?: error(
                 "No $modeName payment link configured for plan '${plan.id}'. Run /paycraft-adopt → [F] Fix Phase 3.",
             )
-        val url = if (email != null) "$baseUrl?prefilled_email=$email" else baseUrl
+        val url = withEmailParam(baseUrl, "prefilled_email", email)
         PayCraftLogger.onCheckout(planId = plan.id, mode = modeName, url = url)
         return url
     }
 
     override fun getManageUrl(email: String): String? {
-        val url = activePortalUrl?.let { "$it?prefilled_email=$email" }
+        val url = activePortalUrl?.let { withEmailParam(it, "prefilled_email", email) }
         PayCraftLogger.onManageSubscription(mode = modeName, url = url)
         return url
     }

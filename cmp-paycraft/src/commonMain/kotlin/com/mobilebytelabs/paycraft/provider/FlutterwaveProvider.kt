@@ -20,7 +20,7 @@ class FlutterwaveProvider(private val paymentLinks: Map<String, String>, val isT
     override fun getCheckoutUrl(plan: BillingPlan, email: String?): String {
         val baseUrl = paymentLinks[plan.id]
             ?: error("No payment link configured for plan '${plan.id}'")
-        return if (email != null) "$baseUrl?customer[email]=$email" else baseUrl
+        return withEmailParam(baseUrl, "customer[email]", email)
     }
 
     override fun getManageUrl(email: String): String? = null

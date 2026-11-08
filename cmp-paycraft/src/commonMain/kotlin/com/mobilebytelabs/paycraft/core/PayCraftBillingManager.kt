@@ -203,14 +203,22 @@ class PayCraftBillingManager(
                 // Free exactly when init really is the thing that resolved the question. Same guard
                 // the post-purchase reconcile path below already uses, for the same reason.
                 // A store subscription needs no email: ask the reconciled store entitlement first.
-                val storeStatus = storeEntitlementStatus(PayCraft.deviceId)
-                if (_billingState.value is BillingState.Loading) {
+                val verdict = storeVerdict(PayCraft.deviceId)
+                val storeStatus = (verdict as? StoreVerdict.Active)?.status
+                if (verdict is StoreVerdict.Lapsed && _isPremium.value) {
+                    // The cached Premium applied above is disproved by the server, not merely unchecked —
+                    // the never-downgrade-while-offline rule does not apply to an authoritative answer.
+                    // Keyed on isPremium, not billingState: a concurrent no-email refresh can already
+                    // have set billingState = Free while leaving isPremium (the gate flag) true.
+                    PayCraftLogger.onFlow("init", "No saved email → cached Premium lapsed → Free")
+                    applyLapsed()
+                } else if (_billingState.value is BillingState.Loading) {
                     if (storeStatus != null) {
                         PayCraftLogger.onFlow("init", "No saved email → store entitlement is active")
                         applyStorePremium(storeStatus)
                     } else {
                         PayCraftLogger.onFlow("init", "No saved email → Free")
-                        _billingState.value = BillingState.Free
+                        if (verdict is StoreVerdict.Lapsed) applyLapsed() else _billingState.value = BillingState.Free
                     }
                 } else {
                     PayCraftLogger.onFlow(
@@ -643,8 +651,11 @@ class PayCraftBillingManager(
             }
             if (repo != null) {
                 scope.launch {
-                    val storeStatus = storeEntitlementStatus(PayCraft.deviceId)
-                    if (storeStatus != null) applyStorePremium(storeStatus) else _billingState.value = BillingState.Free
+                    when (val verdict = storeVerdict(PayCraft.deviceId)) {
+                        is StoreVerdict.Active -> applyStorePremium(verdict.status)
+                        StoreVerdict.Lapsed -> applyLapsed()
+                        StoreVerdict.Unknown -> _billingState.value = BillingState.Free
+                    }
                 }
                 return
             }
@@ -945,11 +956,35 @@ class PayCraftBillingManager(
      */
     // ponytail: no offline fallback — every caller has already reached the server (or shows the
     // cached status first), and a null here cannot say whether the server was down or empty.
-    private suspend fun storeEntitlementStatus(appUserId: String): SubscriptionStatus? {
-        val repo = repo ?: return null
-        val entitlement = runCatching { repo.fresh(appUserId) }.getOrNull() ?: return null
-        if (!repo.isServableOffline(entitlement, currentTimeMillis())) return null
-        return entitlement.toSubscriptionStatus(email = _userEmail.value)
+    private suspend fun storeEntitlementStatus(appUserId: String): SubscriptionStatus? =
+        (storeVerdict(appUserId) as? StoreVerdict.Active)?.status
+
+    /** The server's answer about [appUserId]'s store entitlement — [StoreVerdict.Unknown] when it could not be asked. */
+    private suspend fun storeVerdict(appUserId: String): StoreVerdict {
+        val repo = repo ?: return StoreVerdict.Unknown
+        val entitlement = runCatching { repo.fresh(appUserId) }.getOrNull() ?: return StoreVerdict.Unknown
+        if (!repo.isServableOffline(entitlement, currentTimeMillis())) return StoreVerdict.Lapsed
+        return StoreVerdict.Active(entitlement.toSubscriptionStatus(email = _userEmail.value))
+    }
+
+    private sealed interface StoreVerdict {
+        data class Active(val status: SubscriptionStatus) : StoreVerdict
+        data object Lapsed : StoreVerdict
+        data object Unknown : StoreVerdict
+    }
+
+    /**
+     * Free, everywhere: the gate flag, the status, the state AND the cache. Setting only `billingState`
+     * left `isPremium` (and the cached Premium) in place, so Settings read Free while every isPremium
+     * gate — ads, HD — stayed unlocked, and the next launch restored Premium from the cache.
+     */
+    private fun applyLapsed() {
+        _isPremium.value = false
+        val status = SubscriptionStatus(isPremium = false, email = _userEmail.value)
+        _subscriptionStatus.value = status
+        _billingState.value = BillingState.Free
+        store.cacheSubscriptionStatus(status)
+        lastObservedPremium = false
     }
 
     private fun applyStorePremium(status: SubscriptionStatus) {

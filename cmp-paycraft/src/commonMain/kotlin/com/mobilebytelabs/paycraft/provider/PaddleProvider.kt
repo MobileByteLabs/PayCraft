@@ -27,7 +27,7 @@ class PaddleProvider(
     override fun getCheckoutUrl(plan: BillingPlan, email: String?): String {
         val baseUrl = activeLinks[plan.id]
             ?: error("No $modeName payment link configured for plan '${plan.id}'")
-        return if (email != null) "$baseUrl?customer_email=$email" else baseUrl
+        return withEmailParam(baseUrl, "customer_email", email)
     }
 
     override fun getManageUrl(email: String): String? = null

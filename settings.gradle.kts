@@ -41,4 +41,5 @@ include(":cmp-paycraft")
 // `navigation-compose` dependency stays OFF the core artifact's classpath — a billing SDK does
 // not get to choose an app's navigation library. Same split as cmp-supabase-auth-compose.
 include(":cmp-paycraft-navigation")
+include(":cmp-paycraft-web")
 include(":sample-app")
