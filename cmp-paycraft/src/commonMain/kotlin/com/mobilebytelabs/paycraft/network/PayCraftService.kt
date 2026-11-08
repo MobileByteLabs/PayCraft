@@ -94,7 +94,14 @@ data class RegisterDeviceResult(
     val conflictingLastSeen: String?,
 )
 
-data class PremiumCheckResult(val isPremium: Boolean, val tokenValid: Boolean)
+/**
+ * [boundEmail] is the identity the device token was registered for (server 177+; null from older
+ * servers). A token answers for THAT identity, not whoever is signed in now — see [isBoundTo].
+ */
+data class PremiumCheckResult(val isPremium: Boolean, val tokenValid: Boolean, val boundEmail: String? = null) {
+    /** False when the token belongs to another account, so its answer is not this user's. */
+    fun isBoundTo(email: String): Boolean = boundEmail == null || boundEmail.equals(email.trim(), ignoreCase = true)
+}
 
 // ─── Interface ────────────────────────────────────────────────────────────────
 
@@ -474,6 +481,7 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         val result = PremiumCheckResult(
             isPremium = r["is_premium"]?.jsonPrimitive?.boolean ?: false,
             tokenValid = r["token_valid"]?.jsonPrimitive?.boolean ?: false,
+            boundEmail = r["email"]?.jsonPrimitive?.contentOrNull,
         )
         PayCraftLogger.onRpcResult(
             "check_premium_with_device",
