@@ -1083,7 +1083,10 @@ class PayCraftBillingManager(
             // A token registered for ANOTHER account (user switched sign-in on this device) answers for
             // that account — re-register for the current one, same as an invalid token.
             if (!result.tokenValid || !result.isBoundTo(email)) {
-                PayCraftLogger.onFlow("checkPremiumWithDeviceToken", "→ Token invalid or bound to another account, re-registering")
+                PayCraftLogger.onFlow(
+                    "checkPremiumWithDeviceToken",
+                    "→ Token invalid or bound to another account, re-registering",
+                )
                 DeviceTokenStore.clearToken()
                 performRegisterAndLogin(email)
                 return
