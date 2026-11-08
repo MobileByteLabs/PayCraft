@@ -1134,6 +1134,15 @@ class PayCraftBillingManager(
                 PayCraftLogger.onError("applyPremiumResult", e.message)
                 null
             }
+            // No web subscription but the server says premium → a STORE subscriber (176). Build the
+            // status from the store entitlement, which carries the expiry; without it the cache had
+            // no expiry and SyncPolicy kept showing Premium for up to a day after it lapsed.
+            if (sub == null) {
+                storeEntitlementStatus(email)?.let {
+                    applyStorePremium(it)
+                    return
+                }
+            }
             val status = SubscriptionStatus(
                 isPremium = true,
                 plan = sub?.plan,

@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
 
@@ -82,6 +83,46 @@ class StoreEntitlementGatingTest {
 
         assertIs<BillingState.Premium>(manager.settled(), "an active store subscription is premium")
         assertTrue(manager.isPremium.value)
+    }
+
+    /**
+     * Device finding 2026-11-08 (reels, Play test subscription): since migration 176 the server's
+     * premium check answers TRUE for a store subscriber. The SDK then built the status from web
+     * `subscriptions` only — empty for a store subscriber — and cached premium with NO expiry, so
+     * SyncPolicy fell back to a daily check and the app showed Premium for ~a day after the
+     * subscription expired. The store entitlement carries the real expiry; it must be used.
+     */
+    @Test
+    fun server_premium_for_a_store_subscriber_caches_the_store_expiry() = runTest {
+        val email = "buyer@test.local"
+        val service = FakePayCraftService().apply {
+            serverPremium = true
+            seed(activeStoreEntitlement(email))
+        }
+        val emailStore = object : PayCraftStore {
+            override suspend fun saveEmail(email: String) = Unit
+            override suspend fun getEmail(): String? = email
+            override suspend fun clearEmail() = Unit
+        }
+        val native = SpyNativeBillingClient()
+        val manager = PayCraftBillingManager(
+            service = service,
+            store = emailStore,
+            repo = EntitlementRepository(
+                cache = EntitlementCache(service, InMemoryEntitlementDao(), ttl = 24.hours),
+                native = native,
+                service = service,
+                platform = { "android" },
+            ),
+            nativeBillingClient = native,
+            dispatcher = Dispatchers.Default,
+        )
+
+        assertIs<BillingState.Premium>(manager.settled())
+        assertNotNull(
+            manager.subscriptionStatus.value.expiresAt,
+            "premium must carry the store expiry, or it outlives it",
+        )
     }
 
     @Test
