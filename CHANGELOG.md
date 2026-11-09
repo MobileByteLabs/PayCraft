@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **New `cmp-paycraft-web`: PayCraft for plain JavaScript websites.** An ES module with TypeScript types (no
+  Compose, no Koin, no Supabase client) that a static site imports to sign the buyer in with a Google/Apple ID token
+  (the same `identity-token` → `register_device` path as the app), check premium (`premium()`, and synchronous
+  `isPremium()` / `isAdFree()` from a 6-hour cache so a page decides before loading any ad), read products and start
+  checkout (Razorpay subscription or Stripe payment link). One subscription now unlocks app and website alike. Build:
+  `./gradlew :cmp-paycraft-web:jsBrowserProductionLibraryDistribution`; see `cmp-paycraft-web/README.md`.
+- **Browsers can call `config`, `identity-token` and `checkout-initiate`.** A shared `_shared/cors.ts` answers the
+  preflight and adds CORS headers to every response, errors included (`checkout-initiate`'s old preflight rejected
+  the `apikey` header the SDKs send).
+- **Fix: buyer email in hosted-checkout links is URL-encoded.** Stripe `prefilled_email`, Paddle `customer_email`,
+  LemonSqueezy `checkout[email]` and Flutterwave `customer[email]` appended the raw address, so `a+b@x.com` arrived
+  as `a b@x.com` and the purchase was recorded against an email no account has. Links that already carry a query
+  string now get `&` instead of a second `?`.
 - **Requires compileSdk 37 (breaking for consumers on 36).** Compose Multiplatform 1.12.0 pulls androidx.compose
   1.12, whose AAR metadata refuses compileSdk < 37. targetSdk is unchanged (36). Same move as mbs/kmp-toolkit #172.
 - **Store purchases restore with no login.** A Google Play / App Store subscription now comes back after a

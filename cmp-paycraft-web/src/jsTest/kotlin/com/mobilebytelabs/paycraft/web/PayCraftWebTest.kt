@@ -23,17 +23,14 @@ import kotlin.test.assertTrue
 class PayCraftWebTest {
     private val backend = "https://example.supabase.co"
 
-    private fun sdk(
-        net: FakeTransport,
-        kv: KeyValue = MemoryKeyValue(),
-        key: String = "pk_test_abc",
-    ): PayCraftWeb = PayCraftWeb(key, backend, "anon-key").also {
-        it.transport = net
-        it.store = TokenStore(kv)
-        it.now = { 1_000_000.0 }
-        it.newDeviceId = { "dev-1" }
-        it.deviceName = { "Chrome on Android" }
-    }
+    private fun sdk(net: FakeTransport, kv: KeyValue = MemoryKeyValue(), key: String = "pk_test_abc"): PayCraftWeb =
+        PayCraftWeb(key, null, backend, "anon-key").also {
+            it.transport = net
+            it.store = TokenStore(kv)
+            it.now = { 1_000_000.0 }
+            it.newDeviceId = { "dev-1" }
+            it.deviceName = { "Chrome on Android" }
+        }
 
     @Test
     fun configParsesProductsProvidersAndClientIds() = runTest {
@@ -78,7 +75,9 @@ class PayCraftWebTest {
 
     @Test
     fun aRejectedIdentityNeverRegistersADevice() = runTest {
-        val net = FakeTransport().on("/functions/v1/identity-token/verify", status = 401) { """{"error":"invalid_token"}""" }
+        val net = FakeTransport().on("/functions/v1/identity-token/verify", status = 401) {
+            """{"error":"invalid_token"}"""
+        }
         val pc = sdk(net)
         assertFailsWith<PayCraftWebError> { pc.doSignIn("google", "bad", null) }
         assertEquals(1, net.calls.size)
@@ -165,6 +164,71 @@ class PayCraftWebTest {
     }
 
     @Test
+    fun aRazorpayProductWithAPaymentLinkUsesTheLinkNotServerCheckout() = runTest {
+        // checkout-initiate only creates SUBSCRIPTIONS (409 for one-time / lifetime) — a product that
+        // has a payment link must go to that link, exactly as the app's requiresServerCheckout decides.
+        val net = signedIn().on("/functions/v1/config") { RAZORPAY_LINK_CONFIG_JSON }
+        val pc = sdk(net)
+        pc.doSignIn("google", "t", null)
+        assertEquals("https://rzp.io/l/lifetime-inr", pc.resolveCheckoutUrl("lifetime", null))
+        assertTrue(net.calls.none { it.url.contains("checkout-initiate") })
+    }
+
+    @Test
+    fun withoutACurrencyCheckoutUsesThePriceTheBuyerSaw() = runTest {
+        val net = signedIn()
+            .on("/functions/v1/config") { CONFIG_JSON }
+            .on("/functions/v1/checkout-initiate") { """{"url":"https://rzp.io/i/abc"}""" }
+        val pc = sdk(net)
+        pc.doSignIn("google", "t", null)
+        pc.resolveCheckoutUrl("pro_monthly", null)
+        assertEquals("INR", net.bodyOf("/functions/v1/checkout-initiate")["currency"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun stripeFallsBackToUsdThenTheFirstLinkWhenTheShownCurrencyHasNone() = runTest {
+        val net = signedIn().on("/functions/v1/config") { STRIPE_MULTI_CURRENCY_CONFIG_JSON }
+        val pc = sdk(net)
+        pc.doSignIn("google", "t", null)
+        // shown price is EUR, which has no link → USD
+        assertTrue(pc.resolveCheckoutUrl("pro_monthly", null).startsWith("https://buy.stripe.com/test_usd?"))
+    }
+
+    @Test
+    fun anExplicitModeWinsOverTheKeyPrefix() = runTest {
+        // Since migration 148 new tenants get one modeless key (pk_<hex>) — the site must be able to say "test".
+        val net = FakeTransport().on("/functions/v1/config") { CONFIG_JSON }
+        val pc = PayCraftWeb("pk_0123abcd", "test", backend, "anon-key").also { it.transport = net }
+        pc.loadConfig()
+        assertEquals("test", net.calls.single().headers["x-paycraft-mode"])
+        val live = FakeTransport().on("/functions/v1/config") { CONFIG_JSON }
+        PayCraftWeb("pk_0123abcd", null, backend, "anon-key").also { it.transport = live }.loadConfig()
+        assertEquals("live", live.calls.single().headers["x-paycraft-mode"])
+    }
+
+    @Test
+    fun onlyTheKeyIsNeededForPayCraftCloud() = runTest {
+        // Same as the app SDK: PayCraft.initialize(apiKey) targets PayCraft Cloud by default, so a site
+        // never copies PayCraft's backend URL or anon key into its own config.
+        val net = FakeTransport().on("/functions/v1/config") { CONFIG_JSON }
+        PayCraftWeb("pk_live_abc").also { it.transport = net }.loadConfig()
+        val call = net.calls.single()
+        assertTrue(call.url.startsWith("$CLOUD_SUPABASE_URL/functions/v1/config?apiKey=pk_live_abc"))
+        assertEquals(CLOUD_SUPABASE_ANON_KEY, call.headers["apikey"])
+        assertEquals("live", call.headers["x-paycraft-mode"])
+    }
+
+    @Test
+    fun errorsCarryAStableCode() = runTest {
+        val net = FakeTransport().on("/functions/v1/identity-token/verify", status = 401) {
+            """{"error":"invalid_token"}"""
+        }
+        val e = assertFailsWith<PayCraftWebError> { sdk(net).doSignIn("google", "bad", null) }
+        assertEquals("http_401", e.code)
+        assertEquals("invalid_token", e.message)
+    }
+
+    @Test
     fun checkoutRequiresSignIn() = runTest {
         val net = FakeTransport().on("/functions/v1/config") { CONFIG_JSON }
         assertFailsWith<PayCraftWebError> { sdk(net).resolveCheckoutUrl("pro_monthly", null) }
@@ -208,7 +272,9 @@ class PayCraftWebTest {
 
     @Test
     fun storageThatThrowsNeverBreaksThePage() = runTest {
-        val net = signedIn().on("/rest/v1/rpc/check_premium_with_device") { """{"is_premium":true,"token_valid":true}""" }
+        val net = signedIn().on("/rest/v1/rpc/check_premium_with_device") {
+            """{"is_premium":true,"token_valid":true}"""
+        }
         val pc = sdk(net, ThrowingKeyValue())
         assertFalse(pc.isAdFree())
         pc.doSignIn("google", "t", null)
@@ -230,6 +296,18 @@ class PayCraftWebTest {
              "mode":"ad_supported",
              "auth":{"google_web_client_id":"web-client.apps.googleusercontent.com","apple_services_id":"com.x.signin"}}
         """.trimIndent()
+        val RAZORPAY_LINK_CONFIG_JSON = """
+            {"products":[{"id":"p2","sku":"lifetime","type":"lifetime","display_name":"Lifetime",
+              "base_price_cents":99900,"base_currency":"INR",
+              "store_binding":{"provider":"razorpay","product_id":"plink_1"}}],
+             "providers":[{"provider":"razorpay","test_payment_links":{"lifetime":{"INR":"https://rzp.io/l/lifetime-inr"}}}]}
+        """.trimIndent()
+        val STRIPE_MULTI_CURRENCY_CONFIG_JSON = """
+            {"products":[{"id":"p1","sku":"pro_monthly","type":"subscription","display_name":"Pro",
+              "base_price_cents":500,"base_currency":"EUR","resolved_price":{"amount_cents":500,"currency":"EUR"}}],
+             "providers":[{"provider":"stripe","test_payment_links":{"pro_monthly":{
+               "GBP":"https://buy.stripe.com/test_gbp","USD":"https://buy.stripe.com/test_usd"}}}]}
+        """.trimIndent()
         val STRIPE_CONFIG_JSON = """
             {"products":[{"id":"p1","sku":"pro_monthly","type":"subscription","display_name":"Pro",
               "interval":"month","base_price_cents":500,"base_currency":"USD"}],
@@ -245,7 +323,10 @@ internal class FakeTransport : Transport {
     private val routes = mutableListOf<Triple<String, Int, () -> String>>()
     val calls = mutableListOf<Call>()
 
-    fun on(path: String, status: Int = 200, body: () -> String): FakeTransport = apply { routes += Triple(path, status, body) }
+    fun on(path: String, status: Int = 200, body: () -> String): FakeTransport = apply {
+        routes +=
+            Triple(path, status, body)
+    }
 
     override suspend fun send(method: String, url: String, headers: Map<String, String>, body: String?): HttpResult {
         calls += Call(method, url, headers, body)

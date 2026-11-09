@@ -8,7 +8,7 @@
 import "./_setup.ts"; // sets SUPABASE_* env — MUST precede the reconcile-module import
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { type CanonicalEvent, reconcileEntitlement } from "../../../_shared/entitlement-reconcile.ts";
-import { latestState, ownerOf } from "./harness.ts";
+import { insertRow, latestState, onNextWrite, ownerOf, rowCount } from "./harness.ts";
 
 const purchase: CanonicalEvent = {
   provider: "google_play",
@@ -32,6 +32,36 @@ Deno.test("GREEN: a webhook renewal keeps the existing owner and still updates s
   );
   assertEquals(await ownerOf("google_play", "tok-owner-1"), "buyer@example.com");
   assertEquals(await latestState("google_play", "tok-owner-1"), "in_grace_period");
+});
+
+// Device finding 2026-11-08 (reels, Play purchase): the PURCHASED notification read "no row", the SDK's
+// grant inserted the row under the buyer's id, then the notification's upsert overwrote the owner with
+// Play's hashed id — the buyer read Free until their next app launch re-claimed it.
+Deno.test("GREEN: a webhook racing the SDK grant never overwrites the owner the grant wrote", async () => {
+  onNextWrite(() =>
+    insertRow({
+      provider: "google_play",
+      stable_txn_id: "tok-race-1",
+      app_user_id: "buyer@example.com",
+      canonical_state: "active",
+      latest_event_ts: "2026-10-01T00:00:00Z",
+    })
+  );
+  await reconcileEntitlement(
+    { ...purchase, stableTxnId: "tok-race-1", appUserId: "d23892b4…obfuscated", latestEventTs: "2026-10-01T00:00:01Z" },
+    { preserveOwner: true },
+  );
+  assertEquals(await ownerOf("google_play", "tok-race-1"), "buyer@example.com");
+  assertEquals(await rowCount("google_play", "tok-race-1"), 1);
+});
+
+Deno.test("GREEN: an older webhook never rolls state back", async () => {
+  await reconcileEntitlement({ ...purchase, stableTxnId: "tok-old-1", latestEventTs: "2026-10-02T00:00:00Z" });
+  await reconcileEntitlement(
+    { ...purchase, stableTxnId: "tok-old-1", canonicalState: "expired", latestEventTs: "2026-10-01T00:00:00Z" },
+    { preserveOwner: true },
+  );
+  assertEquals(await latestState("google_play", "tok-old-1"), "active");
 });
 
 Deno.test("GREEN: a webhook for an UNSEEN transaction still creates the row with its own id", async () => {

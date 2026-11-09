@@ -39,6 +39,9 @@ tasks=(
     # JVM tests
     "jvmTest"
 
+    # Web SDK (Kotlin/JS) — the only module with a JS test suite; also verifies kotlin-js-store/yarn.lock
+    ":cmp-paycraft-web:jsNodeTest"
+
     # Linux tests (only on Linux)
     # "linuxX64Test"
 

@@ -15,7 +15,7 @@ import kotlin.js.Promise
  * PayCraft for plain JavaScript / TypeScript websites.
  *
  * ```ts
- * const pc = new PayCraftWeb("pk_live_…", "https://<project>.supabase.co", "<anon key>");
+ * const pc = new PayCraftWeb("pk_live_…");          // PayCraft Cloud, like PayCraft.initialize(apiKey)
  * if (!pc.isAdFree()) loadAds();                 // synchronous, from cache — decide before any ad loads
  * await pc.signIn("google", googleIdToken, null); // same identity path as the mobile SDK
  * const { isPremium } = await pc.premium();
@@ -25,13 +25,29 @@ import kotlin.js.Promise
  * Same contract as `cmp-paycraft`: a Google/Apple ID token is verified by `identity-token/verify`,
  * that verified email registers this browser via `register_device`, and premium is
  * `check_premium_with_device` with the resulting token. `isAdFree()` mirrors `isPremium()` exactly
- * as `PayCraft.isAdFree` does in the app. Constructor arguments are all PUBLIC values (the tenant's
- * publishable key, the backend URL and its anon key) — no secret ever belongs in a web page.
+ * as `PayCraft.isAdFree` does in the app. The only required argument is the tenant's PUBLISHABLE key;
+ * no secret ever belongs in a web page.
  */
 @JsExport
-class PayCraftWeb(private val apiKey: String, backendUrl: String, private val anonKey: String) {
-    private val base = backendUrl.trimEnd('/')
-    private val mode = if (apiKey.startsWith("pk_test")) "test" else "live"
+class PayCraftWeb(
+    private val apiKey: String,
+    /**
+     * `"test"` or `"live"`. Optional: when null the key decides (`pk_test_…` → test, anything else → live).
+     * Tenants created since migration 148 get ONE modeless key (`pk_<hex>`), so a site that wants test
+     * links, test devices and sandbox checkout passes `"test"` explicitly.
+     */
+    mode: String? = null,
+    /** Self-hosted PayCraft only. Default: PayCraft Cloud — the same backend `PayCraft.initialize(apiKey)` uses. */
+    backendUrl: String? = null,
+    /** Self-hosted PayCraft only (that backend's public anon key). Default: PayCraft Cloud's. */
+    private val anonKey: String = CLOUD_SUPABASE_ANON_KEY,
+) {
+    private val base = (backendUrl ?: CLOUD_SUPABASE_URL).trimEnd('/')
+    private val mode = when (mode?.lowercase()) {
+        "test" -> "test"
+        "live" -> "live"
+        else -> if (apiKey.startsWith("pk_test_")) "test" else "live"
+    }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val json = Json {
         ignoreUnknownKeys = true
@@ -58,7 +74,11 @@ class PayCraftWeb(private val apiKey: String, backendUrl: String, private val an
     fun signIn(provider: String, idToken: String, nonce: String?): Promise<SignInResult> =
         scope.promise { doSignIn(provider, idToken, nonce) }
 
-    /** After a sign-in that reported a conflict: moves the account to this browser. */
+    /**
+     * After a sign-in that reported a conflict: moves the account to this browser. PayCraft allows ONE
+     * active device per account (any platform), so this SIGNS THE OTHER DEVICE OUT of premium — ask the
+     * buyer first ("Use premium here instead of <device>?"); never call it automatically.
+     */
     fun useThisDevice(): Promise<Boolean> = scope.promise { doUseThisDevice() }
 
     /** Asks the server, updates the cache, and resolves with the fresh status. */
@@ -107,7 +127,8 @@ class PayCraftWeb(private val apiKey: String, backendUrl: String, private val an
             put("id_token", idToken)
             if (nonce != null) put("nonce", nonce)
         }.toString()
-        val verified = decode(VerifyWire.serializer(), call("POST", "$base/functions/v1/identity-token/verify", verifyBody))
+        val verified =
+            decode(VerifyWire.serializer(), call("POST", "$base/functions/v1/identity-token/verify", verifyBody))
         val email = verified.email?.takeIf { it.isNotBlank() }
             ?: throw PayCraftWebError("identity_unverified", "The identity provider returned no verified email")
 
@@ -134,7 +155,10 @@ class PayCraftWeb(private val apiKey: String, backendUrl: String, private val an
             put("p_new_device_token", token)
             put("p_api_key", apiKey)
         }.toString()
-        val moved = decode(TransferWire.serializer(), call("POST", "$base/rest/v1/rpc/transfer_to_device", body)).transferred
+        val moved = decode(
+            TransferWire.serializer(),
+            call("POST", "$base/rest/v1/rpc/transfer_to_device", body),
+        ).transferred
         if (moved) refreshPremium()
         return moved
     }
@@ -152,30 +176,43 @@ class PayCraftWeb(private val apiKey: String, backendUrl: String, private val an
         return PremiumState(isPremium = premium, tokenValid = wire.tokenValid, email = email)
     }
 
+    /**
+     * Same routing as the app (`PayCraft.requiresServerCheckout`): the product's own provider
+     * (`store_binding.provider`, else the tenant's primary web provider); its payment link for this
+     * mode when one exists; server checkout (`checkout-initiate`, Razorpay subscriptions only) when the
+     * product has no link. Currency follows `CurrencyResolver.checkoutCurrency`: requested → the price
+     * the buyer saw → USD → first available.
+     */
     internal suspend fun resolveCheckoutUrl(sku: String, currency: String?): String {
         val email = store.email() ?: throw PayCraftWebError("sign_in_required", "Sign in before checkout")
         val cfg = cachedConfig ?: run {
             loadConfig()
             cachedConfig!!
         }
-        val provider = cfg.providers.firstOrNull { it.provider == "razorpay" || it.provider == "stripe" }
-            ?: throw PayCraftWebError("no_web_provider", "No Razorpay or Stripe provider is enabled for this tenant")
-        return if (provider.provider == "razorpay") {
-            val body = buildJsonObject {
-                put("sku", sku)
-                if (currency != null) put("currency", currency)
-                putJsonObject("customer") { put("email", email) }
-            }.toString()
-            val res = call("POST", "$base/functions/v1/checkout-initiate?apiKey=${encode(apiKey)}", body)
-            decode(CheckoutWire.serializer(), res).url
-                ?: throw PayCraftWebError("checkout_failed", "checkout-initiate returned no url")
-        } else {
-            val links = (if (mode == "test") provider.testPaymentLinks else provider.livePaymentLinks)?.get(sku)
-            val link = (currency?.let { links?.get(it) } ?: links?.values?.firstOrNull())
-                ?: throw PayCraftWebError("no_payment_link", "No $mode Stripe payment link for $sku")
-            val separator = if ('?' in link) '&' else '?'
-            "$link${separator}prefilled_email=${encode(email)}"
+        val product = cfg.products.firstOrNull { it.sku == sku }
+            ?: throw PayCraftWebError("unknown_sku", "No product $sku in this tenant's config")
+        val bound = product.storeBinding?.provider?.takeUnless { it in NATIVE_STORES }
+        val provider = (bound?.let { name -> cfg.providers.firstOrNull { it.provider == name } })
+            ?: cfg.providers.firstOrNull { it.provider in WEB_PROVIDERS }
+            ?: throw PayCraftWebError("no_web_provider", "No web checkout provider is enabled for this tenant")
+        val links = (if (mode == "test") provider.testPaymentLinks else provider.livePaymentLinks)
+            ?.get(sku).orEmpty().filterValues { it.isNotBlank() }
+        val shown = currency ?: product.resolvedPrice?.currency ?: product.baseCurrency
+        if (links.isNotEmpty()) {
+            val link = links.getValue(checkoutCurrency(shown, links.keys))
+            return if (provider.provider == "stripe") withEmail(link, "prefilled_email", email) else link
         }
+        if (provider.provider != "razorpay") {
+            throw PayCraftWebError("no_payment_link", "No $mode ${provider.provider} payment link for $sku")
+        }
+        val body = buildJsonObject {
+            put("sku", sku)
+            put("currency", shown)
+            putJsonObject("customer") { put("email", email) }
+        }.toString()
+        val res = call("POST", "$base/functions/v1/checkout-initiate?apiKey=${encode(apiKey)}", body)
+        return decode(CheckoutWire.serializer(), res).url
+            ?: throw PayCraftWebError("checkout_failed", "checkout-initiate returned no url")
     }
 
     // ── HTTP ─────────────────────────────────────────────────────────────────────────────────
@@ -205,6 +242,21 @@ class PayCraftWeb(private val apiKey: String, backendUrl: String, private val an
     } catch (e: Throwable) {
         throw PayCraftWebError("bad_response", "Unexpected response: ${e.message}")
     }
+}
+
+private val NATIVE_STORES = setOf("google_play", "app_store")
+private val WEB_PROVIDERS = setOf("razorpay", "stripe")
+
+/** `CurrencyResolver.checkoutCurrency` from cmp-paycraft: shown → USD → first available. */
+internal fun checkoutCurrency(shown: String, available: Set<String>): String = when {
+    shown in available -> shown
+    "USD" in available -> "USD"
+    else -> available.first()
+}
+
+private fun withEmail(link: String, param: String, email: String): String {
+    val separator = if ('?' in link) '&' else '?'
+    return "$link$separator$param=${encode(email)}"
 }
 
 private fun encode(value: String): String = js("encodeURIComponent")(value) as String

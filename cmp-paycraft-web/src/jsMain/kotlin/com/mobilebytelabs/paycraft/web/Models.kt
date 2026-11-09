@@ -41,6 +41,7 @@ class PremiumState(val isPremium: Boolean, val tokenValid: Boolean, val email: S
 class SignInResult(val email: String, val conflict: Boolean, val conflictingDeviceName: String?)
 
 /** Every failure the SDK rejects a promise with; [code] is stable (`sign_in_required`, `http_401`, …). */
+@JsExport
 class PayCraftWebError(val code: String, message: String) : Exception(message)
 
 // ── Wire shapes (internal; names follow the server, unknown keys ignored) ─────────────────────
@@ -64,13 +65,14 @@ internal class ProductWire(
     @SerialName("trial_enabled") val trialEnabled: Boolean = true,
     @SerialName("trial_duration_days") val trialDurationDays: Int? = null,
     @SerialName("resolved_price") val resolvedPrice: PriceWire? = null,
+    @SerialName("store_binding") val storeBinding: StoreBindingWire? = null,
 )
 
 @Serializable
-internal class PriceWire(
-    @SerialName("amount_cents") val amountCents: Int? = null,
-    val currency: String? = null,
-)
+internal class StoreBindingWire(val provider: String? = null)
+
+@Serializable
+internal class PriceWire(@SerialName("amount_cents") val amountCents: Int? = null, val currency: String? = null)
 
 @Serializable
 internal class ProviderWire(
