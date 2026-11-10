@@ -492,13 +492,21 @@ fun PayCraftTeaseGate(
  * plain surface, so the default is good enough that `badge` stays unused in normal code.
  */
 @Composable
-private fun DefaultPlusChip() {
+private fun DefaultPlusChip() = PayCraftLockChip()
+
+/**
+ * The SDK's lock chip on its own — the badge [PayCraftTeaseGate] draws — for a host that marks an item
+ * as paid but keeps the item interactive (e.g. a selectable quality row whose download is then gated by
+ * [PayCraftAdGate]). Pass [label] to localize it or match the app's tier name.
+ */
+@Composable
+fun PayCraftLockChip(modifier: Modifier = Modifier, label: String = "Plus") {
     Surface(
         shape = RoundedCornerShape(50),
         color = Color.White.copy(alpha = 0.92f),
         contentColor = Color.Black.copy(alpha = 0.82f),
         shadowElevation = 2.dp,
-        modifier = Modifier.testTag(PayCraftTestTags.GATE_PLUS_CHIP),
+        modifier = modifier.testTag(PayCraftTestTags.GATE_PLUS_CHIP),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -511,7 +519,7 @@ private fun DefaultPlusChip() {
             )
             Spacer(Modifier.size(4.dp))
             Text(
-                text = "Plus",
+                text = label,
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
             )
         }

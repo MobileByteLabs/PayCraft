@@ -23,6 +23,7 @@
 
 import { createRemoteJWKSet, jwtVerify } from "https://deno.land/x/jose@v5.9.6/index.ts";
 import { supabaseAdmin } from "../_shared/supabase-admin.ts";
+import { preflight, withCors } from "../_shared/cors.ts";
 
 type Provider = "google" | "apple";
 
@@ -384,7 +385,27 @@ async function handleResult(req: Request): Promise<Response> {
     : json({ status: "failed", error: s.error ?? "failed" });
 }
 
+// Browser entry (cmp-paycraft-web): answer the CORS preflight, then add the CORS headers to
+// every response — success and error alike — without touching the handler's own logic.
 export async function handleIdentityTokenRequest(req: Request): Promise<Response> {
+  const pre = preflight(req);
+  if (pre) return pre;
+  try {
+    return withCors(await handleIdentityTokenRequestInner(req));
+  } catch (e) {
+    // An uncaught throw would otherwise reach the runtime as a bare 500 with no CORS headers,
+    // which a browser reports as an opaque CORS failure instead of the real error.
+    console.error("[identity-token] unhandled", e);
+    return withCors(
+      new Response(JSON.stringify({ error: "internal_error" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  }
+}
+
+async function handleIdentityTokenRequestInner(req: Request): Promise<Response> {
   const path = new URL(req.url).pathname.replace(/\/+$/, "");
   if (path.endsWith("/verify")) return await handleVerify(req);
   if (path.endsWith("/start")) return await handleStart(req);

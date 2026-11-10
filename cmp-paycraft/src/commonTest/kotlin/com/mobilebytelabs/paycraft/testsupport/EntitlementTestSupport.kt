@@ -44,6 +44,9 @@ class FakePayCraftService(
 
     val cancelledProviders = mutableListOf<String>()
 
+    /** What `check_premium_with_device` answers. Since 176 the server says true for a store subscriber too. */
+    var serverPremium = false
+
     /** Every store grant call, as (purchaseToken, appUserId) — what the server was asked to bind. */
     val registered = mutableListOf<Pair<String, String>>()
 
@@ -100,7 +103,7 @@ class FakePayCraftService(
         mode: String,
     ): RegisterDeviceResult = RegisterDeviceResult("token", false, null, null)
     override suspend fun checkPremiumWithDevice(serverToken: String): PremiumCheckResult =
-        PremiumCheckResult(isPremium = false, tokenValid = true)
+        PremiumCheckResult(isPremium = serverPremium, tokenValid = true)
     override suspend fun transferToDevice(serverToken: String, newDeviceToken: String): Boolean = true
     override suspend fun revokeDevice(serverToken: String, targetToken: String): Boolean = true
     override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String? = null

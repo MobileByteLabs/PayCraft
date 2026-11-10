@@ -18,6 +18,7 @@ import {
   requireRateLimit,
 } from "../_shared/rate-limit.ts"
 import { toAlpha2 } from "../_shared/country-code.ts"
+import { preflight, withCors } from "../_shared/cors.ts"
 
 /** Map a routing method name (stripe_card, razorpay_upi, direct_upi…) to its provider. */
 function methodToProvider(method: string): string {
@@ -228,7 +229,27 @@ async function orderProvidersByPlatform(
   }
 }
 
+// Browser entry (cmp-paycraft-web): answer the CORS preflight, then add the CORS headers to
+// every response — success and error alike — without touching the handler's own logic.
 export async function handleConfigRequest(req: Request): Promise<Response> {
+  const pre = preflight(req)
+  if (pre) return pre
+  try {
+    return withCors(await handleConfigRequestInner(req))
+  } catch (e) {
+    // An uncaught throw would otherwise reach the runtime as a bare 500 with no CORS headers,
+    // which a browser reports as an opaque CORS failure instead of the real error.
+    console.error("[config] unhandled", e)
+    return withCors(
+      new Response(JSON.stringify({ error: "internal_error" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+  }
+}
+
+async function handleConfigRequestInner(req: Request): Promise<Response> {
   if (req.method !== "GET") {
     return new Response("Method not allowed", { status: 405 })
   }

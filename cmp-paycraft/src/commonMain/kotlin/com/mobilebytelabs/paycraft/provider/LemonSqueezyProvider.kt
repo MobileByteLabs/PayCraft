@@ -20,7 +20,7 @@ class LemonSqueezyProvider(private val paymentLinks: Map<String, String>, val is
     override fun getCheckoutUrl(plan: BillingPlan, email: String?): String {
         val baseUrl = paymentLinks[plan.id]
             ?: error("No payment link configured for plan '${plan.id}'")
-        return if (email != null) "$baseUrl?checkout[email]=$email" else baseUrl
+        return withEmailParam(baseUrl, "checkout[email]", email)
     }
 
     override fun getManageUrl(email: String): String? = null

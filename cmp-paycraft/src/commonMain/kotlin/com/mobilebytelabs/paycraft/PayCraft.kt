@@ -32,6 +32,7 @@ import com.mobilebytelabs.paycraft.platform.DeviceFingerprint
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import com.mobilebytelabs.paycraft.provider.PaymentProvider
+import com.mobilebytelabs.paycraft.provider.withEmailParam
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -1649,7 +1650,7 @@ private class SuiteProviderAdapter(private val dto: ProviderDto?) : PaymentProvi
         // checkout currency can't silently diverge from the price shown on the paywall.
         val currency = CurrencyResolver.checkoutCurrency(PayCraft.activeCurrency, perCurrency.keys)
         val url = perCurrency[currency] ?: error(noLinkMessage(plan, currency))
-        return if (email != null) "$url?prefilled_email=$email" else url
+        return withEmailParam(url, "prefilled_email", email)
     }
 
     override fun getManageUrl(email: String): String? = null

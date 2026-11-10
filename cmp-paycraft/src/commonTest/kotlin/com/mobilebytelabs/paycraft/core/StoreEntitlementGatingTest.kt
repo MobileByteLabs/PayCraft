@@ -3,6 +3,7 @@ package com.mobilebytelabs.paycraft.core
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.billing.NativePurchase
 import com.mobilebytelabs.paycraft.model.BillingState
+import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.persistence.EntitlementCache
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
 import com.mobilebytelabs.paycraft.testsupport.FakePayCraftService
@@ -15,7 +16,9 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
 
@@ -82,6 +85,86 @@ class StoreEntitlementGatingTest {
 
         assertIs<BillingState.Premium>(manager.settled(), "an active store subscription is premium")
         assertTrue(manager.isPremium.value)
+    }
+
+    /**
+     * Device finding 2026-11-08 (reels, Play test subscription): since migration 176 the server's
+     * premium check answers TRUE for a store subscriber. The SDK then built the status from web
+     * `subscriptions` only — empty for a store subscriber — and cached premium with NO expiry, so
+     * SyncPolicy fell back to a daily check and the app showed Premium for ~a day after the
+     * subscription expired. The store entitlement carries the real expiry; it must be used.
+     */
+    @Test
+    fun server_premium_for_a_store_subscriber_caches_the_store_expiry() = runTest {
+        val email = "buyer@test.local"
+        val service = FakePayCraftService().apply {
+            serverPremium = true
+            seed(activeStoreEntitlement(email))
+        }
+        val emailStore = object : PayCraftStore {
+            override suspend fun saveEmail(email: String) = Unit
+            override suspend fun getEmail(): String? = email
+            override suspend fun clearEmail() = Unit
+        }
+        val native = SpyNativeBillingClient()
+        val manager = PayCraftBillingManager(
+            service = service,
+            store = emailStore,
+            repo = EntitlementRepository(
+                cache = EntitlementCache(service, InMemoryEntitlementDao(), ttl = 24.hours),
+                native = native,
+                service = service,
+                platform = { "android" },
+            ),
+            nativeBillingClient = native,
+            dispatcher = Dispatchers.Default,
+        )
+
+        assertIs<BillingState.Premium>(manager.settled())
+        assertNotNull(
+            manager.subscriptionStatus.value.expiresAt,
+            "premium must carry the store expiry, or it outlives it",
+        )
+    }
+
+    /**
+     * Device finding 2026-11-08 (reels, Play test subscription revoked, user never signed in): init
+     * applied the cached Premium (`isPremium = true`), the no-email path then set only
+     * `billingState = Free` and left `isPremium` and the cache untouched. Settings read Free while
+     * every `isPremium` gate (ads hidden, HD unlocked) stayed Premium — across relaunches.
+     */
+    @Test
+    fun a_lapsed_store_subscription_clears_cached_premium_without_an_email() = runTest {
+        val cache = object : PayCraftStore {
+            var cached: SubscriptionStatus? = SubscriptionStatus(isPremium = true, provider = "google_play")
+            override suspend fun saveEmail(email: String) = Unit
+            override suspend fun getEmail(): String? = null
+            override suspend fun clearEmail() = Unit
+            override fun cacheSubscriptionStatus(status: SubscriptionStatus) {
+                cached = status
+            }
+            override fun getCachedSubscriptionStatus(): SubscriptionStatus? = cached
+        }
+        val service = FakePayCraftService().apply {
+            seed(activeStoreEntitlement(deviceId).copy(canonicalState = "expired", expiresAt = 1_000L))
+        }
+        val native = SpyNativeBillingClient()
+        val manager = PayCraftBillingManager(
+            service = service,
+            store = cache,
+            repo = EntitlementRepository(
+                cache = EntitlementCache(service, InMemoryEntitlementDao(), ttl = 24.hours),
+                native = native,
+                service = service,
+                platform = { "android" },
+            ),
+            nativeBillingClient = native,
+            dispatcher = Dispatchers.Default,
+        )
+
+        withContext(Dispatchers.Default) { withTimeout(5_000) { manager.isPremium.first { !it } } }
+        assertIs<BillingState.Free>(manager.billingState.value)
+        assertFalse(cache.cached!!.isPremium, "the cached Premium must be overwritten, or the next launch restores it")
     }
 
     @Test

@@ -32,6 +32,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1";
 import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/rate-limit.ts";
+import { preflight, withCors } from "../_shared/cors.ts";
 
 const RAZORPAY_API = "https://api.razorpay.com/v1";
 
@@ -91,16 +92,27 @@ function totalCountFor(interval: string): number {
   }
 }
 
+// Browser entry (cmp-paycraft-web): answer the CORS preflight, then add the CORS headers to
+// every response — success and error alike — without touching the handler's own logic.
 export async function handleCheckoutInitiate(req: Request): Promise<Response> {
-  if (req.method === "OPTIONS") {
-    return new Response(null, {
-      headers: {
-        "access-control-allow-origin": "*",
-        "access-control-allow-headers": "content-type, authorization",
-        "access-control-allow-methods": "POST, OPTIONS",
-      },
-    });
+  const pre = preflight(req);
+  if (pre) return pre;
+  try {
+    return withCors(await handleCheckoutInitiateInner(req));
+  } catch (e) {
+    // An uncaught throw would otherwise reach the runtime as a bare 500 with no CORS headers,
+    // which a browser reports as an opaque CORS failure instead of the real error.
+    console.error("[checkout-initiate] unhandled", e);
+    return withCors(
+      new Response(JSON.stringify({ error: "internal_error" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      }),
+    );
   }
+}
+
+async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   const url = new URL(req.url);

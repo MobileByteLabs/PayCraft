@@ -22,8 +22,22 @@ function matches(row: Row, params: URLSearchParams): boolean {
     if (val.startsWith("eq.")) {
       if (String(row[key]) !== val.slice(3)) return false;
     }
+    if (val.startsWith("lt.")) {
+      if (!(new Date(String(row[key])) < new Date(val.slice(3)))) return false;
+    }
   }
   return true;
+}
+
+/** Runs once, just before the next INSERT/UPSERT reaches the table — lands a concurrent writer first. */
+let beforeNextWrite: (() => void) | null = null;
+export function onNextWrite(fn: () => void): void {
+  beforeNextWrite = fn;
+}
+
+/** Inserts a row directly, as another writer (e.g. the SDK's grant endpoint) would. */
+export function insertRow(row: Row): void {
+  table.push({ ...row });
 }
 
 function json(body: unknown, status: number): Response {
@@ -41,17 +55,29 @@ globalThis.fetch = (async (input: Request | URL | string, init?: RequestInit): P
   if (url.includes("/rest/v1/entitlement_records")) {
     const parsed = new URL(url);
     if (method === "GET") {
-      const hits = table.filter((r) => matches(r, parsed.searchParams));
+      const hits = table.filter((r) => matches(r, parsed.searchParams)).map((r) => ({ ...r }));
       return json(hits, 200);
     }
     if (method === "POST") {
+      const hook = beforeNextWrite;
+      beforeNextWrite = null;
+      hook?.();
       const body = JSON.parse(init!.body as string) as Row;
+      const prefer = new Headers(init?.headers).get("Prefer") ?? "";
       const idx = table.findIndex(
         (r) => r.provider === body.provider && r.stable_txn_id === body.stable_txn_id,
       );
-      if (idx >= 0) table[idx] = { ...table[idx], ...body };
-      else table.push({ ...body });
+      if (idx >= 0) {
+        if (prefer.includes("resolution=ignore-duplicates")) return json([], 201); // ON CONFLICT DO NOTHING
+        table[idx] = { ...table[idx], ...body };
+      } else table.push({ ...body });
       return json([body], 201);
+    }
+    if (method === "PATCH") {
+      const body = JSON.parse(init!.body as string) as Row;
+      const hits = table.filter((r) => matches(r, parsed.searchParams));
+      hits.forEach((r) => Object.assign(r, body));
+      return json(hits, 200);
     }
   }
   // Anything else (should not happen in this canary) falls through to the real fetch.

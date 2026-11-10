@@ -60,6 +60,8 @@ export async function reconcileEntitlement(
   ev: CanonicalEvent,
   opts: { preserveOwner?: boolean } = {},
 ): Promise<void> {
+  if (opts.preserveOwner) return reconcileKeepingOwner(ev);
+
   const { data: existing, error: selErr } = await supabaseAdmin
     .from("entitlement_records")
     .select("latest_event_ts, app_user_id")
@@ -72,24 +74,52 @@ export async function reconcileEntitlement(
   if (existing && new Date(existing.latest_event_ts) >= new Date(ev.latestEventTs)) return;
 
   const { error } = await supabaseAdmin.from("entitlement_records").upsert(
-    {
-      app_user_id: opts.preserveOwner && existing?.app_user_id ? existing.app_user_id : ev.appUserId,
-      tenant_id: ev.tenantId,
-      provider: ev.provider,
-      product_id: ev.productId,
-      stable_txn_id: ev.stableTxnId,
-      canonical_state: ev.canonicalState,
-      expires_at: ev.expiresAt,
-      will_renew: ev.willRenew,
-      in_grace_until: ev.inGraceUntil,
-      is_sandbox: ev.isSandbox,
-      latest_event_ts: ev.latestEventTs,
-      raw_store_state: ev.rawStoreState ?? null,
-      updated_at: new Date().toISOString(),
-    },
+    { app_user_id: ev.appUserId, ...stateColumns(ev) },
     { onConflict: "provider,stable_txn_id" },
   );
   if (error) throw new Error(`reconcile upsert failed: ${error.message}`);
+}
+
+/** Every column a store event decides — all but the owner (`app_user_id`). */
+function stateColumns(ev: CanonicalEvent) {
+  return {
+    tenant_id: ev.tenantId,
+    provider: ev.provider,
+    product_id: ev.productId,
+    stable_txn_id: ev.stableTxnId,
+    canonical_state: ev.canonicalState,
+    expires_at: ev.expiresAt,
+    will_renew: ev.willRenew,
+    in_grace_until: ev.inGraceUntil,
+    is_sandbox: ev.isSandbox,
+    latest_event_ts: ev.latestEventTs,
+    raw_store_state: ev.rawStoreState ?? null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * The webhook path, with NO read-then-write window. It used to read the owner and write it back in
+ * one upsert; when the SDK's grant inserted the row in between (a purchase's notification and its
+ * grant land together), the upsert overwrote the buyer with the store's hashed id and the buyer read
+ * Free until their next launch re-claimed it. Now: (1) create the row only if nothing has — ON
+ * CONFLICT DO NOTHING, the only place a webhook id becomes an owner; (2) update state only, with the
+ * monotonic guard in the WHERE clause, so a stale or duplicate event changes nothing.
+ */
+async function reconcileKeepingOwner(ev: CanonicalEvent): Promise<void> {
+  const state = stateColumns(ev);
+  const { error: insErr } = await supabaseAdmin.from("entitlement_records").upsert(
+    { app_user_id: ev.appUserId, ...state },
+    { onConflict: "provider,stable_txn_id", ignoreDuplicates: true },
+  );
+  if (insErr) throw new Error(`reconcile insert failed: ${insErr.message}`);
+
+  const { error: updErr } = await supabaseAdmin.from("entitlement_records")
+    .update(state)
+    .eq("provider", ev.provider)
+    .eq("stable_txn_id", ev.stableTxnId)
+    .lt("latest_event_ts", ev.latestEventTs);
+  if (updErr) throw new Error(`reconcile update failed: ${updErr.message}`);
 }
 
 // ---------------------------------------------------------------------------
