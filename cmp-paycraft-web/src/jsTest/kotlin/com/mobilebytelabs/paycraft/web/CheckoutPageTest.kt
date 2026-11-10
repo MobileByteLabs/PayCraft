@@ -21,7 +21,7 @@ class CheckoutPageTest {
         it.now = { 1_000_000.0 }
         it.newDeviceId = { "dev-1" }
         it.deviceName = { "Chrome on Mac" }
-        it.currentPage = { "https://site.example/checkout/?plan=pro_monthly" }
+        it.currentPage = { "https://site.example/checkout/?plan=pro-monthly" }
     }
 
     private fun signedIn(cfg: String) = FakeTransport()
@@ -45,10 +45,12 @@ class CheckoutPageTest {
 
     @Test
     fun a_signed_out_buyer_is_sent_to_sign_in_not_shown_a_payment_page() = runTest {
-        val view = sdk(FakeTransport()).checkoutView("pro_monthly", opts("""{"signInUrl":"/signin/?plan=pro_monthly","backUrl":"/pricing/"}"""))
+        val view = sdk(
+            FakeTransport(),
+        ).checkoutView("pro-monthly", opts("""{"signInUrl":"/signin/?plan=pro-monthly","backUrl":"/pricing/"}"""))
         val n = assertIs<CheckoutView.Notice>(view).notice
         assertEquals("Sign in to continue", n.title)
-        assertEquals("/signin/?plan=pro_monthly", n.actionHref)
+        assertEquals("/signin/?plan=pro-monthly", n.actionHref)
         assertEquals("/pricing/", n.backUrl)
     }
 
@@ -56,7 +58,7 @@ class CheckoutPageTest {
     fun the_page_lists_every_provider_that_can_charge_the_price_with_every_method_it_offers() = runTest {
         val pc = sdk(signedIn(TWO_PROVIDER_INR))
         pc.doSignIn("google", "t", null)
-        val view = pc.checkoutView("pro_monthly", opts("""{"features":["No ads anywhere"," "],"termsUrl":"/terms/"}"""))
+        val view = pc.checkoutView("pro-monthly", opts("""{"features":["No ads anywhere"," "],"termsUrl":"/terms/"}"""))
         val m = assertIs<CheckoutView.Ready>(view).model
         assertEquals("Pro Monthly", m.planName)
         assertEquals("month", m.period)
@@ -132,7 +134,7 @@ class CheckoutPageTest {
     private companion object {
         val TWO_PROVIDER_INR = """
             {"tenant_id":"t1","mode":"ad_supported",
-             "products":[{"id":"p1","sku":"pro_monthly","type":"subscription","display_name":"Pro Monthly","interval":"month",
+             "products":[{"id":"p1","sku":"pro-monthly","type":"subscription","display_name":"Pro Monthly","interval":"month",
                "base_price_cents":999,"base_currency":"USD","trial_enabled":true,"trial_duration_days":14,
                "resolved_price":{"amount_cents":29900,"currency":"INR","source":"manual"},
                "store_binding":{"provider":"razorpay","product_id":"plan_inr"},

@@ -89,10 +89,10 @@ class CoreParityTest {
     fun checkoutFollowsTheContractRouting() = runTest {
         // Stripe: link with the prefilled, encoded email
         val stripe = FakeTransport().on("/functions/v1/config") { PayCraftWebTest.STRIPE_CONFIG_JSON }
-        val stripeUrl = signedIn(stripe).resolveCheckoutUrl("pro_monthly", null)
+        val stripeUrl = signedIn(stripe).resolveCheckoutUrl("pro-monthly", null)
         val expected = PayCraftContract.routeWebCheckout(
             PayCraftContract.decodeConfigForWeb(PayCraftWebTest.STRIPE_CONFIG_JSON),
-            "pro_monthly",
+            "pro-monthly",
             true,
             null,
             "a+b@mail.test",
@@ -112,7 +112,7 @@ class CoreParityTest {
         val server = FakeTransport()
             .on("/functions/v1/config") { PayCraftWebTest.CONFIG_JSON }
             .on("/functions/v1/checkout-initiate") { """{"url":"https://rzp.io/i/sub_1"}""" }
-        assertEquals("https://rzp.io/i/sub_1", signedIn(server).resolveCheckoutUrl("pro_monthly", null))
+        assertEquals("https://rzp.io/i/sub_1", signedIn(server).resolveCheckoutUrl("pro-monthly", null))
         assertEquals(PayCraftContract.checkoutInitiateUrl(backend, "pk_test_abc"), server.calls.last().url)
     }
 

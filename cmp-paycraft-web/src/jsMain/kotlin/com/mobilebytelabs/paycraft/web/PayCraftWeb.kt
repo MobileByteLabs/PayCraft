@@ -6,7 +6,6 @@ import com.mobilebytelabs.paycraft.contract.PayCraftContract
 import com.mobilebytelabs.paycraft.contract.WebCheckoutFailure
 import com.mobilebytelabs.paycraft.contract.WebCheckoutRoute
 import com.mobilebytelabs.paycraft.network.ActiveDevice
-import kotlin.js.Promise
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,6 +22,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import kotlin.js.Promise
 
 /**
  * PayCraft for plain JavaScript / TypeScript websites.
@@ -32,7 +32,7 @@ import kotlinx.serialization.json.putJsonObject
  * if (!pc.isAdFree()) loadAds();                 // synchronous, from cache — decide before any ad loads
  * await pc.signIn("google", googleIdToken, null); // same identity path as the mobile SDK
  * const { isPremium } = await pc.premium();
- * location.href = await pc.checkoutUrl("pro_monthly", "INR");
+ * location.href = await pc.checkoutUrl("pro-monthly", "INR");
  * ```
  *
  * Same contract as `cmp-paycraft` — literally: every URL, header, request body, response parser and
@@ -176,7 +176,13 @@ class PayCraftWeb(
     fun paymentOptions(sku: String, currency: String?): Array<WebPaymentOption> {
         val cfg = cachedConfig ?: return emptyArray()
         return PayCraftContract.webPaymentOptions(cfg, sku, mode == "test", currency, chargeableBySku[sku].orEmpty())
-            .map { WebPaymentOption(it, providerDisplayName(it), paymentMethods(it, currency ?: productCurrency(sku)).summary) }
+            .map {
+                WebPaymentOption(
+                    it,
+                    providerDisplayName(it),
+                    paymentMethods(it, currency ?: productCurrency(sku)).summary,
+                )
+            }
             .toTypedArray()
     }
 
@@ -326,8 +332,13 @@ class PayCraftWeb(
             cachedConfig!!
         }
         val route = PayCraftContract.routeWebCheckout(
-            cfg, sku, mode == "test", currency, email,
-            preferredProvider = provider, chargeable = chargeableBySku[sku].orEmpty(),
+            cfg,
+            sku,
+            mode == "test",
+            currency,
+            email,
+            preferredProvider = provider,
+            chargeable = chargeableBySku[sku].orEmpty(),
         )
         return when (route) {
             is WebCheckoutRoute.PaymentLink -> route.url

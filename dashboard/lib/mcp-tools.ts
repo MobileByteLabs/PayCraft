@@ -207,7 +207,7 @@ export const MCP_TOOLS: McpTool[] = [
     inputSchema: obj(
       {
         ...TENANT,
-        sku: { type: "string", description: "Stable catalogue id, unique per app. Immutable afterwards." },
+        sku: { type: "string", pattern: "^[a-z0-9]+(-[a-z0-9]+)*$", minLength: 2, maxLength: 64, description: "Stable catalogue id, unique per app. Immutable afterwards. Lowercase kebab-case, 2-64 characters (e.g. pro-monthly, pro-annual, coins-100) — the naming convention PayCraft enforces. Store product ids are separate fields." },
         display_name: { type: "string", description: "Customer-facing name, e.g. \"Cappy Weekly\"." },
         interval: {
           type: "string",

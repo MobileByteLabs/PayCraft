@@ -319,7 +319,13 @@ object PayCraftContract {
             .filter { (_, v) -> (v as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true }
             .keys.map { it.uppercase() }.toSet()
         val stripeVerified = test || product.bool("live_stripe_ids_verified") != false
-        val stripe = if (stripeVerified) keys(if (test) "stripe_price_id_by_currency_test" else "stripe_price_id_by_currency") else emptySet()
+        val stripe = if (stripeVerified) {
+            keys(
+                if (test) "stripe_price_id_by_currency_test" else "stripe_price_id_by_currency",
+            )
+        } else {
+            emptySet()
+        }
         val razorpay = keys(if (test) "razorpay_plan_id_by_currency_test" else "razorpay_plan_id_by_currency")
         if (stripe.isNotEmpty()) put("stripe", stripe)
         if (razorpay.isNotEmpty()) put("razorpay", razorpay)
@@ -345,11 +351,12 @@ object PayCraftContract {
             ?.takeIf { requestedCurrency == null || requestedCurrency.equals(product.resolvedPrice?.currency, true) }
             ?.let(::webProvider)
         val able = cfg.providers.map { it.provider }.distinct().filter { p ->
-            p in WEB_PROVIDERS && (
-                p == bound ||
-                    paymentLinks(cfg, p, sku, test).keys.any { it.equals(shown, true) } ||
-                    shown in chargeable[p].orEmpty()
-                )
+            p in WEB_PROVIDERS &&
+                (
+                    p == bound ||
+                        paymentLinks(cfg, p, sku, test).keys.any { it.equals(shown, true) } ||
+                        shown in chargeable[p].orEmpty()
+                    )
         }
         return able.sortedBy { if (it == bound) 0 else 1 }
     }

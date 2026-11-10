@@ -1,6 +1,7 @@
 export const runtime = "edge"
 
 import { NextRequest, NextResponse } from "next/server"
+import { skuFor } from "@/lib/sku"
 import { randomHex } from "@/lib/edge-crypto"
 import { createClient } from "@supabase/supabase-js"
 import { createClient as createServerSupabase } from "@/lib/supabase-server"
@@ -167,7 +168,10 @@ export async function POST(req: NextRequest) {
         await admin.from("tenant_products").select("id").eq("tenant_id", tenantId).eq("type", "subscription").eq("interval", t.interval).maybeSingle()
       ).data
       if (has) continue
-      const sku = `${packageName ?? appName.toLowerCase().replace(/[^a-z0-9]+/g, ".")}.sub.${t.interval}`
+      // The SKU follows the naming convention (migration 179, lib/sku.ts); the STORE product id keeps the
+      // reverse-DNS shape the stores expect, in its own columns — they were the same string before.
+      const sku = skuFor("pro", t.interval)
+      const storeId = `${packageName ?? appName.toLowerCase().replace(/[^a-z0-9]+/g, ".")}.sub.${t.interval}`
       const { error } = await admin.rpc("tenant_products_upsert", {
         p_row: {
           tenant_id: tenantId,
@@ -180,8 +184,8 @@ export async function POST(req: NextRequest) {
           display_order: t.order,
           active: true,
           pricing_mode: "auto",
-          play_product_id: platforms.includes("android") ? sku : null,
-          app_store_product_id: platforms.includes("ios") ? sku : null,
+          play_product_id: platforms.includes("android") ? storeId : null,
+          app_store_product_id: platforms.includes("ios") ? storeId : null,
         },
       })
       if (!error) productsSeeded.push(sku)

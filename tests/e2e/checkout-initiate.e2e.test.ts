@@ -59,11 +59,11 @@ Deno.test("checkout-initiate: refuses an api key that resolves to no tenant", as
 Deno.test("checkout-initiate: requires a customer email", async () => {
   const t = await seedTenant({
     name: "ci_needs_email",
-    products: [{ sku: "plus_monthly", razorpayPlanIds: { INR: "plan_E2E" } }],
+    products: [{ sku: "plus-monthly", razorpayPlanIds: { INR: "plan_E2E" } }],
     providers: [{ provider: "razorpay", liveKeyId: "rzp_live_e2e" }],
   });
   try {
-    const r = await initiate(t.apiKeyLive, { sku: "plus_monthly", customer: {} });
+    const r = await initiate(t.apiKeyLive, { sku: "plus-monthly", customer: {} });
     assertEquals(r.status, 400);
     assert(String(r.body.error).includes("email"));
   } finally {
@@ -92,12 +92,12 @@ Deno.test("checkout-initiate: 404s a product this tenant does not have", async (
 Deno.test("checkout-initiate: refuses a non-subscription product", async () => {
   const t = await seedTenant({
     name: "ci_one_time",
-    products: [{ sku: "lifetime_pass", type: "lifetime", interval: null }],
+    products: [{ sku: "lifetime-pass", type: "lifetime", interval: null }],
     providers: [{ provider: "razorpay", liveKeyId: "rzp_live_e2e" }],
   });
   try {
     const r = await initiate(t.apiKeyLive, {
-      sku: "lifetime_pass",
+      sku: "lifetime-pass",
       customer: { email: "a@b.c" },
     });
     assertEquals(r.status, 409);
@@ -111,11 +111,11 @@ Deno.test("checkout-initiate: refuses a non-subscription product", async () => {
 Deno.test("checkout-initiate: refuses a subscription with no Razorpay plan", async () => {
   const t = await seedTenant({
     name: "ci_no_plan",
-    products: [{ sku: "plus_monthly" }],
+    products: [{ sku: "plus-monthly" }],
     providers: [{ provider: "razorpay", liveKeyId: "rzp_live_e2e" }],
   });
   try {
-    const r = await initiate(t.apiKeyLive, { sku: "plus_monthly", customer: { email: "a@b.c" } });
+    const r = await initiate(t.apiKeyLive, { sku: "plus-monthly", customer: { email: "a@b.c" } });
     assertEquals(r.status, 409);
     assert(String(r.body.error).includes("no Razorpay plan"));
   } finally {
@@ -132,14 +132,14 @@ Deno.test("checkout-initiate: refuses an ambiguous currency rather than guessing
   const t = await seedTenant({
     name: "ci_ambiguous_ccy",
     products: [{
-      sku: "plus_monthly",
+      sku: "plus-monthly",
       razorpayPlanIds: { INR: "plan_INR", AED: "plan_AED" },
     }],
     providers: [{ provider: "razorpay", liveKeyId: "rzp_live_e2e" }],
   });
   try {
     const r = await initiate(t.apiKeyLive, {
-      sku: "plus_monthly",
+      sku: "plus-monthly",
       customer: { email: "a@b.c" },
       currency: "USD",
     });
@@ -164,12 +164,12 @@ Deno.test("checkout-initiate: reports missing provider credentials honestly", as
   const t = await seedTenant({
     name: "ci_no_creds",
     // A plan id, but no key pair at all — exactly the state the message describes.
-    products: [{ sku: "plus_monthly", razorpayPlanIds: { INR: "plan_E2E" } }],
+    products: [{ sku: "plus-monthly", razorpayPlanIds: { INR: "plan_E2E" } }],
     providers: [{ provider: "razorpay" }],
   });
   try {
     const r = await initiate(t.apiKeyLive, {
-      sku: "plus_monthly",
+      sku: "plus-monthly",
       customer: { email: "a@b.c" },
       currency: "INR",
     });

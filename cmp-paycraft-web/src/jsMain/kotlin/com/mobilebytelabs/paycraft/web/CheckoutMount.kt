@@ -44,7 +44,12 @@ internal suspend fun PayCraftWeb.checkoutView(sku: String, o: CheckoutPageOption
 private fun notice(title: String, body: String, label: String?, href: String?, back: String?) =
     CheckoutView.Notice(CheckoutNotice(title, body, label?.takeIf { href != null }, href, back))
 
-internal fun PayCraftWeb.checkoutViewFor(sku: String, o: CheckoutPageOptions?, cfg: WebConfig?, seats: Int): CheckoutView {
+internal fun PayCraftWeb.checkoutViewFor(
+    sku: String,
+    o: CheckoutPageOptions?,
+    cfg: WebConfig?,
+    seats: Int,
+): CheckoutView {
     val back = o?.backUrl
     val email = email()
         ?: return notice(
@@ -55,12 +60,31 @@ internal fun PayCraftWeb.checkoutViewFor(sku: String, o: CheckoutPageOptions?, c
             o?.signInUrl,
             back,
         )
-    cfg ?: return notice("Checkout couldn't load", "Check your connection or ad blocker, then try again.", "Try again", currentPage(), back)
+    cfg
+        ?: return notice(
+            "Checkout couldn't load",
+            "Check your connection or ad blocker, then try again.",
+            "Try again",
+            currentPage(),
+            back,
+        )
     val product = cfg.products.firstOrNull { it.sku == sku }
-        ?: return notice("This plan isn't available", "It may have changed since you opened this page. Pick a plan again.", "See plans", back, null)
+        ?: return notice(
+            "This plan isn't available",
+            "It may have changed since you opened this page. Pick a plan again.",
+            "See plans",
+            back,
+            null,
+        )
     val options = paymentOptions(sku, null)
     if (options.isEmpty()) {
-        return notice("Checkout isn't available on the website yet", "${product.name} can't be bought here right now. Please try again later.", null, null, back)
+        return notice(
+            "Checkout isn't available on the website yet",
+            "${product.name} can't be bought here right now. Please try again later.",
+            null,
+            null,
+            back,
+        )
     }
     return CheckoutView.Ready(
         CheckoutModel(
@@ -72,7 +96,12 @@ internal fun PayCraftWeb.checkoutViewFor(sku: String, o: CheckoutPageOptions?, c
             maxDevices = seats,
             features = o?.features?.filter { it.isNotBlank() }.orEmpty(),
             cards = options.mapIndexed { i, opt ->
-                CheckoutMethodCard(opt.provider, opt.name, paymentMethods(opt.provider, product.currency), i == 0 && options.size > 1)
+                CheckoutMethodCard(
+                    opt.provider,
+                    opt.name,
+                    paymentMethods(opt.provider, product.currency),
+                    i == 0 && options.size > 1,
+                )
             },
             backUrl = back,
             termsUrl = o?.termsUrl,
@@ -84,7 +113,9 @@ internal fun PayCraftWeb.checkoutViewFor(sku: String, o: CheckoutPageOptions?, c
 /** [amountCents] in [currency] for the buyer's locale ("₹299", "$9.90"); "9.9 XYZ" if Intl rejects the code. */
 internal fun formatMoney(amountCents: Int, currency: String): String {
     val digits = if (amountCents % 100 == 0) 0 else 2
-    return runCatching { intlCurrency(amountCents / 100.0, currency, digits) }.getOrElse { "${amountCents / 100.0} $currency" }
+    return runCatching {
+        intlCurrency(amountCents / 100.0, currency, digits)
+    }.getOrElse { "${amountCents / 100.0} $currency" }
 }
 
 // A function expression with the formatter in its own variable: Kotlin's js() re-printer turns

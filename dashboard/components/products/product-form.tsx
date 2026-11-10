@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { SKU_RULE, isCanonicalSku } from "@/lib/sku"
 import { useRouter } from "next/navigation"
 
 type ProductType = "subscription" | "trial" | "lifetime"
@@ -70,6 +71,8 @@ export function ProductForm({
 }) {
   const router = useRouter()
   const [p, setP] = useState<ProductInput>(initial)
+  // A SKU from before the naming convention is grandfathered; only a changed one must follow it.
+  const skuInvalid = p.sku !== initial.sku && !isCanonicalSku(p.sku)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -127,9 +130,11 @@ export function ProductForm({
           value={p.sku}
           onChange={(e) => setP({ ...p, sku: e.target.value })}
           required
-          placeholder="monthly"
+          placeholder="pro-monthly"
+          aria-invalid={skuInvalid}
           className="input"
         />
+        {skuInvalid && <p className="mt-1 text-[11px] font-semibold text-red-600">A new SKU must be {SKU_RULE}.</p>}
       </Field>
 
       <Field label="Display name">
@@ -351,7 +356,7 @@ export function ProductForm({
       <div className="flex gap-2 pt-2">
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || skuInvalid}
           className="rounded bg-brand-600 text-white px-5 py-2 text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save product"}

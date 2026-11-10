@@ -82,6 +82,22 @@ the PayCraft dashboard (https://paycraft.mobilebytesensei.com). For offline prev
 > v1.x `PayCraft.configure { … }` was removed in v2.0. Migration:
 > [paycraft.mobilebytesensei.com/docs/v2-migration](https://paycraft.mobilebytesensei.com/docs/v2-migration).
 
+## Product SKU naming — single source of truth
+
+A SKU (the catalogue id apps and websites buy by, e.g. `/checkout/?plan=pro-monthly`) is **lowercase
+kebab-case, 2–64 characters**: `pro-monthly`, `pro-quarterly`, `pro-semiannual`, `pro-annual`,
+`pro-lifetime`, `coins-100`. The **database owns the rule** — migration 179
+(`paycraft_sku_is_canonical` + the `tenant_products_sku_convention` trigger) refuses a new or renamed SKU
+that breaks it, whichever writer sends it (dashboard, `/v1/products`, MCP, onboarding, SQL).
+`dashboard/lib/sku.ts` mirrors the pattern for early form/API errors and `skuFor(tier, interval)` names
+tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration.
+
+- Store product ids are **not** SKUs: they live in `play_product_id` / `app_store_product_id` with the
+  stores' own rules (reverse-DNS, no hyphens on Play).
+- SKUs created before 179 (e.g. `com.mobilebytesensei.cappy.sub.week`, `cappy_plus_monthly`) are
+  grandfathered — they keep working and can be edited; only a NEW or RENAMED SKU must follow the rule.
+- Test fixtures use the convention too (`pro-monthly`, not `pro_monthly`).
+
 ## Database Migrations — single source of truth
 
 **All SQL migrations live in `supabase/migrations/`.** That is the only directory

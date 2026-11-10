@@ -1,12 +1,17 @@
+// This file is HTML/SVG/CSS markup carried in string templates (the checkout page the web SDK mounts).
+// Markup lines are not code lines: re-wrapping them to 120 columns would change the rendered output and
+// make the template unreadable, so ONLY the line-length rule is relaxed here — every other ktlint rule applies.
+@file:Suppress("ktlint:standard:max-line-length")
+
 package com.mobilebytelabs.paycraft.web
 
 /**
  * Options for [PayCraftWeb.mountCheckout] — a plain object from JavaScript, every field optional:
  *
  * ```ts
- * await pc.mountCheckout(el, "pro_monthly", {
+ * await pc.mountCheckout(el, "pro-monthly", {
  *   features: ["No ads anywhere", "Download history"],
- *   backUrl: "/pricing/", signInUrl: "/signin/?plan=pro_monthly",
+ *   backUrl: "/pricing/", signInUrl: "/signin/?plan=pro-monthly",
  *   termsUrl: "/terms/", refundUrl: "/refund/",
  * });
  * ```
@@ -116,7 +121,14 @@ private fun methodIcon(method: String): String = icon(
 private fun backLink(href: String?, label: String = "Back to plans"): String =
     safeHref(href)?.let { """<a class="pcx-back" href="${esc(it)}">← ${esc(label)}</a>""" }.orEmpty()
 
-private fun steps(): String = """<ol class="pcx-steps" aria-label="Checkout progress"><li class="pcx-step is-done"><span class="pcx-dot">${icon(ICON_CHECK, "pcx-ic pcx-ic-xs")}</span>Plan</li><li class="pcx-step is-done"><span class="pcx-dot">${icon(ICON_CHECK, "pcx-ic pcx-ic-xs")}</span>Account</li><li class="pcx-step is-current" aria-current="step"><span class="pcx-dot">3</span>Payment</li></ol>"""
+private fun steps(): String =
+    """<ol class="pcx-steps" aria-label="Checkout progress"><li class="pcx-step is-done"><span class="pcx-dot">${icon(
+        ICON_CHECK,
+        "pcx-ic pcx-ic-xs",
+    )}</span>Plan</li><li class="pcx-step is-done"><span class="pcx-dot">${icon(
+        ICON_CHECK,
+        "pcx-ic pcx-ic-xs",
+    )}</span>Account</li><li class="pcx-step is-current" aria-current="step"><span class="pcx-dot">3</span>Payment</li></ol>"""
 
 internal fun checkoutLoadingHtml(): String =
     """<div class="pcx pcx-notice" data-pcx-state="loading" aria-busy="true"><p class="pcx-lead">Loading checkout…</p></div>"""
@@ -125,7 +137,11 @@ internal fun checkoutNoticeHtml(n: CheckoutNotice): String {
     val action = safeHref(n.actionHref)?.takeIf { n.actionLabel != null }
         ?.let { """<a class="pcx-pay pcx-pay-inline" href="${esc(it)}" data-pcx-action>${esc(n.actionLabel!!)}</a>""" }
         .orEmpty()
-    return """<div class="pcx" data-pcx-state="notice">${backLink(n.backUrl)}<div class="pcx-notice" role="status"><h1 class="pcx-h1">${esc(n.title)}</h1><p class="pcx-lead">${esc(n.body)}</p>$action</div></div>"""
+    return """<div class="pcx" data-pcx-state="notice">${backLink(
+        n.backUrl,
+    )}<div class="pcx-notice" role="status"><h1 class="pcx-h1">${esc(
+        n.title,
+    )}</h1><p class="pcx-lead">${esc(n.body)}</p>$action</div></div>"""
 }
 
 private fun methodCard(card: CheckoutMethodCard, checked: Boolean): String {
@@ -135,13 +151,29 @@ private fun methodCard(card: CheckoutMethodCard, checked: Boolean): String {
         ?.let { """<p class="pcx-brands">${it.joinToString(" · ") { b -> esc(b) }}</p>""" }.orEmpty()
     val note = card.info.note?.let { """<p class="pcx-note">${esc(it)}</p>""" }.orEmpty()
     val badge = if (card.recommended) """<span class="pcx-badge">Recommended</span>""" else ""
-    return """<label class="pcx-method" for="$id" data-pcx-method="${esc(card.provider)}"><input type="radio" class="pcx-radio" name="pcx-provider" id="$id" value="${esc(card.provider)}"${if (checked) " checked" else ""}><span class="pcx-method-body"><span class="pcx-method-head"><span class="pcx-method-name">${esc(card.name)}</span>$badge</span><span class="pcx-method-sum">${esc(card.info.summary)}</span><ul class="pcx-chips" aria-label="Payment methods with ${esc(card.name)}">$chips</ul>$brands$note</span></label>"""
+    return """<label class="pcx-method" for="$id" data-pcx-method="${esc(
+        card.provider,
+    )}"><input type="radio" class="pcx-radio" name="pcx-provider" id="$id" value="${esc(
+        card.provider,
+    )}"${if (checked) " checked" else ""}><span class="pcx-method-body"><span class="pcx-method-head"><span class="pcx-method-name">${esc(
+        card.name,
+    )}</span>$badge</span><span class="pcx-method-sum">${esc(
+        card.info.summary,
+    )}</span><ul class="pcx-chips" aria-label="Payment methods with ${esc(
+        card.name,
+    )}">$chips</ul>$brands$note</span></label>"""
 }
 
 /** The ready page. The first card is pre-selected; [payLabel] names it on the button. */
 internal fun checkoutPageHtml(m: CheckoutModel): String {
     val first = m.cards.first()
-    val features = if (m.features.isEmpty()) "" else """<ul class="pcx-features">${m.features.joinToString("") { """<li>${icon(ICON_CHECK, "pcx-ic pcx-ok")}${esc(it)}</li>""" }}</ul>"""
+    val features = if (m.features.isEmpty()) {
+        ""
+    } else {
+        """<ul class="pcx-features">${m.features.joinToString("") {
+            """<li>${icon(ICON_CHECK, "pcx-ic pcx-ok")}${esc(it)}</li>"""
+        }}</ul>"""
+    }
     val trialRow = m.trialDays?.takeIf { it > 0 }
         ?.let { """<div class="pcx-row"><dt>Free trial</dt><dd>$it days</dd></div>""" }.orEmpty()
     val trialBadge = m.trialDays?.takeIf { it > 0 }
@@ -151,7 +183,10 @@ internal fun checkoutPageHtml(m: CheckoutModel): String {
         """<li>${icon(ICON_CHECK, "pcx-ic pcx-ok")}<span>Signed in as <strong>${esc(it)}</strong></span></li>"""
     }.orEmpty()
     val devices = if (m.maxDevices >= 2) {
-        """<li>${icon(ICON_CHECK, "pcx-ic pcx-ok")}<span>One subscription for the app and the web — up to ${m.maxDevices} devices at a time</span></li>"""
+        """<li>${icon(
+            ICON_CHECK,
+            "pcx-ic pcx-ok",
+        )}<span>One subscription for the app and the web — up to ${m.maxDevices} devices at a time</span></li>"""
     } else {
         ""
     }
@@ -160,7 +195,35 @@ internal fun checkoutPageHtml(m: CheckoutModel): String {
         safeHref(m.refundUrl)?.let { """<a href="${esc(it)}">Refund policy</a>""" },
     ).joinToString(" · ")
     val renew = if (m.period != null) "Renews automatically. Cancel any time." else "One-time payment."
-    return """<div class="pcx" data-pcx-state="ready">${backLink(m.backUrl)}${steps()}<header class="pcx-head"><h1 class="pcx-h1">Checkout</h1><p class="pcx-lead">Choose how you'd like to pay. You'll finish on the provider's secure payment page.</p></header><div class="pcx-grid"><section class="pcx-methods" aria-labelledby="pcx-methods-h"><h2 class="pcx-h2" id="pcx-methods-h">Payment method</h2><div class="pcx-method-list" role="radiogroup" aria-labelledby="pcx-methods-h">${m.cards.mapIndexed { i, c -> methodCard(c, i == 0) }.joinToString("")}</div><p class="pcx-trust">${icon(ICON_LOCK)}<span>Payments are encrypted and processed by <strong data-pcx-provider-name>${esc(first.name)}</strong>. Your card and bank details are never shared with us.</span></p></section><aside class="pcx-summary" aria-labelledby="pcx-summary-h"><h2 class="pcx-h2" id="pcx-summary-h">Order summary</h2><div class="pcx-plan"><div class="pcx-plan-top"><span class="pcx-plan-name">${esc(m.planName)}</span>$trialBadge</div><p class="pcx-price"><span class="pcx-amount">${esc(m.price)}</span>$per</p></div><dl class="pcx-rows"><div class="pcx-row"><dt>Billing</dt><dd>${esc(billingLabel(m.period))}</dd></div>$trialRow<div class="pcx-row pcx-total"><dt>Total</dt><dd>${esc(m.price)}${m.period?.let { " / ${esc(it)}" }.orEmpty()}</dd></div></dl>$features<ul class="pcx-facts">$account$devices</ul><button type="button" class="pcx-pay" data-pcx-pay>${icon(ICON_LOCK)}<span data-pcx-pay-label>Continue to ${esc(first.name)}</span></button><p class="pcx-error" data-pcx-error role="alert" hidden></p><p class="pcx-fine">$renew${if (legal.isEmpty()) "" else " $legal"}</p></aside></div></div>"""
+    return """<div class="pcx" data-pcx-state="ready">${backLink(
+        m.backUrl,
+    )}${steps()}<header class="pcx-head"><h1 class="pcx-h1">Checkout</h1><p class="pcx-lead">Choose how you'd like to pay. You'll finish on the provider's secure payment page.</p></header><div class="pcx-grid"><section class="pcx-methods" aria-labelledby="pcx-methods-h"><h2 class="pcx-h2" id="pcx-methods-h">Payment method</h2><div class="pcx-method-list" role="radiogroup" aria-labelledby="pcx-methods-h">${m.cards.mapIndexed {
+            i,
+            c,
+        ->
+        methodCard(
+            c,
+            i == 0,
+        )
+    }.joinToString(
+        "",
+    )}</div><p class="pcx-trust">${icon(
+        ICON_LOCK,
+    )}<span>Payments are encrypted and processed by <strong data-pcx-provider-name>${esc(
+        first.name,
+    )}</strong>. Your card and bank details are never shared with us.</span></p></section><aside class="pcx-summary" aria-labelledby="pcx-summary-h"><h2 class="pcx-h2" id="pcx-summary-h">Order summary</h2><div class="pcx-plan"><div class="pcx-plan-top"><span class="pcx-plan-name">${esc(
+        m.planName,
+    )}</span>$trialBadge</div><p class="pcx-price"><span class="pcx-amount">${esc(
+        m.price,
+    )}</span>$per</p></div><dl class="pcx-rows"><div class="pcx-row"><dt>Billing</dt><dd>${esc(
+        billingLabel(m.period),
+    )}</dd></div>$trialRow<div class="pcx-row pcx-total"><dt>Total</dt><dd>${esc(m.price)}${m.period?.let {
+        " / ${esc(it)}"
+    }.orEmpty()}</dd></div></dl>$features<ul class="pcx-facts">$account$devices</ul><button type="button" class="pcx-pay" data-pcx-pay>${icon(
+        ICON_LOCK,
+    )}<span data-pcx-pay-label>Continue to ${esc(
+        first.name,
+    )}</span></button><p class="pcx-error" data-pcx-error role="alert" hidden></p><p class="pcx-fine">$renew${if (legal.isEmpty()) "" else " $legal"}</p></aside></div></div>"""
 }
 
 /**

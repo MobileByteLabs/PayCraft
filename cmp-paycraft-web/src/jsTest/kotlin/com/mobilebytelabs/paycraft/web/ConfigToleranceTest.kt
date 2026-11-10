@@ -14,7 +14,7 @@ class ConfigToleranceTest {
     @Test
     fun aMalformedPaywallStillServesProductsAndCheckout() = runTest {
         val raw = """
-            {"products":[{"sku":"pro_monthly","display_name":"Pro","base_price_cents":19900,"base_currency":"INR",
+            {"products":[{"sku":"pro-monthly","display_name":"Pro","base_price_cents":19900,"base_currency":"INR",
               "store_binding":{"provider":"razorpay","product_id":"plan_inr"}}],
              "providers":[{"provider":"razorpay"}],
              "paywall":{"value_props":[{"unexpected":1}],"theme_jsonb":{"deep":{"x":[1,2]}}}}
@@ -28,8 +28,8 @@ class ConfigToleranceTest {
             it.store.saveSignIn("srv_1", "a@x.com")
         }
         val cfg = sdk.loadConfig()
-        assertEquals("pro_monthly", cfg.products.single().sku)
+        assertEquals("pro-monthly", cfg.products.single().sku)
         assertEquals(19900, cfg.products.single().amountCents)
-        assertEquals("https://rzp.io/i/sub_9", sdk.resolveCheckoutUrl("pro_monthly", null))
+        assertEquals("https://rzp.io/i/sub_9", sdk.resolveCheckoutUrl("pro-monthly", null))
     }
 }

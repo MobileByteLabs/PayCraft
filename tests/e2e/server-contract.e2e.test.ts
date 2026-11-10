@@ -168,7 +168,7 @@ Deno.test("tenant_providers_status: an id without a secret is not a connection",
 Deno.test("pricing seed does not duplicate a (product, locale) pair", async () => {
   const t = await seedTenant({
     name: "pricing_idempotent",
-    products: [{ sku: "plus_monthly", basePriceCents: 999, baseCurrency: "USD" }],
+    products: [{ sku: "plus-monthly", basePriceCents: 999, baseCurrency: "USD" }],
     pricing: [["US", "USD", 999], ["IN", "INR", 69900]],
   });
   try {

@@ -122,8 +122,14 @@ class PayCraftContractTest {
                "razorpay_plan_id_by_currency":{"INR":"plan_inr"},
                "razorpay_plan_id_by_currency_test":{"INR":"plan_test_inr"}}""",
         )
-        assertEquals(mapOf("stripe" to setOf("USD", "INR"), "razorpay" to setOf("INR")), PayCraftContract.chargeableCurrencies(product, test = false))
-        assertEquals(mapOf("stripe" to setOf("USD"), "razorpay" to setOf("INR")), PayCraftContract.chargeableCurrencies(product, test = true))
+        assertEquals(
+            mapOf("stripe" to setOf("USD", "INR"), "razorpay" to setOf("INR")),
+            PayCraftContract.chargeableCurrencies(product, test = false),
+        )
+        assertEquals(
+            mapOf("stripe" to setOf("USD"), "razorpay" to setOf("INR")),
+            PayCraftContract.chargeableCurrencies(product, test = true),
+        )
         // live Stripe ids not verified by a live sync may hold TEST ids → not chargeable live
         val unverified = obj("""{"stripe_price_id_by_currency":{"USD":"price_usd"},"live_stripe_ids_verified":false}""")
         assertEquals(emptyMap(), PayCraftContract.chargeableCurrencies(unverified, test = false))
@@ -134,18 +140,37 @@ class PayCraftContractTest {
         val both = """{"provider":"stripe"},{"provider":"razorpay"}"""
         val cfg = PayCraftContract.decodeConfig(config(both, binding = "razorpay"))
         val chargeable = mapOf("stripe" to setOf("USD", "INR"), "razorpay" to setOf("INR"))
-        assertEquals(listOf("razorpay", "stripe"), PayCraftContract.webPaymentOptions(cfg, "pro_monthly", false, null, chargeable))
+        assertEquals(
+            listOf("razorpay", "stripe"),
+            PayCraftContract.webPaymentOptions(cfg, "pro_monthly", false, null, chargeable),
+        )
         // USD: only Stripe can charge it → no choice to offer
         assertEquals(listOf("stripe"), PayCraftContract.webPaymentOptions(cfg, "pro_monthly", false, "USD", chargeable))
         // the buyer picked Stripe for the INR price → Stripe, in INR
         assertEquals(
             WebCheckoutRoute.ServerCheckout("INR", "stripe"),
-            PayCraftContract.routeWebCheckout(cfg, "pro_monthly", false, null, "a@b.c", preferredProvider = "stripe", chargeable = chargeable),
+            PayCraftContract.routeWebCheckout(
+                cfg,
+                "pro_monthly",
+                false,
+                null,
+                "a@b.c",
+                preferredProvider = "stripe",
+                chargeable = chargeable,
+            ),
         )
         // a choice that cannot charge this currency is ignored, never forced
         assertEquals(
             WebCheckoutRoute.ServerCheckout("USD", "stripe"),
-            PayCraftContract.routeWebCheckout(cfg, "pro_monthly", false, "USD", "a@b.c", preferredProvider = "razorpay", chargeable = chargeable),
+            PayCraftContract.routeWebCheckout(
+                cfg,
+                "pro_monthly",
+                false,
+                "USD",
+                "a@b.c",
+                preferredProvider = "razorpay",
+                chargeable = chargeable,
+            ),
         )
     }
 

@@ -52,7 +52,8 @@ kotlin {
 //    declare (an exported interface would carry a brand symbol no object literal has), so the declaration is
 //    written here — every field optional — and the container is typed as the DOM element it is.
 val webLibraryDir = layout.buildDirectory.dir("dist/js/productionLibrary")
-val checkoutOptionsDts = """
+val checkoutOptionsDts =
+    """
     |/** Options for `PayCraftWeb.mountCheckout` — a plain object, every field optional. */
     |export declare interface CheckoutPageOptions {
     |    /** What the plan includes, listed in the order summary. */
@@ -64,7 +65,8 @@ val checkoutOptionsDts = """
     |    readonly termsUrl?: Nullable<string>;
     |    readonly refundUrl?: Nullable<string>;
     |}
-    |""".trimMargin()
+    |
+    """.trimMargin()
 // Both the browser and the Node distribution tasks write this directory, so both get the correction.
 tasks.matching { it.name.endsWith("ProductionLibraryDistribution") }.configureEach {
     val dir = webLibraryDir
