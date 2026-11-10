@@ -9,6 +9,7 @@ own `fetch` and nothing else.
 |---|---|
 | Sign in (Google / Apple) | `signIn(provider, idToken, nonce)` — the **same** identity path as the mobile SDK |
 | Premium status | `premium()` (network) · `isPremium()` / `isAdFree()` (sync, cached) |
+| Plan + renewal | `subscription()` → `{plan, status, provider, renewsAt, cancelAtPeriodEnd, trialEndsAt}` or null |
 | Products + sign-in client ids | `config()` |
 | Checkout | `checkoutUrl(sku, currency)` — Razorpay subscription or Stripe payment link |
 | Device conflict | `useThisDevice()` — moves the account to this browser, as the app does |
@@ -82,6 +83,7 @@ Without a `currency`, the price the buyer saw is used, then USD, then the first 
 | `config()` | `GET functions/v1/config?apiKey=` |
 | `signIn()` | `POST functions/v1/identity-token/verify` → `POST rest/v1/rpc/register_device` (with the **verified** email only) |
 | `premium()` | `POST rest/v1/rpc/check_premium_with_device` |
+| `subscription()` | `POST rest/v1/rpc/get_subscription` |
 | `useThisDevice()` | `POST rest/v1/rpc/transfer_to_device` |
 | `checkoutUrl()` | Razorpay: `POST functions/v1/checkout-initiate?apiKey=` · Stripe: payment link + `prefilled_email` (URL-encoded) |
 

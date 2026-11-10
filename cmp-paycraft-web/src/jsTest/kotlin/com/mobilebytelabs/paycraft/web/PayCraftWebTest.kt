@@ -219,6 +219,34 @@ class PayCraftWebTest {
     }
 
     @Test
+    fun subscriptionReturnsPlanRenewalAndCancellation() = runTest {
+        val net = signedIn().on("/rest/v1/rpc/get_subscription") {
+            """[{"email":"a+b@x.com","provider":"razorpay","plan":"pro_yearly","status":"active",
+                "current_period_end":"2027-11-07T10:00:00Z","cancel_at_period_end":false,"trial_end":null}]"""
+        }
+        val pc = sdk(net)
+        pc.doSignIn("google", "t", null)
+        val sub = pc.loadSubscription()!!
+        assertEquals("pro_yearly", sub.plan)
+        assertEquals("active", sub.status)
+        assertEquals("razorpay", sub.provider)
+        assertEquals("2027-11-07T10:00:00Z", sub.renewsAt)
+        assertFalse(sub.cancelAtPeriodEnd)
+        val body = net.bodyOf("/rest/v1/rpc/get_subscription")
+        assertEquals("srv_1", body["p_server_token"]!!.jsonPrimitive.content)
+        assertEquals("pk_test_abc", body["p_api_key"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun noSubscriptionOrNoTokenIsNull() = runTest {
+        assertNull(sdk(FakeTransport()).loadSubscription())
+        val net = signedIn().on("/rest/v1/rpc/get_subscription") { "[]" }
+        val pc = sdk(net)
+        pc.doSignIn("google", "t", null)
+        assertNull(pc.loadSubscription())
+    }
+
+    @Test
     fun errorsCarryAStableCode() = runTest {
         val net = FakeTransport().on("/functions/v1/identity-token/verify", status = 401) {
             """{"error":"invalid_token"}"""

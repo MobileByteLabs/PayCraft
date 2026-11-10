@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.promise
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -83,6 +84,9 @@ class PayCraftWeb(
 
     /** Asks the server, updates the cache, and resolves with the fresh status. */
     fun premium(): Promise<PremiumState> = scope.promise { refreshPremium() }
+
+    /** The buyer's subscription (plan, status, renewal), or null when signed out or there is none. */
+    fun subscription(): Promise<WebSubscription?> = scope.promise { loadSubscription() }
 
     /** Cached premium status (no network). False when unknown, expired, or signed out. */
     fun isPremium(): Boolean {
@@ -174,6 +178,24 @@ class PayCraftWeb(
         val email = wire.email ?: store.email()
         store.savePremium(PremiumCache(isPremium = premium, email = email, at = now()))
         return PremiumState(isPremium = premium, tokenValid = wire.tokenValid, email = email)
+    }
+
+    internal suspend fun loadSubscription(): WebSubscription? {
+        val token = store.token() ?: return null
+        val body = buildJsonObject {
+            put("p_server_token", token)
+            put("p_api_key", apiKey)
+        }.toString()
+        val rows = decode(ListSerializer(SubscriptionWire.serializer()), call("POST", "$base/rest/v1/rpc/get_subscription", body))
+        val s = rows.firstOrNull() ?: return null
+        return WebSubscription(
+            plan = s.plan,
+            status = s.status,
+            provider = s.provider,
+            renewsAt = s.currentPeriodEnd,
+            cancelAtPeriodEnd = s.cancelAtPeriodEnd == true,
+            trialEndsAt = s.trialEnd,
+        )
     }
 
     /**

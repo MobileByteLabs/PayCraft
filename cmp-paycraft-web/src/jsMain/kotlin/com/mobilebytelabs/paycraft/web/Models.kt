@@ -40,6 +40,21 @@ class PremiumState(val isPremium: Boolean, val tokenValid: Boolean, val email: S
 @JsExport
 class SignInResult(val email: String, val conflict: Boolean, val conflictingDeviceName: String?)
 
+/**
+ * The buyer's current subscription (`get_subscription`): [plan] is the product sku, [status] one of
+ * `active` · `trialing` · `past_due`, [renewsAt] the ISO end of the paid period (null for one-time
+ * purchases), [cancelAtPeriodEnd] true when it will not renew.
+ */
+@JsExport
+class WebSubscription(
+    val plan: String?,
+    val status: String?,
+    val provider: String?,
+    val renewsAt: String?,
+    val cancelAtPeriodEnd: Boolean,
+    val trialEndsAt: String?,
+)
+
 /** Every failure the SDK rejects a promise with; [code] is stable (`sign_in_required`, `http_401`, …). */
 @JsExport
 class PayCraftWebError(val code: String, message: String) : Exception(message)
@@ -106,6 +121,16 @@ internal class PremiumWire(
 
 @Serializable
 internal class TransferWire(val transferred: Boolean = false)
+
+@Serializable
+internal class SubscriptionWire(
+    val plan: String? = null,
+    val status: String? = null,
+    val provider: String? = null,
+    @SerialName("current_period_end") val currentPeriodEnd: String? = null,
+    @SerialName("cancel_at_period_end") val cancelAtPeriodEnd: Boolean? = null,
+    @SerialName("trial_end") val trialEnd: String? = null,
+)
 
 @Serializable
 internal class CheckoutWire(val url: String? = null)
