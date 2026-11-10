@@ -28,10 +28,11 @@ require_db || exit $?
 # customer?" for any email typed by anyone holding the shipped publishable key. A name-based
 # allowlist keeps that second one open while looking correct. (Closed by 107.)
 #
-# These nine are the complete set the SDK reaches over PostgREST; everything else it uses goes
+# These eleven are the complete set the SDK reaches over PostgREST (178 added the manage-devices pair); everything else it uses goes
 # through an Edge Function holding the service-role key. Adding a row here must mean an SDK call was
 # added, not that a migration turned red.
 ALLOWED_SIGS="cancel_subscription(p_provider text, p_subscription_id text, p_api_key text)
+get_active_devices(p_server_token text, p_api_key text)
 get_entitlements(p_app_user_id text, p_api_key text)
 check_premium_with_device(p_server_token text, p_api_key text)
 get_subscription(p_server_token text, p_api_key text)
@@ -39,7 +40,8 @@ is_premium(p_server_token text, p_api_key text)
 is_trial_eligible(p_server_token text, p_api_key text)
 register_device(p_email text, p_platform text, p_device_name text, p_device_id text, p_mode text, p_api_key text)
 revoke_device(p_server_token text, p_target_token text, p_api_key text)
-transfer_to_device(p_server_token text, p_new_device_token text, p_api_key text)"
+sign_out_device(p_server_token text, p_device_ref text, p_api_key text)
+transfer_to_device(p_server_token text, p_new_device_token text, p_api_key text, p_replace_device text)"
 
 actual="$(psql_val "
 SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'

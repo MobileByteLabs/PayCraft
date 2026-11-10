@@ -1,0 +1,3 @@
+public final class com/mobilebytelabs/paycraft/network/RegisterDeviceResult {
+	public fun <init> (Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/util/List;I)V
+}

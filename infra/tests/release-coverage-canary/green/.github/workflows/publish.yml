@@ -1,0 +1,4 @@
+    with:
+      module-pattern: 'cmp-'
+      # publishes cmp-paycraft-core, cmp-paycraft, cmp-paycraft-navigation
+      artifact-id: 'cmp-paycraft-core'

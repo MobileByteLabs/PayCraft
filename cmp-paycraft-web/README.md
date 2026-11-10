@@ -1,9 +1,9 @@
 # cmp-paycraft-web — PayCraft for plain JavaScript websites
 
 `cmp-paycraft` is a Kotlin Multiplatform SDK with a Compose paywall, so a website cannot use it
-directly. `cmp-paycraft-web` is the same PayCraft contract for any website (Astro, Next.js, plain
-HTML): an ES module with TypeScript types, no Compose, no Koin, no Supabase client — the browser's
-own `fetch` and nothing else.
+directly. `cmp-paycraft-web` is the same PayCraft for any website (Astro, Next.js, plain HTML): an ES
+module with TypeScript types, built on `cmp-paycraft-core` — the logic the apps run — with no UI
+toolkit, no DI container and no Supabase client at runtime; the network is the browser's own `fetch`.
 
 | You get | How |
 |---|---|
@@ -29,10 +29,35 @@ other way round, because both resolve premium from the same PayCraft tenant by t
 Use the directory as a local package (`"paycraft-web": "file:…/productionLibrary"`) or copy it into
 the site. npm publishing is not set up yet.
 
-**Size** (measured 2026-11-08, esbuild bundle + minify of a page importing `PayCraftWeb`):
-310 KB minified, **78 KB gzipped**. Most of it is the Kotlin standard library, kotlinx-coroutines and
-kotlinx-serialization; `paycraft-web.mjs` itself is 120 KB unminified. Load it after first paint
-(dynamic `import()`), not in the critical path.
+## Architecture (3.0)
+
+`cmp-paycraft-web` is a thin `@JsExport` facade over `cmp-paycraft-core`. Endpoints, headers, `/config`
+decoding (the app's own `SuiteConfig` model, so region prices are the same `resolved_price`), device RPCs
+and checkout routing come from core's `PayCraftContract` — the same code the apps run — so a backend
+change is made once. The facade owns only browser concerns: `fetch`, localStorage (`paycraft_web_token`,
+`paycraft_web_email`, `paycraft_web_premium` `{isPremium,email,at}`, `paycraft_web_device_id`; 6 h premium
+cache), the device name and Promises. It never starts Koin.
+
+**Size gate:** `./gradlew :cmp-paycraft-web:webBundleSize` (part of `check`) fails above 150 KB, measured
+as every `.mjs` in the directory minified (terser) + gzipped: 141 KB in 3.0 (2.5.2: 88 KB). A page importing
+`PayCraftWeb` loads 11 of those files — 140 KB, i.e. almost all of it; the increase is the stdlib /
+serialization code that decodes the app's config model, 15 KB of core, and Ktor's client core plus three
+`cryptography-kotlin` modules that the JS compiler imports for their eager initialisers (core depends on
+Ktor / supabase-kt; the browser SDK never calls them, but their initialisers run at import). Load it after
+first paint (dynamic `import()`), not in the critical path.
+
+**Chunks a page loads** (the import graph from `paycraft-web.mjs`, side-effect imports included; useful for
+tests that block the SDK): `paycraft-web.mjs`, `paycraft-cmp-paycraft-core.mjs`, `kotlin-kotlin-stdlib.mjs`,
+`kotlinx-coroutines-core.mjs`, `kotlinx-atomicfu.mjs`, `kotlinx-serialization-kotlinx-serialization-core.mjs`,
+`kotlinx-serialization-kotlinx-serialization-json.mjs`, `ktor-ktor-client-core.mjs`,
+`cryptography-kotlin-cryptography-core.mjs`, `cryptography-kotlin-cryptography-provider-webcrypto.mjs`,
+`cryptography-kotlin-cryptography-random.mjs`. The other `.mjs` files in the directory are never imported.
+The build corrects two compiler artefacts: the duplicated `initHook` declaration in `paycraft-web.d.mts` is
+removed, and `package.json` ships `"dependencies": {}` (nothing imports an npm package);
+`infra/web-api-diff.sh` checks both, and type-checks the `.d.mts` with `skipLibCheck` off.
+
+**Since 3.0:** a product without `trial_duration_days` reports 7 (core's default, as in the app), not null;
+`/config` products need the fields the live server sends (`id`, `type`, `display_name`; `resolved_price.source`).
 
 ## Usage
 

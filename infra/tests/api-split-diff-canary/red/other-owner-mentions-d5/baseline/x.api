@@ -1,0 +1,5 @@
+public final class com/mobilebytelabs/paycraft/PayCraftConfig {
+	public final fun getBenefits ()Ljava/util/List;
+	public final fun withBenefit (Lcom/mobilebytelabs/paycraft/model/BillingBenefit;)Lcom/mobilebytelabs/paycraft/PayCraftConfig;
+}
+

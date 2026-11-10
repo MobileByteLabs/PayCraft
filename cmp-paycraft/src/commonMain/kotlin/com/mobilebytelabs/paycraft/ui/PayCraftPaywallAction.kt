@@ -57,6 +57,13 @@ sealed interface PayCraftPaywallAction {
     data object ConfirmDeviceTransfer : PayCraftPaywallAction
 
     /**
+     * The subscription is at its device limit and the buyer chose which device to sign out
+     * ([com.mobilebytelabs.paycraft.network.ActiveDevice.ref]) so this one takes its seat.
+     * Only valid when billingState = OwnershipVerified.
+     */
+    data class RemoveDeviceAndTransfer(val deviceRef: String) : PayCraftPaywallAction
+
+    /**
      * User cancelled the transfer confirmation dialog.
      * Returns billingState to DeviceConflict (same conflict, no change).
      */

@@ -67,9 +67,9 @@ class BannerPaywallLabelTest {
  */
 private fun bannerLabelFor(state: BillingState): String = when (state) {
     is BillingState.Free -> "Upgrade to Premium"
-    is BillingState.Premium -> when {
-        state.trial != null -> "Free trial — ${state.trial.daysRemaining} days left"
-        else -> "Premium active"
+    is BillingState.Premium -> when (val trial = state.trial) {
+        null -> "Premium active"
+        else -> "Free trial — ${trial.daysRemaining} days left"
     }
     is BillingState.Loading -> "Checking your subscription…"
     is BillingState.Error -> "Couldn't sync — tap to retry"

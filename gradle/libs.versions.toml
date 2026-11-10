@@ -1,4 +1,6 @@
 [versions]
+# Public-API gate (paycraft-core-split): klib + jvm dumps of every published module.
+binaryCompatibilityValidator = "0.18.1"
 # AGP 9.2.1 + Gradle 9.5.1 — aligned with mbs/kmp-toolkit, which already runs this toolchain in
 # production. Compose MP 1.12 / androidx.compose 1.12 / lifecycle 2.11 all gate on AGP 9.1+.
 agp = "9.4.0"
@@ -220,3 +222,4 @@ spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 # Roborazzi Gradle plugin — generates record/verify tasks per target when applied to the module.
 # Applied to :cmp-paycraft only (jvm target consumes it via jvmTest deps); do not apply at root.
 roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }
+kotlinx-bcv = { id = "org.jetbrains.kotlinx.binary-compatibility-validator", version.ref = "binaryCompatibilityValidator" }

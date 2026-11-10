@@ -65,6 +65,9 @@ jobs:
           - name: iOS Simulator
             target: iosSimulatorArm64Test
             os: macos-latest
+          - name: JS
+            target: ':cmp-paycraft-core:jsNodeTest :cmp-paycraft-web:jsNodeTest'
+            os: ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -119,8 +122,8 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Assemble library (all targets)
-        run: ./gradlew :cmp-paycraft:assemble
+      - name: Assemble library modules (all targets)
+        run: ./gradlew :cmp-paycraft-core:assemble :cmp-paycraft:assemble :cmp-paycraft-navigation:assemble :cmp-paycraft-web:assemble
 
   # ── Create GitHub Release (triggers publish.yml automatically) ───────────────
   release:
@@ -169,8 +172,12 @@ jobs:
             paycraft = "${{ steps.version.outputs.version }}"
 
             [libraries]
-            paycraft = { module = "io.github.mobilebytelabs:cmp-paycraft", version.ref = "paycraft" }
+            paycraft = { module = "io.github.mobilebytelabs:cmp-paycraft", version.ref = "paycraft" }            # UI (brings core)
+            paycraft-core = { module = "io.github.mobilebytelabs:cmp-paycraft-core", version.ref = "paycraft" }  # logic only, no Compose
+            paycraft-navigation = { module = "io.github.mobilebytelabs:cmp-paycraft-navigation", version.ref = "paycraft" }
             ```
+
+            Web SDK: `cmp-paycraft-web` is vendored with `/lib-integrate`, see MIGRATION_3.0.md.
 
             ```kotlin
             commonMain.dependencies {

@@ -1,0 +1,4 @@
+public final class com/mobilebytelabs/paycraft/PayCraftConfig {
+	public final fun getBenefits ()Ljava/util/List;
+}
+

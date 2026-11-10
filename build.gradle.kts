@@ -9,6 +9,19 @@ plugins {
     alias(libs.plugins.roborazzi) apply false
     alias(libs.plugins.detekt)
     alias(libs.plugins.spotless)
+    alias(libs.plugins.kotlinx.bcv)
+}
+
+// Public-API gate (paycraft-core-split): `apiDump` writes `<module>/api/`, `apiCheck` fails on drift.
+// Members marked @PayCraftInternalApi cross the core/UI module boundary but are not public API.
+apiValidation {
+    ignoredProjects += listOf("sample-app", "cmp-paycraft-web", "cmp-paycraft-navigation")
+    nonPublicMarkers += "com.mobilebytelabs.paycraft.PayCraftInternalApi"
+
+    @OptIn(kotlinx.validation.ExperimentalBCVApi::class)
+    klib {
+        enabled = true
+    }
 }
 
 // Detekt configuration for the entire project
@@ -88,4 +101,12 @@ tasks.register("fix") {
     group = "verification"
     description = "Applies all automatic fixes including Spotless formatting"
     dependsOn("spotlessApply")
+}
+
+// Test JVMs never touch the developer's persistent java.util.prefs node: platformSettings() returns one
+// in-memory store per test JVM when this property is set (cmp-paycraft-core PlatformSettings.jvm.kt). Since the
+// core split (3.0) cmp-paycraft-core and cmp-paycraft test in separate JVMs; sharing the real prefs node let one
+// clear the other's cached config mid-test (ResilienceChainTest saw BuiltIn instead of Stale).
+subprojects {
+    tasks.withType<Test>().configureEach { systemProperty("paycraft.settings", "memory") }
 }

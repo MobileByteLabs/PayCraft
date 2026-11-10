@@ -193,6 +193,17 @@
     <string name="paycraft_link_failed_body">Your purchase is safe on this phone. Try signing in again, or do it later from Restore Purchases.</string>
     <string name="paycraft_device_conflict_other_device">another device</string>
     <string name="paycraft_ownership_verified_other_device">the other device</string>
+    <string name="paycraft_device_limit_title">Device limit reached</string>
+    <string name="paycraft_device_limit_body">One subscription works on up to %1$d devices at a time — on any mix of phone, tablet and web. Sign out one to use Pro here.</string>
+    <string name="paycraft_device_limit_remove">Sign out</string>
+    <string name="paycraft_device_platform_android">Android</string>
+    <string name="paycraft_device_platform_ios">iPhone / iPad</string>
+    <string name="paycraft_device_platform_web">Web browser</string>
+    <string name="paycraft_device_platform_desktop">Desktop</string>
+    <string name="paycraft_devices_title">Your devices</string>
+    <string name="paycraft_devices_body">One subscription works on up to %1$d devices at a time — phone, tablet or web. Sign out a device you no longer use.</string>
+    <string name="paycraft_devices_in_use">%1$d of %2$d devices in use</string>
+    <string name="paycraft_devices_this_device">This device · %1$s</string>
 
     <!-- Empty products (AC-26) — previously a disabled button and nothing else. -->
     <string name="paycraft_empty_products_title">No plans available right now</string>

@@ -40,6 +40,7 @@ import com.mobilebytelabs.paycraft.config.ConfigResult
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.config.productForRole
 import com.mobilebytelabs.paycraft.config.roleForSku
+import com.mobilebytelabs.paycraft.di.rememberPayCraftUiModule
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_paywall_test_mode
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_period_lifetime
@@ -132,6 +133,7 @@ fun PayCraftPaywallComposable(
     // SDK's own MVI engine — paywall state, checkout dispatch, restore sheet — and a consumer
     // substituting one would be reimplementing the paywall, not configuring it. It is `internal` for
     // the same reason, so the type no longer appears in public API at all.
+    rememberPayCraftUiModule()
     val viewModel: PayCraftPaywallViewModel = koinViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }

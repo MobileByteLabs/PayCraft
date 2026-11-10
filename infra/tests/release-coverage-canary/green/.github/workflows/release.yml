@@ -1,0 +1,1 @@
+      - run: ./gradlew :cmp-paycraft-core:assemble :cmp-paycraft:assemble :cmp-paycraft-navigation:assemble :cmp-paycraft-web:assemble

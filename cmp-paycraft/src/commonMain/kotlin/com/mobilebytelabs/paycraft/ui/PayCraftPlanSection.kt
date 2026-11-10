@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -22,6 +24,7 @@ import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.core.SyncPolicy
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_date_today_at
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_devices_in_use
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_get_premium
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_manage_subscription
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_button
@@ -161,6 +164,13 @@ internal data class PlanSectionState(
      * Null once the user HAS an entitlement (premium or trial) — see [restoreActionFor].
      */
     val onRestoreClick: (() -> Unit)?,
+    /**
+     * "Your devices" — the seats of one subscription in use ("1 of 2 devices in use"). Null hides the
+     * row: a free user, or a server without the device list (migration 178).
+     */
+    val devicesSubtitle: String? = null,
+    /** Opens the manage-devices sheet ([rememberDevicesPresenter]). Null = no row. */
+    val onDevicesClick: (() -> Unit)? = null,
 )
 
 /**
@@ -184,6 +194,7 @@ internal fun rememberSubscriptionSettingsState(
     val entitlement by repo.entitlement.collectAsState()
     val status by repo.subscriptionStatus.collectAsState()
     val showRestore = rememberRestorePresenter()
+    val showDevices = rememberDevicesPresenter(repo)
 
     // Read through on each composition rather than remembering: `isConfigured` and the manage URL
     // both resolve from config that lands asynchronously, so a value captured once would be stale
@@ -226,6 +237,16 @@ internal fun rememberSubscriptionSettingsState(
 
     val priced = planLineFor(entitlement.tier, entitlement.planSku, sellablePlans, copy)
 
+    // One subscription on several devices: a subscriber sees how many seats are in use. Re-read when the
+    // tier changes (a purchase or a transfer moves the seats).
+    var devices by remember { mutableStateOf<List<com.mobilebytelabs.paycraft.network.ActiveDevice>>(emptyList()) }
+    LaunchedEffect(repo, entitlement.tier) {
+        devices = if (entitlement.tier == EntitlementTier.FREE) emptyList() else repo.activeDevices()
+    }
+    val devicesInUse = devices.takeIf { it.isNotEmpty() }?.let {
+        stringResource(Res.string.paycraft_devices_in_use, it.size, it.first().maxDevices)
+    }
+
     return PlanSectionState(
         visible = configured,
         tier = entitlement.tier,
@@ -245,6 +266,8 @@ internal fun rememberSubscriptionSettingsState(
         canManage = manageUrl != null,
         onManage = { repo.manageSubscription() },
         onRestoreClick = restoreActionFor(entitlement.tier, showRestore),
+        devicesSubtitle = devicesInUse,
+        onDevicesClick = devicesInUse?.let { showDevices },
     )
 }
 

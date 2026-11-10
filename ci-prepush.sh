@@ -39,8 +39,15 @@ tasks=(
     # JVM tests
     "jvmTest"
 
-    # Web SDK (Kotlin/JS) — the only module with a JS test suite; also verifies kotlin-js-store/yarn.lock
+    # Kotlin/JS suites (also verify kotlin-js-store/yarn.lock): core's JS actuals and the web SDK
+    ":cmp-paycraft-core:jsNodeTest"
     ":cmp-paycraft-web:jsNodeTest"
+
+    # Public API: no unintended change against the committed dumps (cmp-paycraft-core, cmp-paycraft)
+    "apiCheck"
+
+    # Web SDK size budget (GOAL D4: 150 KB minified + gzip)
+    ":cmp-paycraft-web:webBundleSize"
 
     # Linux tests (only on Linux)
     # "linuxX64Test"
@@ -51,6 +58,19 @@ tasks=(
 
 for task in "${tasks[@]}"; do
     run_gradle_task "$task"
+done
+
+# Non-Gradle gates of the 3.0 core split (each prints its own PASS/FAIL).
+for gate in "infra/release-coverage-check.sh ." "infra/module-boundary-check.sh" \
+    "infra/web-api-diff.sh" "infra/android-api-check.sh" \
+    "infra/api-split-diff.sh --baseline infra/api-baseline/2.5.2 --current cmp-paycraft-core/api --current cmp-paycraft/api"; do
+    name="${gate%% *}"
+    echo "Running: $name"
+    if bash $gate; then
+        successful_tasks+=("$name")
+    else
+        failed_tasks+=("$name")
+    fi
 done
 
 echo ""
