@@ -64,7 +64,7 @@ class PayCraftWeb(
         "live" -> "live"
         else -> if (apiKey.startsWith("pk_test_")) "test" else "live"
     }
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val json = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true
@@ -81,6 +81,9 @@ class PayCraftWeb(
         js("(typeof location !== 'undefined' && location.href) ? location.href : null") as String?
     }
     internal var newDeviceId: () -> String = ::randomDeviceId
+
+    /** Leaves for the provider's payment page. */
+    internal var navigate: (String) -> Unit = { url -> js("location.assign(url)") }
     internal var deviceName: () -> String = ::browserDeviceName
 
     // ── Exported API ─────────────────────────────────────────────────────────────────────────
@@ -173,7 +176,7 @@ class PayCraftWeb(
     fun paymentOptions(sku: String, currency: String?): Array<WebPaymentOption> {
         val cfg = cachedConfig ?: return emptyArray()
         return PayCraftContract.webPaymentOptions(cfg, sku, mode == "test", currency, chargeableBySku[sku].orEmpty())
-            .map { WebPaymentOption(it, providerName(it), providerMethods(it)) }
+            .map { WebPaymentOption(it, providerDisplayName(it), paymentMethods(it, currency ?: productCurrency(sku)).summary) }
             .toTypedArray()
     }
 
@@ -181,19 +184,22 @@ class PayCraftWeb(
     fun checkoutUrlWith(sku: String, currency: String?, provider: String): Promise<String> =
         scope.promise { resolveCheckoutUrl(sku, currency, provider) }
 
+    /**
+     * PayCraft's checkout page for [sku], rendered into [container] (an empty element on the site's own
+     * `/checkout` page): the order summary, a card per provider listing every way it can take this buyer's
+     * price (UPI, cards, netbanking, wallets, Apple Pay, Google Pay — what the currency allows), and the pay
+     * button that hands over to the chosen provider's secure page. Signed out, an unknown plan or no provider
+     * show a notice instead. Styles are scoped to `.pcx` and inherit the site's font and colour; brand it with
+     * `--pcx-accent`, `--pcx-accent-fg` and `--pcx-radius`. Resolves true when the payment page is shown.
+     */
+    fun mountCheckout(container: dynamic, sku: String, options: CheckoutPageOptions?): Promise<Boolean> =
+        prepareCheckout(container).let { scope.promise { renderCheckout(container, sku, checkoutView(sku, options)) } }
+
     private var chargeableBySku: Map<String, Map<String, Set<String>>> = emptyMap()
 
-    private fun providerName(p: String) = when (p) {
-        "razorpay" -> "Razorpay"
-        "stripe" -> "Stripe"
-        else -> p.replaceFirstChar { it.uppercase() }
-    }
-
-    private fun providerMethods(p: String) = when (p) {
-        "razorpay" -> "UPI, cards, netbanking & wallets"
-        "stripe" -> "Cards, Apple Pay & Google Pay"
-        else -> ""
-    }
+    /** The currency [sku] is shown in for this visitor (their region's price), or null before [config]. */
+    internal fun productCurrency(sku: String): String? =
+        cachedConfig?.products?.firstOrNull { it.sku == sku }?.toWeb()?.currency
 
     /** Forgets the identity and premium status on this browser. */
     fun signOut() {
