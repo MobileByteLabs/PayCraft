@@ -186,7 +186,11 @@ class PayCraftWeb(
             put("p_server_token", token)
             put("p_api_key", apiKey)
         }.toString()
-        val rows = decode(ListSerializer(SubscriptionWire.serializer()), call("POST", "$base/rest/v1/rpc/get_subscription", body))
+        val rows =
+            decode(
+                ListSerializer(SubscriptionWire.serializer()),
+                call("POST", "$base/rest/v1/rpc/get_subscription", body),
+            )
         val s = rows.firstOrNull() ?: return null
         return WebSubscription(
             plan = s.plan,

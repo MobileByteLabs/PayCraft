@@ -9,5 +9,5 @@ internal const val CLOUD_SUPABASE_URL: String = "https://mlwfgytjxlqyfxcgpysm.su
 
 internal const val CLOUD_SUPABASE_ANON_KEY: String =
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sd2ZneXR" +
-    "qeGxxeWZ4Y2dweXNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5MTk0ODUsImV4cCI6MjA5MjQ5NTQ" +
-    "4NX0.q1L5IyffiRObM85yxBK5BFRFsTjObzUeQSCJB96WM1s"
+        "qeGxxeWZ4Y2dweXNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5MTk0ODUsImV4cCI6MjA5MjQ5NTQ" +
+        "4NX0.q1L5IyffiRObM85yxBK5BFRFsTjObzUeQSCJB96WM1s"
