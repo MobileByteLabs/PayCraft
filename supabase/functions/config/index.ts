@@ -784,6 +784,10 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
     headers: {
       "content-type": "application/json",
       "cache-control": "private, max-age=3600",
+      // Prices are resolved per country from Accept-Language (and ?country=): a cache must key on it, or a
+      // browser reuses one country's prices for another — a visitor in India was shown £ from a cached
+      // en-GB response once the website started sending the visitor's real country.
+      "vary": "Accept-Language",
     },
   })
 }

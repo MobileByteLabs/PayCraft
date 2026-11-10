@@ -226,6 +226,10 @@ Deno.test({
       assertEquals(body.products[0].resolved_price.currency, "USD");
       assertEquals(body.products[0].resolved_price.amount_cents, 999);
       assertEquals(body.products[0].resolved_price.source, "auto");
+      // The price depends on Accept-Language (and ?country=), and the response is cacheable: without
+      // Vary a browser reuses one language's prices for another (a visitor in India was shown £ from a
+      // cached en-GB response).
+      assert((res.headers.get("vary") ?? "").toLowerCase().includes("accept-language"), "Vary: Accept-Language");
     } finally {
       restore();
     }

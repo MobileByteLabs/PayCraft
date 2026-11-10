@@ -100,6 +100,29 @@ class PayCraftWeb(
     fun useThisDevice(): Promise<Boolean> = scope.promise { doUseThisDevice(null) }
 
     /**
+     * The visitor's country (ISO 3166-1 alpha-2, e.g. "IN"), so [config] returns that country's prices
+     * and currency — the same signal the app SDK sends (`Accept-Language: en-<country>`).
+     *
+     * A browser's own Accept-Language is a LANGUAGE preference (most browsers in India say `en-US`), not
+     * where the visitor is, so a site should pass its edge's IP country here (Cloudflare `request.cf.country`
+     * / `CF-IPCountry`). Anything that is not a 2-letter country is ignored (never a made-up region);
+     * null goes back to the browser's own header. Changing it drops the cached config.
+     */
+    fun setCountry(country: String?) {
+        if (country == null) {
+            visitorCountry = null
+            cachedConfig = null
+            return
+        }
+        val cc = country.trim().uppercase()
+        if (!Regex("^[A-Z]{2}$").matches(cc) || cc == "XX") return
+        if (cc != visitorCountry) cachedConfig = null
+        visitorCountry = cc
+    }
+
+    private var visitorCountry: String? = null
+
+    /**
      * After a sign-in that reported a conflict because the subscription is at its device limit: the
      * devices holding its seats, newest first (empty from servers without a device limit).
      */
@@ -147,7 +170,11 @@ class PayCraftWeb(
     // ── Implementation (internal; called directly by tests) ─────────────────────────────────
 
     internal suspend fun loadConfig(): WebConfig {
-        val res = call("GET", PayCraftContract.configUrl(base, apiKey), null)
+        // The country rides in the URL as well as in Accept-Language: /config is browser-cacheable and does not
+        // vary on Accept-Language, so only a different URL keeps a cached response priced for another country
+        // from being reused. The server reads `?country=` as an explicit override of the same value.
+        val url = PayCraftContract.configUrl(base, apiKey) + (visitorCountry?.let { "&country=$it" } ?: "")
+        val res = call("GET", url, null)
         val cfg = try {
             PayCraftContract.decodeConfigForWeb(res.body)
         } catch (e: Throwable) {
@@ -271,7 +298,8 @@ class PayCraftWeb(
     // ── HTTP ─────────────────────────────────────────────────────────────────────────────────
 
     private suspend fun call(method: String, url: String, body: String?): HttpResult {
-        val headers = PayCraftContract.headers(anonKey, "web", mode, json = body != null)
+        val headers = PayCraftContract.headers(anonKey, "web", mode, json = body != null) +
+            (visitorCountry?.let { mapOf("Accept-Language" to "en-$it") } ?: emptyMap())
         val res = try {
             transport.send(method, url, headers, body)
         } catch (e: Throwable) {

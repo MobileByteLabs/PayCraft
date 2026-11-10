@@ -138,6 +138,37 @@ class PayCraftWebTest {
     }
 
     @Test
+    fun theVisitorsCountryPricesConfigLikeTheAppDoes() = runTest {
+        // A browser's Accept-Language is a LANGUAGE (most browsers in India say en-US), not where the
+        // visitor is. The site knows the real country (its edge's IP geo) and hands it over; /config then
+        // prices for that country exactly as it does for the app, which sends `en-<country>`.
+        val net = FakeTransport().on("/functions/v1/config") { CONFIG_JSON }
+        val pc = sdk(net)
+        pc.loadConfig()
+        assertEquals(null, net.calls.last().headers["Accept-Language"]) // nothing set → the browser's own
+
+        pc.setCountry("in")
+        pc.loadConfig()
+        assertEquals("en-IN", net.calls.last().headers["Accept-Language"])
+        // ...and in the URL: /config is cacheable and does not vary on Accept-Language, so a browser that
+        // fetched it earlier in another language would otherwise answer from its cache with that country's
+        // prices (seen live: a visitor in India shown £ from a cached en-GB response).
+        assertTrue(net.calls.last().url.contains("country=IN"), net.calls.last().url)
+
+        // Not a country → ignored (never sends a made-up region); null clears it.
+        pc.setCountry("India")
+        pc.loadConfig()
+        assertEquals("en-IN", net.calls.last().headers["Accept-Language"])
+        pc.setCountry("XX")
+        pc.loadConfig()
+        assertEquals("en-IN", net.calls.last().headers["Accept-Language"])
+        pc.setCountry(null)
+        pc.loadConfig()
+        assertEquals(null, net.calls.last().headers["Accept-Language"])
+        assertTrue("country=" !in net.calls.last().url)
+    }
+
+    @Test
     fun razorpayCheckoutPostsTheSignedInEmail() = runTest {
         val net = signedIn()
             .on("/functions/v1/config") { CONFIG_JSON }
