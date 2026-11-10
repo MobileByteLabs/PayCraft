@@ -113,6 +113,43 @@ class PayCraftContractTest {
     }
 
     @Test
+    fun the_currencies_each_provider_can_charge_come_from_the_products_price_and_plan_maps() {
+        val product = obj(
+            """{"sku":"pro_monthly",
+               "stripe_price_id_by_currency":{"USD":"price_usd","INR":"price_inr","GBP":""},
+               "stripe_price_id_by_currency_test":{"USD":"price_test_usd"},
+               "live_stripe_ids_verified":true,
+               "razorpay_plan_id_by_currency":{"INR":"plan_inr"},
+               "razorpay_plan_id_by_currency_test":{"INR":"plan_test_inr"}}""",
+        )
+        assertEquals(mapOf("stripe" to setOf("USD", "INR"), "razorpay" to setOf("INR")), PayCraftContract.chargeableCurrencies(product, test = false))
+        assertEquals(mapOf("stripe" to setOf("USD"), "razorpay" to setOf("INR")), PayCraftContract.chargeableCurrencies(product, test = true))
+        // live Stripe ids not verified by a live sync may hold TEST ids → not chargeable live
+        val unverified = obj("""{"stripe_price_id_by_currency":{"USD":"price_usd"},"live_stripe_ids_verified":false}""")
+        assertEquals(emptyMap(), PayCraftContract.chargeableCurrencies(unverified, test = false))
+    }
+
+    @Test
+    fun a_currency_both_providers_can_charge_offers_both_bound_one_first_and_honours_the_choice() {
+        val both = """{"provider":"stripe"},{"provider":"razorpay"}"""
+        val cfg = PayCraftContract.decodeConfig(config(both, binding = "razorpay"))
+        val chargeable = mapOf("stripe" to setOf("USD", "INR"), "razorpay" to setOf("INR"))
+        assertEquals(listOf("razorpay", "stripe"), PayCraftContract.webPaymentOptions(cfg, "pro_monthly", false, null, chargeable))
+        // USD: only Stripe can charge it → no choice to offer
+        assertEquals(listOf("stripe"), PayCraftContract.webPaymentOptions(cfg, "pro_monthly", false, "USD", chargeable))
+        // the buyer picked Stripe for the INR price → Stripe, in INR
+        assertEquals(
+            WebCheckoutRoute.ServerCheckout("INR", "stripe"),
+            PayCraftContract.routeWebCheckout(cfg, "pro_monthly", false, null, "a@b.c", preferredProvider = "stripe", chargeable = chargeable),
+        )
+        // a choice that cannot charge this currency is ignored, never forced
+        assertEquals(
+            WebCheckoutRoute.ServerCheckout("USD", "stripe"),
+            PayCraftContract.routeWebCheckout(cfg, "pro_monthly", false, "USD", "a@b.c", preferredProvider = "razorpay", chargeable = chargeable),
+        )
+    }
+
+    @Test
     fun unavailable_routes_name_why() {
         // no binding (no provider can charge the currency) and no link → never a guessed provider
         assertEquals(

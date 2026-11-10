@@ -169,6 +169,40 @@ class PayCraftWebTest {
     }
 
     @Test
+    fun theWebOffersEveryProviderThatCanChargeTheShownCurrencyAndChecksOutWithTheOneChosen() = runTest {
+        // INR: Razorpay holds a plan and Stripe a price → both are offered (the web has no store rules),
+        // the provider /config bound first; the buyer's pick decides the checkout.
+        val cfg = """
+            {"tenant_id":"t1","mode":"ad_supported",
+             "products":[{"id":"p1","sku":"pro_monthly","type":"subscription","display_name":"Pro Monthly",
+               "base_price_cents":999,"base_currency":"USD",
+               "resolved_price":{"amount_cents":29900,"currency":"INR","source":"manual"},
+               "store_binding":{"provider":"razorpay","product_id":"plan_inr"},
+               "stripe_price_id_by_currency":{"USD":"price_usd","INR":"price_inr"},"live_stripe_ids_verified":true,
+               "stripe_price_id_by_currency_test":{"USD":"price_t_usd","INR":"price_t_inr"},
+               "razorpay_plan_id_by_currency":{"INR":"plan_inr"},"razorpay_plan_id_by_currency_test":{"INR":"plan_t_inr"}}],
+             "providers":[{"provider":"stripe"},{"provider":"razorpay"}]}
+        """.trimIndent()
+        val net = signedIn()
+            .on("/functions/v1/config") { cfg }
+            .on("/functions/v1/checkout-initiate") { """{"url":"https://checkout.stripe.com/c/pay/cs_9","provider":"stripe"}""" }
+        val pc = sdk(net)
+        pc.doSignIn("google", "t", null)
+        pc.loadConfig()
+        val options = pc.paymentOptions("pro_monthly", null)
+        assertEquals(listOf("razorpay", "stripe"), options.map { it.provider })
+        assertEquals("UPI, cards, netbanking & wallets", options[0].methods)
+        assertEquals("Cards, Apple Pay & Google Pay", options[1].methods)
+        // USD: only Stripe holds a USD price
+        assertEquals(listOf("stripe"), pc.paymentOptions("pro_monthly", "USD").map { it.provider })
+
+        assertEquals("https://checkout.stripe.com/c/pay/cs_9", pc.resolveCheckoutUrl("pro_monthly", null, "stripe"))
+        val body = net.bodyOf("/functions/v1/checkout-initiate")
+        assertEquals("stripe", body["provider"]!!.jsonPrimitive.content)
+        assertEquals("INR", body["currency"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun razorpayCheckoutPostsTheSignedInEmail() = runTest {
         val net = signedIn()
             .on("/functions/v1/config") { CONFIG_JSON }

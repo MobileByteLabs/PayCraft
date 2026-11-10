@@ -235,6 +235,8 @@ object PayCraftContract {
         test: Boolean,
         requestedCurrency: String?,
         email: String,
+        preferredProvider: String? = null,
+        chargeable: Map<String, Set<String>> = emptyMap(),
     ): WebCheckoutRoute {
         val product = cfg.products.firstOrNull { it.sku == sku }
             ?: return WebCheckoutRoute.Unavailable(
@@ -252,8 +254,16 @@ object PayCraftContract {
             it in WEB_PROVIDERS &&
                 paymentLinks(cfg, it, sku, test).isNotEmpty()
         }
-        val provider = bound
+        // The buyer's own choice (the web's "Choose how to pay"), only when that provider can charge this
+        // currency — a choice that cannot is ignored, never forced.
+        val chosen = preferredProvider?.takeIf {
+            it in webPaymentOptions(cfg, sku, test, requestedCurrency, chargeable)
+        }
+        val provider = chosen
+            ?: bound
             ?: linked.firstOrNull { p -> paymentLinks(cfg, p, sku, test).keys.any { it.equals(shown, true) } }
+            // a provider holding a price/plan in this currency (server checkout mints the page)
+            ?: webPaymentOptions(cfg, sku, test, requestedCurrency, chargeable).firstOrNull()
             ?: linked.firstOrNull() // a link in another currency ([CurrencyResolver.checkoutCurrency] picks it)
             ?: return WebCheckoutRoute.Unavailable(
                 WebCheckoutFailure.NoWebProvider,
@@ -296,6 +306,53 @@ object PayCraftContract {
     private const val HEX = "0123456789ABCDEF"
     private val NATIVE_STORES = setOf("google_play", "app_store")
     private val WEB_PROVIDERS = setOf("razorpay", "stripe")
+
+    /**
+     * Which currencies each web provider can charge for a product, from the `/config` product row's own
+     * price/plan maps (`stripe_price_id_by_currency[_test]`, `razorpay_plan_id_by_currency[_test]`).
+     * Live Stripe ids that a live sync has not verified (`live_stripe_ids_verified: false`) may still be
+     * TEST ids, so they do not count in live mode. Read from the raw JSON: [ProductDto] does not carry
+     * the maps and widening that public class is a binary change.
+     */
+    fun chargeableCurrencies(product: JsonObject, test: Boolean): Map<String, Set<String>> = buildMap {
+        fun keys(field: String): Set<String> = (product[field] as? JsonObject).orEmpty()
+            .filter { (_, v) -> (v as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true }
+            .keys.map { it.uppercase() }.toSet()
+        val stripeVerified = test || product.bool("live_stripe_ids_verified") != false
+        val stripe = if (stripeVerified) keys(if (test) "stripe_price_id_by_currency_test" else "stripe_price_id_by_currency") else emptySet()
+        val razorpay = keys(if (test) "razorpay_plan_id_by_currency_test" else "razorpay_plan_id_by_currency")
+        if (stripe.isNotEmpty()) put("stripe", stripe)
+        if (razorpay.isNotEmpty()) put("razorpay", razorpay)
+    }
+
+    /**
+     * Every web provider that can charge [sku] in the currency the buyer is shown — the web has no store
+     * rules, so ALL of them are offered (the "Choose how to pay" list), the one `/config` bound first. A
+     * provider qualifies with a payment link in that currency or a price/plan for it ([chargeable]).
+     */
+    fun webPaymentOptions(
+        cfg: SuiteConfig,
+        sku: String,
+        test: Boolean,
+        requestedCurrency: String?,
+        chargeable: Map<String, Set<String>>,
+    ): List<String> {
+        val product = cfg.products.firstOrNull { it.sku == sku } ?: return emptyList()
+        val shown = (requestedCurrency ?: product.resolvedPrice?.currency ?: product.baseCurrency).uppercase()
+        // /config binds the product to a provider only when it holds a price/plan in the served currency, so
+        // the bound one can always charge it (when the caller asks for that same currency).
+        val bound = product.storeBinding?.provider?.takeUnless { it in NATIVE_STORES }
+            ?.takeIf { requestedCurrency == null || requestedCurrency.equals(product.resolvedPrice?.currency, true) }
+            ?.let(::webProvider)
+        val able = cfg.providers.map { it.provider }.distinct().filter { p ->
+            p in WEB_PROVIDERS && (
+                p == bound ||
+                    paymentLinks(cfg, p, sku, test).keys.any { it.equals(shown, true) } ||
+                    shown in chargeable[p].orEmpty()
+                )
+        }
+        return able.sortedBy { if (it == bound) 0 else 1 }
+    }
 
     /** `stripe_card` → `stripe`, `razorpay` → `razorpay`; null for anything that is not a web provider. */
     private fun webProvider(method: String): String? =

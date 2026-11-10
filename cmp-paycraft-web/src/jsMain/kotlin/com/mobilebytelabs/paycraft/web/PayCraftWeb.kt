@@ -6,6 +6,7 @@ import com.mobilebytelabs.paycraft.contract.PayCraftContract
 import com.mobilebytelabs.paycraft.contract.WebCheckoutFailure
 import com.mobilebytelabs.paycraft.contract.WebCheckoutRoute
 import com.mobilebytelabs.paycraft.network.ActiveDevice
+import kotlin.js.Promise
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,10 +17,12 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
-import kotlin.js.Promise
 
 /**
  * PayCraft for plain JavaScript / TypeScript websites.
@@ -160,7 +163,37 @@ class PayCraftWeb(
 
     /** A checkout URL for [sku] for the signed-in buyer (Razorpay subscription or Stripe payment link). */
     fun checkoutUrl(sku: String, currency: String?): Promise<String> =
-        scope.promise { resolveCheckoutUrl(sku, currency) }
+        scope.promise { resolveCheckoutUrl(sku, currency, null) }
+
+    /**
+     * Every way to pay for [sku] in [currency] (null = the price the buyer saw) — each web provider that can
+     * charge it, the tenant's default first. The web has no store rules, so a site shows them all ("Choose how
+     * to pay") and passes the pick to [checkoutUrlWith]. Empty until [config] has loaded.
+     */
+    fun paymentOptions(sku: String, currency: String?): Array<WebPaymentOption> {
+        val cfg = cachedConfig ?: return emptyArray()
+        return PayCraftContract.webPaymentOptions(cfg, sku, mode == "test", currency, chargeableBySku[sku].orEmpty())
+            .map { WebPaymentOption(it, providerName(it), providerMethods(it)) }
+            .toTypedArray()
+    }
+
+    /** [checkoutUrl] with the provider the buyer chose from [paymentOptions] (ignored if it cannot charge). */
+    fun checkoutUrlWith(sku: String, currency: String?, provider: String): Promise<String> =
+        scope.promise { resolveCheckoutUrl(sku, currency, provider) }
+
+    private var chargeableBySku: Map<String, Map<String, Set<String>>> = emptyMap()
+
+    private fun providerName(p: String) = when (p) {
+        "razorpay" -> "Razorpay"
+        "stripe" -> "Stripe"
+        else -> p.replaceFirstChar { it.uppercase() }
+    }
+
+    private fun providerMethods(p: String) = when (p) {
+        "razorpay" -> "UPI, cards, netbanking & wallets"
+        "stripe" -> "Cards, Apple Pay & Google Pay"
+        else -> ""
+    }
 
     /** Forgets the identity and premium status on this browser. */
     fun signOut() {
@@ -181,6 +214,15 @@ class PayCraftWeb(
             throw PayCraftWebError("bad_response", "Unexpected response: ${e.message}")
         }
         cachedConfig = cfg
+        // The per-currency price/plan maps the shared model does not carry: which providers can charge what.
+        chargeableBySku = runCatching {
+            val test = mode == "test"
+            json.parseToJsonElement(res.body).jsonObject["products"]?.jsonArray.orEmpty().mapNotNull { e ->
+                val o = e as? JsonObject ?: return@mapNotNull null
+                val sku = o["sku"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                sku to PayCraftContract.chargeableCurrencies(o, test)
+            }.toMap()
+        }.getOrDefault(emptyMap())
         return cfg.toWebConfig()
     }
 
@@ -271,13 +313,17 @@ class PayCraftWeb(
     }
 
     /** Where the buyer pays: [PayCraftContract.routeWebCheckout] — the app's web-lane routing. */
-    internal suspend fun resolveCheckoutUrl(sku: String, currency: String?): String {
+    internal suspend fun resolveCheckoutUrl(sku: String, currency: String?, provider: String? = null): String {
         val email = store.email() ?: throw PayCraftWebError("sign_in_required", "Sign in before checkout")
         val cfg = cachedConfig ?: run {
             loadConfig()
             cachedConfig!!
         }
-        return when (val route = PayCraftContract.routeWebCheckout(cfg, sku, mode == "test", currency, email)) {
+        val route = PayCraftContract.routeWebCheckout(
+            cfg, sku, mode == "test", currency, email,
+            preferredProvider = provider, chargeable = chargeableBySku[sku].orEmpty(),
+        )
+        return when (route) {
             is WebCheckoutRoute.PaymentLink -> route.url
             is WebCheckoutRoute.ServerCheckout -> {
                 val body = buildJsonObject {

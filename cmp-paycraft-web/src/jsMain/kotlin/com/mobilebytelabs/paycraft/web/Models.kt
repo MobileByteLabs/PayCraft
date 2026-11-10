@@ -47,6 +47,13 @@ class SignInResult(val email: String, val conflict: Boolean, val conflictingDevi
  * A device holding one of the subscription's seats ([PayCraftWeb.activeDevices]). [ref] is what
  * [PayCraftWeb.useThisDeviceInstead] takes to sign it out; [platform] is `android` · `ios` · `web` · `desktop`.
  */
+/**
+ * One way to pay for a plan on the web ([PayCraftWeb.paymentOptions]): the [provider] id to pass to
+ * [PayCraftWeb.checkoutUrlWith], its display [name] and the [methods] it offers (e.g. UPI, cards).
+ */
+@JsExport
+class WebPaymentOption(val provider: String, val name: String, val methods: String)
+
 @JsExport
 class WebDevice(
     val ref: String,
