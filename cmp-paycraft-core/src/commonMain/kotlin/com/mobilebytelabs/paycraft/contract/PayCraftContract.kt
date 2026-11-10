@@ -2,6 +2,7 @@ package com.mobilebytelabs.paycraft.contract
 
 import com.mobilebytelabs.paycraft.CurrencyResolver
 import com.mobilebytelabs.paycraft.PayCraftInternalApi
+import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
 import com.mobilebytelabs.paycraft.config.AuthClientsDto
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
@@ -9,6 +10,7 @@ import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.network.ActiveDevice
 import com.mobilebytelabs.paycraft.network.PremiumCheckResult
 import com.mobilebytelabs.paycraft.network.RegisterDeviceResult
+import com.mobilebytelabs.paycraft.winback.ExitSurveyConfig
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -53,6 +55,14 @@ object PayCraftContract {
         "$base/functions/v1/checkout-initiate?apiKey=${encodeUrlComponent(apiKey)}"
 
     fun rpcUrl(base: String, function: String): String = "$base/rest/v1/rpc/$function"
+
+    /** Exit-survey answers → win-back decision (GOAL D3/D6). */
+    fun winbackUrl(base: String, apiKey: String): String =
+        "$base/functions/v1/winback?apiKey=${encodeUrlComponent(apiKey)}"
+
+    /** Paywall events ingest (GOAL D1) — the first-party funnel. */
+    fun eventsUrl(base: String, apiKey: String): String =
+        "$base/functions/v1/events?apiKey=${encodeUrlComponent(apiKey)}"
 
     // ── Headers ─────────────────────────────────────────────────────────────────────────────
 
@@ -120,6 +130,70 @@ object PayCraftContract {
             put("provider", provider)
             put("id_token", idToken)
             if (nonce != null) put("nonce", nonce)
+        }
+
+    // ── Exit survey / win-back ──────────────────────────────────────────────────────────────
+
+    /** The `exit_survey` section of a `/config` response; null when absent or malformed (no survey, never a crash). */
+    fun decodeExitSurvey(raw: String): ExitSurveyConfig? = runCatching {
+        val section = configJson.parseToJsonElement(raw).jsonObject["exit_survey"] ?: return null
+        configJson.decodeFromJsonElement(ExitSurveyConfig.serializer(), section)
+    }.getOrNull()
+
+    /**
+     * `winback` body: the buyer's answer. The buyer is the device token's account (resolved server-side to a
+     * hash); [freeText] is sent only for a reason that asks for it and is stored first-party only.
+     */
+    fun winbackBody(
+        apiKey: String,
+        deviceRef: String,
+        deviceToken: String?,
+        reasonCode: String,
+        step: String,
+        platform: String,
+        sku: String?,
+        freeText: String?,
+    ): JsonObject = buildJsonObject {
+        put("apiKey", apiKey)
+        put("deviceRef", deviceRef)
+        if (deviceToken != null) put("deviceToken", deviceToken)
+        put("reasonCode", reasonCode)
+        put("step", step)
+        put("platform", platform)
+        if (sku != null) put("sku", sku)
+        if (!freeText.isNullOrBlank()) put("freeText", freeText.take(500))
+    }
+
+    // ── Paywall events ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * `events` body: a batch of catalog events from one device. No personal data travels (GOAL D10) — the
+     * buyer is resolved server-side from [deviceToken] to a hashed reference, and the visitor's country is
+     * stamped by the server from the request, not trusted from [PayCraftEvent.country].
+     */
+    fun eventsBody(apiKey: String, deviceRef: String, deviceToken: String?, events: List<PayCraftEvent>): JsonObject =
+        buildJsonObject {
+            put("apiKey", apiKey)
+            put("deviceRef", deviceRef)
+            if (deviceToken != null) put("deviceToken", deviceToken)
+            put(
+                "events",
+                JsonArray(
+                    events.map { e ->
+                        buildJsonObject {
+                            put("name", e.name.wire)
+                            put("step", e.step.wire)
+                            put("platform", e.platform)
+                            e.trigger?.let { put("trigger", it) }
+                            e.sku?.let { put("sku", it) }
+                            e.currency?.let { put("currency", it) }
+                            e.provider?.let { put("provider", it) }
+                            e.reason?.let { put("reason", it) }
+                            put("at", e.atMs)
+                        }
+                    },
+                ),
+            )
         }
 
     /** The verified email from a `verify` response, or null when the provider gave none. */

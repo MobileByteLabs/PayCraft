@@ -73,10 +73,15 @@ public final class com/mobilebytelabs/paycraft/PayCraft {
 	public final fun getActiveCountry ()Ljava/lang/String;
 	public final fun getActiveCurrency ()Ljava/lang/String;
 	public final fun getActiveRegion ()Lcom/mobilebytelabs/paycraft/ResolvedRegion;
+	public final fun getAnalytics ()Lcom/mobilebytelabs/paycraft/analytics/PayCraftAnalytics;
+	public final fun getAnalyticsListener ()Lcom/mobilebytelabs/paycraft/analytics/PayCraftAnalyticsListener;
 	public final fun getConfigResultFlow ()Lkotlinx/coroutines/flow/StateFlow;
 	public final fun getDeviceId ()Ljava/lang/String;
+	public final fun getExitSurvey ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun getExitSurveyGate ()Lcom/mobilebytelabs/paycraft/winback/ExitSurveyGate;
 	public final fun getMode ()Lcom/mobilebytelabs/paycraft/PayCraft$Mode;
 	public final fun getMonetizationMode ()Lcom/mobilebytelabs/paycraft/core/MonetizationMode;
+	public final fun getPaywallPlacement ()Ljava/lang/String;
 	public final fun getPaywallPresentation ()Lkotlinx/coroutines/flow/StateFlow;
 	public final fun getPlans ()Ljava/util/List;
 	public final fun getProducts ()Ljava/util/List;
@@ -97,7 +102,9 @@ public final class com/mobilebytelabs/paycraft/PayCraft {
 	public static synthetic fun presentPaywallIfNeeded$default (Lcom/mobilebytelabs/paycraft/PayCraft;Ljava/lang/String;ILjava/lang/Object;)V
 	public final fun refreshConfig ()V
 	public final fun requireConfig ()Lcom/mobilebytelabs/paycraft/PayCraftConfig;
+	public final fun setAnalyticsListener (Lcom/mobilebytelabs/paycraft/analytics/PayCraftAnalyticsListener;)V
 	public final fun setAppliedCoupon (Ljava/lang/String;Lcom/mobilebytelabs/paycraft/config/CouponDto;)V
+	public final fun setPaywallPlacement (Ljava/lang/String;)V
 }
 
 public final class com/mobilebytelabs/paycraft/PayCraft$Mode : java/lang/Enum {
@@ -209,6 +216,74 @@ public final class com/mobilebytelabs/paycraft/ResolvedRegion {
 	public final fun getCurrency ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/mobilebytelabs/paycraft/analytics/PayCraftAnalytics {
+	public final fun emit (Lcom/mobilebytelabs/paycraft/analytics/PayCraftEvent;)V
+	public final fun flush (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getIngestEnabled ()Z
+	public final fun getListener ()Lcom/mobilebytelabs/paycraft/analytics/PayCraftAnalyticsListener;
+	public final fun setIngestEnabled (Z)V
+	public final fun setListener (Lcom/mobilebytelabs/paycraft/analytics/PayCraftAnalyticsListener;)V
+}
+
+public abstract interface class com/mobilebytelabs/paycraft/analytics/PayCraftAnalyticsListener {
+	public abstract fun onEvent (Ljava/lang/String;Ljava/util/Map;)V
+}
+
+public final class com/mobilebytelabs/paycraft/analytics/PayCraftEvent {
+	public static final field MAX_VALUE I
+	public fun <init> (Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+	public synthetic fun <init> (Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getAtMs ()J
+	public final fun getCountry ()Ljava/lang/String;
+	public final fun getCurrency ()Ljava/lang/String;
+	public final fun getName ()Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public final fun getPlatform ()Ljava/lang/String;
+	public final fun getProvider ()Ljava/lang/String;
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getSku ()Ljava/lang/String;
+	public final fun getStep ()Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;
+	public final fun getTrigger ()Ljava/lang/String;
+	public final fun params ()Ljava/util/Map;
+}
+
+public final class com/mobilebytelabs/paycraft/analytics/PayCraftEventName : java/lang/Enum {
+	public static final field CheckoutReturn Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field CheckoutStart Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field DeviceLimitView Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field OfferAccept Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field OfferView Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field PaywallView Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field PlanSelect Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field ProviderSelect Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field ProviderView Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field PurchaseFail Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field PurchaseSuccess Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field SignInComplete Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field SignInView Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field StepAbandon Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field SurveyAnswer Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static final field SurveyView Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWire ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+	public static fun values ()[Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
+}
+
+public final class com/mobilebytelabs/paycraft/analytics/PayCraftStep : java/lang/Enum {
+	public static final field Checkout Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;
+	public static final field DeviceLimit Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;
+	public static final field Offer Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;
+	public static final field Paywall Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;
+	public static final field Plan Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;
+	public static final field Provider Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;
+	public static final field SignIn Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;
+	public static final field Survey Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWire ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;
+	public static fun values ()[Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;
 }
 
 public abstract interface class com/mobilebytelabs/paycraft/billing/CheckoutLane {
@@ -1164,8 +1239,8 @@ public final class com/mobilebytelabs/paycraft/core/PayCraftBalances {
 }
 
 public final class com/mobilebytelabs/paycraft/core/PayCraftBillingManager : com/mobilebytelabs/paycraft/core/BillingManager {
-	public fun <init> (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Lcom/mobilebytelabs/paycraft/persistence/PayCraftStore;Lcom/mobilebytelabs/paycraft/core/EntitlementRepository;Lcom/mobilebytelabs/paycraft/billing/NativeBillingClient;Lkotlinx/coroutines/CoroutineDispatcher;)V
-	public synthetic fun <init> (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Lcom/mobilebytelabs/paycraft/persistence/PayCraftStore;Lcom/mobilebytelabs/paycraft/core/EntitlementRepository;Lcom/mobilebytelabs/paycraft/billing/NativeBillingClient;Lkotlinx/coroutines/CoroutineDispatcher;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Lcom/mobilebytelabs/paycraft/persistence/PayCraftStore;Lcom/mobilebytelabs/paycraft/core/EntitlementRepository;Lcom/mobilebytelabs/paycraft/billing/NativeBillingClient;Lkotlinx/coroutines/CoroutineDispatcher;Lkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Lcom/mobilebytelabs/paycraft/persistence/PayCraftStore;Lcom/mobilebytelabs/paycraft/core/EntitlementRepository;Lcom/mobilebytelabs/paycraft/billing/NativeBillingClient;Lkotlinx/coroutines/CoroutineDispatcher;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun activeDevices (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun checkTrialEligibility (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun confirmDeviceTransfer (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -2878,5 +2953,119 @@ public final class com/mobilebytelabs/paycraft/repository/PayCraftRepository$Def
 	public static synthetic fun presentPaywallIfNeeded$default (Lcom/mobilebytelabs/paycraft/repository/PayCraftRepository;Ljava/lang/String;ILjava/lang/Object;)V
 	public static synthetic fun refresh$default (Lcom/mobilebytelabs/paycraft/repository/PayCraftRepository;ZILjava/lang/Object;)V
 	public static fun signOutDevice (Lcom/mobilebytelabs/paycraft/repository/PayCraftRepository;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class com/mobilebytelabs/paycraft/winback/ExitSurveyConfig {
+	public static final field Companion Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Companion;
+	public fun <init> ()V
+	public fun <init> (ZLjava/lang/String;Ljava/util/List;I)V
+	public synthetic fun <init> (ZLjava/lang/String;Ljava/util/List;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()I
+	public final fun copy (ZLjava/lang/String;Ljava/util/List;I)Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig;ZLjava/lang/String;Ljava/util/List;IILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCapDays ()I
+	public final fun getEnabled ()Z
+	public final fun getReasons ()Ljava/util/List;
+	public final fun getTitle ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final synthetic class com/mobilebytelabs/paycraft/winback/ExitSurveyConfig$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class com/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class com/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer {
+	public static final field Companion Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/Integer;)V
+	public synthetic fun <init> (ILjava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun copy (ILjava/lang/String;Ljava/lang/Integer;)Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer;ILjava/lang/String;Ljava/lang/Integer;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDuration ()Ljava/lang/String;
+	public final fun getDurationInMonths ()Ljava/lang/Integer;
+	public final fun getPercentOff ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final synthetic class com/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class com/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class com/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Reason {
+	public static final field Companion Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Reason$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Z
+	public final fun component6 ()Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer;)Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Reason;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Reason;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Reason;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAction ()Ljava/lang/String;
+	public final fun getCode ()Ljava/lang/String;
+	public final fun getFreeText ()Z
+	public final fun getLabel ()Ljava/lang/String;
+	public final fun getMessage ()Ljava/lang/String;
+	public final fun getOffer ()Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Offer;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final synthetic class com/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Reason$$serializer : kotlinx/serialization/internal/GeneratedSerializer {
+	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Reason$$serializer;
+	public final fun childSerializers ()[Lkotlinx/serialization/KSerializer;
+	public final fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Reason;
+	public synthetic fun deserialize (Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;
+	public final fun getDescriptor ()Lkotlinx/serialization/descriptors/SerialDescriptor;
+	public final fun serialize (Lkotlinx/serialization/encoding/Encoder;Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Reason;)V
+	public synthetic fun serialize (Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V
+	public fun typeParametersSerializers ()[Lkotlinx/serialization/KSerializer;
+}
+
+public final class com/mobilebytelabs/paycraft/winback/ExitSurveyConfig$Reason$Companion {
+	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class com/mobilebytelabs/paycraft/winback/ExitSurveyGate {
+	public static final field DAY_MS J
+	public static final field KEY_LAST_SHOWN Ljava/lang/String;
+	public fun <init> (Lcom/russhwolf/settings/Settings;Lkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (Lcom/russhwolf/settings/Settings;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun markShown ()V
+	public final fun shouldShow (Lcom/mobilebytelabs/paycraft/winback/ExitSurveyConfig;Z)Z
 }
 

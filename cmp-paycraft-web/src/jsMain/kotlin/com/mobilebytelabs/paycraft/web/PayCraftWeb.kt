@@ -1,6 +1,9 @@
 package com.mobilebytelabs.paycraft.web
 
 import com.mobilebytelabs.paycraft.PayCraftBackend
+import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
+import com.mobilebytelabs.paycraft.analytics.PayCraftEventName
+import com.mobilebytelabs.paycraft.analytics.PayCraftStep
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.contract.PayCraftContract
 import com.mobilebytelabs.paycraft.contract.WebCheckoutFailure
@@ -15,6 +18,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -127,6 +131,75 @@ class PayCraftWeb(
     }
 
     private var visitorCountry: String? = null
+
+    // ── Paywall events (paycraft-paywall-analytics) ─────────────────────────────────────────────
+
+    private var eventListener: ((String, dynamic) -> Unit)? = null
+    private val pendingEvents = mutableListOf<PayCraftEvent>()
+    private var flushScheduled = false
+
+    /** Sends a body with no headers when the page is going away (`navigator.sendBeacon`). Replaced in tests. */
+    internal var beacon: (String, String) -> Boolean = sendBeaconJs
+
+    /**
+     * Every paywall event, for the site to forward — e.g. `pc.onEvent((name, params) => gtag("event", name, params))`.
+     * The same names and params as the apps' events (the PayCraftEvent catalog), already GA4-valid.
+     */
+    fun onEvent(listener: (name: String, params: dynamic) -> Unit) {
+        eventListener = listener
+    }
+
+    internal fun track(
+        name: PayCraftEventName,
+        step: PayCraftStep,
+        sku: String? = null,
+        currency: String? = null,
+        provider: String? = null,
+        reason: String? = null,
+    ) {
+        val e = PayCraftEvent(
+            name, step, platform = "web", sku = sku, currency = currency, country = visitorCountry,
+            provider = provider, reason = reason, atMs = now().toLong(),
+        )
+        eventListener?.let { l ->
+            runCatching {
+                val o: dynamic = js("({})")
+                e.params().forEach { (k, v) -> o[k] = v }
+                l(name.wire, o)
+            }
+        }
+        if (pendingEvents.size >= MAX_PENDING_EVENTS) pendingEvents.removeAt(0)
+        pendingEvents.add(e)
+        if (!flushScheduled) {
+            flushScheduled = true
+            // The browser's timer, not a coroutine delay: the events path stays out of the coroutines bundle.
+            setTimeoutJs({ scope.promise { flushEvents() } }, EVENT_FLUSH_MS)
+        }
+    }
+
+    internal fun pendingEventCount(): Int = pendingEvents.size
+
+    /** Drains the queue into an `events` body (mode in the body too: a beacon carries no headers). */
+    private fun drainEvents(): String? {
+        if (pendingEvents.isEmpty()) return null
+        val batch = pendingEvents.toList()
+        pendingEvents.clear()
+        val deviceRef = store.deviceId() ?: newDeviceId().also { store.saveDeviceId(it) }
+        val body = PayCraftContract.eventsBody(apiKey, deviceRef, store.token(), batch)
+        return JsonObject(body + ("mode" to JsonPrimitive(mode))).toString()
+    }
+
+    internal suspend fun flushEvents() {
+        flushScheduled = false
+        val body = drainEvents() ?: return
+        runCatching { call("POST", PayCraftContract.eventsUrl(base, apiKey), body) }
+    }
+
+    /** The page is being left: what is queued goes out by beacon, which survives the navigation. */
+    internal fun flushEventsOnLeave() {
+        val body = drainEvents() ?: return
+        runCatching { beacon(PayCraftContract.eventsUrl(base, apiKey), body) }
+    }
 
     /**
      * After a sign-in that reported a conflict because the subscription is at its device limit: the
@@ -420,3 +493,14 @@ private fun browserDeviceName(): String {
     }
     return "$browser on $os"
 }
+
+private const val MAX_PENDING_EVENTS = 50
+private const val EVENT_FLUSH_MS = 3_000
+
+private val setTimeoutJs: (() -> Unit, Int) -> Unit =
+    js("(function (f, ms) { if (typeof setTimeout !== 'undefined') setTimeout(f, ms); })")
+
+// A function expression (not inline js() over Kotlin locals, which the compiler renames).
+private val sendBeaconJs: (String, String) -> Boolean = js(
+    "(function (u, b) { return (typeof navigator !== 'undefined' && navigator.sendBeacon) ? navigator.sendBeacon(u, b) : false; })",
+)

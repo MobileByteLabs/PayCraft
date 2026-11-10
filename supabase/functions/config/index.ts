@@ -9,8 +9,11 @@
 //     tenant_id, plan, products[], providers[], paywall, locale, cache_ttl_seconds
 //   }
 
+import { geoCountry as resolveGeoCountry } from "../_shared/geo.ts"
+import { buildExitSurvey, type CouponRow, type ExitSurveyWire, type SurveyRow } from "../_shared/exit-survey.ts"
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1"
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.106.1"
 import { diverges, resolveServed, resolveShadow } from "../_shared/pricing-shadow.ts"
 import {
   RateLimitError,
@@ -283,19 +286,10 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
   // the stricter and more correct of the two: "XX" is the CDN's *unknown-country* placeholder, so
   // treating it as a country prices someone in a country that does not exist, and a 3-letter code
   // is not an ISO-3166-alpha-2 value at all.
-  const GEO_HEADERS = [
-    "cf-ipcountry",
-    "x-vercel-ip-country",
-    "cloudfront-viewer-country",
-    "x-country",
-    "x-geo-country",
-  ] as const
+  // The header loop itself lives in _shared/geo.ts — shared with `events` / `winback`, which stamp the same
+  // country on what they store.
   const ISO2 = /^[A-Z]{2}$/
-  let geoCountry: string | null = null
-  for (const h of GEO_HEADERS) {
-    const raw = req.headers.get(h)?.trim()?.toUpperCase()
-    if (raw && ISO2.test(raw) && raw !== "XX") { geoCountry = raw; break }
-  }
+  const geoCountry: string | null = resolveGeoCountry(req)
   const geoSource = geoCountry ? "SERVER_IP_GEO" : "ABSENT"
 
   // Caller platform (SDK sends X-PayCraft-Platform: ios|android|desktop|web). Drives per-platform
@@ -778,6 +772,9 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
       google_web_client_id: tenantRes.data?.auth_google_web_client_id ?? null,
       apple_services_id: tenantRes.data?.auth_apple_services_id ?? null,
     },
+    // The exit survey (migration 181) — shown when a buyer closes the paywall or leaves checkout. Enabled
+    // reasons only; an offer carries only its discount, never the coupon's code. `{enabled:false}` = no survey.
+    exit_survey: await loadExitSurvey(supabase, tenantId),
   }
 
   return new Response(JSON.stringify(body), {
@@ -797,4 +794,27 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
 // binding a port.
 if (!Deno.env.get("CONFIG_SKIP_SERVE")) {
   serve(handleConfigRequest)
+}
+
+async function loadExitSurvey(
+  supabase: SupabaseClient,
+  tenantId: string,
+): Promise<ExitSurveyWire> {
+  const { data: row } = await supabase
+    .from("tenant_exit_survey")
+    .select("enabled,title,reasons,survey_cap_days")
+    .eq("tenant_id", tenantId)
+    .maybeSingle()
+  if (!row?.enabled) return { enabled: false }
+  const couponIds = ((row.reasons ?? []) as Array<{ coupon_id?: string | null }>)
+    .map((r) => r?.coupon_id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0)
+  const { data: coupons } = couponIds.length
+    ? await supabase
+      .from("tenant_coupons")
+      .select("id,percent_off,duration,duration_in_months,active,redeem_by,max_redemptions,times_redeemed")
+      .eq("tenant_id", tenantId)
+      .in("id", couponIds)
+    : { data: [] }
+  return buildExitSurvey(row as SurveyRow, (coupons ?? []) as CouponRow[])
 }

@@ -31,6 +31,12 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
     private val _events = Channel<PayCraftPaywallEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
 
+    /** Paywall analytics: where the buyer is and where they leave (GOAL AC-2). Replaced in tests. */
+    internal var funnel = PaywallFunnelTracker()
+
+    /** The paywall became visible. Called by the composable each time it shows — the ViewModel outlives it. */
+    fun onShown() = funnel.shown()
+
     init {
         loadConfig()
         observeBillingState()
@@ -110,7 +116,15 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
     private fun observeBillingState() {
         viewModelScope.launch {
+            var previous: BillingState? = null
             billingManager.billingState.collect { billingState ->
+                if (billingState is BillingState.DeviceConflict &&
+                    previous !is BillingState.DeviceConflict
+                ) {
+                    funnel.deviceLimitShown()
+                }
+                if (billingState is BillingState.Premium) funnel.purchaseSucceeded(billingState.status.plan)
+                previous = billingState
                 val currentPlanRank = when (billingState) {
                     is BillingState.Premium -> {
                         val planId = billingState.status.plan
@@ -138,6 +152,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
         viewModelScope.launch {
             billingManager.userEmail.collect { email ->
+                if (email != null && _state.value.userEmail == null) funnel.signInCompleted()
                 _state.update { current -> current.copy(userEmail = email) }
             }
         }
@@ -163,8 +178,11 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
             is PayCraftPaywallAction.ClearRestoreResult -> onClearRestoreResult()
             is PayCraftPaywallAction.OpenRestoreSheet -> _state.update { it.copy(isRestoreSheetVisible = true) }
             is PayCraftPaywallAction.CloseRestoreSheet -> _state.update { it.copy(isRestoreSheetVisible = false) }
-            is PayCraftPaywallAction.SurfaceClosed -> _state.update {
-                it.copy(isRestoreSheetVisible = false, providerSheetTarget = null, isSubmitting = false)
+            is PayCraftPaywallAction.SurfaceClosed -> {
+                funnel.abandoned() // a swipe / back press closes the surface without a Dismiss action
+                _state.update {
+                    it.copy(isRestoreSheetVisible = false, providerSheetTarget = null, isSubmitting = false)
+                }
             }
             is PayCraftPaywallAction.LoginWithOAuth -> onLoginWithOAuth(action)
             is PayCraftPaywallAction.ConfirmDeviceTransfer -> onConfirmDeviceTransfer()
@@ -177,6 +195,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
     private fun onSelectPlan(action: PayCraftPaywallAction.SelectPlan) {
         userPickedPlan = true
         _state.update { it.copy(selectedPlan = action.plan) }
+        funnel.planSelected(action.plan)
     }
 
     private fun onUpdateEmail(action: PayCraftPaywallAction.UpdateEmail) {
@@ -214,6 +233,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
         _state.update { it.copy(isSubmitting = true, emailError = null) }
         if (email.isNotBlank()) billingManager.logIn(email)
+        funnel.checkoutStarted(plan, providerId = null)
 
         // SERVER-MINTED CHECKOUT.
         //
@@ -255,10 +275,12 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
                     // of being flattened into "please try again".
                     is CheckoutInitiateClient.Result.Rejected -> {
                         logE(TAG) { "checkout rejected for ${plan.sku}: ${r.message}" }
+                        funnel.purchaseFailed("checkout_rejected")
                         _state.update { it.copy(isSubmitting = false, errorMessage = r.message) }
                     }
                     is CheckoutInitiateClient.Result.Error -> {
                         logE(TAG) { "checkout error for ${plan.sku}: ${r.message}" }
+                        funnel.purchaseFailed("checkout_error")
                         _state.update {
                             it.copy(
                                 isSubmitting = false,
@@ -277,6 +299,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
             PayCraft.checkout(plan, email.ifBlank { null })
         } catch (t: Throwable) {
             logE(TAG) { "checkout failed for plan ${plan.id}: ${t.message}" }
+            funnel.purchaseFailed("checkout_error")
             _state.update {
                 it.copy(
                     isSubmitting = false,
@@ -297,20 +320,25 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
     private fun onShowProviderSheet(action: PayCraftPaywallAction.ShowProviderSheet) {
         _state.update { it.copy(providerSheetTarget = action.plan) }
+        funnel.providerSheetShown(action.plan)
     }
 
     private fun onDismissProviderSheet() {
         _state.update { it.copy(providerSheetTarget = null, isSubmitting = false) }
+        funnel.providerSheetDismissed()
     }
 
     private fun onCheckoutWithProvider(action: PayCraftPaywallAction.CheckoutWithProvider) {
         _state.update { it.copy(providerSheetTarget = null, isSubmitting = true) }
         val email = _state.value.email.trim()
         if (email.isNotBlank()) billingManager.logIn(email)
+        funnel.providerChosen(action.plan, action.provider.provider)
+        funnel.checkoutStarted(action.plan, action.provider.provider)
         try {
             PayCraft.checkoutWithProvider(action.plan, action.provider, email.ifBlank { null })
         } catch (t: Throwable) {
             logE(TAG) { "checkoutWithProvider failed for ${action.plan.id}: ${t.message}" }
+            funnel.purchaseFailed("checkout_error")
             _state.update {
                 it.copy(
                     isSubmitting = false,
@@ -356,6 +384,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
     }
 
     private fun onDismiss() {
+        funnel.abandoned()
         viewModelScope.launch { _events.send(PayCraftPaywallEvent.Dismissed) }
     }
 
@@ -406,6 +435,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
     }
 
     private fun onLoginWithOAuth(action: PayCraftPaywallAction.LoginWithOAuth) {
+        funnel.signInShown(action.provider.name.lowercase())
         _state.update { it.copy(isRestoring = true, restoreResult = null) }
         viewModelScope.launch {
             billingManager.loginWithOAuth(action.provider, action.idToken)
@@ -451,6 +481,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
     /** User cancelled the transfer confirmation dialog → stay on DeviceConflict screen */
     private fun onCancelDeviceTransfer() {
+        funnel.deviceLimitCancelled()
         // billingState is still OwnershipVerified — go back to last conflict
         // Re-trigger a fresh conflict state by re-registering (or just refresh)
         billingManager.refreshStatus()

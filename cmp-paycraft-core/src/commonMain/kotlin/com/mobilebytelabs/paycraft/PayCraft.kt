@@ -1,5 +1,8 @@
 package com.mobilebytelabs.paycraft
 
+import com.mobilebytelabs.paycraft.analytics.PayCraftAnalytics
+import com.mobilebytelabs.paycraft.analytics.PayCraftAnalyticsListener
+import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
 import com.mobilebytelabs.paycraft.billing.CheckoutLane
 import com.mobilebytelabs.paycraft.billing.NativeBillingClient
 import com.mobilebytelabs.paycraft.billing.NativeDisplayPrice
@@ -12,6 +15,8 @@ import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.config.readBundledSuiteConfigJsonOrNull
 import com.mobilebytelabs.paycraft.contract.PayCraftContract
+import com.mobilebytelabs.paycraft.winback.ExitSurveyConfig
+import com.mobilebytelabs.paycraft.winback.ExitSurveyGate
 import com.mobilebytelabs.paycraft.core.AdFreeEntitlement
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.EntitlementSnapshot
@@ -30,8 +35,10 @@ import com.mobilebytelabs.paycraft.network.PayCraftRealtime
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
 import com.mobilebytelabs.paycraft.platform.BuildKind
 import com.mobilebytelabs.paycraft.platform.DeviceFingerprint
+import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
+import com.mobilebytelabs.paycraft.platform.platformSettings
 import com.mobilebytelabs.paycraft.provider.PaymentProvider
 import com.mobilebytelabs.paycraft.provider.withEmailParam
 import io.ktor.client.HttpClient
@@ -40,6 +47,8 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
@@ -129,13 +138,62 @@ object PayCraft {
 
     /**
      * Stable per-(device, app) fingerprint. Available for consumer-app analytics
-     * (DAU/MAU dashboards, A/B-test bucketing, crash-correlation). PayCraft itself
-     * does not send this value anywhere — Stripe-style test/live mode duality is
+     * (DAU/MAU dashboards, A/B-test bucketing, crash-correlation). PayCraft sends it only as
+     * the device reference on paywall events ([analytics]), never with personal data — Stripe-style test/live mode duality is
      * resolved purely by the [apiKey] prefix.
      *
      * Computed lazily on first access. Logged at `initialize()` for debug visibility.
      */
     val deviceId: String by lazy { DeviceFingerprint.get() }
+
+    /**
+     * Paywall analytics (GOAL D1/D2): every step a buyer takes through the paywall, as catalog events
+     * ([com.mobilebytelabs.paycraft.analytics.PayCraftEventName]). Each event goes to [analyticsListener] — the
+     * app's own analytics — and, batched, to PayCraft's `events` endpoint, which powers the dashboard funnel.
+     * Set [PayCraftAnalytics.ingestEnabled] to false to honour a consent decision for PayCraft's copy.
+     */
+    val analytics: PayCraftAnalytics by lazy {
+        PayCraftAnalytics(send = ::postEvents).also { it.start(applicationScope) }
+    }
+
+    /**
+     * Where the app is opening the paywall from — `home`, `settings`, `download_limit`… Set it right before
+     * showing the paywall; it rides on every paywall event as `trigger`, so the funnel shows which placement
+     * sells. Null falls back to how the SDK presented it ([PaywallPresentation.Shown.Trigger]) or `direct`.
+     */
+    var paywallPlacement: String? = null
+
+    private val _exitSurvey = MutableStateFlow<ExitSurveyConfig?>(null)
+
+    /**
+     * The tenant's exit survey from the latest `/config` (null until fetched, or when the tenant has none). The
+     * paywall shows it when a buyer closes without buying, at most once per [ExitSurveyConfig.capDays].
+     */
+    val exitSurvey: StateFlow<ExitSurveyConfig?> = _exitSurvey.asStateFlow()
+
+    /** Whether the exit survey may be shown now (on, not premium, outside its cap window). */
+    val exitSurveyGate: ExitSurveyGate by lazy { ExitSurveyGate(platformSettings()) }
+
+    /** Forward PayCraft's paywall events to the app's analytics (e.g. Firebase / GA4). Null = not forwarded. */
+    var analyticsListener: PayCraftAnalyticsListener?
+        get() = analytics.listener
+        set(value) {
+            analytics.listener = value
+        }
+
+    private suspend fun postEvents(batch: List<PayCraftEvent>) {
+        val key = apiKey ?: return
+        if (!isConfigured || backend is PayCraftBackend.Mock) return
+        configHttpClient().post(PayCraftContract.eventsUrl(backend.supabaseUrl, key)) {
+            PayCraftContract.headers(
+                anonKey = backend.supabaseAnonKey,
+                platform = runCatching { PlatformInfo.platform.lowercase() }.getOrDefault(""),
+                mode = if (mode == Mode.Test) "test" else "live",
+                json = true,
+            ).forEach { (name, value) -> header(name, value) }
+            setBody(PayCraftContract.eventsBody(key, deviceId, DeviceTokenStore.getToken(), batch).toString())
+        }
+    }
 
     /**
      * Resolved test/live mode. **The SDK owns this decision — a host app supplies ONE key.**
@@ -628,6 +686,7 @@ object PayCraft {
                 return
             }
             val raw: String = response.body()
+            _exitSurvey.value = PayCraftContract.decodeExitSurvey(raw)
             val json = Json {
                 ignoreUnknownKeys = true
                 isLenient = true

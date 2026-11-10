@@ -8,7 +8,6 @@ import {
   CreditCard,
   LogOut,
   CheckCircle2,
-  CalendarDays,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
@@ -17,10 +16,44 @@ import { Badge } from "@/components/ui/badge"
 import { MRRChart } from "@/components/charts/mrr-chart"
 import { ChurnChart } from "@/components/charts/churn-chart"
 import { WebhookDonut } from "@/components/charts/webhook-donut"
+import { FunnelChart, RangeMenu, SplitTable } from "@/components/analytics/funnel-chart"
+import { funnel, rangeDays, splitBy, type FunnelEvent } from "@/lib/funnel"
+import { getMode } from "@/lib/mode"
 
-export default async function AnalyticsPage() {
+export default async function AnalyticsPage({ searchParams }: { searchParams?: { range?: string } }) {
   const { tenant } = await requireTenant()
   const supabase = createClient()
+
+  // Paywall funnel range: 7 / 30 / 90 days, capped by the plan's analytics retention (tier_definitions).
+  const tierRes = await supabase
+    .from("tier_definitions")
+    .select("analytics_retention_days")
+    .eq("tier_name", tenant.plan ?? "free")
+    .maybeSingle()
+  const retentionDays = tierRes.data?.analytics_retention_days ?? 7
+  const range = rangeDays(searchParams?.range, retentionDays)
+  const since = new Date(Date.now() - range.days * 86_400_000).toISOString()
+  const eventsRes = await supabase
+    .from("paywall_events")
+    .select("name,user_ref,device_ref,country,provider")
+    .eq("tenant_id", tenant.id)
+    .eq("mode", getMode())
+    .gte("occurred_at", since)
+    .in("name", ["paycraft_paywall_view", "paycraft_plan_select", "paycraft_checkout_start", "paycraft_purchase_success"])
+    .limit(50_000)
+  const funnelEvents = (eventsRes.data ?? []) as FunnelEvent[]
+  const funnelRows = funnel(funnelEvents)
+  const byCountry = splitBy(funnelEvents, "country")
+  const byProvider = splitBy(funnelEvents, "provider")
+  const regionName = (() => {
+    try {
+      const names = new Intl.DisplayNames(["en"], { type: "region" })
+      return (cc: string) => (cc === "unknown" ? "Unknown" : `${names.of(cc) ?? cc} (${cc})`)
+    } catch {
+      return (cc: string) => cc
+    }
+  })()
+  const providerName = (p: string) => (p === "unknown" ? "Not chosen" : p.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()))
 
   const [mrrRes, churnRes, subCountRes, revenueRes, webhookRes, subsSeriesRes] =
     await Promise.all([
@@ -165,24 +198,31 @@ export default async function AnalyticsPage() {
               rate.
             </p>
             <Badge tone="brand">
-              Retention 90 days ({tenant.plan ?? "Pro"})
+              Retention {retentionDays} days ({tenant.plan ?? "free"})
             </Badge>
           </div>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 bg-white border border-ink-200 rounded-lg text-sm font-semibold text-ink-700 hover:border-ink-300 transition-all shadow-sm flex-shrink-0">
-          <CalendarDays className="w-4 h-4" strokeWidth={2} />
-          <span>Last 30 days</span>
-          <svg
-            className="w-4 h-4 text-ink-400"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
-        </button>
+        <RangeMenu days={range.days} retentionDays={retentionDays} />
       </div>
+
+      {/* Paywall funnel — from PayCraft's own paywall_events (exact; GA4 panels show app-level context). */}
+      <section className="space-y-6" aria-labelledby="funnel-h">
+        <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-sm">
+          <div className="mb-6 flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <h3 id="funnel-h" className="text-lg font-bold tracking-tight text-ink-900">Paywall funnel</h3>
+              <p className="mt-0.5 text-xs text-ink-500">
+                Distinct buyers at each step, last {range.days} days{range.capped ? ` (your plan keeps ${retentionDays})` : ""} · {getMode()} mode
+              </p>
+            </div>
+          </div>
+          <FunnelChart rows={funnelRows} />
+        </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <SplitTable title="By country" rows={byCountry} label={regionName} />
+          <SplitTable title="By payment provider" rows={byProvider} label={providerName} base="checkouts" />
+        </div>
+      </section>
 
       {/* Stats Strip */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

@@ -1,5 +1,8 @@
 package com.mobilebytelabs.paycraft.web
 
+import com.mobilebytelabs.paycraft.analytics.PayCraftEventName
+import com.mobilebytelabs.paycraft.analytics.PayCraftStep
+
 /** What [PayCraftWeb.mountCheckout] shows: the payment page, or a notice instead of it. */
 internal sealed class CheckoutView {
     class Ready(val model: CheckoutModel) : CheckoutView()
@@ -106,6 +109,7 @@ internal fun PayCraftWeb.checkoutViewFor(
             backUrl = back,
             termsUrl = o?.termsUrl,
             refundUrl = o?.refundUrl,
+            currency = product.currency,
         ),
     )
 }
@@ -163,12 +167,20 @@ private fun PayCraftWeb.wireCheckout(el: dynamic, sku: String, m: CheckoutModel)
     val providerName = el.querySelector("[data-pcx-provider-name]")
     val error = el.querySelector("[data-pcx-error]")
     val idleLabel = { "Continue to ${names[selected] ?: selected}" }
+    // Paywall events: the payment-method step was shown; leaving without paying is an abandon there.
+    var paying = false
+    track(PayCraftEventName.ProviderView, PayCraftStep.Provider, sku, m.currency, selected)
+    el.ownerDocument.defaultView?.addEventListener("pagehide", { _: dynamic ->
+        if (!paying) track(PayCraftEventName.StepAbandon, PayCraftStep.Provider, sku, m.currency, selected)
+        flushEventsOnLeave()
+    })
 
     val radios = el.querySelectorAll("input[name=pcx-provider]")
     for (i in 0 until (radios.length as Int)) {
         val r = radios.item(i)
         r.addEventListener("change", { _: dynamic ->
             selected = r.value as String
+            track(PayCraftEventName.ProviderSelect, PayCraftStep.Provider, sku, m.currency, selected)
             payLabel.textContent = idleLabel()
             providerName.textContent = names[selected] ?: selected
             error.hidden = true
@@ -179,6 +191,8 @@ private fun PayCraftWeb.wireCheckout(el: dynamic, sku: String, m: CheckoutModel)
         payLabel.textContent = idleLabel()
     }
     fun fail(code: String?) {
+        paying = false
+        track(PayCraftEventName.PurchaseFail, PayCraftStep.Checkout, sku, m.currency, selected, code ?: "network_error")
         error.textContent = checkoutErrorMessage(code ?: "network_error")
         error.hidden = false
         reset()
@@ -187,6 +201,8 @@ private fun PayCraftWeb.wireCheckout(el: dynamic, sku: String, m: CheckoutModel)
     el.ownerDocument.defaultView?.addEventListener("pageshow", { e: dynamic -> if (e.persisted == true) reset() })
     pay.addEventListener("click", { _: dynamic ->
         pay.disabled = true
+        paying = true
+        track(PayCraftEventName.CheckoutStart, PayCraftStep.Checkout, sku, m.currency, selected)
         payLabel.textContent = "Opening ${names[selected] ?: selected}…"
         error.hidden = true
         checkoutUrlWith(sku, null, selected).then({ url ->

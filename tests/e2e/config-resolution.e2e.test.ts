@@ -15,6 +15,7 @@ import {
   getConfig,
   providerIds,
   psql,
+  psqlRows,
   requireLocalStack,
   seedTenant,
   sqlLit,
@@ -329,6 +330,32 @@ Deno.test("config: a TTL of 0 cannot be stored", async () => {
       rejected = String(e).includes("tenants_config_cache_ttl_seconds_range");
     }
     assert(rejected, "0 must be refused by CHECK — it is the SDK's stale sentinel");
+  } finally {
+    await dropTenant(t.id);
+  }
+});
+
+Deno.test("config: serves the tenant's exit survey as edited, with the offer's discount and never the coupon", async () => {
+  const t = await seedTenant({ name: "e2e_exit_survey", products: [{ sku: "plus-monthly" }] });
+  try {
+    const [[couponId]] = await psqlRows(`INSERT INTO tenant_coupons (tenant_id, code, percent_off, duration)
+      VALUES (${sqlLit(t.id)}, 'E2EWINBACK50', 50, 'once') RETURNING id`);
+    // the dashboard editor's write, as the database sees it: new title, cap, an offer on "too expensive", one reason off
+    await psql(`UPDATE tenant_exit_survey SET title = 'Why not today?', survey_cap_days = 3,
+      reasons = jsonb_build_array(
+        jsonb_build_object('code','too_expensive','label','Too pricey','enabled',true,'action','offer','coupon_id',${sqlLit(couponId)}),
+        jsonb_build_object('code','just_looking','label','Just looking','enabled',false,'action','none'),
+        jsonb_build_object('code','other','label','Something else','enabled',true,'action','none','free_text',true))
+      WHERE tenant_id = ${sqlLit(t.id)}`);
+    const { status, body } = await getConfig(t.apiKeyLive);
+    assertEquals(status, 200);
+    const s = (body as { exit_survey: any }).exit_survey;
+    assertEquals(s.enabled, true);
+    assertEquals(s.title, "Why not today?");
+    assertEquals(s.cap_days, 3);
+    assertEquals(s.reasons.map((r: { code: string }) => r.code), ["too_expensive", "other"]);
+    assertEquals(s.reasons[0].offer, { percent_off: 50, duration: "once" });
+    assert(!JSON.stringify(s).includes("E2EWINBACK50") && !JSON.stringify(s).includes(couponId), "coupon code/id never served");
   } finally {
     await dropTenant(t.id);
   }

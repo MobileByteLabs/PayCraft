@@ -144,6 +144,11 @@ fun PayCraftPaywallComposable(
         onDispose { viewModel.dispatch(PayCraftPaywallAction.SurfaceClosed) }
     }
 
+    // Paywall analytics: each time the full paywall appears (the banner strip is not a paywall view).
+    LaunchedEffect(viewModel) {
+        if (displayMode == DisplayMode.FullScreen) viewModel.onShown()
+    }
+
     LaunchedEffect(viewModel.events) {
         viewModel.events.collect { event ->
             when (event) {

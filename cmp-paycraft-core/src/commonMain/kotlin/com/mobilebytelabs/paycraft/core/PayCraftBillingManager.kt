@@ -20,6 +20,7 @@ import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import com.mobilebytelabs.paycraft.provider.StripeProvider
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +59,8 @@ class PayCraftBillingManager(
      * intermittent test failure instead of a reproducible one.
      */
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    /** Which store a purchase is registered with. Injectable like [EntitlementRepository]'s, for JVM tests. */
+    private val platform: () -> String = ::currentPlatform,
 ) : BillingManager {
 
     /**
@@ -164,6 +167,21 @@ class PayCraftBillingManager(
      */
     private var lastConflict: BillingState.DeviceConflict? = null
 
+    /**
+     * Completes once the saved identity (email) has been read. Everything that presents an app-user-id
+     * to the server or decides premium at launch waits on it: before it, `_userEmail` is null for a
+     * signed-in user, so the SDK spoke as the anonymous device — the server refused to bind a signed-in
+     * buyer's purchase to it, the purchase stayed unacknowledged (Play refunds after 72h), and status
+     * checks resolved "no stored email → Free" (device finding 2026-11-10, reels on 3.0.0).
+     */
+    private val identityLoaded = CompletableDeferred<Unit>()
+
+    /** The app-user-id the server should see — only after the saved identity is known. */
+    private suspend fun resolvedAppUserId(): String {
+        identityLoaded.await()
+        return _userEmail.value ?: PayCraft.deviceId
+    }
+
     init {
         // Attach the store's always-on purchase stream and sweep anything left unfinished BEFORE
         // any other init work: a purchase that completed while the app was dead must be reconciled
@@ -181,7 +199,14 @@ class PayCraftBillingManager(
 
         // Async: email fetch (suspend) + conditional Supabase sync
         scope.launch {
-            val savedEmail = store.getEmail()
+            val savedEmail = try {
+                store.getEmail()
+            } catch (e: Exception) {
+                PayCraftLogger.onError("init", "saved email unreadable — continuing anonymous: ${e.message}")
+                null
+            }
+            if (!savedEmail.isNullOrBlank()) _userEmail.value = savedEmail
+            identityLoaded.complete(Unit)
             PayCraftLogger.onFlow("init", "savedEmail=${savedEmail ?: "null"}, stripeMode=$stripeMode")
             // Re-present what the store holds BEFORE deciding premium. The server only hears about a
             // renewal / cancel from a store notification; when that channel is missing or late the
@@ -573,9 +598,9 @@ class PayCraftBillingManager(
 
     /** Register a store purchase server-side, then finish it with the store if that succeeded. */
     private suspend fun registerAndFinish(native: NativeBillingClient, purchase: NativePurchase, tag: String) {
-        val appUserId = _userEmail.value ?: PayCraft.deviceId
+        val appUserId = resolvedAppUserId()
         val entitlement = try {
-            service.registerStorePurchase(purchase, appUserId, currentPlatform())
+            service.registerStorePurchase(purchase, appUserId, platform())
         } catch (e: Exception) {
             PayCraftLogger.onError(tag, "server register failed — NOT finishing purchase: ${e.message}")
             return
@@ -609,6 +634,15 @@ class PayCraftBillingManager(
     }
 
     override fun refreshStatus(force: Boolean) {
+        // Before the saved identity is read, a signed-in user looks anonymous and this would decide
+        // "no stored email → Free". Defer the refresh until it is known.
+        if (!identityLoaded.isCompleted) {
+            scope.launch {
+                identityLoaded.await()
+                refreshStatus(force)
+            }
+            return
+        }
         val email = _userEmail.value
         val currentState = _billingState.value
         PayCraftLogger.onRefreshStatus(email)
@@ -960,7 +994,7 @@ class PayCraftBillingManager(
     override fun onAppForegrounded() {
         reconcileUnfinishedPurchases()
         scope.launch {
-            syncHeldStorePurchases(_userEmail.value ?: PayCraft.deviceId)
+            syncHeldStorePurchases(resolvedAppUserId())
             // Always re-check, not only when something bound: a lapsed or cancelled subscription
             // is exactly the case where the store returns NOTHING and premium must still drop.
             refreshStatus(force = true)
@@ -969,7 +1003,7 @@ class PayCraftBillingManager(
 
     override suspend fun restoreStorePurchases(): Boolean {
         val repo = repo ?: return false
-        val appUserId = _userEmail.value ?: PayCraft.deviceId
+        val appUserId = resolvedAppUserId()
         runCatching { repo.restore(appUserId) }
             .onFailure { PayCraftLogger.onError("restoreStorePurchases", it.message) }
         val status = storeEntitlementStatus(appUserId) ?: return false

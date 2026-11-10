@@ -3,11 +3,13 @@ package com.mobilebytelabs.paycraft.contract
 import com.mobilebytelabs.paycraft.PayCraftInternalApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * The wire contract both SDKs speak (paycraft-core-split). If one of these changes, the app SDK and
@@ -319,6 +321,32 @@ class PayCraftContractTest {
         assertEquals(listOf("razorpay"), cfg.providers.map { it.provider })
         assertEquals("g.apps", cfg.auth?.googleWebClientId)
         assertEquals("", cfg.tenantId)
+    }
+
+    @Test
+    fun events_body_carries_the_batch_without_personal_data_or_client_country() {
+        val e = com.mobilebytelabs.paycraft.analytics.PayCraftEvent(
+            com.mobilebytelabs.paycraft.analytics.PayCraftEventName.CheckoutStart,
+            com.mobilebytelabs.paycraft.analytics.PayCraftStep.Checkout,
+            platform = "android",
+            sku = "pro-monthly",
+            currency = "INR",
+            country = "IN",
+            provider = "razorpay",
+            atMs = 42,
+        )
+        val body = PayCraftContract.eventsBody("pk_x", deviceRef = "dev-1", deviceToken = "srv_1", events = listOf(e))
+        assertEquals("pk_x", body["apiKey"]?.jsonPrimitive?.content)
+        assertEquals("srv_1", body["deviceToken"]?.jsonPrimitive?.content)
+        val first = body["events"]!!.jsonArray[0].jsonObject
+        assertEquals("paycraft_checkout_start", first["name"]?.jsonPrimitive?.content)
+        assertEquals("checkout", first["step"]?.jsonPrimitive?.content)
+        assertEquals(42L, first["at"]?.jsonPrimitive?.content?.toLong())
+        assertEquals(null, first["country"], "country is stamped by the server")
+        assertEquals(null, body["email"])
+        assertTrue(
+            PayCraftContract.eventsUrl("https://x.supabase.co", "pk_x").endsWith("/functions/v1/events?apiKey=pk_x"),
+        )
     }
 
     private fun obj(raw: String): JsonObject = Json.parseToJsonElement(raw).jsonObject

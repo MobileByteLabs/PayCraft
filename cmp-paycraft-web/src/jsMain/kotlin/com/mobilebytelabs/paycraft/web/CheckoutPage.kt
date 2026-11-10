@@ -54,6 +54,8 @@ internal class CheckoutModel(
     val backUrl: String?,
     val termsUrl: String?,
     val refundUrl: String?,
+    /** ISO-4217 currency of [price] — rides on the page's paywall events. */
+    val currency: String? = null,
 )
 
 /** A state other than the ready page: a message and at most one link onward. */
