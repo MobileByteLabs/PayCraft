@@ -168,6 +168,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
             }
             is PayCraftPaywallAction.LoginWithOAuth -> onLoginWithOAuth(action)
             is PayCraftPaywallAction.ConfirmDeviceTransfer -> onConfirmDeviceTransfer()
+            is PayCraftPaywallAction.RemoveDeviceAndTransfer -> onConfirmDeviceTransfer(action.deviceRef)
             is PayCraftPaywallAction.CancelDeviceTransfer -> onCancelDeviceTransfer()
             is PayCraftPaywallAction.ContactSupportManualTransfer -> onContactSupportManualTransfer()
         }
@@ -429,10 +430,10 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
     }
 
     /** User confirmed "Deactivate [device] and transfer here?" */
-    private fun onConfirmDeviceTransfer() {
+    private fun onConfirmDeviceTransfer(replaceDevice: String? = null) {
         _state.update { it.copy(isRestoring = true) }
         viewModelScope.launch {
-            billingManager.confirmDeviceTransfer()
+            billingManager.confirmDeviceTransfer(replaceDevice)
             val finalState = billingManager.billingState.first { it !is BillingState.Loading }
             when (finalState) {
                 is BillingState.Premium -> {

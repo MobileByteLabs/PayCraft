@@ -77,6 +77,8 @@ import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_upgrade_t
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_settings_billed_through
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_banner_ends_in
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_trial_banner_ends_today
+import com.mobilebytelabs.paycraft.imageVector
+import com.mobilebytelabs.paycraft.localizedText
 import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
@@ -84,7 +86,6 @@ import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.provider.StripeProvider
 import com.mobilebytelabs.paycraft.repository.PayCraftRepository
 import com.mobilebytelabs.paycraft.ui.theme.parseHexColor
-import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
@@ -331,7 +332,7 @@ internal fun FreeBannerCard(
         } else if (benefits.isNotEmpty()) {
             PerkDivider()
             benefits.forEach { benefit ->
-                PerkRow(icon = benefit.icon, textRes = benefit.text)
+                PerkRow(icon = benefit.icon.imageVector, text = benefit.localizedText())
             }
         }
 
@@ -708,8 +709,7 @@ internal fun ValuePropPerkRow(
 }
 
 @Composable
-private fun PerkRow(icon: ImageVector, textRes: StringResource, modifier: Modifier = Modifier) {
-    val text = stringResource(textRes)
+private fun PerkRow(icon: ImageVector, text: String, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()

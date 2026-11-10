@@ -12,13 +12,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.mobilebytelabs.paycraft.imageVector
+import com.mobilebytelabs.paycraft.localizedText
 import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
-import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun BenefitItem(benefit: BillingBenefit, index: Int, modifier: Modifier = Modifier) {
-    val text = stringResource(benefit.text)
+    val text = benefit.localizedText()
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -27,7 +28,7 @@ fun BenefitItem(benefit: BillingBenefit, index: Int, modifier: Modifier = Modifi
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = benefit.icon,
+            imageVector = benefit.icon.imageVector,
             contentDescription = text,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(20.dp),

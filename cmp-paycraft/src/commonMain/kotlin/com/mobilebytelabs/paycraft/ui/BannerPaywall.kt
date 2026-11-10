@@ -66,9 +66,9 @@ import org.jetbrains.compose.resources.stringResource
 fun BannerPaywall(state: BillingState, onTap: () -> Unit, modifier: Modifier = Modifier) {
     val label: String = when (state) {
         is BillingState.Free -> stringResource(Res.string.paycraft_strip_upgrade)
-        is BillingState.Premium -> when {
-            state.trial != null -> stringResource(Res.string.paycraft_strip_trial_days_left, state.trial.daysRemaining)
-            else -> stringResource(Res.string.paycraft_strip_premium_active)
+        is BillingState.Premium -> when (val trial = state.trial) {
+            null -> stringResource(Res.string.paycraft_strip_premium_active)
+            else -> stringResource(Res.string.paycraft_strip_trial_days_left, trial.daysRemaining)
         }
         is BillingState.Loading -> stringResource(Res.string.paycraft_strip_checking)
         is BillingState.Error -> stringResource(Res.string.paycraft_strip_sync_failed)

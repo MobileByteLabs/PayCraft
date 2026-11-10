@@ -7,12 +7,16 @@
  */
 package com.mobilebytelabs.paycraft.ui
 
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.repository.PayCraftRepository
+import com.mobilebytelabs.paycraft.ui.components.PayCraftManageDevices
 
 /**
  * The SDK's own presentation of the paywall and the restore sheet.
@@ -63,4 +67,21 @@ internal fun rememberPaywallPresenter(): () -> Unit {
             visible = true
         }
     }
+}
+
+/**
+ * "Your devices": a bottom sheet listing the subscription's active devices ([PayCraftManageDevices]).
+ * Owns its own visibility like [rememberRestorePresenter], and composes nothing until opened, so a
+ * @Preview of a host screen needs no Koin graph.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun rememberDevicesPresenter(repository: PayCraftRepository): () -> Unit {
+    var visible by remember { mutableStateOf(false) }
+    if (visible) {
+        ModalBottomSheet(onDismissRequest = { visible = false }) {
+            PayCraftManageDevices(repository = repository)
+        }
+    }
+    return remember { { visible = true } }
 }

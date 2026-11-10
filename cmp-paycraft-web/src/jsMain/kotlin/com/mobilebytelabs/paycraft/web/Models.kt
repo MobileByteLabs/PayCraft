@@ -1,5 +1,8 @@
 package com.mobilebytelabs.paycraft.web
 
+import com.mobilebytelabs.paycraft.config.ProductDto
+import com.mobilebytelabs.paycraft.config.SuiteConfig
+import com.mobilebytelabs.paycraft.core.MonetizationMode
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -41,6 +44,22 @@ class PremiumState(val isPremium: Boolean, val tokenValid: Boolean, val email: S
 class SignInResult(val email: String, val conflict: Boolean, val conflictingDeviceName: String?)
 
 /**
+ * A device holding one of the subscription's seats ([PayCraftWeb.activeDevices]). [ref] is what
+ * [PayCraftWeb.useThisDeviceInstead] takes to sign it out; [platform] is `android` · `ios` · `web` · `desktop`.
+ */
+@JsExport
+class WebDevice(
+    val ref: String,
+    val name: String?,
+    val platform: String,
+    val lastSeen: String?,
+    /** True for this browser ([PayCraftWeb.devices]). */
+    val thisDevice: Boolean,
+    /** The subscription's seat count. */
+    val maxDevices: Int,
+)
+
+/**
  * The buyer's current subscription (`get_subscription`): [plan] is the product sku, [status] one of
  * `active` · `trialing` · `past_due`, [renewsAt] the ISO end of the paid period (null for one-time
  * purchases), [cancelAtPeriodEnd] true when it will not renew.
@@ -59,68 +78,33 @@ class WebSubscription(
 @JsExport
 class PayCraftWebError(val code: String, message: String) : Exception(message)
 
-// ── Wire shapes (internal; names follow the server, unknown keys ignored) ─────────────────────
+// ── Core config → exported shapes ────────────────────────────────────────────────────────────
+// The config itself is decoded by cmp-paycraft-core (PayCraftContract.decodeConfig — the app's model);
+// these only project it onto the plain classes a web page sees.
 
-@Serializable
-internal class ConfigWire(
-    val products: List<ProductWire> = emptyList(),
-    val providers: List<ProviderWire> = emptyList(),
-    val mode: String? = null,
-    val auth: AuthWire? = null,
+internal fun SuiteConfig.toWebConfig(): WebConfig = WebConfig(
+    products = products.map { it.toWeb() }.toTypedArray(),
+    providers = providers.map { it.provider }.toTypedArray(),
+    googleClientId = auth?.googleWebClientId,
+    appleServicesId = auth?.appleServicesId,
+    mode = when (mode) {
+        MonetizationMode.AdSupported -> "ad_supported"
+        MonetizationMode.TrialManaged -> "trial_managed"
+        null -> null
+    },
 )
 
-@Serializable
-internal class ProductWire(
-    val sku: String,
-    val type: String? = null,
-    @SerialName("display_name") val displayName: String = "",
-    val interval: String? = null,
-    @SerialName("base_price_cents") val basePriceCents: Int = 0,
-    @SerialName("base_currency") val baseCurrency: String = "USD",
-    @SerialName("trial_enabled") val trialEnabled: Boolean = true,
-    @SerialName("trial_duration_days") val trialDurationDays: Int? = null,
-    @SerialName("resolved_price") val resolvedPrice: PriceWire? = null,
-    @SerialName("store_binding") val storeBinding: StoreBindingWire? = null,
+internal fun ProductDto.toWeb(): WebProduct = WebProduct(
+    sku = sku,
+    name = displayName.ifBlank { sku },
+    type = type.ifBlank { null },
+    interval = interval,
+    amountCents = resolvedPrice?.amountCents ?: basePriceCents,
+    currency = resolvedPrice?.currency ?: baseCurrency,
+    trialDays = if (trialEnabled) trialDurationDays else null,
 )
 
-@Serializable
-internal class StoreBindingWire(val provider: String? = null)
-
-@Serializable
-internal class PriceWire(@SerialName("amount_cents") val amountCents: Int? = null, val currency: String? = null)
-
-@Serializable
-internal class ProviderWire(
-    val provider: String,
-    @SerialName("test_payment_links") val testPaymentLinks: Map<String, Map<String, String>>? = null,
-    @SerialName("live_payment_links") val livePaymentLinks: Map<String, Map<String, String>>? = null,
-)
-
-@Serializable
-internal class AuthWire(
-    @SerialName("google_web_client_id") val googleWebClientId: String? = null,
-    @SerialName("apple_services_id") val appleServicesId: String? = null,
-)
-
-@Serializable
-internal class VerifyWire(val email: String? = null, val provider: String? = null)
-
-@Serializable
-internal class RegisterWire(
-    @SerialName("server_token") val serverToken: String? = null,
-    val conflict: Boolean = false,
-    @SerialName("conflicting_device_name") val conflictingDeviceName: String? = null,
-)
-
-@Serializable
-internal class PremiumWire(
-    @SerialName("is_premium") val isPremium: Boolean = false,
-    @SerialName("token_valid") val tokenValid: Boolean = false,
-    val email: String? = null,
-)
-
-@Serializable
-internal class TransferWire(val transferred: Boolean = false)
+// ── Web-only response shapes (no core equivalent) ──────────────────────────────────────────────
 
 @Serializable
 internal class SubscriptionWire(
@@ -137,13 +121,3 @@ internal class CheckoutWire(val url: String? = null)
 
 @Serializable
 internal class ErrorWire(val error: String? = null, val message: String? = null)
-
-internal fun ProductWire.toWeb(): WebProduct = WebProduct(
-    sku = sku,
-    name = displayName.ifBlank { sku },
-    type = type,
-    interval = interval,
-    amountCents = resolvedPrice?.amountCents ?: basePriceCents,
-    currency = resolvedPrice?.currency ?: baseCurrency,
-    trialDays = if (trialEnabled) trialDurationDays else null,
-)

@@ -1,0 +1,350 @@
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
+import javax.inject.Inject
+
+// cmp-paycraft-core — PayCraft's logic with no UI (paycraft-core-split, GOAL D1/D6).
+//
+// Config + region pricing, identity, entitlement / ad-free, device registration, checkout routing,
+// persistence and the `PayCraft` entry point, on every target incl. js + wasmJs. No UI toolkit and no
+// ViewModel types: `cmp-paycraft` (the paywall UI) and `cmp-paycraft-web` (the browser SDK) are
+// both thin layers over this module. Packages are unchanged (com.mobilebytelabs.paycraft.*).
+plugins {
+    alias(paycraftLibs.plugins.kotlinMultiplatform)
+    alias(paycraftLibs.plugins.android.kmp.library)
+    alias(paycraftLibs.plugins.kotlin.serialization)
+    alias(paycraftLibs.plugins.vanniktech.mavenPublish)
+}
+
+group = "io.github.mobilebytelabs"
+version = providers.gradleProperty("paycraft.version").get()
+
+@OptIn(ExperimentalKotlinGradlePluginApi::class, ExperimentalWasmDsl::class)
+kotlin {
+    applyDefaultHierarchyTemplate()
+
+    jvm()
+
+    android {
+        namespace = "com.mobilebytelabs.paycraft.core"
+        compileSdk =
+            paycraftLibs.versions.android.compileSdk
+                .get()
+                .toInt()
+        minSdk =
+            paycraftLibs.versions.android.minSdk
+                .get()
+                .toInt()
+    }
+
+    iosArm64()
+    iosSimulatorArm64()
+
+    // ── SDK-INTERNAL StoreKit 2 shim (swiftc → static archive + ObjC header → cinterop) ───────────
+    //
+    // StoreKit 2 is pure Swift with no Objective-C surface, so Kotlin/Native cannot reach it
+    // directly and SOME Swift must exist. The only question is who owns it — and it used to be the
+    // consumer: the old shim conformed to a Kotlin-exported protocol, which forced
+    // `import <SharedFramework>`, whose module name each app chooses. A file that must be edited per
+    // consumer cannot live in a library, so every app kept its own copy and cappy's had drifted 91
+    // lines from canonical.
+    //
+    // Inverting the boundary fixes that. `src/nativeInterop/swift/PayCraftStoreKitShim.swift` imports
+    // only Foundation/StoreKit/UIKit and exposes @objc types, so it compiles standalone here. The
+    // `.a` is declared via `staticLibraries` in the generated def, which EMBEDS it in the produced
+    // klib — that is what lets the shim travel inside the published artifact instead of being
+    // copied. The consumer's integration becomes commonMain-only.
+    val shimSource = layout.projectDirectory.file("src/nativeInterop/swift/PayCraftStoreKitShim.swift")
+    // `xcrun` / `xcode-select` exist only on macOS, and `providers.exec {}` value sources are
+    // evaluated whenever Gradle CONFIGURES this project — not merely when an iOS task runs. So on
+    // the Linux CI runner even `./gradlew spotlessCheck` died with
+    //   failed to compute value with custom source 'ProcessOutputValueSource'
+    //   (output of the external process 'xcode-select')
+    // Gating the TARGET MAP is what keeps this to one guard: every block below derives from it, so
+    // an empty map makes the task registration, the cinterop wiring and the exec providers inside
+    // them all no-ops. The iOS targets themselves stay declared — metadata still resolves
+    // cross-platform; only the Apple-native toolchain, which no non-Mac host can run, is skipped.
+    val isMacHost = System.getProperty("os.name").orEmpty().startsWith("Mac")
+    val shimTargets =
+        if (!isMacHost) {
+            emptyMap()
+        } else {
+            mapOf(
+                "iosArm64" to ("arm64-apple-ios16.0" to "iphoneos"),
+                "iosSimulatorArm64" to ("arm64-apple-ios16.0-simulator" to "iphonesimulator"),
+            )
+        }
+    val shimTasks =
+        shimTargets.mapValues { (targetName, spec) ->
+            val (triple, sdk) = spec
+            // Resolved at CONFIGURATION time as value providers. Doing this inside doLast is what
+            // captures `Project` and discards the configuration cache — the same defect that makes
+            // worker-kmp codegen force a cold reconfigure (RULE-BUILD-WARMTH-001). ExecOperations is
+            // injected instead, so nothing project-scoped is serialized into the task.
+            val sdkPathProvider =
+                providers
+                    .exec { commandLine("xcrun", "--sdk", sdk, "--show-sdk-path") }
+                    .standardOutput.asText
+                    .map { it.trim() }
+            val xcodePathProvider =
+                providers
+                    .exec { commandLine("xcode-select", "-p") }
+                    .standardOutput.asText
+                    .map { it.trim() }
+            tasks.register<CompileStoreKitShim>("compileStoreKitShim${targetName.replaceFirstChar(Char::uppercase)}") {
+                source.set(shimSource)
+                outputDir.set(layout.buildDirectory.dir("storekit-shim/$targetName"))
+                targetTriple.set(triple)
+                sdkPath.set(sdkPathProvider)
+                // Part of the input identity: switching Xcode changes the SDK the shim is built
+                // against, and a stale archive from the old toolchain fails to link obscurely.
+                xcodePath.set(xcodePathProvider)
+            }
+        }
+
+    shimTargets.keys.forEach { targetName ->
+        targets.named(targetName, org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget::class.java) {
+            compilations.getByName("main").cinterops.create("paycraftStoreKit") {
+                val shimTask = shimTasks.getValue(targetName)
+                defFile(
+                    layout.buildDirectory
+                        .file("storekit-shim/$targetName/paycraftStoreKit.def")
+                        .get()
+                        .asFile,
+                )
+                // The def, header and archive are all produced by the shim task, so the cinterop
+                // task must not run before it.
+                tasks.named(interopProcessingTaskName) { dependsOn(shimTask) }
+            }
+        }
+    }
+
+    // Swift-interop link path (supabase 3.8.0+).
+    //
+    // supabase-kt 3.8.0 pulls dev.whyoleg.cryptography's CryptoKit provider, whose cinterop klib
+    // is published with a HARDCODED Swift runtime search path of
+    // `/Applications/Xcode.app/.../usr/lib/swift/iphonesimulator`. On any machine where Xcode is
+    // installed under a versioned name (Xcode-26.5.0.app, Xcode-beta.app, /Volumes/..., or via
+    // xcodes/asdf) that directory does not exist, so the swiftCompatibility* archives are never
+    // found and linking dies with:
+    //
+    //   Undefined symbols: __swift_FORCE_LOAD_$_swiftCompatibility56
+    //
+    // The archives DO exist — just under the ACTIVE toolchain. Resolve that from `xcode-select -p`
+    // at configuration time and add it as an explicit -L, so the build works regardless of where
+    // Xcode lives. No-op when the directory is absent (non-Mac / no Xcode).
+    val swiftRuntimeSearchPaths: Map<String, File> =
+        runCatching {
+            check(isMacHost) { "Apple toolchain lookup is macOS-only" }
+            val developerDir =
+                providers
+                    .exec {
+                        commandLine("xcode-select", "-p")
+                    }.standardOutput.asText
+                    .get()
+                    .trim()
+            val swiftLibRoot = File(developerDir, "Toolchains/XcodeDefault.xctoolchain/usr/lib/swift")
+            mapOf(
+                "iosSimulatorArm64" to File(swiftLibRoot, "iphonesimulator"),
+                "iosArm64" to File(swiftLibRoot, "iphoneos"),
+            ).filterValues { it.isDirectory }
+        }.getOrDefault(emptyMap())
+
+    targets.withType(org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget::class.java).configureEach {
+        val swiftLibs = swiftRuntimeSearchPaths[name]
+        if (swiftLibs != null) {
+            binaries.all {
+                linkerOpts("-L${swiftLibs.absolutePath}")
+            }
+        }
+    }
+
+    js {
+        browser()
+        nodejs()
+    }
+
+    wasmJs {
+        browser()
+    }
+
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
+
+    sourceSets {
+        // Members shared with cmp-paycraft / cmp-paycraft-web are marked @PayCraftInternalApi (not public API).
+        all { languageSettings.optIn("com.mobilebytelabs.paycraft.PayCraftInternalApi") }
+
+        commonMain.dependencies {
+            // Koin core + coroutines are API: `payCraft(...)` returns a Koin Module and `PayCraft`
+            // exposes StateFlows. Koin core only — no Koin UI / ViewModel artifacts here (GOAL D6).
+            api(paycraftLibs.koin.core)
+            api(paycraftLibs.kotlinx.coroutines.core)
+
+            // Supabase
+            implementation(paycraftLibs.supabase.postgrest)
+            implementation(paycraftLibs.supabase.realtime)
+
+            // Serialization
+            implementation(paycraftLibs.kotlinx.serialization.json)
+            // Local wall-clock time for "Renews today, 11:12 PM" (test purchases renew in minutes).
+            implementation(paycraftLibs.kotlinx.datetime)
+
+            // Settings (email persistence + offline entitlement SourceOfTruth — persistence/EntitlementDao.kt)
+            implementation(paycraftLibs.multiplatform.settings)
+
+            // Store5 read-through cache for offline-correct entitlement gating (D8, AC9 —
+            // persistence/EntitlementCache.kt + core/EntitlementRepository.kt).
+            implementation(paycraftLibs.store5)
+        }
+
+        androidMain.dependencies {
+            implementation(paycraftLibs.ktor.client.cio)
+            implementation("androidx.security:security-crypto:1.1.0-alpha06")
+            // androidx-startup hands the Application Context to PayCraftInitializer
+            // before Application.onCreate runs — see PayCraftInitializer.kt.
+            implementation("androidx.startup:startup-runtime:1.2.0")
+            // Google Play Billing v8 — native Android IAP client (Phase 3, D8/D13).
+            // PlayBillingNativeClient wraps BillingClient v9 (billing/NativeBillingClient.android.kt).
+            implementation(paycraftLibs.google.billing.ktx)
+            // Native Google sign-in (Credential Manager → Google ID token), verified server-side by
+            // identity-token — PLAN-paycraft-verified-identity D1.
+            implementation(paycraftLibs.androidx.credentials)
+            implementation(paycraftLibs.androidx.credentials.play.services.auth)
+            implementation(paycraftLibs.googleid)
+            // In-app browser sign-in (Chrome Custom Tab) — D2b.
+            implementation(paycraftLibs.androidx.browser)
+        }
+
+        iosMain.dependencies {
+            implementation(paycraftLibs.ktor.client.darwin)
+        }
+
+        jvmMain.dependencies {
+            implementation(paycraftLibs.ktor.client.cio)
+        }
+
+        jsMain.dependencies {
+            implementation(paycraftLibs.ktor.client.js)
+        }
+
+        // Ktor's js engine also serves wasmJs; without it every HttpClient() on wasm has no engine.
+        wasmJsMain.dependencies {
+            implementation(paycraftLibs.ktor.client.js)
+        }
+
+        commonTest.dependencies {
+            implementation(paycraftLibs.kotlin.test)
+            // ConfigClientTest — Ktor MockEngine for in-memory HTTP responses
+            implementation("io.ktor:ktor-client-mock:3.1.1")
+            // ConfigClientTest/ConfigCacheTest — coroutine test runner (runTest)
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+            // ConfigCacheTest — in-memory MapSettings (com.russhwolf.settings.MapSettings)
+            implementation("com.russhwolf:multiplatform-settings-test:1.3.0")
+        }
+    }
+}
+
+mavenPublishing {
+    signAllPublications()
+
+    pom {
+        name = "PayCraft Core"
+        description =
+            "PayCraft logic without UI — config, region pricing, identity, entitlement, device registration and checkout routing for every KMP target (android, ios, jvm, js, wasmJs)."
+        inceptionYear = "2026"
+        url = "https://github.com/MobileByteLabs/PayCraft/"
+
+        licenses {
+            license {
+                name = "The Apache License, Version 2.0"
+                url = "https://www.apache.org/licenses/LICENSE-2.0.txt"
+                distribution = "repo"
+            }
+        }
+
+        developers {
+            developer {
+                id = "therajanmaurya"
+                name = "Rajan Maurya"
+                url = "https://github.com/therajanmaurya"
+            }
+        }
+
+        scm {
+            url = "https://github.com/MobileByteLabs/PayCraft/"
+            connection = "scm:git:git://github.com/MobileByteLabs/PayCraft.git"
+            developerConnection = "scm:git:ssh://git@github.com/MobileByteLabs/PayCraft.git"
+        }
+    }
+}
+
+/**
+ * Compiles the SDK-internal StoreKit 2 Swift shim to a static archive + ObjC header, and emits the
+ * cinterop def beside them.
+ *
+ * A typed task with injected [ExecOperations], deliberately: doing this work in an ad-hoc `doLast`
+ * captures `Project`, which Gradle refuses to serialize, discarding the configuration cache and
+ * forcing a cold reconfigure on every build (RULE-BUILD-WARMTH-001 — the tax this project already
+ * pays for worker-kmp codegen; no reason to add another).
+ *
+ * The def is GENERATED rather than checked in because `libraryPaths` must be an absolute path valid
+ * on the building machine — a committed def would be correct on exactly one computer.
+ */
+abstract class CompileStoreKitShim : DefaultTask() {
+    @get:InputFile abstract val source: RegularFileProperty
+
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @get:Input abstract val targetTriple: Property<String>
+
+    @get:Input abstract val sdkPath: Property<String>
+
+    @get:Input abstract val xcodePath: Property<String>
+
+    @get:Inject abstract val execOps: ExecOperations
+
+    @TaskAction
+    fun compile() {
+        val dir = outputDir.get().asFile.apply { mkdirs() }
+        execOps.exec {
+            commandLine(
+                "xcrun",
+                "swiftc",
+                "-emit-library",
+                "-static",
+                "-emit-object",
+                "-module-name",
+                "PayCraftStoreKitShim",
+                "-emit-objc-header",
+                "-emit-objc-header-path",
+                "$dir/PayCraftStoreKitShim.h",
+                "-target",
+                targetTriple.get(),
+                "-sdk",
+                sdkPath.get(),
+                "-swift-version",
+                "5",
+                "-parse-as-library",
+                "-O",
+                source.get().asFile.absolutePath,
+                "-o",
+                "$dir/shim.o",
+            )
+        }
+        execOps.exec {
+            commandLine("xcrun", "ar", "rcs", "$dir/libPayCraftStoreKitShim.a", "$dir/shim.o")
+        }
+        File(dir, "paycraftStoreKit.def").writeText(
+            """
+            language = Objective-C
+            package = com.mobilebytelabs.paycraft.storekit
+            headers = PayCraftStoreKitShim.h
+            headerFilter = PayCraftStoreKitShim.h
+            staticLibraries = libPayCraftStoreKitShim.a
+            libraryPaths = ${dir.absolutePath}
+            compilerOpts = -I${dir.absolutePath}
+            """.trimIndent() + "\n",
+        )
+    }
+}

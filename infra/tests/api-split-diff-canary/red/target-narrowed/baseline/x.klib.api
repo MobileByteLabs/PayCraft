@@ -1,0 +1,6 @@
+// Klib ABI Dump
+// Targets: [iosArm64, js, wasmJs]
+// Library unique name: <io.github.mobilebytelabs:cmp-paycraft>
+final object com.mobilebytelabs.paycraft/PayCraft { // com.mobilebytelabs.paycraft/PayCraft|null[0]
+    final fun isConfigured(): kotlin/Boolean // com.mobilebytelabs.paycraft/PayCraft.isConfigured|isConfigured(){}[0]
+}

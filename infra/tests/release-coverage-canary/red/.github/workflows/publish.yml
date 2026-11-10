@@ -1,0 +1,3 @@
+    with:
+      module-pattern: 'cmp-'
+      artifact-id: 'cmp-paycraft'

@@ -36,11 +36,14 @@ import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.model.VerificationMethod
+import com.mobilebytelabs.paycraft.network.ActiveDevice
 import com.mobilebytelabs.paycraft.ui.PayCraftLinkAccountScreen
+import com.mobilebytelabs.paycraft.ui.PayCraftPaywallAction
 import com.mobilebytelabs.paycraft.ui.PayCraftRestoreContent
 import com.mobilebytelabs.paycraft.ui.PayCraftTestTags
 import com.mobilebytelabs.paycraft.ui.components.DeviceConflictBody
 import com.mobilebytelabs.paycraft.ui.components.OwnershipVerifiedContent
+import com.mobilebytelabs.paycraft.ui.components.PayCraftDevicesContent
 import com.mobilebytelabs.paycraft.ui.components.PayCraftSignIn
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
 import io.github.takahirom.roborazzi.captureRoboImage
@@ -306,6 +309,67 @@ class AccountLinkStateScreenshotTest {
         onNodeWithTag(PayCraftTestTags.OWNERSHIP_VERIFIED_CONFIRM).assertIsDisplayed()
         onNodeWithTag(PayCraftTestTags.OWNERSHIP_VERIFIED_CANCEL).assertIsDisplayed()
         capture("20_ownership_verified")
+    }
+
+    /** One subscription, two seats: a third device lists both and signs out the one the buyer picks. */
+    @Test fun s21_device_limit_pick_one_to_sign_out() = runDesktopComposeUiTest(WIDTH, HEIGHT) {
+        val sent = mutableListOf<PayCraftPaywallAction>()
+        setContent {
+            Frame {
+                OwnershipVerifiedContent(
+                    state = BillingState.OwnershipVerified(
+                        email = email,
+                        pendingToken = "tok",
+                        conflictingDeviceName = "Pixel 8 Pro",
+                        conflictingLastSeen = null,
+                        verifiedVia = VerificationMethod.OAUTH,
+                        supportEmail = "support@cappy.app",
+                        activeDevices = listOf(
+                            ActiveDevice(ref = "dev-1", name = "Pixel 8 Pro", platform = "android", lastSeen = null),
+                            ActiveDevice(ref = "dev-2", name = "Chrome on Mac", platform = "web", lastSeen = null),
+                        ),
+                        maxDevices = 2,
+                    ),
+                    onAction = { sent += it },
+                )
+            }
+        }
+        onNodeWithText("Pixel 8 Pro").assertIsDisplayed()
+        onNodeWithText("Chrome on Mac").assertIsDisplayed()
+        onNodeWithTag(PayCraftTestTags.OWNERSHIP_VERIFIED_CONFIRM).assertDoesNotExist()
+        capture("21_device_limit")
+        onNodeWithTag(PayCraftTestTags.deviceRemove("dev-2")).performClick()
+        assertEquals(listOf<PayCraftPaywallAction>(PayCraftPaywallAction.RemoveDeviceAndTransfer("dev-2")), sent)
+    }
+
+    /** Manage devices: every seat listed, this one marked, any of them signed out by its own button. */
+    @Test fun s22_manage_devices() = runDesktopComposeUiTest(WIDTH, HEIGHT) {
+        val signedOut = mutableListOf<String>()
+        setContent {
+            Frame {
+                PayCraftDevicesContent(
+                    devices = listOf(
+                        ActiveDevice(
+                            ref = "dev-1",
+                            name = "Pixel 8 Pro",
+                            platform = "android",
+                            lastSeen = null,
+                            thisDevice = true,
+                        ),
+                        ActiveDevice(ref = "dev-2", name = "Chrome on Mac", platform = "web", lastSeen = null),
+                    ),
+                    maxDevices = 2,
+                    onSignOut = { signedOut += it },
+                )
+            }
+        }
+        onNodeWithText("Your devices").assertIsDisplayed()
+        onNodeWithText("Pixel 8 Pro").assertIsDisplayed()
+        onNodeWithText("This device · Android").assertIsDisplayed()
+        onNodeWithText("2 of 2 devices in use").assertIsDisplayed()
+        capture("22_manage_devices")
+        onNodeWithTag(PayCraftTestTags.deviceRemove("dev-2")).performClick()
+        assertEquals(listOf("dev-2"), signedOut)
     }
 
     /** Apple's button must invert on a dark theme (white button, black logo). */

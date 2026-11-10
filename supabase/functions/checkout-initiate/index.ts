@@ -33,8 +33,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1";
 import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/rate-limit.ts";
 import { preflight, withCors } from "../_shared/cors.ts";
+import { pickByCurrency, returnUrls, stripeSessionForm } from "./stripe-session.ts";
 
 const RAZORPAY_API = "https://api.razorpay.com/v1";
+const STRIPE_API = "https://api.stripe.com/v1";
 
 interface CustomerInput {
   email?: string;
@@ -124,6 +126,12 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
   const productId = typeof body.product_id === "string" ? body.product_id : null;
   const customer = (body.customer ?? {}) as CustomerInput;
   const requestedCurrency = typeof body.currency === "string" ? body.currency : null;
+  // Which PSP the SDK routed this buyer to (the provider /config bound for their currency). Absent from
+  // older SDKs, which only ever reached this lane for Razorpay.
+  const provider = body.provider === "stripe" ? "stripe" : "razorpay";
+  if (body.provider != null && body.provider !== "stripe" && body.provider !== "razorpay") {
+    return json({ error: `provider ${String(body.provider)} has no server checkout` }, 400);
+  }
 
   if (!sku && !productId) return json({ error: "sku or product_id is required" }, 400);
   // Razorpay notifies the customer on the mandate it is about to authorise, so an address is not
@@ -163,7 +171,10 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
 
   const productQuery = supabase
     .from("tenant_products")
-    .select("id, sku, type, interval, trial_duration_days, razorpay_plan_id_by_currency, display_name")
+    // One literal: supabase-js types the row from it (a concatenated string types it as an error).
+    .select(
+      "id, sku, type, interval, trial_duration_days, razorpay_plan_id_by_currency, display_name, stripe_price_id_by_currency, stripe_price_id_by_currency_test, live_stripe_ids_verified",
+    )
     .eq("tenant_id", tenantId)
     .eq("active", true);
   const { data: product, error: productErr } = await (
@@ -179,6 +190,10 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
       { error: "product is not a subscription — use the payment link from /config for one-time products" },
       409,
     );
+  }
+
+  if (provider === "stripe") {
+    return await stripeCheckout(supabase, req, body, tenantId, mode, product, customer, requestedCurrency);
   }
 
   const resolved = resolvePlanId(
@@ -289,6 +304,87 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
     currency: resolved.currency,
     subscription_id: rzpJson.id,
     status: rzpJson.status ?? "created",
+  });
+}
+
+/**
+ * The Stripe lane: a per-customer Checkout Session for the product's Stripe price in the buyer's currency.
+ * Pure parts (price pick, return urls, form) live in stripe-session.ts.
+ */
+async function stripeCheckout(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  req: Request,
+  body: Record<string, unknown>,
+  tenantId: string,
+  mode: "test" | "live",
+  // deno-lint-ignore no-explicit-any
+  product: any,
+  customer: CustomerInput,
+  requestedCurrency: string | null,
+): Promise<Response> {
+  // Stripe ids are ACCOUNT-scoped per mode (migration 147). A live column not yet verified by a live
+  // sync may still hold test ids, which would fail at Stripe with a confusing "No such price".
+  if (mode === "live" && product.live_stripe_ids_verified === false) {
+    return json({ error: "live Stripe prices are not verified for this product — run a live Stripe sync" }, 409);
+  }
+  const priceMap = (mode === "test" ? product.stripe_price_id_by_currency_test : product.stripe_price_id_by_currency) as
+    | Record<string, string>
+    | null;
+  const price = pickByCurrency(priceMap, requestedCurrency, `${mode} Stripe price`);
+  if ("error" in price) return json({ error: price.error }, 409);
+
+  const back = returnUrls(typeof body.return_url === "string" ? body.return_url : null, req.headers.get("origin"));
+  if ("error" in back) return json({ error: back.error }, 400);
+
+  const { data: keys, error: keyErr } = await supabase
+    .rpc("tenant_psp_credential_resolve", { p_tenant_id: tenantId, p_provider: "stripe", p_mode: mode })
+    .single();
+  const secret = (keys as { secret_key?: string } | null)?.secret_key;
+  if (keyErr || !secret) return json({ error: `stripe ${mode} credentials not configured for this tenant` }, 409);
+
+  const res = await fetch(`${STRIPE_API}/checkout/sessions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body: stripeSessionForm({
+      priceId: price.id,
+      email: customer.email!,
+      sku: product.sku,
+      tenantId,
+      productId: product.id,
+      mode,
+      trialDays: Number(product.trial_duration_days ?? 0),
+      success: back.success,
+      cancel: back.cancel,
+    }),
+  });
+  const session = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return json({ error: `stripe: ${session?.error?.message ?? `stripe ${res.status}`}`, provider: "stripe" }, 502);
+  }
+  if (!session?.id || !session?.url) return json({ error: "stripe returned a session with no url" }, 502);
+
+  await supabase
+    .rpc("audit_log_emit", {
+      p_tenant_id: tenantId,
+      p_actor_user_id: null,
+      p_actor_type: "sdk",
+      p_action: "checkout.initiated",
+      p_resource: `tenant_products:id=${product.id}`,
+      p_after: { provider: "stripe", session_id: session.id, price_id: price.id, currency: price.currency, mode },
+    })
+    .then(
+      () => {},
+      () => {},
+    );
+
+  return json({
+    url: session.url,
+    provider: "stripe",
+    method: "stripe",
+    currency: price.currency,
+    session_id: session.id,
+    status: session.status ?? "open",
   });
 }
 

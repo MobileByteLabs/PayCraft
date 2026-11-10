@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Shop
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_banner_active_badge
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_devices_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_card_chip_cancelled
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_card_chip_test
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_plan_card_manage_subtitle
@@ -393,6 +395,19 @@ private fun PlanCardBody(
                 action.emphasized,
                 action.subtitle,
                 action.onClick,
+            )
+        }
+        // "Your devices" — one subscription on phone, tablet and web; subscribers only (null otherwise).
+        state.onDevicesClick?.let { open ->
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            TappableRow(
+                stringResource(Res.string.paycraft_devices_title),
+                PayCraftTestTags.SUBSCRIPTION_DEVICES_ROW,
+                theme,
+                Icons.Outlined.Devices,
+                emphasized = false,
+                subtitle = state.devicesSubtitle,
+                onClick = open,
             )
         }
         // Restore is FREE-tier only — restoreActionFor() has already nulled it for anyone entitled.

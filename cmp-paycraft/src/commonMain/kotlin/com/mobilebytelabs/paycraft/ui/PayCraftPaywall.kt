@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.di.rememberPayCraftUiModule
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
 import org.koin.compose.viewmodel.koinViewModel
@@ -101,6 +102,7 @@ fun PayCraftPaywallSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     // dispatch RefreshStatus on close, and a consumer-supplied one would be reimplementing the
     // paywall rather than configuring it. Koin scopes this to the same instance the nested
     // PayCraftPaywallComposable resolves, so dispatching here still reaches the rendered state.
+    rememberPayCraftUiModule()
     val viewModel: PayCraftPaywallViewModel = koinViewModel()
     val close = {
         // Preserved from v1: force a status refresh on close so a stale subscription state (e.g.

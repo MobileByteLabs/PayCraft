@@ -1,0 +1,4 @@
+public final class com/mobilebytelabs/paycraft/generated/resources/String0_commonMainKt {
+	public static final fun getPaycraft_a (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_z (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+}

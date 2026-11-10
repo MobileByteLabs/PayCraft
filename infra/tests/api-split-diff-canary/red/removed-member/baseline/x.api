@@ -1,0 +1,6 @@
+public final class com/mobilebytelabs/paycraft/PayCraft {
+	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/PayCraft;
+	public final fun getApiKey ()Ljava/lang/String;
+	public final fun isConfigured ()Z
+}
+

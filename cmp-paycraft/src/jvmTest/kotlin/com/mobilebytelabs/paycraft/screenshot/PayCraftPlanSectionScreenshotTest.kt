@@ -42,6 +42,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import com.mobilebytelabs.paycraft.model.EntitlementTier
@@ -58,6 +59,7 @@ import com.mobilebytelabs.paycraft.ui.restoreActionFor
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
 import io.github.takahirom.roborazzi.captureRoboImage
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
@@ -158,6 +160,27 @@ class PayCraftPlanSectionScreenshotTest {
         onNodeWithText("Renews 1 Nov 2026").assertIsDisplayed()
         onRoot().captureRoboImage(P_ROWS)
         assertCaptured(P_ROWS)
+    }
+
+    /** One subscription, two seats: a subscriber sees "Your devices" with the seats in use, and it opens. */
+    @Test
+    fun rows_premium_with_your_devices() = runComposeUiTest {
+        var opened = 0
+        val withDevices = premium.copy(devicesSubtitle = "1 of 2 devices in use", onDevicesClick = { opened++ })
+        setContent { DeterministicTheme { RowsSettings(withDevices, copy, theme(), {}) } }
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_DEVICES_ROW).assertIsDisplayed()
+        onNodeWithText("Your devices").assertIsDisplayed()
+        onNodeWithText("1 of 2 devices in use").assertIsDisplayed()
+        onRoot().captureRoboImage(P_ROWS_DEVICES)
+        assertCaptured(P_ROWS_DEVICES)
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_DEVICES_ROW).performClick()
+        assertEquals(1, opened)
+    }
+
+    @Test
+    fun a_free_user_has_no_devices_row() = runComposeUiTest {
+        setContent { DeterministicTheme { RowsSettings(free, copy, theme(), {}) } }
+        onNodeWithTag(PayCraftTestTags.SUBSCRIPTION_DEVICES_ROW).assertDoesNotExist()
     }
 
     @Test
@@ -446,5 +469,6 @@ class PayCraftPlanSectionScreenshotTest {
         const val P_CARD_TRIAL = "$DIR/plan_section_card_trial.png"
         const val P_CARD_CANCELLED = "$DIR/plan_section_card_cancelled.png"
         const val P_ROWS_CANCELLED = "$DIR/plan_section_rows_cancelled.png"
+        const val P_ROWS_DEVICES = "$DIR/plan_section_rows_premium_devices.png"
     }
 }

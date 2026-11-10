@@ -1,0 +1,1 @@
+<manifest><application><provider android:name="androidx.startup.InitializationProvider"><meta-data android:name="com.mobilebytelabs.paycraft.PayCraftInitializer"/></provider><activity android:name="com.mobilebytelabs.paycraft.core.identity.PayCraftAuthActivity"/></application></manifest>

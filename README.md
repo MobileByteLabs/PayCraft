@@ -151,7 +151,8 @@ If you prefer to set up without Claude AI, see [docs/QUICK_START.md](docs/QUICK_
 paycraft = "LATEST_VERSION"   # check Maven Central badge above
 
 [libraries]
-paycraft = { module = "io.github.mobilebytelabs:cmp-paycraft", version.ref = "paycraft" }
+paycraft = { module = "io.github.mobilebytelabs:cmp-paycraft", version.ref = "paycraft" }            # paywall UI (brings core)
+# paycraft-core = { module = "io.github.mobilebytelabs:cmp-paycraft-core", version.ref = "paycraft" }  # logic only, no Compose
 ```
 
 ```kotlin
@@ -262,6 +263,17 @@ if (isPremium) PremiumContent() else FreeContent()
 | JVM | `jvm` |
 | JavaScript | `js` (Browser, Node.js) |
 | WebAssembly | `wasmJs` (Browser) |
+
+## Modules
+
+| Module | What it is |
+|---|---|
+| `cmp-paycraft-core` | All PayCraft logic — config, region pricing, identity, entitlement, device registration, checkout routing. No Compose; every target above |
+| `cmp-paycraft` | The Compose paywall and gates over core — what KMP apps depend on |
+| `cmp-paycraft-navigation` | Navigation Compose destination for the paywall |
+| `cmp-paycraft-web` | Browser SDK (`PayCraftWeb`, ES module + TypeScript) over core; vendored into websites, not on Maven |
+
+Upgrading from 2.x: see [`MIGRATION_3.0.md`](MIGRATION_3.0.md).
 
 ---
 

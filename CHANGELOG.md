@@ -1,6 +1,32 @@
 # Changelog
 
-## Unreleased
+## 3.0.0
+
+- **One subscription, up to N devices** (server migration 178, per-app `tenants.max_active_devices`, default 1):
+  at the limit a new sign-in lists the active devices and the buyer signs one out; a manage-devices screen
+  (`PayCraftManageDevices`, `PayCraftWeb.devices()` / `signOutDevice`) lists and signs out devices any time.
+- **Web checkout follows the tenant's data**: region → currency (`resolved_price`) → the provider `/config`
+  bound for that currency (`store_binding`, `stripe_card` = Stripe); a Stripe product without a payment link
+  opens a per-customer **Stripe Checkout Session** via `checkout-initiate` (`provider: "stripe"`).
+
+- **Core split: `cmp-paycraft-core` holds all PayCraft logic; `cmp-paycraft` is the Compose layer over it.** Config,
+  region pricing, identity, entitlement, device registration and checkout routing build on android, ios, jvm, js
+  and wasmJs with no Compose. `cmp-paycraft` keeps its coordinates and re-exports core (`api`), so apps upgrade with
+  a version bump; package names are unchanged. See `MIGRATION_3.0.md`.
+- **Breaking: `BillingBenefit` is Compose-free** — `BillingBenefit(icon: BenefitIcon, text: String)`; the UI maps the
+  icon key to its vector and localises the built-in presets.
+- **The paywall ViewModel binding moved to `PayCraftUiModule`**, which the paywall composables register on first use —
+  no app change for `payCraft(...)` / `PayCraftModule` users.
+- **`cmp-paycraft-web` now runs on core** through one shared wire contract (`PayCraftContract`): same endpoints,
+  headers, `/config` model (region prices), device RPCs and checkout routing as the apps. Exported API, error codes and
+  localStorage keys unchanged; `:cmp-paycraft-web:webBundleSize` fails the build above 150 KB.
+- **Fix (JS): the device token is persisted** (a `js("…")` snippet referenced a renamed parameter, so it was never
+  saved), and **the SDK no longer crashes on Node.js** (no `localStorage` there; an in-memory store is used).
+- **Release:** `publish.yml` publishes `cmp-paycraft-core`, `cmp-paycraft` and `cmp-paycraft-navigation`; `release.yml`
+  tests JS and assembles all four modules; `infra/release-coverage-check.sh`, `infra/api-split-diff.sh`,
+  `infra/android-api-check.sh`, `infra/module-boundary-check.sh` and the web size/API gates guard the split.
+
+## 2.5.x (unreleased changes folded into 3.0.0)
 
 - **New `cmp-paycraft-web`: PayCraft for plain JavaScript websites.** An ES module with TypeScript types (no
   Compose, no Koin, no Supabase client) that a static site imports to sign the buyer in with a Google/Apple ID token

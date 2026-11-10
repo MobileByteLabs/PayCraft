@@ -1,5 +1,6 @@
 package com.mobilebytelabs.paycraft.web
 
+import com.mobilebytelabs.paycraft.PayCraftBackend
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -150,6 +151,36 @@ class PayCraftWebTest {
         assertEquals("pro_monthly", body["sku"]!!.jsonPrimitive.content)
         assertEquals("INR", body["currency"]!!.jsonPrimitive.content)
         assertEquals("a+b@x.com", body["customer"]!!.jsonObject["email"]!!.jsonPrimitive.content)
+        assertEquals("razorpay", body["provider"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun theProviderConfigBoundForTheBuyersCurrencyOpensAServerCheckout() = runTest {
+        // /config priced this buyer in USD and bound the product to Stripe (stripe_card = Stripe, card
+        // method) because Stripe holds the USD price; with no payment link checkout-initiate opens a
+        // Stripe Checkout Session — the provider is sent so the server knows which PSP to call.
+        val usd = """
+            {"tenant_id":"t1","mode":"ad_supported",
+             "products":[{"id":"p1","sku":"pro_monthly","type":"subscription","display_name":"Pro Monthly",
+               "interval":"month","base_price_cents":999,"base_currency":"USD",
+               "resolved_price":{"amount_cents":999,"currency":"USD","source":"stripe"},
+               "store_binding":{"provider":"stripe_card","product_id":"price_usd"}}],
+             "providers":[{"provider":"razorpay"},{"provider":"stripe"}]}
+        """.trimIndent()
+        val net = signedIn()
+            .on("/functions/v1/config") { usd }
+            .on("/functions/v1/checkout-initiate") {
+                """{"url":"https://checkout.stripe.com/c/pay/cs_1","provider":"stripe"}"""
+            }
+        val pc = sdk(net)
+        pc.currentPage = { "https://site.test/pricing/" }
+        pc.doSignIn("google", "t", null)
+        assertEquals("https://checkout.stripe.com/c/pay/cs_1", pc.resolveCheckoutUrl("pro_monthly", null))
+        val body = net.bodyOf("/functions/v1/checkout-initiate")
+        assertEquals("stripe", body["provider"]!!.jsonPrimitive.content)
+        assertEquals("USD", body["currency"]!!.jsonPrimitive.content)
+        // Stripe sends the buyer back to the page they bought from
+        assertEquals("https://site.test/pricing/", body["return_url"]!!.jsonPrimitive.content)
     }
 
     @Test
@@ -276,10 +307,55 @@ class PayCraftWebTest {
         assertTrue(r.conflict)
         assertEquals("Pixel 7", r.conflictingDeviceName)
         assertEquals("nonce-1", net.body(0)["nonce"]!!.jsonPrimitive.content)
-        assertTrue(pc.doUseThisDevice())
+        assertTrue(pc.doUseThisDevice(null))
         val t = net.bodyOf("/rest/v1/rpc/transfer_to_device")
         assertEquals("srv_2", t["p_server_token"]!!.jsonPrimitive.content)
         assertEquals("srv_2", t["p_new_device_token"]!!.jsonPrimitive.content)
+        assertTrue("p_replace_device" !in t) // an older server has no such parameter
+        assertTrue(pc.isPremium())
+    }
+
+    @Test
+    fun yourDevicesListsTheSeatsAndSigningOutThisBrowserSignsItOut() = runTest {
+        val rows = """[{"device_ref":"me","this_device":true,"device_name":"Chrome on Mac","platform":"web","max_devices":2},
+                      {"device_ref":"r1","this_device":false,"device_name":"Pixel 7","platform":"android","max_devices":2}]"""
+        val net = signedIn()
+            .on("/rest/v1/rpc/get_active_devices") { rows }
+            .on("/rest/v1/rpc/sign_out_device") { """{"signed_out":true}""" }
+        val pc = sdk(net)
+        pc.doSignIn("google", "t", null)
+        val list = pc.loadDevices()
+        assertEquals(listOf("me", "r1"), list.map { it.ref })
+        assertTrue(list[0].thisDevice)
+        assertEquals(2, list[0].maxDevices)
+
+        assertTrue(pc.doSignOutDevice("r1"))
+        assertEquals("r1", net.bodyOf("/rest/v1/rpc/sign_out_device")["p_device_ref"]!!.jsonPrimitive.content)
+        assertEquals("a+b@x.com", pc.email()) // another device: this browser stays signed in
+
+        assertTrue(pc.doSignOutDevice("me"))
+        assertEquals(null, pc.email()) // this browser: signed out here too
+    }
+
+    @Test
+    fun atTheDeviceLimitTheSeatsAreListedAndTheChosenOneIsSignedOut() = runTest {
+        val net = FakeTransport()
+            .on("/functions/v1/identity-token/verify") { """{"email":"a@x.com","provider":"google"}""" }
+            .on("/rest/v1/rpc/register_device") {
+                """{"server_token":"srv_3","conflict":true,"conflicting_device_name":"Pixel 7","max_devices":2,
+                   "active_devices":[{"device_ref":"r1","device_name":"Pixel 7","platform":"android"},
+                                     {"device_ref":"r2","device_name":"iPhone 15","platform":"ios"}]}"""
+            }
+            .on("/rest/v1/rpc/transfer_to_device") { """{"transferred":true}""" }
+            .on("/rest/v1/rpc/check_premium_with_device") { """{"is_premium":true,"token_valid":true}""" }
+        val pc = sdk(net)
+        assertTrue(pc.doSignIn("google", "t", null).conflict)
+        assertEquals(2, pc.maxDevices())
+        assertEquals(listOf("Pixel 7", "iPhone 15"), pc.activeDevices().map { it.name })
+        assertEquals("ios", pc.activeDevices()[1].platform)
+        assertTrue(pc.doUseThisDevice("r2"))
+        assertEquals("r2", net.bodyOf("/rest/v1/rpc/transfer_to_device")["p_replace_device"]!!.jsonPrimitive.content)
+        assertEquals(0, pc.activeDevices().size) // resolved
         assertTrue(pc.isPremium())
     }
 
@@ -315,11 +391,12 @@ class PayCraftWebTest {
         .on("/functions/v1/identity-token/verify") { """{"email":"a+b@x.com","provider":"google"}""" }
         .on("/rest/v1/rpc/register_device") { """{"server_token":"srv_1","conflict":false}""" }
 
-    private companion object {
+    internal companion object {
         val CONFIG_JSON = """
             {"tenant_id":"t1","products":[{"id":"p1","sku":"pro_monthly","type":"subscription",
               "display_name":"Pro","interval":"month","base_price_cents":19900,"base_currency":"INR",
-              "trial_duration_days":7,"resolved_price":{"amount_cents":19900,"currency":"INR","source":"global"}}],
+              "trial_duration_days":7,"resolved_price":{"amount_cents":19900,"currency":"INR","source":"global"},
+              "store_binding":{"provider":"razorpay","product_id":"plan_inr"}}],
              "providers":[{"provider":"razorpay","test_payment_links":{"pro_monthly":{}}}],
              "mode":"ad_supported",
              "auth":{"google_web_client_id":"web-client.apps.googleusercontent.com","apple_services_id":"com.x.signin"}}
@@ -344,6 +421,10 @@ class PayCraftWebTest {
         """.trimIndent()
     }
 }
+
+// The Cloud defaults now live in cmp-paycraft-core (PayCraftBackend.Cloud), shared with the app SDK.
+private val CLOUD_SUPABASE_URL = PayCraftBackend.Cloud.supabaseUrl
+private val CLOUD_SUPABASE_ANON_KEY = PayCraftBackend.Cloud.supabaseAnonKey
 
 internal class FakeTransport : Transport {
     class Call(val method: String, val url: String, val headers: Map<String, String>, val body: String?)

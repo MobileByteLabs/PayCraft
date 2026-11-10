@@ -199,6 +199,12 @@ object PayCraftTestTags {
     const val SIGN_IN_FAILED = "paycraft_sign_in_failed"
     const val OWNERSHIP_VERIFIED = "paycraft_ownership_verified"
 
+    /** The "Your devices" row of the settings plan section. */
+    const val SUBSCRIPTION_DEVICES_ROW = "paycraft_subscription_devices_row"
+
+    /** The "Sign out" button of one active device in the device-limit list. */
+    fun deviceRemove(deviceRef: String): String = "paycraft_device_remove_$deviceRef"
+
     /** Phase 3a resilience surfaces, tagged here so AC-28 can pair all eleven states. */
     const val CONFIG_FAILED_MESSAGE = "paycraft_config_failed_message"
     const val CONFIG_FAILED_RETRY = "paycraft_config_failed_retry"

@@ -40,7 +40,12 @@ jobs:
       module-pattern: 'cmp-'
       module: ${{ inputs.module || '' }}
       group-id: 'io.github.mobilebytelabs'
-      artifact-id: 'cmp-paycraft'
+      # artifact-id only drives version lookup + verify-against-maven (resolve.sh requires it); the
+      # publish SET is discovered: every cmp-*/ module whose build has mavenPublishing → cmp-paycraft-core,
+      # cmp-paycraft, cmp-paycraft-navigation. cmp-paycraft-web has no mavenPublishing on purpose: it ships
+      # vendored via /lib-integrate (Step 3W), never to Maven. For 3.0.0 cmp-paycraft-core has no Maven
+      # history, so infra/release-coverage-check.sh compares paycraft.version with cmp-paycraft instead.
+      artifact-id: 'cmp-paycraft-core'
       java-version: '21'
       java-distribution: 'zulu'
       sonatype-host: 'CENTRAL_PORTAL'
