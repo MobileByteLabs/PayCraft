@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1";
-import { type Check, healthResponse, type IncidentStore, recordTransitions, stripeCheck } from "../_shared/health.ts";
-import { sendEmail } from "../_shared/email.ts";
+import { type Check, healthResponse, stripeCheck } from "../_shared/health.ts";
+import { alertOnTransitions } from "../_shared/ops-alerts.ts";
 
 /**
  * GET /functions/v1/health — public, unauthenticated, for uptime monitors (.github/workflows/health-check.yml
@@ -46,46 +46,6 @@ async function webhookFailureCheck(): Promise<Check> {
   return count ? { ok: false, detail: `${count} live webhook(s) failed in the last hour` } : { ok: true, detail: "none in the last hour" };
 }
 
-const incidents: IncidentStore = {
-  open: async (check, detail) => {
-    const { data, error } = await supabase.rpc("health_incident_open", { p_check: check, p_detail: detail });
-    if (error) throw new Error(error.message);
-    return data === true;
-  },
-  resolve: async (check) => {
-    const { data, error } = await supabase.rpc("health_incident_resolve", { p_check: check });
-    if (error) throw new Error(error.message);
-    return data ? new Date(data as string) : null;
-  },
-};
-
-/** The platform owner (platform_settings, migration 053) plus OPS_ALERT_EMAILS. */
-async function alertRecipients(): Promise<string[]> {
-  const extra = (Deno.env.get("OPS_ALERT_EMAILS") || "").split(",").map((e) => e.trim()).filter(Boolean);
-  const { data: settings } = await supabase.from("platform_settings").select("platform_owner_user_id").maybeSingle();
-  if (settings?.platform_owner_user_id) {
-    const { data } = await supabase.auth.admin.getUserById(settings.platform_owner_user_id);
-    if (data?.user?.email) extra.push(data.user.email);
-  }
-  return [...new Set(extra)];
-}
-
-const escapeHtml = (s: string) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
-
-// Alerts send from ALERT_FROM_EMAIL when set: PAYCRAFT_FROM_EMAIL's domain must be verified in Resend, and
-// an alert that cannot leave is worse than none. Every recipient is tried — one rejected address (Resend
-// refuses unverified-domain mail to anyone but its account owner) must not silence the others.
-const ALERT_FROM = Deno.env.get("ALERT_FROM_EMAIL") || undefined;
-
-async function notify(subject: string, text: string): Promise<void> {
-  const to = await alertRecipients();
-  if (to.length === 0) throw new Error("no alert recipient: no platform owner and OPS_ALERT_EMAILS unset");
-  const html = `<pre style="font:14px/1.5 monospace">${escapeHtml(text)}</pre>`;
-  const results = await Promise.all(to.map((addr) => sendEmail({ to: addr, subject, html, from: ALERT_FROM })));
-  const delivered = results.filter((r) => r.ok).length;
-  if (delivered === 0) throw new Error(`alert reached no recipient: ${results.map((r) => r.error).join("; ")}`);
-}
-
 serve(async () => {
   const [db, stripe_live, webhook_failures] = await Promise.all([
     dbCheck(),
@@ -93,6 +53,6 @@ serve(async () => {
     webhookFailureCheck(),
   ]);
   const checks = { db, stripe_live, webhook_failures };
-  await recordTransitions(checks, incidents, notify);
+  await alertOnTransitions(checks);
   return healthResponse(checks);
 });
