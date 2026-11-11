@@ -4,6 +4,8 @@ import { tenantIdFromPath } from "../_shared/webhook-path.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
+import { razorpayAttempt, recordAttempt } from "../_shared/checkout-attempts.ts";
+import { supabaseAdmin } from "../_shared/supabase-admin.ts";
 
 /**
  * Multi-tenant Razorpay Webhook Handler.
@@ -260,8 +262,22 @@ serve(withWebhookRateLimit({ bucket: "webhook:razorpay" }, async (req) => {
       }
     }
 
-    // payment.* events without a subscription envelope — ack and ignore,
-    // PayCraft only cares about subscription state.
+    // A failed payment or an expired link is someone who TRIED to buy — the customer list's "tried"
+    // rows (checkout_attempts, migration 186). Recorded, then acked like any other non-subscription event.
+    const attempt = razorpayAttempt(eventType, parsed.payload, tenantId, mode);
+    if (attempt) {
+      try {
+        await recordAttempt(supabaseAdmin, attempt);
+      } catch (e) {
+        console.error(`[razorpay-webhook] ${(e as Error).message}`);
+        return new Response(`Error: ${(e as Error).message}`, { status: 500 });
+      }
+      return new Response(JSON.stringify({ received: true, attempt: attempt.outcome }), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Other payment.* events without a subscription envelope — ack and ignore.
     return new Response(
       JSON.stringify({ received: true, ignored: true, reason: "no subscription payload" }),
       { status: 200, headers: { "Content-Type": "application/json" } },

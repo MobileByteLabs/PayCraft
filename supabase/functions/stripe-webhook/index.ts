@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
 import { tenantIdFromPath } from "../_shared/webhook-path.ts";
+import { recordAttempt } from "../_shared/checkout-attempts.ts";
 import { attemptFromSession, invoiceSubscriptionId, stripeEventTenant, subscriptionPeriod } from "../_shared/stripe-shape.ts";
 import Stripe from "https://esm.sh/stripe@14.0.0?target=deno";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno";
@@ -462,10 +463,7 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
           event.type === "checkout.session.expired" ? "abandoned" : "payment_failed",
           tenantId,
         );
-        if (row && supabase) {
-          const { error } = await supabase.from("checkout_attempts").upsert(row, { onConflict: "provider,provider_session_id" });
-          if (error) throw new Error(`checkout_attempts write failed: ${error.message}`);
-        }
+        if (row && supabase) await recordAttempt(supabase, row);
         break;
       }
 

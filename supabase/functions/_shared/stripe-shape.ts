@@ -8,6 +8,8 @@
  * Stripe retries until it disables the endpoint.
  */
 
+import { attemptRow, type AttemptRow } from "./checkout-attempts.ts";
+
 // deno-lint-ignore no-explicit-any
 type Any = any;
 
@@ -74,31 +76,11 @@ export async function stripeEventTenant(obj: Any, stripe: StripeLookups): Promis
   return product?.metadata?.paycraft_tenant_id ?? null;
 }
 
-/** A checkout that ended without a subscription, as a checkout_attempts row (migration 186). */
-export interface AttemptRow {
-  tenant_id: string;
-  provider: "stripe";
-  mode: "live" | "test";
-  email: string;
-  plan: string | null;
-  outcome: "abandoned" | "payment_failed";
-  provider_session_id: string;
-}
-
-/**
- * Null when there is nothing worth listing: no app (never write a NULL-tenant row), or no email — a
- * buyer who left before typing one is a page view, not a customer the merchant could follow up.
- */
+/** A Stripe Checkout session that ended without a purchase (see _shared/checkout-attempts.ts). */
 export function attemptFromSession(session: Any, outcome: AttemptRow["outcome"], tenantId: string | null): AttemptRow | null {
-  const email = (session?.customer_details?.email || session?.customer_email || "").trim().toLowerCase();
-  if (!tenantId || !email || !session?.id) return null;
-  return {
-    tenant_id: tenantId,
-    provider: "stripe",
-    mode: session.livemode ? "live" : "test",
-    email,
-    plan: session.metadata?.plan_id ?? session.metadata?.paycraft_plan ?? null,
-    outcome,
-    provider_session_id: session.id,
-  };
+  return attemptRow({
+    tenantId, provider: "stripe", mode: session?.livemode ? "live" : "test",
+    email: session?.customer_details?.email || session?.customer_email,
+    plan: session?.metadata?.plan_id ?? session?.metadata?.paycraft_plan, outcome, sessionId: session?.id,
+  });
 }
