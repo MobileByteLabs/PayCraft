@@ -111,8 +111,18 @@ internal fun ExitSurveyContent(
                         .testTag(PayCraftTestTags.exitReason(r.code)),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(r.label, color = colors.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = colors.onSurfaceVariant)
+                        Text(
+                            r.label,
+                            color = colors.onSurface,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = colors.onSurfaceVariant,
+                        )
                     }
                     if (expanded == r.code) {
                         Spacer(Modifier.height(12.dp))
@@ -120,7 +130,9 @@ internal fun ExitSurveyContent(
                             value = text,
                             onValueChange = { text = it.take(500) },
                             placeholder = { Text(stringResource(Res.string.paycraft_survey_other_hint)) },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 88.dp).testTag(PayCraftTestTags.EXIT_SURVEY_OTHER_FIELD),
+                            modifier = Modifier.fillMaxWidth().heightIn(
+                                min = 88.dp,
+                            ).testTag(PayCraftTestTags.EXIT_SURVEY_OTHER_FIELD),
                         )
                         Spacer(Modifier.height(10.dp))
                         Button(
@@ -176,14 +188,29 @@ internal fun WinbackOfferContent(
         Box(
             Modifier.size(64.dp).clip(RoundedCornerShape(20.dp)).background(colors.accent.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center,
-        ) { Icon(Icons.Filled.LocalOffer, contentDescription = null, tint = colors.accent, modifier = Modifier.size(30.dp)) }
+        ) {
+            Icon(
+                Icons.Filled.LocalOffer,
+                contentDescription = null,
+                tint = colors.accent,
+                modifier = Modifier.size(30.dp),
+            )
+        }
         Spacer(Modifier.height(16.dp))
         Text(
             stringResource(Res.string.paycraft_winback_badge, offer.percentOff),
-            color = colors.accent, fontSize = 34.sp, fontWeight = FontWeight.ExtraBold,
+            color = colors.accent,
+            fontSize = 34.sp,
+            fontWeight = FontWeight.ExtraBold,
         )
         Spacer(Modifier.height(6.dp))
-        Text(stringResource(Res.string.paycraft_winback_title), color = colors.onSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Text(
+            stringResource(Res.string.paycraft_winback_title),
+            color = colors.onSurface,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+        )
         Spacer(Modifier.height(8.dp))
         val months = offer.durationInMonths
         val duration = when {
@@ -207,12 +234,18 @@ internal fun WinbackOfferContent(
                         withStyle(SpanStyle(color = colors.onSurface, fontWeight = FontWeight.Bold)) { append(after) }
                     }
                 },
-                color = colors.onSurfaceVariant, fontSize = 14.sp,
+                color = colors.onSurfaceVariant,
+                fontSize = 14.sp,
             )
         }
         left?.let {
             Spacer(Modifier.height(4.dp))
-            Text(stringResource(Res.string.paycraft_winback_ends_in, it), color = colors.accent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(
+                stringResource(Res.string.paycraft_winback_ends_in, it),
+                color = colors.accent,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+            )
         }
         Spacer(Modifier.height(24.dp))
         Button(
@@ -220,13 +253,24 @@ internal fun WinbackOfferContent(
             colors = ButtonDefaults.buttonColors(containerColor = colors.accent),
             shape = RoundedCornerShape(999.dp),
             modifier = Modifier.fillMaxWidth().height(52.dp).testTag(PayCraftTestTags.WINBACK_CLAIM),
-        ) { Text(stringResource(Res.string.paycraft_winback_claim, offer.percentOff), fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+        ) {
+            Text(
+                stringResource(Res.string.paycraft_winback_claim, offer.percentOff),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
         Spacer(Modifier.height(6.dp))
         TextButton(onClick = onDecline, modifier = Modifier.testTag(PayCraftTestTags.WINBACK_DECLINE)) {
             Text(stringResource(Res.string.paycraft_winback_decline), color = colors.onSurfaceVariant)
         }
         Spacer(Modifier.width(4.dp))
-        Text(stringResource(Res.string.paycraft_winback_note), color = colors.onSurfaceVariant, fontSize = 12.sp, textAlign = TextAlign.Center)
+        Text(
+            stringResource(Res.string.paycraft_winback_note),
+            color = colors.onSurfaceVariant,
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -268,7 +312,12 @@ internal fun offerTimeLeft(expiresAtIso: String, nowMillis: Long): String? {
 
 /** The tenant's message for a reason (e.g. "We also accept UPI on our website") with a way back to the plans. */
 @Composable
-internal fun ExitSurveyMessageContent(message: String, onBack: () -> Unit, onClose: () -> Unit, modifier: Modifier = Modifier) {
+internal fun ExitSurveyMessageContent(
+    message: String,
+    onBack: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val colors = PayCraftTheme.colors
     Column(
         modifier = modifier.fillMaxWidth().padding(24.dp).testTag(PayCraftTestTags.EXIT_SURVEY_MESSAGE),
@@ -276,9 +325,15 @@ internal fun ExitSurveyMessageContent(message: String, onBack: () -> Unit, onClo
     ) {
         Text(message, color = colors.onSurface, fontSize = 17.sp, lineHeight = 24.sp, textAlign = TextAlign.Center)
         Spacer(Modifier.height(20.dp))
-        Button(onClick = onBack, shape = RoundedCornerShape(999.dp), modifier = Modifier.fillMaxWidth().height(48.dp).testTag(PayCraftTestTags.EXIT_SURVEY_BACK)) {
+        Button(
+            onClick = onBack,
+            shape = RoundedCornerShape(999.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).testTag(PayCraftTestTags.EXIT_SURVEY_BACK),
+        ) {
             Text(stringResource(Res.string.paycraft_survey_back))
         }
-        TextButton(onClick = onClose) { Text(stringResource(Res.string.paycraft_survey_skip), color = colors.onSurfaceVariant) }
+        TextButton(onClick = onClose) {
+            Text(stringResource(Res.string.paycraft_survey_skip), color = colors.onSurfaceVariant)
+        }
     }
 }

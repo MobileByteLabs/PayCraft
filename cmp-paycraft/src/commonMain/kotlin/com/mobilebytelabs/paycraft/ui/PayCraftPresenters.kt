@@ -55,13 +55,17 @@ internal fun rememberRestorePresenter(): () -> Unit {
     return remember { { visible = true } }
 }
 
-/** The paywall half. See [rememberRestorePresenter] for why this owns presentation. */
+/**
+ * The paywall half. See [rememberRestorePresenter] for why this owns presentation. [placement] names the SDK surface
+ * that opened it (`settings`, `plan_banner`) — the `trigger` on its paywall events — since no host code runs to say so.
+ */
 @Composable
-internal fun rememberPaywallPresenter(): () -> Unit {
+internal fun rememberPaywallPresenter(placement: String? = null): () -> Unit {
     var visible by remember { mutableStateOf(false) }
     PayCraftSheet(visible = visible, onDismiss = { visible = false })
-    return remember {
+    return remember(placement) {
         {
+            if (placement != null) PayCraft.paywallPlacement = placement
             // Both: the flow for anything observing it, and the sheet for the user who tapped.
             PayCraft.presentPaywall()
             visible = true

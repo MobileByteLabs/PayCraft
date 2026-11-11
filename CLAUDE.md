@@ -123,8 +123,9 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
   `cmp-paycraft-web-ui` (≤ 20 KB, imported lazily by buyers), which depends on the stdlib only and calls the page's
   `PayCraftWeb` through `PayCraftWebApi` — `infra/web-ui-api-check.sh` keeps the two in step,
   `infra/web-bundle-size.sh` holds both budgets.
-- **GA4 on the dashboard:** tenants add PayCraft's service account (`paycraft-ga4-service-account`, env
-  `PAYCRAFT_GA4_SA_JSON`) as a Viewer on their property; `tenant_ga4_connections` (184) stores only the property id.
+- **GA4 on the dashboard:** tenants add PayCraft's service account — the org Firebase account
+  (`firebase-adminsdk-fbsvc@prod-applications-c7f87.iam.gserviceaccount.com`; alias `paycraft-ga4-service-account` →
+  vault `mbs-firebase-service-account`, env `PAYCRAFT_GA4_SA_JSON`, raw or base64 JSON) — as a Viewer on their property; `tenant_ga4_connections` (184) stores only the property id.
 
 ## Database Migrations — single source of truth
 

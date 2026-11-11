@@ -170,18 +170,23 @@ internal fun addStyleOnce(doc: dynamic, id: String, css: String) {
 }
 
 /** Shows [view] in [el] and wires the radio cards + pay button. True when the payment page is shown. */
-internal fun renderCheckout(pc: PayCraftWebApi, el: dynamic, sku: String, view: CheckoutView, survey: Boolean): Boolean =
-    when (view) {
-        is CheckoutView.Notice -> {
-            el.innerHTML = checkoutNoticeHtml(view.notice)
-            false
-        }
-        is CheckoutView.Ready -> {
-            el.innerHTML = checkoutPageHtml(view.model)
-            wireCheckout(pc, el, sku, view.model, survey)
-            true
-        }
+internal fun renderCheckout(
+    pc: PayCraftWebApi,
+    el: dynamic,
+    sku: String,
+    view: CheckoutView,
+    survey: Boolean,
+): Boolean = when (view) {
+    is CheckoutView.Notice -> {
+        el.innerHTML = checkoutNoticeHtml(view.notice)
+        false
     }
+    is CheckoutView.Ready -> {
+        el.innerHTML = checkoutPageHtml(view.model)
+        wireCheckout(pc, el, sku, view.model, survey)
+        true
+    }
+}
 
 private fun wireCheckout(pc: PayCraftWebApi, el: dynamic, sku: String, m: CheckoutModel, survey: Boolean) {
     // A scan, not `associate`: a map would ship the stdlib's HashMap to every buyer for two or three entries.
@@ -269,7 +274,13 @@ private fun wireCheckout(pc: PayCraftWebApi, el: dynamic, sku: String, m: Checko
 
 /** "50% off applied — ₹149.50 for the first payment" for the order summary. */
 internal fun offerAppliedLabel(o: WebOfferView, amountCents: Int?, currency: String?): String {
-    val price = if (amountCents != null && currency != null) " — ${formatMoney(discountedCents(amountCents, o.percentOff), currency)}" else ""
+    val price = if (amountCents != null &&
+        currency != null
+    ) {
+        " — ${formatMoney(discountedCents(amountCents, o.percentOff), currency)}"
+    } else {
+        ""
+    }
     val term = when (o.duration) {
         "forever" -> ""
         "repeating" -> o.durationInMonths?.let { " for $it months" }.orEmpty()

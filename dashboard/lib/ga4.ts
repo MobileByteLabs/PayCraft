@@ -64,7 +64,9 @@ export function paycraftGa4Account(
   if (!raw) return null
   let sa: PlayServiceAccountJson
   try {
-    sa = JSON.parse(raw) as PlayServiceAccountJson
+    // The org's Firebase service account is kept base64-encoded (FIREBASE_CREDS_B64); raw JSON works too.
+    const text = raw.trimStart().startsWith("{") ? raw : atob(raw.trim())
+    sa = JSON.parse(text) as PlayServiceAccountJson
   } catch {
     return null
   }

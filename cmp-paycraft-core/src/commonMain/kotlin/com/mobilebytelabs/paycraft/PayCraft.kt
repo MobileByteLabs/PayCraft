@@ -163,8 +163,9 @@ object PayCraft {
 
     /**
      * Where the app is opening the paywall from — `home`, `settings`, `download_limit`… Set it right before
-     * showing the paywall; it rides on every paywall event as `trigger`, so the funnel shows which placement
-     * sells. Null falls back to how the SDK presented it ([PaywallPresentation.Shown.Trigger]) or `direct`.
+     * showing the paywall; it rides on every event of THAT paywall as `trigger`, so the funnel shows which
+     * placement sells, and is consumed when the paywall opens (set it again for the next one). Null falls back
+     * to how the SDK presented it ([PaywallPresentation.Shown.Trigger]) or `direct`.
      */
     var paywallPlacement: String? = null
 

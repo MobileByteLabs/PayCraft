@@ -100,9 +100,15 @@ class WebWinbackTest {
             .on("/functions/v1/checkout-initiate") { """{"url":"https://checkout.stripe.com/c/pay/cs_1"}""" }
         val pc = sdk(n)
         pc.doSignIn("google", "t", null)
-        assertTrue(pc.checkoutUrlWith("pro-monthly", null, "stripe").await().startsWith("https://buy.stripe.com/"), "no offer: the link")
+        assertTrue(
+            pc.checkoutUrlWith("pro-monthly", null, "stripe").await().startsWith("https://buy.stripe.com/"),
+            "no offer: the link",
+        )
         pc.claimOffer(pc.answerSurvey("too_expensive", "provider", "pro-monthly", null).await().offer!!.id)
-        assertEquals("https://checkout.stripe.com/c/pay/cs_1", pc.checkoutUrlWith("pro-monthly", null, "stripe").await())
+        assertEquals(
+            "https://checkout.stripe.com/c/pay/cs_1",
+            pc.checkoutUrlWith("pro-monthly", null, "stripe").await(),
+        )
         val body = n.bodyOf("/functions/v1/checkout-initiate")
         assertEquals("stripe", body["provider"]!!.jsonPrimitive.content)
         assertEquals("o1", body["offerId"]!!.jsonPrimitive.content)
@@ -110,7 +116,11 @@ class WebWinbackTest {
 
     @Test fun an_offer_the_server_no_longer_accepts_never_blocks_the_purchase() = runTest {
         val n = net().on("/functions/v1/winback") { OFFER_ANSWER }
-            .onSequence("/functions/v1/checkout-initiate", 409 to """{"error":"offer_not_usable"}""", 200 to """{"url":"https://rzp.io/i/sub_2"}""")
+            .onSequence(
+                "/functions/v1/checkout-initiate",
+                409 to """{"error":"offer_not_usable"}""",
+                200 to """{"url":"https://rzp.io/i/sub_2"}""",
+            )
         val pc = sdk(n)
         pc.doSignIn("google", "t", null)
         pc.claimOffer(pc.answerSurvey("too_expensive", "provider", "pro-monthly", null).await().offer!!.id)

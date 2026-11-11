@@ -41,7 +41,9 @@ import kotlin.test.assertTrue
 class ExitSurveyContentTest {
 
     private val cfg = ExitSurveyConfig(
-        enabled = true, title = "Before you go — what stopped you?", capDays = 7,
+        enabled = true,
+        title = "Before you go — what stopped you?",
+        capDays = 7,
         reasons = listOf(
             ExitSurveyConfig.Reason("too_expensive", "It's too expensive", "offer", offer = ExitSurveyConfig.Offer(50)),
             ExitSurveyConfig.Reason("just_looking", "I'm just looking", "none"),
@@ -71,55 +73,67 @@ class ExitSurveyContentTest {
         vm.winback = { _, _, _, _ -> answer }
     }
 
-    @Test fun closing_shows_the_survey_and_too_expensive_shows_the_offer_which_claim_carries_to_checkout() = runComposeUiTest {
-        lateinit var vm: PayCraftPaywallViewModel
-        val store = MapSettings()
-        setContent {
-            KoinApplication(application = {
-                modules(module {
-                    single<BillingManager> { FakeBillingManager(premium = false) }
-                    viewModelOf(::PayCraftPaywallViewModel)
-                })
-            }) {
-                vm = koinViewModel()
-                vmSetup(vm, store, WinbackResult.Offer(offer))
-                PayCraftPaywallComposable(onDismiss = { dismissed++ }, surfaceMode = PayCraftSurfaceMode.Sheet)
+    @Test fun closing_shows_the_survey_and_too_expensive_shows_the_offer_which_claim_carries_to_checkout() =
+        runComposeUiTest {
+            lateinit var vm: PayCraftPaywallViewModel
+            val store = MapSettings()
+            setContent {
+                KoinApplication(application = {
+                    modules(
+                        module {
+                            single<BillingManager> { FakeBillingManager(premium = false) }
+                            viewModelOf(::PayCraftPaywallViewModel)
+                        },
+                    )
+                }) {
+                    vm = koinViewModel()
+                    vmSetup(vm, store, WinbackResult.Offer(offer))
+                    PayCraftPaywallComposable(onDismiss = { dismissed++ }, surfaceMode = PayCraftSurfaceMode.Sheet)
+                }
             }
+            waitForIdle()
+            vm.onShown()
+            vm.dispatch(PayCraftPaywallAction.Dismiss)
+            waitForIdle()
+            onNodeWithTag(PayCraftTestTags.EXIT_SURVEY).assertIsDisplayed()
+            onNodeWithText("Before you go — what stopped you?").assertIsDisplayed()
+            assertEquals(0, dismissed, "the survey replaces the paywall; the host is not told to close yet")
+
+            onNodeWithTag(PayCraftTestTags.exitReason("too_expensive")).performClick()
+            waitForIdle()
+            onNodeWithTag(PayCraftTestTags.WINBACK_OFFER).assertIsDisplayed()
+            onNodeWithText("50% off").assertIsDisplayed()
+
+            onNodeWithTag(PayCraftTestTags.WINBACK_CLAIM).performClick()
+            waitForIdle()
+            assertEquals("o1", PayCraft.activeWinbackOffer?.id, "the claimed offer rides into checkout")
+            val names = events.map { it.name }
+            assertTrue(
+                names.containsAll(
+                    listOf(
+                        PayCraftEventName.StepAbandon,
+                        PayCraftEventName.SurveyView,
+                        PayCraftEventName.SurveyAnswer,
+                        PayCraftEventName.OfferView,
+                        PayCraftEventName.OfferAccept,
+                    ),
+                ),
+                names.toString(),
+            )
+            assertEquals("too_expensive", events.first { it.name == PayCraftEventName.SurveyAnswer }.reason)
         }
-        waitForIdle()
-        vm.onShown()
-        vm.dispatch(PayCraftPaywallAction.Dismiss)
-        waitForIdle()
-        onNodeWithTag(PayCraftTestTags.EXIT_SURVEY).assertIsDisplayed()
-        onNodeWithText("Before you go — what stopped you?").assertIsDisplayed()
-        assertEquals(0, dismissed, "the survey replaces the paywall; the host is not told to close yet")
-
-        onNodeWithTag(PayCraftTestTags.exitReason("too_expensive")).performClick()
-        waitForIdle()
-        onNodeWithTag(PayCraftTestTags.WINBACK_OFFER).assertIsDisplayed()
-        onNodeWithText("50% off").assertIsDisplayed()
-
-        onNodeWithTag(PayCraftTestTags.WINBACK_CLAIM).performClick()
-        waitForIdle()
-        assertEquals("o1", PayCraft.activeWinbackOffer?.id, "the claimed offer rides into checkout")
-        val names = events.map { it.name }
-        assertTrue(
-            names.containsAll(listOf(PayCraftEventName.StepAbandon, PayCraftEventName.SurveyView, PayCraftEventName.SurveyAnswer,
-                PayCraftEventName.OfferView, PayCraftEventName.OfferAccept)),
-            names.toString(),
-        )
-        assertEquals("too_expensive", events.first { it.name == PayCraftEventName.SurveyAnswer }.reason)
-    }
 
     @Test fun just_looking_closes_and_the_survey_is_not_shown_again_inside_its_cap() = runComposeUiTest {
         lateinit var vm: PayCraftPaywallViewModel
         val store = MapSettings()
         setContent {
             KoinApplication(application = {
-                modules(module {
-                    single<BillingManager> { FakeBillingManager(premium = false) }
-                    viewModelOf(::PayCraftPaywallViewModel)
-                })
+                modules(
+                    module {
+                        single<BillingManager> { FakeBillingManager(premium = false) }
+                        viewModelOf(::PayCraftPaywallViewModel)
+                    },
+                )
             }) {
                 vm = koinViewModel()
                 vmSetup(vm, store, WinbackResult.None)

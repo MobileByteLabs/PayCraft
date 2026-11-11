@@ -17,9 +17,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import com.mobilebytelabs.paycraft.ui.survey.ExitSurveyContent
-import com.mobilebytelabs.paycraft.ui.survey.ExitSurveyMessageContent
-import com.mobilebytelabs.paycraft.ui.survey.WinbackOfferContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -81,6 +78,9 @@ import com.mobilebytelabs.paycraft.ui.components.PaywallTopBar
 import com.mobilebytelabs.paycraft.ui.components.PlansUnavailable
 import com.mobilebytelabs.paycraft.ui.components.StaleConfigNotice
 import com.mobilebytelabs.paycraft.ui.components.skeleton.PaywallSkeleton
+import com.mobilebytelabs.paycraft.ui.survey.ExitSurveyContent
+import com.mobilebytelabs.paycraft.ui.survey.ExitSurveyMessageContent
+import com.mobilebytelabs.paycraft.ui.survey.WinbackOfferContent
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
 import org.jetbrains.compose.resources.stringResource
@@ -213,15 +213,21 @@ fun PayCraftPaywallComposable(
                     {
                         when (val sv = survey) {
                             is ExitSurveyUi.Asking -> ExitSurveyContent(
-                                cfg = sv.cfg, sending = sv.sending,
-                                onAnswer = viewModel::onSurveyAnswer, onSkip = viewModel::closeSurvey,
+                                cfg = sv.cfg,
+                                sending = sv.sending,
+                                onAnswer = viewModel::onSurveyAnswer,
+                                onSkip = viewModel::closeSurvey,
                             )
                             is ExitSurveyUi.OfferShown -> WinbackOfferContent(
-                                offer = sv.offer, plan = sv.plan,
-                                onClaim = viewModel::onClaimOffer, onDecline = viewModel::closeSurvey,
+                                offer = sv.offer,
+                                plan = sv.plan,
+                                onClaim = viewModel::onClaimOffer,
+                                onDecline = viewModel::closeSurvey,
                             )
                             is ExitSurveyUi.MessageShown -> ExitSurveyMessageContent(
-                                message = sv.text, onBack = viewModel::onSurveyBack, onClose = viewModel::closeSurvey,
+                                message = sv.text,
+                                onBack = viewModel::onSurveyBack,
+                                onClose = viewModel::closeSurvey,
                             )
                             null -> {}
                         }
@@ -266,6 +272,7 @@ fun PayCraftPaywallComposable(
                     snackbarHostState = snackbarHostState,
                     onDismiss = onDismiss,
                     onAction = viewModel::dispatch,
+                    onDefaultPlan = viewModel::applyDefaultPlan,
                     modifier = modifier,
                 )
             }
@@ -317,6 +324,7 @@ private fun PayCraftPaywallBody(
     snackbarHostState: SnackbarHostState,
     onDismiss: () -> Unit,
     onAction: (PayCraftPaywallAction) -> Unit,
+    onDefaultPlan: (BillingPlan) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (displayMode) {
@@ -330,6 +338,7 @@ private fun PayCraftPaywallBody(
             config = config,
             snackbarHostState = snackbarHostState,
             onAction = onAction,
+            onDefaultPlan = onDefaultPlan,
             surfaceMode = surfaceMode,
             modifier = modifier,
         )
@@ -355,6 +364,8 @@ private fun PayCraftPaywallSurface(
     config: SuiteConfig?,
     snackbarHostState: SnackbarHostState,
     onAction: (PayCraftPaywallAction) -> Unit,
+    /** The design's pre-selected plan — applied without counting as the buyer's choice (no `paycraft_plan_select`). */
+    onDefaultPlan: (BillingPlan) -> Unit,
     surfaceMode: PayCraftSurfaceMode,
     modifier: Modifier = Modifier,
 ) {
@@ -494,7 +505,7 @@ private fun PayCraftPaywallSurface(
                     }
                     config?.productForRole(authoredDefaultRole)
                         ?.let { dto -> products.firstOrNull { it.id == dto.id } }
-                        ?.let { onAction(PayCraftPaywallAction.SelectPlan(it.toBillingPlan(config))) }
+                        ?.let { onDefaultPlan(it.toBillingPlan(config)) }
                     // Marked applied either way: a role with no matching product is an authoring
                     // mistake, and retrying it every recomposition would fight the user's own taps.
                     appliedDefault.value = true

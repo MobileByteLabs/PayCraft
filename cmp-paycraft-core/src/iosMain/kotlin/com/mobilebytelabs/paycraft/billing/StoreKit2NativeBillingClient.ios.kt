@@ -92,7 +92,14 @@ internal class StoreKit2NativeBillingClient(private val shim: PayCraftStoreKitSh
             }
             if (offer != null) {
                 shim.purchaseWithOffer(
-                    productId, token, offer.offerId, offer.keyIdentifier, offer.nonce, offer.signature, offer.timestamp, onOutcome,
+                    productId,
+                    token,
+                    offer.offerId,
+                    offer.keyIdentifier,
+                    offer.nonce,
+                    offer.signature,
+                    offer.timestamp,
+                    onOutcome,
                 )
             } else {
                 shim.purchase(productId, token, onOutcome)

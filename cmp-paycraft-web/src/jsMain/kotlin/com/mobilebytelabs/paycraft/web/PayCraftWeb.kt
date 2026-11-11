@@ -311,8 +311,17 @@ class PayCraftWeb(
 
     private fun dueSurvey(): WebExitSurvey? {
         val cfg = exitSurvey
-        if (cfg == null || !exitSurveyDue(cfg, isPremium(), store.surveyShownAt()?.toLong(), now().toLong())) return null
-        return WebExitSurvey(cfg.title, cfg.reasons.map { WebSurveyReason(it.code, it.label, it.freeText) }.toTypedArray())
+        if (cfg == null ||
+            !exitSurveyDue(cfg, isPremium(), store.surveyShownAt()?.toLong(), now().toLong())
+        ) {
+            return null
+        }
+        return WebExitSurvey(
+            cfg.title,
+            cfg.reasons.map {
+                WebSurveyReason(it.code, it.label, it.freeText)
+            }.toTypedArray(),
+        )
     }
 
     /** The survey is on screen, asked at [step] (`provider`, `checkout`, `paywall`…): starts its cap, records the view. */
@@ -329,7 +338,16 @@ class PayCraftWeb(
     fun answerSurvey(reasonCode: String, step: String, sku: String?, freeText: String?): Promise<WebWinback> {
         track(PayCraftEventName.SurveyAnswer, PayCraftStep.Survey, sku, reason = reasonCode)
         val deviceRef = store.deviceId() ?: newDeviceId().also { store.saveDeviceId(it) }
-        val body = PayCraftContract.winbackBody(apiKey, deviceRef, store.token(), reasonCode, stepOf(step).wire, "web", sku, freeText)
+        val body = PayCraftContract.winbackBody(
+            apiKey,
+            deviceRef,
+            store.token(),
+            reasonCode,
+            stepOf(step).wire,
+            "web",
+            sku,
+            freeText,
+        )
         val json = JsonObject(body + ("mode" to JsonPrimitive(mode))).toString()
         val url = PayCraftContract.winbackUrl(base, apiKey)
         return scope.promise { call("POST", url, json).body }.then({ winbackFrom(it, sku) }, { winbackFrom(null, sku) })
@@ -342,7 +360,8 @@ class PayCraftWeb(
                 val o = r.offer
                 // Only an offer the web can apply is an offer here (a store-only discount is no use on a website).
                 if (!o.stripe && !o.razorpay) return WebWinback("none", null, null)
-                val web = WebOffer(o.id, o.percentOff, o.duration, o.durationInMonths, o.expiresAtIso, o.stripe, o.razorpay)
+                val web =
+                    WebOffer(o.id, o.percentOff, o.duration, o.durationInMonths, o.expiresAtIso, o.stripe, o.razorpay)
                 offered = web
                 track(PayCraftEventName.OfferView, PayCraftStep.Offer, sku, reason = "${o.percentOff}pct")
                 WebWinback("offer", null, web)
@@ -520,14 +539,23 @@ class PayCraftWeb(
                 route.currency,
                 route.provider,
                 email,
-                offer?.takeIf { (route.provider == "stripe" && it.stripe) || (route.provider == "razorpay" && it.razorpay) },
+                offer?.takeIf {
+                    (route.provider == "stripe" && it.stripe) ||
+                        (route.provider == "razorpay" && it.razorpay)
+                },
             )
             is WebCheckoutRoute.Unavailable -> throw PayCraftWebError(route.reason.code(), route.message)
         }
     }
 
     /** checkout-initiate; with [offer], the discount — and if the server no longer accepts it, the normal price. */
-    private suspend fun serverCheckoutUrl(sku: String, currency: String?, provider: String, email: String, offer: WebOffer?): String {
+    private suspend fun serverCheckoutUrl(
+        sku: String,
+        currency: String?,
+        provider: String,
+        email: String,
+        offer: WebOffer?,
+    ): String {
         val body = buildJsonObject {
             put("sku", sku)
             currency?.let { put("currency", it) }
@@ -588,7 +616,8 @@ private fun WebCheckoutFailure.code(): String = when (this) {
 }
 
 /** A step's wire name (`provider`, `checkout`…) → the catalog step; anything else is the checkout. */
-private fun stepOf(wire: String): PayCraftStep = PayCraftStep.entries.firstOrNull { it.wire == wire } ?: PayCraftStep.Checkout
+private fun stepOf(wire: String): PayCraftStep =
+    PayCraftStep.entries.firstOrNull { it.wire == wire } ?: PayCraftStep.Checkout
 
 private fun randomDeviceId(): String = js(
     "(globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : " +

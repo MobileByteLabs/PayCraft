@@ -9,7 +9,11 @@ import kotlin.time.Instant
 class WinbackOfferFormatTest {
 
     @Test fun discounts_keep_the_price_format() {
-        assertEquals("₹149.50", discountedPrice("₹299", 50), "a whole price halving to a fraction shows the paise charged")
+        assertEquals(
+            "₹149.50",
+            discountedPrice("₹299", 50),
+            "a whole price halving to a fraction shows the paise charged",
+        )
         assertEquals("₹100", discountedPrice("₹200", 50))
         assertEquals("$4.99", discountedPrice("$9.98", 50), "the original's decimals are kept")
         assertEquals("₹1,124.25", discountedPrice("₹1,499", 25), "grouping is kept")

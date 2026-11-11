@@ -3,7 +3,20 @@ object PayCraftContract {
         buildJsonObject {
             put("apiKey", apiKey)
             put("deviceRef", deviceRef)
-            put("events", buildJsonArray { events.forEach { e -> add(buildJsonObject { put("name", e.name.wire); put("step", e.step.wire); put("at", e.atMs) }) } })
+            put(
+                "events",
+                buildJsonArray {
+                    events.forEach { e ->
+                        add(
+                            buildJsonObject {
+                                put("name", e.name.wire)
+                                put("step", e.step.wire)
+                                put("at", e.atMs)
+                            },
+                        )
+                    }
+                },
+            )
         }
 
     fun winbackUrl(base: String) = base

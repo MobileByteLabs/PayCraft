@@ -68,3 +68,21 @@ Deno.test("basil invoice → its subscription's metadata, without any Stripe loo
     lines: { data: [{ pricing: { price_details: { product: "prod_unknown" } } }] } };
   assertEquals(await stripeEventTenant(inv, noCalls), T);
 });
+
+import { attemptFromSession } from "../stripe-shape.ts";
+
+Deno.test("abandoned checkout → an attempt row with the buyer's email and plan", () => {
+  const s = { id: "cs_live_1", livemode: true, customer_details: { email: "Gone@Buyer.test" }, metadata: { plan_id: "pro-annual" } };
+  assertEquals(attemptFromSession(s, "abandoned", T), {
+    tenant_id: T, provider: "stripe", mode: "live", email: "gone@buyer.test", plan: "pro-annual",
+    outcome: "abandoned", provider_session_id: "cs_live_1",
+  });
+});
+
+Deno.test("an attempt with no email (left before typing it) is not recorded", () => {
+  assertEquals(attemptFromSession({ id: "cs_2", livemode: false, metadata: {} }, "abandoned", T), null);
+});
+
+Deno.test("no app → not recorded (never a NULL-tenant row)", () => {
+  assertEquals(attemptFromSession({ id: "cs_3", customer_email: "a@b.test" }, "abandoned", null), null);
+});

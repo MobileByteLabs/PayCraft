@@ -23,64 +23,76 @@ fun showExitSurvey(pc: dynamic, step: String, sku: String?): Promise<String> {
 
 private const val SURVEY_STYLE_ID = "paycraft-survey-style"
 
-private fun openSurvey(pc: PayCraftWebApi, cfg: WebExitSurveyView, step: String, sku: String?): Promise<String> = Promise { resolve, _ ->
-    val doc: dynamic = js("document")
-    addStyleOnce(doc, SURVEY_STYLE_ID, SURVEY_CSS)
-    val dialog = doc.createElement("dialog")
-    dialog.className = "pcx-s"
-    dialog.setAttribute("aria-labelledby", "pcx-s-h")
-    dialog.innerHTML = surveyHtml(cfg)
-    doc.body.appendChild(dialog)
-    var outcome = "dismissed"
-    var timer: dynamic = null
-    dialog.addEventListener("close", { _: dynamic ->
-        if (timer != null) js("clearInterval")(timer)
-        dialog.remove()
-        resolve(outcome)
-    })
-    val close = { result: String ->
-        outcome = result
-        dialog.close()
-    }
-    fun showOffer(o: WebOfferView) {
-        pc.config().then({ c -> c.products.firstOrNull { it.sku == sku } }, { null }).then { product ->
-            val render = { dialog.innerHTML = offerHtml(o, product, offerTimeLeft(o.expiresAt, nowMs())) }
-            render()
-            timer = js("setInterval")(render, 30_000)
+private fun openSurvey(pc: PayCraftWebApi, cfg: WebExitSurveyView, step: String, sku: String?): Promise<String> =
+    Promise {
+            resolve,
+            _,
+        ->
+        val doc: dynamic = js("document")
+        addStyleOnce(doc, SURVEY_STYLE_ID, SURVEY_CSS)
+        val dialog = doc.createElement("dialog")
+        dialog.className = "pcx-s"
+        dialog.setAttribute("aria-labelledby", "pcx-s-h")
+        dialog.innerHTML = surveyHtml(cfg)
+        doc.body.appendChild(dialog)
+        var outcome = "dismissed"
+        var timer: dynamic = null
+        dialog.addEventListener("close", { _: dynamic ->
+            if (timer != null) js("clearInterval")(timer)
+            dialog.remove()
+            resolve(outcome)
+        })
+        val close = { result: String ->
+            outcome = result
+            dialog.close()
         }
-    }
-    dialog.addEventListener("change", { _: dynamic ->
-        val send = dialog.querySelector("[data-pcx-s-send]")
-        if (send != null) send.disabled = dialog.querySelector("input[name=pcx-s-r]:checked") == null
-    })
-    dialog.addEventListener("click", { e: dynamic ->
-        val target = e.target.closest("[data-pcx-s]") ?: return@addEventListener
-        when (target.getAttribute("data-pcx-s") as String) {
-            "x", "skip", "decline" -> close("dismissed")
-            "back" -> close("answered")
-            "claim" -> {
-                val id = target.getAttribute("data-offer") as String
-                close(if (pc.claimOffer(id)) "claimed" else "dismissed")
+        fun showOffer(o: WebOfferView) {
+            pc.config().then({ c -> c.products.firstOrNull { it.sku == sku } }, { null }).then { product ->
+                val render = { dialog.innerHTML = offerHtml(o, product, offerTimeLeft(o.expiresAt, nowMs())) }
+                render()
+                timer = js("setInterval")(render, 30_000)
             }
-            "send" -> {
-                val chosen = dialog.querySelector("input[name=pcx-s-r]:checked") ?: return@addEventListener
-                val code = chosen.value as String
-                val text = (dialog.querySelector("[data-pcx-s-text=\"$code\"]")?.value as String?)?.trim()?.ifEmpty { null }
-                target.disabled = true
-                target.textContent = "Sending…"
-                pc.answerSurvey(code, step, sku, text).then({ it }, { null }).then { w ->
-                    when {
-                        w?.action == "offer" && w.offer != null -> showOffer(w.offer!!)
-                        w?.action == "message" && !w.message.isNullOrBlank() -> dialog.innerHTML = messageHtml(w.message!!)
-                        else -> close("answered")
+        }
+        dialog.addEventListener("change", { _: dynamic ->
+            val send = dialog.querySelector("[data-pcx-s-send]")
+            if (send != null) send.disabled = dialog.querySelector("input[name=pcx-s-r]:checked") == null
+        })
+        dialog.addEventListener("click", { e: dynamic ->
+            val target = e.target.closest("[data-pcx-s]") ?: return@addEventListener
+            when (target.getAttribute("data-pcx-s") as String) {
+                "x", "skip", "decline" -> close("dismissed")
+                "back" -> close("answered")
+                "claim" -> {
+                    val id = target.getAttribute("data-offer") as String
+                    close(if (pc.claimOffer(id)) "claimed" else "dismissed")
+                }
+                "send" -> {
+                    val chosen = dialog.querySelector("input[name=pcx-s-r]:checked") ?: return@addEventListener
+                    val code = chosen.value as String
+                    val text = (
+                        dialog.querySelector(
+                            "[data-pcx-s-text=\"$code\"]",
+                        )?.value as String?
+                        )?.trim()?.ifEmpty {
+                        null
+                    }
+                    target.disabled = true
+                    target.textContent = "Sending…"
+                    pc.answerSurvey(code, step, sku, text).then({ it }, { null }).then { w ->
+                        when {
+                            w?.action == "offer" && w.offer != null -> showOffer(w.offer!!)
+                            w?.action == "message" && !w.message.isNullOrBlank() ->
+                                dialog.innerHTML =
+                                    messageHtml(w.message!!)
+                            else -> close("answered")
+                        }
                     }
                 }
             }
-        }
-    })
-    dialog.showModal()
-    pc.surveyShown(step, sku)
-}
+        })
+        dialog.showModal()
+        pc.surveyShown(step, sku)
+    }
 
 private fun nowMs(): Double = js("Date.now()").unsafeCast<Double>()
 
@@ -103,13 +115,21 @@ internal fun surveyHtml(cfg: WebExitSurveyView): String {
     val reasons = cfg.reasons.joinToString("") { r ->
         val code = esc(r.code)
         val field = if (r.freeText) {
-            """<textarea class="pcx-s-text" data-pcx-s-text="$code" maxlength="500" rows="3" placeholder="Tell us more (optional)" aria-label="${esc(r.label)}"></textarea>"""
+            """<textarea class="pcx-s-text" data-pcx-s-text="$code" maxlength="500" rows="3" placeholder="Tell us more (optional)" aria-label="${esc(
+                r.label,
+            )}"></textarea>"""
         } else {
             ""
         }
-        """<div class="pcx-s-opt${if (r.freeText) " pcx-s-wide" else ""}"><label class="pcx-s-r"><input type="radio" name="pcx-s-r" value="$code"><span>${esc(r.label)}</span></label>$field</div>"""
+        """<div class="pcx-s-opt${if (r.freeText) " pcx-s-wide" else ""}"><label class="pcx-s-r"><input type="radio" name="pcx-s-r" value="$code"><span>${esc(
+            r.label,
+        )}</span></label>$field</div>"""
     }
-    return """<form method="dialog" class="pcx-s-in" data-pcx-s-state="ask">$X_BUTTON<h2 class="pcx-s-h" id="pcx-s-h">${esc(cfg.title)}</h2><fieldset class="pcx-s-list"><legend class="pcx-s-sr">${esc(cfg.title)}</legend>$reasons</fieldset><div class="pcx-s-act"><button type="button" class="pcx-s-link" data-pcx-s="skip">Skip</button><button type="button" class="pcx-s-btn" data-pcx-s="send" data-pcx-s-send disabled>Send</button></div></form>"""
+    return """<form method="dialog" class="pcx-s-in" data-pcx-s-state="ask">$X_BUTTON<h2 class="pcx-s-h" id="pcx-s-h">${esc(
+        cfg.title,
+    )}</h2><fieldset class="pcx-s-list"><legend class="pcx-s-sr">${esc(
+        cfg.title,
+    )}</legend>$reasons</fieldset><div class="pcx-s-act"><button type="button" class="pcx-s-link" data-pcx-s="skip">Skip</button><button type="button" class="pcx-s-btn" data-pcx-s="send" data-pcx-s-send disabled>Send</button></div></form>"""
 }
 
 /** The discount the answer earned: the percentage up front, its terms, the price before → after, and the clock. */
@@ -121,24 +141,32 @@ internal fun offerHtml(o: WebOfferView, product: WebProductView?, timeLeft: Stri
         else -> "$pct% off your first payment"
     }
     val price = product?.let {
-        """<p class="pcx-s-price">${esc(it.name)} · <s class="pcx-s-was">${esc(formatMoney(it.amountCents, it.currency))}</s> <strong>${esc(
+        """<p class="pcx-s-price">${esc(
+            it.name,
+        )} · <s class="pcx-s-was">${esc(formatMoney(it.amountCents, it.currency))}</s> <strong>${esc(
             formatMoney(discountedCents(it.amountCents, pct), it.currency),
         )}</strong></p>"""
     }.orEmpty()
     val ends = timeLeft?.let { """<p class="pcx-s-ends">Ends in ${esc(it)}</p>""" }.orEmpty()
-    return """<div class="pcx-s-in pcx-s-off" data-pcx-s-state="offer">$X_BUTTON<p class="pcx-s-pct">$pct% off</p><h2 class="pcx-s-h" id="pcx-s-h">A better price, just for you</h2><p class="pcx-s-term">${esc(term)}</p>$price$ends<button type="button" class="pcx-s-btn pcx-s-wide-btn" data-pcx-s="claim" data-offer="${esc(o.id)}">Claim $pct% off</button><button type="button" class="pcx-s-link" data-pcx-s="decline">No thanks</button><p class="pcx-s-fine">Applied automatically at checkout. Limited time.</p></div>"""
+    return """<div class="pcx-s-in pcx-s-off" data-pcx-s-state="offer">$X_BUTTON<p class="pcx-s-pct">$pct% off</p><h2 class="pcx-s-h" id="pcx-s-h">A better price, just for you</h2><p class="pcx-s-term">${esc(
+        term,
+    )}</p>$price$ends<button type="button" class="pcx-s-btn pcx-s-wide-btn" data-pcx-s="claim" data-offer="${esc(
+        o.id,
+    )}">Claim $pct% off</button><button type="button" class="pcx-s-link" data-pcx-s="decline">No thanks</button><p class="pcx-s-fine">Applied automatically at checkout. Limited time.</p></div>"""
 }
 
 /** The tenant's message for the answer (e.g. "We also accept UPI on our website") and the way back to paying. */
 internal fun messageHtml(message: String): String =
-    """<div class="pcx-s-in pcx-s-off" data-pcx-s-state="message">$X_BUTTON<p class="pcx-s-msg" id="pcx-s-h">${esc(message)}</p><button type="button" class="pcx-s-btn pcx-s-wide-btn" data-pcx-s="back">Back to checkout</button><button type="button" class="pcx-s-link" data-pcx-s="decline">Close</button></div>"""
+    """<div class="pcx-s-in pcx-s-off" data-pcx-s-state="message">$X_BUTTON<p class="pcx-s-msg" id="pcx-s-h">${esc(
+        message,
+    )}</p><button type="button" class="pcx-s-btn pcx-s-wide-btn" data-pcx-s="back">Back to checkout</button><button type="button" class="pcx-s-link" data-pcx-s="decline">Close</button></div>"""
 
 /**
  * Scoped to `.pcx-s`; the accent follows the checkout page's `--pcx-accent` / `--pcx-accent-fg` when the site set
  * them, and the dialog takes the page's colour scheme (`Canvas` / `CanvasText`) and font.
  */
 internal const val SURVEY_CSS: String =
-    ".pcx-s{--a:var(--pcx-accent,#111827);--af:var(--pcx-accent-fg,#fff);--ok:#059669;--l:color-mix(in oklab,CanvasText 14%,transparent);--m:color-mix(in oklab,CanvasText 62%,transparent);position:fixed;border:0;padding:0;border-radius:20px;width:min(580px,calc(100% - 32px));max-height:calc(100% - 32px);overflow:auto;color:CanvasText;background:Canvas;font:inherit;box-shadow:0 24px 64px #0005}" +
+    ".pcx-s{--a:var(--pcx-accent,#111827);--af:var(--pcx-accent-fg,#fff);--ok:#059669;--l:color-mix(in oklab,CanvasText 14%,transparent);--m:color-mix(in oklab,CanvasText 62%,transparent);position:fixed;inset:0;margin:auto;border:0;padding:0;border-radius:20px;width:min(580px,calc(100% - 32px));max-height:calc(100% - 32px);overflow:auto;color:CanvasText;background:Canvas;font:inherit;box-shadow:0 24px 64px #0005}" +
         ".pcx-s::backdrop{background:#0009}.pcx-s *{box-sizing:border-box}@media (max-width:639px){.pcx-s{margin:auto 0 0;width:100%;max-width:100%;border-radius:20px 20px 0 0}}" +
         ".pcx-s-in{position:relative;display:grid;gap:14px;margin:0;padding:26px 24px 22px}.pcx-s-h{margin:0;padding-right:36px;font-size:20px;line-height:1.3;font-weight:700}" +
         ".pcx-s-x{position:absolute;top:14px;right:14px;width:32px;height:32px;border:0;border-radius:99px;background:var(--l);color:inherit;font-size:20px;line-height:1;cursor:pointer}" +

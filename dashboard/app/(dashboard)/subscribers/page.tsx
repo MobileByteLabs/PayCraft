@@ -16,18 +16,7 @@ import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
 import { ButtonLink } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
-
-type Subscription = {
-  id: string
-  email: string
-  plan: string | null
-  provider: string | null
-  status: string
-  mode: string
-  current_period_end: string | null
-  created_at: string
-  updated_at?: string
-}
+import { type CustomerRow, detailHref, displayId, providerLabel, searchTerm, statusesFor } from "@/lib/customers"
 
 const PER_PAGE = 25
 
@@ -45,8 +34,10 @@ function statusBadgeClass(status: string) {
     return "bg-success-50 text-success-700 ring-1 ring-success-200"
   if (status === "trialing")
     return "bg-warning-50 text-warning-700 ring-1 ring-warning-200"
-  if (status === "canceled" || status === "cancelled")
+  if (status === "canceled" || status === "cancelled" || status === "expired" || status === "payment_failed")
     return "bg-danger-50 text-danger-700 ring-1 ring-danger-200"
+  if (status === "abandoned")
+    return "bg-warning-50 text-warning-700 ring-1 ring-warning-200"
   return "bg-ink-100 text-ink-500 ring-1 ring-ink-200"
 }
 
@@ -83,6 +74,9 @@ const ENTITLEMENT_LABELS: Record<string, string> = {
 function statusLabel(status: string) {
   if (status === "trialing") return "Trial"
   if (status === "canceled" || status === "cancelled") return "Churned"
+  if (status === "abandoned") return "Abandoned checkout"
+  if (status === "payment_failed") return "Payment failed"
+  if (status === "active_non_renewing") return "Active, not renewing"
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
@@ -143,10 +137,13 @@ export default async function SubscribersPage({
   const offset = (page - 1) * PER_PAGE
   const mode = searchParams.mode ?? "live"
 
+  // tenant_customers_view (migration 186): web subscriptions + store buyers + checkout attempts —
+  // everyone who paid or tried, from every provider. It used to read `subscriptions` alone, which only
+  // the web providers write, so Google Play / App Store buyers and abandoned checkouts never appeared.
   let query = supabase
-    .from("subscriptions")
+    .from("tenant_customers_view")
     .select(
-      "id,email,plan,provider,status,mode,current_period_end,created_at,updated_at",
+      "row_id,source,email,app_user_id,plan,provider,status,mode,period_end,started_at,updated_at",
       { count: "exact" },
     )
     .eq("tenant_id", tenant.id)
@@ -154,19 +151,31 @@ export default async function SubscribersPage({
     .order("updated_at", { ascending: false })
     .range(offset, offset + PER_PAGE - 1)
 
-  if (searchParams.q) query = query.ilike("email", `%${searchParams.q}%`)
-  if (searchParams.status) query = query.eq("status", searchParams.status)
+  const q = searchTerm(searchParams.q)
+  if (q) query = query.or(`email.ilike.%${q}%,app_user_id.ilike.%${q}%`)
+  const statuses = statusesFor(searchParams.status)
+  if (statuses) query = query.in("status", statuses)
   if (searchParams.plan) query = query.eq("plan", searchParams.plan)
   if (searchParams.provider) query = query.eq("provider", searchParams.provider)
 
   const { data, count } = await query
 
-  // Stats
-  const { data: stats } = await supabase
-    .from("tenant_subscriber_count_view")
-    .select("active_count,trial_count,canceled_count")
-    .eq("tenant_id", tenant.id)
-    .maybeSingle()
+  // Stats — counted over the same list, so the cards always add up to what the table shows.
+  const countWhere = async (states: string[]) => {
+    const { count: c } = await supabase
+      .from("tenant_customers_view")
+      .select("row_id", { count: "exact", head: true })
+      .eq("tenant_id", tenant.id)
+      .eq("mode", mode)
+      .in("status", states)
+    return c ?? 0
+  }
+  const [activeN, trialN, churnedN, triedN] = await Promise.all([
+    countWhere(statusesFor("active")!),
+    countWhere(statusesFor("trialing")!),
+    countWhere(statusesFor("churned")!),
+    countWhere([...statusesFor("abandoned")!, ...statusesFor("payment_failed")!]),
+  ])
 
   // MRR stat
   const { data: mrrData } = await supabase
@@ -176,7 +185,7 @@ export default async function SubscribersPage({
     .maybeSingle()
 
   const totalPages = Math.max(1, Math.ceil((count ?? 0) / PER_PAGE))
-  const rows = (data as Subscription[]) ?? []
+  const rows = (data as CustomerRow[]) ?? []
 
   // ── Entitlements for the rows on screen ────────────────────────────────────
   //
@@ -191,7 +200,7 @@ export default async function SubscribersPage({
   //
   // Scoped to the emails on THIS page rather than the whole tenant, so the extra read stays
   // proportional to what is rendered.
-  const emails = rows.map((r) => r.email).filter(Boolean)
+  const emails = rows.filter((r) => r.source === "subscription").map((r) => r.email).filter(Boolean) as string[]
   const { data: entRows } = emails.length
     ? await supabase
         .from("entitlement_records")
@@ -216,9 +225,9 @@ export default async function SubscribersPage({
     if (!entitlementByUser.has(e.app_user_id)) entitlementByUser.set(e.app_user_id, e)
   }
 
-  const activeCount = stats?.active_count ?? 0
-  const trialCount = stats?.trial_count ?? 0
-  const churnedCount = stats?.canceled_count ?? 0
+  const activeCount = activeN
+  const trialCount = trialN
+  const churnedCount = churnedN
   const mrrToday = mrrData?.mrr_dollars ?? 0
 
   return (
@@ -230,7 +239,8 @@ export default async function SubscribersPage({
             Subscribers
           </h2>
           <p className="text-ink-500 font-medium mt-1">
-            {(count ?? 0).toLocaleString()} subscribers total across all platforms
+            {(count ?? 0).toLocaleString()} customers across all providers — paid, store, and tried
+            {triedN > 0 && <> · {triedN.toLocaleString()} tried without subscribing</>}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -275,7 +285,7 @@ export default async function SubscribersPage({
           </div>
           <div className="mt-2 flex items-center gap-1 text-[11px] font-bold text-success-600">
             <TrendingUp className="w-3 h-3" />
-            +12% this month
+            entitled now
           </div>
         </div>
 
@@ -294,7 +304,7 @@ export default async function SubscribersPage({
           </div>
           <div className="mt-2 flex items-center gap-1 text-[11px] font-bold text-danger-600">
             <TrendingDown className="w-3 h-3" />
-            2% churn rate
+            cancelled or expired
           </div>
         </div>
 
@@ -378,8 +388,11 @@ export default async function SubscribersPage({
               <option value="">Status: All</option>
               <option value="active">Active</option>
               <option value="trialing">Trial</option>
-              <option value="canceled">Churned</option>
+              <option value="churned">Churned / expired</option>
               <option value="past_due">Past Due</option>
+              <option value="pending">Pending</option>
+              <option value="abandoned">Abandoned checkout</option>
+              <option value="payment_failed">Payment failed</option>
             </select>
             <select
               name="plan"
@@ -460,7 +473,7 @@ export default async function SubscribersPage({
                         searchParams.status ||
                         searchParams.plan
                           ? "Try clearing some filters."
-                          : "Subscriptions land here when users complete checkout."
+                          : "Customers land here when they buy, subscribe in a store, or start a checkout."
                       }
                     />
                   </td>
@@ -468,19 +481,20 @@ export default async function SubscribersPage({
               )}
               {rows.map((r) => (
                 <tr
-                  key={r.id}
+                  key={`${r.source}-${r.row_id}`}
                   className="hover:bg-ink-50/80 transition-colors group"
                 >
                   <td className="px-6 py-4 text-[12px] font-mono text-ink-500">
-                    {r.id.slice(0, 8)}…
+                    {displayId(r)}…
                   </td>
                   <td className="px-6 py-4 text-[13px] font-medium text-ink-900">
-                    <Link
-                      href={`/subscribers/${r.id}`}
-                      className="hover:text-brand-600 transition-colors"
-                    >
-                      {r.email}
-                    </Link>
+                    {detailHref(r) ? (
+                      <Link href={detailHref(r)!} className="hover:text-brand-600 transition-colors">
+                        {r.email}
+                      </Link>
+                    ) : (
+                      <span className={r.email ? "" : "text-ink-400 font-normal"}>{r.email ?? "anonymous device"}</span>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <span
@@ -491,7 +505,7 @@ export default async function SubscribersPage({
                   </td>
                   <td className="px-6 py-4">
                     <span
-                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${statusBadgeClass(r.status)}`}
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase whitespace-nowrap ${statusBadgeClass(r.status)}`}
                     >
                       {statusLabel(r.status)}
                     </span>
@@ -503,7 +517,17 @@ export default async function SubscribersPage({
                       Colouring them as problems would send support chasing non-issues. */}
                   <td className="px-6 py-4">
                     {(() => {
-                      const ent = entitlementByUser.get(r.email)
+                      // A store row IS the entitlement; an attempt never had one.
+                      if (r.source === "store") {
+                        const entitled = ENTITLED_STATES.has(r.status)
+                        return (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className={`h-1.5 w-1.5 rounded-full ${entitled ? "bg-success-500" : "bg-ink-300"}`} />
+                            <span className="text-[12px] font-medium text-ink-700">{entitled ? "Entitled" : "Not entitled"}</span>
+                          </span>
+                        )
+                      }
+                      const ent = r.email ? entitlementByUser.get(r.email) : undefined
                       if (!ent) {
                         return <span className="text-[12px] text-ink-400">none</span>
                       }
@@ -534,24 +558,23 @@ export default async function SubscribersPage({
                       )
                     })()}
                   </td>
-                  <td className="px-6 py-4 text-[12px] text-ink-500 capitalize">
-                    {r.provider ?? "—"}
+                  <td className="px-6 py-4 text-[12px] text-ink-500">
+                    {providerLabel(r.provider)}
                   </td>
                   <td className="px-6 py-4 text-[13px] text-ink-500">
-                    {r.current_period_end
-                      ? formatDate(r.current_period_end)
-                      : "—"}
+                    {r.period_end ? formatDate(r.period_end) : "—"}
                   </td>
                   <td className="px-6 py-4 text-[13px] text-ink-500">
-                    {formatDate(r.created_at)}
+                    {formatDate(r.started_at)}
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <Link
-                      href={`/subscribers/${r.id}`}
-                      className="text-brand-600 text-xs font-bold hover:underline"
-                    >
-                      View
-                    </Link>
+                    {detailHref(r) ? (
+                      <Link href={detailHref(r)!} className="text-brand-600 text-xs font-bold hover:underline">
+                        View
+                      </Link>
+                    ) : (
+                      <span className="text-[11px] text-ink-400">{r.source === "attempt" ? "tried" : "store"}</span>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -41,6 +41,8 @@ describe("paycraftGa4Account", () => {
     expect(GA4_SCOPE).toBe("https://www.googleapis.com/auth/analytics.readonly")
     expect(paycraftGa4Account(undefined)).toBeNull()
     expect(paycraftGa4Account("not json")).toBeNull()
+    const b64 = Buffer.from(JSON.stringify({ client_email: SA_EMAIL, private_key: "k" })).toString("base64")
+    expect(paycraftGa4Account(b64)?.email).toBe(SA_EMAIL) // the org Firebase account is stored base64-encoded
     const mint = jest.fn(async (_sa: unknown, _scope: string) => "minted")
     const acct = paycraftGa4Account(JSON.stringify({ client_email: SA_EMAIL, private_key: "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n" }), mint)!
     expect(acct.email).toBe(SA_EMAIL)

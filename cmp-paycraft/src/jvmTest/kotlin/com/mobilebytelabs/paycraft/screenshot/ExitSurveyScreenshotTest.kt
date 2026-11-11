@@ -40,10 +40,17 @@ import kotlin.test.assertTrue
 class ExitSurveyScreenshotTest {
 
     private val cfg = ExitSurveyConfig(
-        enabled = true, title = "Before you go — what stopped you?", capDays = 7,
+        enabled = true,
+        title = "Before you go — what stopped you?",
+        capDays = 7,
         reasons = listOf(
             ExitSurveyConfig.Reason("too_expensive", "It's too expensive", "offer", offer = ExitSurveyConfig.Offer(50)),
-            ExitSurveyConfig.Reason("payment_method", "My payment method isn't listed", "message", message = "We accept UPI on our website."),
+            ExitSurveyConfig.Reason(
+                "payment_method",
+                "My payment method isn't listed",
+                "message",
+                message = "We accept UPI on our website.",
+            ),
             ExitSurveyConfig.Reason("not_sure", "I'm not sure it's worth it yet", "none"),
             ExitSurveyConfig.Reason("just_looking", "I'm just looking", "none"),
             ExitSurveyConfig.Reason("other", "Something else", "none", freeText = true),
@@ -53,7 +60,8 @@ class ExitSurveyScreenshotTest {
         id = "o1", percentOff = 50, duration = "repeating", durationInMonths = 3, expiresAtIso = EXPIRES,
         sku = "pro-monthly", stripe = true, razorpay = true, googlePlayOfferId = null, appStoreOffer = null,
     )
-    private val plan = BillingPlan(id = "pro-monthly", name = "Pro Monthly", price = "₹299", interval = "/month", rank = 1)
+    private val plan =
+        BillingPlan(id = "pro-monthly", name = "Pro Monthly", price = "₹299", interval = "/month", rank = 1)
 
     @Test
     fun survey_lists_the_tenant_reasons() = runComposeUiTest {
@@ -109,7 +117,10 @@ class ExitSurveyScreenshotTest {
 
     private fun assertCaptured(path: String) {
         val f = java.io.File(path)
-        assertTrue(f.exists() && f.length() > 0L, "captureRoboImage did not write $path — verifyRoborazziJvm would be vacuously green")
+        assertTrue(
+            f.exists() && f.length() > 0L,
+            "captureRoboImage did not write $path — verifyRoborazziJvm would be vacuously green",
+        )
     }
 
     private companion object {

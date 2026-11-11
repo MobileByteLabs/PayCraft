@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
 import { tenantIdFromPath } from "../_shared/webhook-path.ts";
-import { invoiceSubscriptionId, stripeEventTenant, subscriptionPeriod } from "../_shared/stripe-shape.ts";
+import { attemptFromSession, invoiceSubscriptionId, stripeEventTenant, subscriptionPeriod } from "../_shared/stripe-shape.ts";
 import Stripe from "https://esm.sh/stripe@14.0.0?target=deno";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
@@ -90,6 +90,8 @@ const ATTRIBUTED_EVENTS = new Set([
   "customer.subscription.deleted",
   "invoice.paid",
   "charge.refunded",
+  "checkout.session.expired",
+  "checkout.session.async_payment_failed",
 ]);
 
 serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
@@ -448,6 +450,22 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
           tenantId,
           eventType: event.type,
         });
+        break;
+      }
+
+      // Tried and did not finish → the merchant's customer list (checkout_attempts, migration 186).
+      // A declined card does not end a Checkout session; it expires 24 h later, so "abandoned" covers both.
+      case "checkout.session.expired":
+      case "checkout.session.async_payment_failed": {
+        const row = attemptFromSession(
+          event.data.object,
+          event.type === "checkout.session.expired" ? "abandoned" : "payment_failed",
+          tenantId,
+        );
+        if (row && supabase) {
+          const { error } = await supabase.from("checkout_attempts").upsert(row, { onConflict: "provider,provider_session_id" });
+          if (error) throw new Error(`checkout_attempts write failed: ${error.message}`);
+        }
         break;
       }
 

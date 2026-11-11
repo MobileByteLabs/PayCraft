@@ -164,7 +164,7 @@ fun PayCraftPlanBanner(
 
     // Both presenters EMIT their sheet here and return a trigger, so the tap completes inside the
     // SDK instead of being handed back to a host that has to render something.
-    val showPaywall = rememberPaywallPresenter()
+    val showPaywall = rememberPaywallPresenter(placement = "plan_banner")
     val showRestore = rememberRestorePresenter()
 
     // Resolved inside the body, never as a parameter. Which manager drives entitlement is the

@@ -31,8 +31,17 @@ internal class PaywallFunnelTracker(
     private var purchased = false
     private var showing = false
 
-    private val trigger: String
-        get() = PayCraft.paywallPlacement?.takeIf { it.isNotBlank() }
+    /** What opened this paywall — resolved once when it is shown, so every event of the funnel carries the same one. */
+    private var trigger: String = "direct"
+
+    /**
+     * The placement the app (or an SDK entry point) named for THIS paywall, else how the SDK presented it. The
+     * placement is consumed here: a value left over from an earlier open must not label the next one.
+     */
+    private fun resolveTrigger(): String {
+        val placement = PayCraft.paywallPlacement?.takeIf { it.isNotBlank() }
+        PayCraft.paywallPlacement = null
+        return placement
             ?: when (val p = PayCraft.paywallPresentation.value) {
                 is PaywallPresentation.Shown -> when (p.trigger) {
                     PaywallPresentation.Shown.Trigger.Manual -> "manual"
@@ -41,6 +50,7 @@ internal class PaywallFunnelTracker(
                 }
                 PaywallPresentation.Hidden -> "direct"
             }
+    }
 
     private fun send(name: PayCraftEventName, step: PayCraftStep = this.step, reason: String? = null) {
         emit(
@@ -57,6 +67,7 @@ internal class PaywallFunnelTracker(
     /** The paywall appeared (each time it is shown — the ViewModel outlives the sheet). */
     fun shown() {
         step = PayCraftStep.Paywall
+        trigger = resolveTrigger()
         provider = null
         checkoutStarted = false
         purchased = false
@@ -65,14 +76,14 @@ internal class PaywallFunnelTracker(
     }
 
     fun planSelected(plan: BillingPlan) {
-        sku = plan.id
+        sku = plan.sku
         currency = plan.currency
         step = PayCraftStep.Plan
         send(PayCraftEventName.PlanSelect)
     }
 
     fun providerSheetShown(plan: BillingPlan) {
-        sku = plan.id
+        sku = plan.sku
         currency = plan.currency
         step = PayCraftStep.Provider
         send(PayCraftEventName.ProviderView)
@@ -85,7 +96,7 @@ internal class PaywallFunnelTracker(
     }
 
     fun providerChosen(plan: BillingPlan, providerId: String) {
-        sku = plan.id
+        sku = plan.sku
         currency = plan.currency
         provider = providerId
         step = PayCraftStep.Provider
@@ -93,7 +104,7 @@ internal class PaywallFunnelTracker(
     }
 
     fun checkoutStarted(plan: BillingPlan, providerId: String?) {
-        sku = plan.id
+        sku = plan.sku
         currency = plan.currency
         if (providerId != null) provider = providerId
         step = PayCraftStep.Checkout
@@ -129,7 +140,8 @@ internal class PaywallFunnelTracker(
     /** The exit survey appeared after an abandon at [atStep]. */
     fun surveyShown(atStep: PayCraftStep) = send(PayCraftEventName.SurveyView, atStep)
 
-    fun surveyAnswered(reasonCode: String) = send(PayCraftEventName.SurveyAnswer, PayCraftStep.Survey, reason = reasonCode)
+    fun surveyAnswered(reasonCode: String) =
+        send(PayCraftEventName.SurveyAnswer, PayCraftStep.Survey, reason = reasonCode)
 
     fun offerShown(percentOff: Int) = send(PayCraftEventName.OfferView, PayCraftStep.Offer, reason = "${percentOff}pct")
 

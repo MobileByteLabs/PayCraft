@@ -616,7 +616,7 @@ fun PayCraftPlanSection(
     // `clickable=true`, its handler ran, its golden matched and its tests passed — only the render
     // proved it dead. `PayCraftPresenters` exists precisely so this cannot happen; this surface just
     // never adopted it. The presenter still calls `presentPaywall()` for the analytics trigger.
-    val upgrade = rememberPaywallPresenter()
+    val upgrade = rememberPaywallPresenter(placement = "settings")
 
     Column(modifier = modifier.fillMaxWidth().testTag(PayCraftTestTags.SUBSCRIPTION_SETTINGS)) {
         // Compact is a single inline row by definition — a section header above a one-liner is the

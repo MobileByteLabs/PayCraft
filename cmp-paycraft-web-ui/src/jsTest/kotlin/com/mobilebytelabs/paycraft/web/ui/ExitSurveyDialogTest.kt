@@ -31,7 +31,10 @@ class ExitSurveyDialogTest {
         assertTrue("""value="too_expensive"""" in html && "It&#39;s too expensive" in html)
         assertEquals(1, Regex("<textarea").findAll(html).count(), "only 'Something else' has a text field")
         assertTrue("""data-pcx-s-text="other"""" in html && """maxlength="500"""" in html)
-        assertTrue(Regex("""data-pcx-s="send" data-pcx-s-send disabled""").containsMatchIn(html), "Send waits for a reason")
+        assertTrue(
+            Regex("""data-pcx-s="send" data-pcx-s-send disabled""").containsMatchIn(html),
+            "Send waits for a reason",
+        )
         assertTrue("""data-pcx-s="skip"""" in html && """aria-label="Close"""" in html)
     }
 
@@ -43,7 +46,10 @@ class ExitSurveyDialogTest {
         val html = offerHtml(offer(50, "once"), product, "47:59")
         assertTrue("50% off</p>" in html)
         assertTrue("50% off your first payment" in html)
-        assertTrue(Regex("<s class=\"pcx-s-was\">[^<]*299</s> <strong>[^<]*149\\.50</strong>").containsMatchIn(html), html)
+        assertTrue(
+            Regex("<s class=\"pcx-s-was\">[^<]*299</s> <strong>[^<]*149\\.50</strong>").containsMatchIn(html),
+            html,
+        )
         assertTrue("Ends in 47:59" in html)
         assertTrue("""data-pcx-s="claim" data-offer="o1">Claim 50% off""" in html)
         assertTrue("No thanks" in html)

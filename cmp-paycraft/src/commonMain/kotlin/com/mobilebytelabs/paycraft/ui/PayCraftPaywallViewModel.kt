@@ -264,6 +264,17 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
         }
     }
 
+    /**
+     * The paywall design's pre-selected plan, applied when it opens. It selects the plan like a tap but is NOT the
+     * buyer's choice, so it emits no `paycraft_plan_select` — otherwise every paywall view would count as a plan pick.
+     */
+    internal fun applyDefaultPlan(plan: BillingPlan) {
+        // Held like a pick so a config refresh does not swap it for the "popular" plan (the ring and the charge
+        // must agree) — only the analytics differ from onSelectPlan.
+        userPickedPlan = true
+        _state.update { it.copy(selectedPlan = plan) }
+    }
+
     private fun onSelectPlan(action: PayCraftPaywallAction.SelectPlan) {
         userPickedPlan = true
         _state.update { it.copy(selectedPlan = action.plan) }

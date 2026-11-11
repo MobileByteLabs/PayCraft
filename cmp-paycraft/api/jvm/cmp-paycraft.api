@@ -906,7 +906,7 @@ public final class com/mobilebytelabs/paycraft/ui/ComposableSingletons$PayCraftL
 public final class com/mobilebytelabs/paycraft/ui/ComposableSingletons$PayCraftPaywallComposableKt {
 	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/ui/ComposableSingletons$PayCraftPaywallComposableKt;
 	public fun <init> ()V
-	public final fun getLambda$-1010279927$io_github_mobilebytelabs_cmp_paycraft ()Lkotlin/jvm/functions/Function3;
+	public final fun getLambda$-1628831780$io_github_mobilebytelabs_cmp_paycraft ()Lkotlin/jvm/functions/Function3;
 }
 
 public final class com/mobilebytelabs/paycraft/ui/ComposableSingletons$PayCraftPlanBannerKt {

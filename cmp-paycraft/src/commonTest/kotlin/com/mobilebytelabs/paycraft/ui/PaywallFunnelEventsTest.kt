@@ -152,4 +152,46 @@ class PaywallFunnelEventsTest {
         assertEquals(PayCraftEventName.PurchaseSuccess, events.last().name)
         assertEquals("pro-monthly", events.last().sku)
     }
+
+    // ── Found on a device (Reels Downloader, 2026-11-11): what the events said vs. what happened ──
+
+    /** A config-built plan's id is the product UUID; the funnel, the dashboard and the website all key on the SKU. */
+    private val quarterly = BillingPlan(
+        id = "35515f32-a5db-4b2e-b159-72e0ce4becda",
+        sku = "pro-quarterly",
+        name = "Pro Quarterly",
+        price = "₹799",
+        interval = "quarter",
+        rank = 2,
+        currency = "INR",
+    )
+
+    @Test fun events_carry_the_plan_sku_not_its_product_id() {
+        val v = vm()
+        v.onShown()
+        v.dispatch(PayCraftPaywallAction.SelectPlan(quarterly))
+        assertEquals("pro-quarterly", events.last().sku)
+    }
+
+    @Test fun the_designs_default_plan_is_selected_but_is_not_counted_as_the_buyers_pick() {
+        val v = vm()
+        v.onShown()
+        v.applyDefaultPlan(quarterly)
+        assertEquals(quarterly, v.state.value.selectedPlan)
+        assertEquals(listOf(PayCraftEventName.PaywallView), names(), "no paycraft_plan_select for a pre-selection")
+        v.dispatch(PayCraftPaywallAction.SelectPlan(quarterly))
+        assertEquals(PayCraftEventName.PlanSelect, events.last().name, "a real tap still counts")
+    }
+
+    @Test fun a_placement_labels_one_paywall_and_does_not_leak_into_the_next() {
+        val v = vm()
+        v.onShown() // placement "home" from setUp
+        PayCraft.paywallPlacement = "browser" // set mid-funnel: must not relabel this paywall
+        v.dispatch(PayCraftPaywallAction.Dismiss)
+        assertEquals(listOf("home", "home"), events.map { it.trigger })
+        events.clear()
+        PayCraft.paywallPlacement = null
+        v.onShown()
+        assertEquals("direct", events.single().trigger, "the earlier placement was consumed")
+    }
 }
