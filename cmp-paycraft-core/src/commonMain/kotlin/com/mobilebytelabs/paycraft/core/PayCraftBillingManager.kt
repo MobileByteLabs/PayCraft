@@ -19,6 +19,7 @@ import com.mobilebytelabs.paycraft.persistence.PayCraftStore
 import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
+import kotlin.random.Random
 import com.mobilebytelabs.paycraft.provider.StripeProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -331,6 +332,7 @@ class PayCraftBillingManager(
         plan = plan,
         email = email,
         productId = plan.storeBinding?.takeIf { it.provider == "google_play" }?.productId,
+        provider = "google_play",
         storeLabel = "Play",
         notWiredError = "Google Play billing is not available on this device",
         misconfiguredError = "Google Play product not configured",
@@ -351,6 +353,7 @@ class PayCraftBillingManager(
         plan = plan,
         email = email,
         productId = plan.storeBinding?.takeIf { it.provider == "app_store" }?.productId,
+        provider = "app_store",
         storeLabel = "StoreKit",
         notWiredError = "App Store billing is not available on this device",
         misconfiguredError = "App Store product not configured",
@@ -384,6 +387,7 @@ class PayCraftBillingManager(
         plan: BillingPlan,
         email: String?,
         productId: String?,
+        provider: String,
         storeLabel: String,
         notWiredError: String,
         misconfiguredError: String,
@@ -505,6 +509,7 @@ class PayCraftBillingManager(
 
                 NativePurchaseResult.Cancelled -> {
                     PayCraftLogger.onFlow(tag, "$storeLabel purchase cancelled by user")
+                    reportStoreAttempt(provider, productId, appUserId, "abandoned")
                     // Return to the pre-purchase resting state rather than an error.
                     _billingState.value = if (_isPremium.value) {
                         BillingState.Premium(_subscriptionStatus.value)
@@ -515,8 +520,24 @@ class PayCraftBillingManager(
 
                 is NativePurchaseResult.Failed -> {
                     PayCraftLogger.onError(tag, "$storeLabel purchase failed: ${result.message}")
+                    reportStoreAttempt(provider, productId, appUserId, "payment_failed")
                     _billingState.value = BillingState.Error(result.message)
                 }
+            }
+        }
+    }
+
+    /**
+     * The store sheet ended without a purchase. Fire-and-forget: the report only feeds the merchant's
+     * customer list, so it must never delay, fail or alter the buyer's flow.
+     */
+    private fun reportStoreAttempt(provider: String, productId: String, appUserId: String, outcome: String) {
+        val attemptId = "${currentTimeMillis()}-${Random.nextLong().toULong().toString(16)}"
+        scope.launch {
+            try {
+                service.recordStoreAttempt(provider, productId, appUserId, outcome, attemptId)
+            } catch (e: Exception) {
+                PayCraftLogger.onError("reportStoreAttempt", e.message)
             }
         }
     }

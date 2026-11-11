@@ -157,6 +157,13 @@ interface PayCraftService {
 
     /** One boolean for this app: does [email] already pay? See [com.mobilebytelabs.paycraft.core.BillingManager.hasActiveSubscription]. */
     suspend fun hasActiveSubscription(email: String): Boolean = false
+
+    /**
+     * Report a Play / App Store purchase the buyer cancelled or that failed on the store sheet
+     * (record_store_attempt, migration 188). Neither store tells any server about these — no purchase
+     * exists — so this is the only way they reach the merchant's customer list.
+     */
+    suspend fun recordStoreAttempt(provider: String, productId: String, appUserId: String, outcome: String, attemptId: String): Boolean = false
     suspend fun transferToDevice(serverToken: String, newDeviceToken: String): Boolean
 
     /**
@@ -461,6 +468,29 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         ).data.trim().toBooleanStrictOrNull() ?: false
     } catch (e: Exception) {
         PayCraftLogger.onRpcError("has_active_subscription", e.message)
+        false
+    }
+
+    override suspend fun recordStoreAttempt(
+        provider: String,
+        productId: String,
+        appUserId: String,
+        outcome: String,
+        attemptId: String,
+    ): Boolean = try {
+        postgrest.rpc(
+            function = "record_store_attempt",
+            parameters = buildJsonObject {
+                put("p_api_key", apiKey)
+                put("p_app_user_id", appUserId)
+                put("p_provider", provider)
+                put("p_product_id", productId)
+                put("p_outcome", outcome)
+                put("p_attempt_id", attemptId)
+            },
+        ).data.trim().toBooleanStrictOrNull() ?: false
+    } catch (e: Exception) {
+        PayCraftLogger.onRpcError("record_store_attempt", e.message)
         false
     }
 
