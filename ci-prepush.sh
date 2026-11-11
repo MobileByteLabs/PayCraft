@@ -60,10 +60,12 @@ for task in "${tasks[@]}"; do
     run_gradle_task "$task"
 done
 
-# Non-Gradle gates of the 3.0 core split (each prints its own PASS/FAIL).
+# Non-Gradle gates of the 3.0 core split + the paywall-analytics event catalog / PII / web-entry gates
+# (each prints its own PASS/FAIL).
 for gate in "infra/release-coverage-check.sh ." "infra/module-boundary-check.sh" \
     "infra/web-api-diff.sh" "infra/android-api-check.sh" \
-    "infra/api-split-diff.sh --baseline infra/api-baseline/2.5.2 --current cmp-paycraft-core/api --current cmp-paycraft/api"; do
+    "infra/api-split-diff.sh --baseline infra/api-baseline/2.5.2 --current cmp-paycraft-core/api --current cmp-paycraft/api" \
+    "infra/event-catalog-check.sh" "infra/event-pii-check.sh" "infra/web-ui-api-check.sh" "infra/web-bundle-size.sh"; do
     name="${gate%% *}"
     echo "Running: $name"
     if bash $gate; then

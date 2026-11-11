@@ -5,8 +5,8 @@
 #     hardcoded `artifact-id: 'cmp-paycraft'` (the reusable workflow publishes every cmp-*/ module whose
 #     build has `mavenPublishing`; `artifact-id` only drives version lookup);
 #   - release.yml assembles every cmp-* module;
-#   - every cmp-* module except cmp-paycraft-web has `mavenPublishing` (so it is discovered);
-#     cmp-paycraft-web must NOT (it ships vendored via /lib-integrate, never to Maven — coordinates
+#   - every cmp-* module except the web ones (cmp-paycraft-web + its lazy cmp-paycraft-web-ui) has `mavenPublishing`;
+#     the web ones must NOT (they ship vendored via /lib-integrate, never to Maven — coordinates
 #     cannot be withdrawn);
 #   - paycraft.version is strictly above the latest cmp-paycraft on Maven Central. This replaces the
 #     workflow's verify-against-maven for 3.0.0: its artifact-id moves to cmp-paycraft-core, which has no
@@ -31,7 +31,7 @@ for d in "$R"/cmp-*/; do
   m="$(basename "$d")"
   [[ -f "$d/build.gradle.kts" ]] || continue
   grep -q ":$m:assemble" "$L" || no "release.yml does not assemble :$m"
-  if [[ "$m" == cmp-paycraft-web ]]; then
+  if [[ "$m" == cmp-paycraft-web || "$m" == cmp-paycraft-web-ui ]]; then
     grep -q mavenPublishing "$d/build.gradle.kts" && no "$m must stay vendored-only (no mavenPublishing)"
   else
     grep -q mavenPublishing "$d/build.gradle.kts" || no "$m has no mavenPublishing (the publish workflow will not discover it)"

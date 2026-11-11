@@ -3,13 +3,14 @@
 // make the template unreadable, so ONLY the line-length rule is relaxed here — every other ktlint rule applies.
 @file:Suppress("ktlint:standard:max-line-length")
 
-package com.mobilebytelabs.paycraft.web
+package com.mobilebytelabs.paycraft.web.ui
 
 /**
- * Options for [PayCraftWeb.mountCheckout] — a plain object from JavaScript, every field optional:
+ * Options for [mountCheckout] — a plain object from JavaScript, every field optional:
  *
  * ```ts
- * await pc.mountCheckout(el, "pro-monthly", {
+ * const ui = await import("/vendor/paycraft-web-ui/paycraft-web-ui.mjs");
+ * await ui.mountCheckout(pc, el, "pro-monthly", {
  *   features: ["No ads anywhere", "Download history"],
  *   backUrl: "/pricing/", signInUrl: "/signin/?plan=pro-monthly",
  *   termsUrl: "/terms/", refundUrl: "/refund/",
@@ -29,13 +30,20 @@ external interface CheckoutPageOptions {
     /** Linked from the fine print under the pay button. */
     val termsUrl: String?
     val refundUrl: String?
+
+    /** Ask the tenant's exit survey when the buyer leaves without paying (default true). */
+    val exitSurvey: Boolean?
 }
 
 /** One payment-method card on the page. */
 internal class CheckoutMethodCard(
     val provider: String,
     val name: String,
-    val info: PaymentMethodInfo,
+    /** The methods it offers for this price, in the provider's order (UPI, Cards…). */
+    val methods: List<String>,
+    val cardBrands: List<String>,
+    val note: String?,
+    val summary: String,
     val recommended: Boolean,
 )
 
@@ -56,6 +64,8 @@ internal class CheckoutModel(
     val refundUrl: String?,
     /** ISO-4217 currency of [price] — rides on the page's paywall events. */
     val currency: String? = null,
+    /** [price] in minor units — for the discounted price when a win-back offer is applied. */
+    val amountCents: Int? = null,
 )
 
 /** A state other than the ready page: a message and at most one link onward. */
@@ -148,10 +158,10 @@ internal fun checkoutNoticeHtml(n: CheckoutNotice): String {
 
 private fun methodCard(card: CheckoutMethodCard, checked: Boolean): String {
     val id = "pcx-m-${esc(card.provider)}"
-    val chips = card.info.methods.joinToString("") { """<li class="pcx-chip">${methodIcon(it)}${esc(it)}</li>""" }
-    val brands = card.info.cardBrands.takeIf { it.isNotEmpty() }
+    val chips = card.methods.joinToString("") { """<li class="pcx-chip">${methodIcon(it)}${esc(it)}</li>""" }
+    val brands = card.cardBrands.takeIf { it.isNotEmpty() }
         ?.let { """<p class="pcx-brands">${it.joinToString(" · ") { b -> esc(b) }}</p>""" }.orEmpty()
-    val note = card.info.note?.let { """<p class="pcx-note">${esc(it)}</p>""" }.orEmpty()
+    val note = card.note?.let { """<p class="pcx-note">${esc(it)}</p>""" }.orEmpty()
     val badge = if (card.recommended) """<span class="pcx-badge">Recommended</span>""" else ""
     return """<label class="pcx-method" for="$id" data-pcx-method="${esc(
         card.provider,
@@ -160,7 +170,7 @@ private fun methodCard(card: CheckoutMethodCard, checked: Boolean): String {
     )}"${if (checked) " checked" else ""}><span class="pcx-method-body"><span class="pcx-method-head"><span class="pcx-method-name">${esc(
         card.name,
     )}</span>$badge</span><span class="pcx-method-sum">${esc(
-        card.info.summary,
+        card.summary,
     )}</span><ul class="pcx-chips" aria-label="Payment methods with ${esc(
         card.name,
     )}">$chips</ul>$brands$note</span></label>"""
@@ -217,7 +227,7 @@ internal fun checkoutPageHtml(m: CheckoutModel): String {
         m.planName,
     )}</span>$trialBadge</div><p class="pcx-price"><span class="pcx-amount">${esc(
         m.price,
-    )}</span>$per</p></div><dl class="pcx-rows"><div class="pcx-row"><dt>Billing</dt><dd>${esc(
+    )}</span>$per</p><p class="pcx-offer" data-pcx-offer role="status" hidden></p></div><dl class="pcx-rows"><div class="pcx-row"><dt>Billing</dt><dd>${esc(
         billingLabel(m.period),
     )}</dd></div>$trialRow<div class="pcx-row pcx-total"><dt>Total</dt><dd>${esc(m.price)}${m.period?.let {
         " / ${esc(it)}"
@@ -261,6 +271,6 @@ internal const val CHECKOUT_CSS: String =
         ".pcx-row{display:flex;justify-content:space-between;gap:12px}.pcx-row dd{margin:0;font-weight:500;text-align:right}.pcx-total{padding-top:10px;border-top:1px dashed var(--l);font-size:15px;font-weight:700}" +
         ".pcx-features li,.pcx-facts li{display:flex;gap:10px;align-items:flex-start;line-height:1.45}.pcx li>.pcx-ic{margin-top:2px}.pcx-facts strong{word-break:break-all}" +
         ".pcx-pay{margin-top:20px;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:50px;padding:0 20px;border:0;border-radius:99px;font:inherit;font-size:16px;font-weight:600;cursor:pointer;text-decoration:none}" +
-        ".pcx-pay:disabled{opacity:.6;cursor:progress}.pcx-pay-inline{width:auto;margin-top:22px}" +
+        ".pcx-offer{margin:10px 0 0;padding:8px 12px;border-radius:10px;font-size:13.5px;font-weight:600;color:var(--pcx-ok);background:color-mix(in oklab,var(--pcx-ok) 12%,transparent)}.pcx-pay:disabled{opacity:.6;cursor:progress}.pcx-pay-inline{width:auto;margin-top:22px}" +
         ".pcx-error{margin:12px 0 0;padding:10px 12px;border-radius:10px;font-size:13.5px;color:#b91c1c;background:#ef44441a}" +
         ".pcx-fine{margin:12px 0 0;font-size:12.5px;text-align:center}.pcx-fine a{color:inherit}.pcx-notice{max-width:32rem;margin:40px auto 0;text-align:center}.pcx-notice .pcx-lead{margin-inline:auto}"

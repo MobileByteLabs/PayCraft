@@ -49,10 +49,19 @@ class SignInResult(val email: String, val conflict: Boolean, val conflictingDevi
  */
 /**
  * One way to pay for a plan on the web ([PayCraftWeb.paymentOptions]): the [provider] id to pass to
- * [PayCraftWeb.checkoutUrlWith], its display [name] and the [methods] it offers (e.g. UPI, cards).
+ * [PayCraftWeb.checkoutUrlWith], its display [name] and the [methods] it offers as one phrase ("UPI, cards,
+ * netbanking & wallets") — and the same as a list ([methodList], in the order the provider shows them), the card
+ * networks it takes ([cardBrands]) and a short [note]. It depends on the currency: Razorpay offers UPI only for INR.
  */
 @JsExport
-class WebPaymentOption(val provider: String, val name: String, val methods: String)
+class WebPaymentOption(
+    val provider: String,
+    val name: String,
+    val methods: String,
+    val methodList: Array<String>,
+    val cardBrands: Array<String>,
+    val note: String?,
+)
 
 @JsExport
 class WebDevice(
@@ -80,6 +89,34 @@ class WebSubscription(
     val cancelAtPeriodEnd: Boolean,
     val trialEndsAt: String?,
 )
+
+/** The tenant's exit survey ([PayCraftWeb.surveyConfig]): the question and the reasons, in order. */
+@JsExport
+class WebExitSurvey(val title: String, val reasons: Array<WebSurveyReason>)
+
+/** One answer. [freeText]: "Something else" — show a text field and send what the buyer writes. */
+@JsExport
+class WebSurveyReason(val code: String, val label: String, val freeText: Boolean)
+
+/**
+ * A win-back discount for this buyer ([PayCraftWeb.answerSurvey]): [percentOff] off, for [duration] (`once` = the
+ * first payment, `repeating` = [durationInMonths] months, `forever`), until [expiresAt] (ISO). [stripe] / [razorpay]:
+ * the checkout lanes that can apply it. [PayCraftWeb.claimOffer] carries it into the next checkout.
+ */
+@JsExport
+class WebOffer(
+    val id: String,
+    val percentOff: Int,
+    val duration: String,
+    val durationInMonths: Int?,
+    val expiresAt: String,
+    val stripe: Boolean,
+    val razorpay: Boolean,
+)
+
+/** What an answer earned: [action] `offer` ([offer]), `message` ([message]) or `none` (close). */
+@JsExport
+class WebWinback(val action: String, val message: String?, val offer: WebOffer?)
 
 /** Every failure the SDK rejects a promise with; [code] is stable (`sign_in_required`, `http_401`, …). */
 @JsExport

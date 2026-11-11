@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS public.winback_offers (
 CREATE INDEX IF NOT EXISTS winback_offers_tenant_time ON public.winback_offers (tenant_id, created_at DESC);
 -- applied_at: checkout-initiate put the discount on a checkout; redeemed_at: the provider then confirmed payment.
 ALTER TABLE public.winback_offers ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ;
+ALTER TABLE public.winback_offers ADD COLUMN IF NOT EXISTS applied_ref TEXT;
 
 -- RLS: service role writes (the winback function, the dashboard's API routes); tenant admins read their own.
 ALTER TABLE public.tenant_exit_survey ENABLE ROW LEVEL SECURITY;

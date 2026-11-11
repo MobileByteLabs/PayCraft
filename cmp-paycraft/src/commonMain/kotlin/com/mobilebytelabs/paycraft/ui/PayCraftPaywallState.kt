@@ -24,6 +24,8 @@ data class PayCraftPaywallState(
     val restoreResult: RestoreResult? = null,
     /** True while the PayCraftRestore modal bottom sheet is visible (legal-footer RESTORE click). */
     val isRestoreSheetVisible: Boolean = false,
+    /** Set when Subscribe found this email already paying for the app: restore opens with an "already subscribed" notice. */
+    val alreadySubscribedEmail: String? = null,
     /** Cloud-fetched provider list for the provider picker sheet. */
     val suiteProviders: List<ProviderDto> = emptyList(),
     /** Non-null while the provider-picker bottom sheet is open; carries the plan the user tapped. */

@@ -21,6 +21,7 @@ import { redeemableNow } from "../_shared/exit-survey.ts"
 import { recordedCountry } from "../_shared/geo.ts"
 import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/rate-limit.ts"
 import { buyerRef, lanesFor, type OfferCoupon } from "../_shared/winback-offer.ts"
+import { signPromotionalOffer } from "../_shared/appstore-offer.ts"
 
 const CODE = /^[a-z][a-z_]{0,30}$/
 const PLATFORMS = new Set(["android", "ios", "web", "desktop"])
@@ -97,11 +98,17 @@ serve(async (req: Request): Promise<Response> => {
   // A unique violation means this buyer already had this offer (GOAL D7): nothing more to give.
   if (offerErr || !offer) return json(200, { action: "none" })
 
-  let productId: string | null = null
+  let product: { id: string; app_store_product_id: string | null } | null = null
   if (sku) {
-    const { data: p } = await supabase.from("tenant_products").select("id").eq("tenant_id", tenantId).eq("sku", sku).maybeSingle()
-    productId = p?.id ?? null
+    const { data: p } = await supabase.from("tenant_products").select("id,app_store_product_id").eq("tenant_id", tenantId).eq("sku", sku).maybeSingle()
+    product = p ?? null
   }
+  const lanes: Record<string, unknown> = lanesFor(coupon as OfferCoupon, product?.id ?? null)
+  // iOS: StoreKit applies a promotional offer only with a signature from the app's In-App Purchase key, over
+  // this product, offer and the purchase's appAccountToken. No key / no App Store product → no App Store lane.
+  lanes.app_store = platform === "ios" && lanes.app_store && product?.app_store_product_id
+    ? await signedAppStoreOffer(supabase, tenantId, product.app_store_product_id, String(lanes.app_store), str(body.appAccountToken, 36))
+    : null
   return json(200, {
     action: "offer",
     offer: {
@@ -110,7 +117,30 @@ serve(async (req: Request): Promise<Response> => {
       duration: coupon.duration ?? "once",
       ...(coupon.duration_in_months != null ? { durationInMonths: coupon.duration_in_months } : {}),
       expiresAt: offer.expires_at,
-      lanes: lanesFor(coupon as OfferCoupon, productId),
+      lanes,
     },
   })
 })
+
+/** The App Store lane of an offer: Apple's signed promotional offer, or null when the tenant's key is not set up. */
+async function signedAppStoreOffer(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  tenantId: string,
+  productId: string,
+  offerId: string,
+  appAccountToken: string | null,
+) {
+  try {
+    const { data } = await supabase.rpc("tenant_providers_decrypt_store_key", { p_tenant_id: tenantId, p_provider: "app_store" })
+      .maybeSingle()
+    const cfg = (data?.config ?? {}) as Record<string, string>
+    if (!data?.credential || !cfg.key_id || !cfg.bundle_id) return null
+    return await signPromotionalOffer({ keyId: cfg.key_id, privateKeyPem: data.credential }, {
+      bundleId: cfg.bundle_id, productId, offerId, appAccountToken, nonce: crypto.randomUUID(), timestamp: Date.now(),
+    })
+  } catch (e) {
+    console.warn(`winback: App Store offer signing failed for tenant ${tenantId}: ${(e as Error).message}`)
+    return null
+  }
+}

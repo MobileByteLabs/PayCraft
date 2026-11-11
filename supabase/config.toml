@@ -506,6 +506,8 @@ verify_jwt = false
 verify_jwt = false
 [functions.events]
 verify_jwt = false
+[functions.winback]
+verify_jwt = false
 [functions.coupon-validate]
 verify_jwt = false
 [functions.register-play-purchase]

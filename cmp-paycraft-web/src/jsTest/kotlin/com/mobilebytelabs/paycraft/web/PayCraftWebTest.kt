@@ -504,8 +504,20 @@ internal class FakeTransport : Transport {
             Triple(path, status, body)
     }
 
+    /** Answers [path] with each (status, body) in turn, then repeats the last. */
+    fun onSequence(path: String, vararg answers: Pair<Int, String>): FakeTransport = apply {
+        var i = 0
+        sequences[path] = { answers[minOf(i++, answers.size - 1)] }
+    }
+
+    private val sequences = mutableMapOf<String, () -> Pair<Int, String>>()
+
     override suspend fun send(method: String, url: String, headers: Map<String, String>, body: String?): HttpResult {
         calls += Call(method, url, headers, body)
+        sequences.entries.lastOrNull { url.substringBefore('?').endsWith(it.key) }?.let { (_, next) ->
+            val (status, b) = next()
+            return HttpResult(status, b)
+        }
         val route = routes.lastOrNull { url.substringBefore('?').endsWith(it.first) }
             ?: return HttpResult(404, """{"error":"no fake route for $url"}""")
         return HttpResult(route.second, route.third())

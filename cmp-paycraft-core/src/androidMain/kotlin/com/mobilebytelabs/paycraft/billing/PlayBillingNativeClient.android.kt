@@ -160,7 +160,10 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
             // base plan + trial + intro + developer offers in a meaningless order, so
             // `firstOrNull()` made a configured free trial apply or not by chance.
             val offers = productDetails.toNativeOffers()
-            val best = selectBestOffer(offers)
+            // A claimed exit-survey offer wins (paycraft-paywall-analytics); else the best default. A Play offer id
+            // belongs to one product, so for any other product Play does not return it and chooseOffer falls back.
+            val winbackOfferId = com.mobilebytelabs.paycraft.PayCraft.activeWinbackOffer?.googlePlayOfferId
+            val best = chooseOffer(offers, winbackOfferId)
                 ?: return NativePurchaseResult.Failed("No subscription offer for $productId")
             detailsParams.setOfferToken(best.offerToken)
             logD("PlayBillingNativeClient") {

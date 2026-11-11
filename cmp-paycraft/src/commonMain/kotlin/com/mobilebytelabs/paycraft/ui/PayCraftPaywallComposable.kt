@@ -17,6 +17,9 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.mobilebytelabs.paycraft.ui.survey.ExitSurveyContent
+import com.mobilebytelabs.paycraft.ui.survey.ExitSurveyMessageContent
+import com.mobilebytelabs.paycraft.ui.survey.WinbackOfferContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -202,7 +205,28 @@ fun PayCraftPaywallComposable(
             //    inside one stacks two scrims and two windows (UI-3), which is what made the host
             //    app disappear behind an opaque layer.
             //  - FullScreen  → we are a screen, not a sheet, so a real modal sheet on top is right.
+            val survey by viewModel.survey.collectAsStateWithLifecycle()
             val secondary: (@Composable () -> Unit)? = when {
+                // The exit survey replaces the paywall in place — in a sheet AND full screen (it is part of
+                // closing, not a separate surface to stack).
+                survey != null -> {
+                    {
+                        when (val sv = survey) {
+                            is ExitSurveyUi.Asking -> ExitSurveyContent(
+                                cfg = sv.cfg, sending = sv.sending,
+                                onAnswer = viewModel::onSurveyAnswer, onSkip = viewModel::closeSurvey,
+                            )
+                            is ExitSurveyUi.OfferShown -> WinbackOfferContent(
+                                offer = sv.offer, plan = sv.plan,
+                                onClaim = viewModel::onClaimOffer, onDecline = viewModel::closeSurvey,
+                            )
+                            is ExitSurveyUi.MessageShown -> ExitSurveyMessageContent(
+                                message = sv.text, onBack = viewModel::onSurveyBack, onClose = viewModel::closeSurvey,
+                            )
+                            null -> {}
+                        }
+                    }
+                }
                 sheetTarget != null -> {
                     {
                         ProviderPickerContent(
@@ -230,7 +254,7 @@ fun PayCraftPaywallComposable(
                 else -> null
             }
 
-            if (surfaceMode == PayCraftSurfaceMode.Sheet && secondary != null) {
+            if (secondary != null && (surfaceMode == PayCraftSurfaceMode.Sheet || survey != null)) {
                 // ONE modal window: the secondary surface replaces the paywall body in place.
                 secondary()
             } else {
@@ -269,6 +293,7 @@ fun PayCraftPaywallComposable(
                 // PayCraftPaywallSheet / PayCraftPaywall overloads.
                 PayCraftRestore(
                     visible = restoreVisible,
+                    alreadySubscribedEmail = state.alreadySubscribedEmail,
                     onDismiss = { viewModel.dispatch(PayCraftPaywallAction.CloseRestoreSheet) },
                 )
             }

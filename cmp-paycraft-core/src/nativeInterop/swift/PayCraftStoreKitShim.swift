@@ -127,6 +127,38 @@ import UIKit
         appAccountToken: String?,
         completion: @escaping (PCPurchaseOutcome) -> Void
     ) {
+        purchase(productId, appAccountToken: appAccountToken, offer: nil, completion: completion)
+    }
+
+    /// The same purchase with a server-signed PROMOTIONAL OFFER applied — the exit survey's win-back discount
+    /// (paycraft-paywall-analytics). The signature is PayCraft's `winback` function's, over this exact
+    /// product, offer, appAccountToken, nonce and timestamp; StoreKit rejects the purchase if any differ.
+    @objc public func purchaseWithOffer(
+        _ productId: String,
+        appAccountToken: String?,
+        offerId: String,
+        keyId: String,
+        nonce: String,
+        signature: String,
+        timestamp: Int64,
+        completion: @escaping (PCPurchaseOutcome) -> Void
+    ) {
+        guard let nonceUUID = UUID(uuidString: nonce), let sig = Data(base64Encoded: signature) else {
+            completion(PCPurchaseOutcome(kind: .failed, message: "Invalid promotional offer signature"))
+            return
+        }
+        let offer = Product.PurchaseOption.promotionalOffer(
+            offerID: offerId, keyID: keyId, nonce: nonceUUID, signature: sig, timestamp: Int(timestamp)
+        )
+        purchase(productId, appAccountToken: appAccountToken, offer: offer, completion: completion)
+    }
+
+    private func purchase(
+        _ productId: String,
+        appAccountToken: String?,
+        offer: Product.PurchaseOption?,
+        completion: @escaping (PCPurchaseOutcome) -> Void
+    ) {
         Task {
             do {
                 guard let product = try await Product.products(for: [productId]).first else {
@@ -139,6 +171,9 @@ import UIKit
                 var options: Set<Product.PurchaseOption> = []
                 if let token = appAccountToken, let uuid = UUID(uuidString: token) {
                     options.insert(.appAccountToken(uuid))
+                }
+                if let offer = offer {
+                    options.insert(offer)
                 }
 
                 switch try await product.purchase(options: options) {

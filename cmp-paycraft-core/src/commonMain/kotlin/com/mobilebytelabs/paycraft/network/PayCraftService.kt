@@ -154,6 +154,9 @@ interface PayCraftService {
 
     // Server-token-based device RPCs
     suspend fun checkPremiumWithDevice(serverToken: String): PremiumCheckResult
+
+    /** One boolean for this app: does [email] already pay? See [com.mobilebytelabs.paycraft.core.BillingManager.hasActiveSubscription]. */
+    suspend fun hasActiveSubscription(email: String): Boolean = false
     suspend fun transferToDevice(serverToken: String, newDeviceToken: String): Boolean
 
     /**
@@ -447,6 +450,19 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
             PayCraftLogger.onRpcError("entitlement_balance_spend", e.message)
             null
         }
+
+    override suspend fun hasActiveSubscription(email: String): Boolean = try {
+        postgrest.rpc(
+            function = "has_active_subscription",
+            parameters = buildJsonObject {
+                put("p_email", email)
+                put("p_api_key", apiKey)
+            },
+        ).data.trim().toBooleanStrictOrNull() ?: false
+    } catch (e: Exception) {
+        PayCraftLogger.onRpcError("has_active_subscription", e.message)
+        false
+    }
 
     override suspend fun isTrialEligible(serverToken: String): Boolean = try {
         PayCraftLogger.onRpcCall("is_trial_eligible", "token=${serverToken.take(12)}...")

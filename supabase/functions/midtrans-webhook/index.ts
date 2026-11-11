@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
+import { tenantIdFromPath } from "../_shared/webhook-path.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
 /**
@@ -17,9 +18,7 @@ import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 const serverKey = Deno.env.get("MIDTRANS_SERVER_KEY") || "";
 
 serve(withWebhookRateLimit({ bucket: "webhook:midtrans" }, async (req) => {
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const tenantId: string | null = pathParts.length > 3 ? pathParts[3] : null;
+  const tenantId: string | null = tenantIdFromPath(req.url, "midtrans-webhook");
 
   const body = await req.text();
   let notification: any;

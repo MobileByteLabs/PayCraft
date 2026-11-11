@@ -4,6 +4,7 @@ import com.mobilebytelabs.paycraft.storekit.PCOutcomeKindCancelled
 import com.mobilebytelabs.paycraft.storekit.PCOutcomeKindPending
 import com.mobilebytelabs.paycraft.storekit.PCOutcomeKindSuccess
 import com.mobilebytelabs.paycraft.storekit.PCPrice
+import com.mobilebytelabs.paycraft.storekit.PCPurchaseOutcome
 import com.mobilebytelabs.paycraft.storekit.PCTransaction
 import com.mobilebytelabs.paycraft.storekit.PayCraftStoreKitShim
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -57,7 +58,11 @@ internal class StoreKit2NativeBillingClient(private val shim: PayCraftStoreKitSh
     ): NativePurchaseResult = // StoreKit resolves the product type from the product itself, so no branch is needed here
         // the way Play needs SUBS vs INAPP up front.
         suspendCancellableCoroutine { cont ->
-            shim.purchase(productId, appUserId?.let(::appAccountToken)) { outcome ->
+            // A claimed exit-survey offer with a server signature (paycraft-paywall-analytics) goes through the
+            // promotional-offer purchase; otherwise the plain one.
+            val offer = com.mobilebytelabs.paycraft.PayCraft.activeWinbackOffer?.appStoreOffer
+            val token = appUserId?.let(::storeAppAccountToken)
+            val onOutcome: (PCPurchaseOutcome?) -> Unit = { outcome ->
                 val result = when (outcome?.kind) {
                     PCOutcomeKindSuccess ->
                         outcome.transaction
@@ -84,6 +89,13 @@ internal class StoreKit2NativeBillingClient(private val shim: PayCraftStoreKitSh
                     else -> NativePurchaseResult.Failed(outcome?.message ?: "StoreKit purchase failed")
                 }
                 cont.resume(result)
+            }
+            if (offer != null) {
+                shim.purchaseWithOffer(
+                    productId, token, offer.offerId, offer.keyIdentifier, offer.nonce, offer.signature, offer.timestamp, onOutcome,
+                )
+            } else {
+                shim.purchase(productId, token, onOutcome)
             }
         }
 
@@ -170,22 +182,4 @@ internal class StoreKit2NativeBillingClient(private val shim: PayCraftStoreKitSh
     /** The StoreKit transaction id carried through [NativePurchase.packageName]. */
     private val NativePurchase.storeKitTransactionId: String?
         get() = packageName?.takeIf { it.isNotBlank() }
-}
-
-/**
- * StoreKit requires `appAccountToken` to be a UUID, but the SDK's app-user id is an email or a
- * device id. Derive a stable UUID-shaped token from it so the same buyer always produces the same
- * token and the server-side notification can attribute the transaction.
- */
-private fun appAccountToken(appUserId: String): String {
-    var h1 = -0x340d631b00000000L
-    var h2 = 0x2545f4914f6cdd1dL
-    for (c in appUserId) {
-        h1 = (h1 xor c.code.toLong()) * 0x100000001b3L
-        h2 = (h2 + c.code.toLong()) * 0x27220a95L
-    }
-    val a = h1.toULong().toString(16).padStart(16, '0')
-    val b = h2.toULong().toString(16).padStart(16, '0')
-    return "${a.substring(0, 8)}-${a.substring(8, 12)}-${a.substring(12, 16)}-" +
-        "${b.substring(0, 4)}-${b.substring(4, 16)}"
 }

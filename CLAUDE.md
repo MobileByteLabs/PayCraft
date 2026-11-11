@@ -98,6 +98,34 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
   grandfathered — they keep working and can be edited; only a NEW or RENAMED SKU must follow the rule.
 - Test fixtures use the convention too (`pro-monthly`, not `pro_monthly`).
 
+## Paywall events, exit survey and win-back — single source of truth
+
+- **Events:** `cmp-paycraft-core/.../analytics/PayCraftEvent.kt` (`PayCraftEventName`, `PayCraftStep`) is THE
+  catalog — `paycraft_` + GA4-valid snake_case. SDK code emits the enum, never a string:
+  `infra/event-catalog-check.sh` fails on a raw `"paycraft_*"` at an emit call and on a stale server copy
+  (`supabase/functions/_shared/event-catalog.ts`, regenerated with `--emit-ts`). `infra/event-pii-check.sh` holds
+  every layer an event crosses (fields → `params()` → `eventsBody` → `events` rows → `paywall_events`) to an
+  allowlist: no email, name or free text; the buyer is only ever a hash (`user_ref`).
+- **Where they go:** PayCraft's own funnel (`events` function → `paywall_events`, migration 180; dashboard
+  Analytics) and the app's / site's analytics, which the integrator wires:
+  `PayCraft.analyticsListener = PayCraftAnalyticsListener { name, params -> firebaseAnalytics.logEvent(name, params) }`
+  (apps), `pc.onEvent((name, params) => gtag("event", name, params))` (sites). `PayCraft.paywallPlacement` names the
+  screen that opened the paywall (`trigger`).
+- **Exit survey:** `tenant_exit_survey` (181) — edited on dashboard ▸ Paywall ▸ Exit survey and saved only through
+  `tenant_exit_survey_save` (183), which owns the rules; `dashboard/lib/exit-survey-config.ts` mirrors them with the
+  same error codes. Served in `/config` as `exit_survey`; shown in place of the paywall (mobile) or as a dialog
+  (web, `cmp-paycraft-web-ui`'s `showExitSurvey`) at most once per `survey_cap_days` (`exitSurveyDue`, core).
+- **Win-back offers:** an answer goes to the `winback` function → `winback_offers` (one per buyer per coupon,
+  expiring after `offer_hours`), with the lanes the coupon reaches (`_shared/winback-offer.ts#lanesFor`). Claimed,
+  it rides into checkout: `checkout-initiate` applies it (Stripe discount / Razorpay offer; 409 `offer_not_usable`
+  → retried at full price), Google Play uses the coupon's offer id, the App Store a server-signed promotional offer.
+- **Web:** `cmp-paycraft-web` (≤ 150 KB, every page) stays free of UI; the checkout page and the survey live in
+  `cmp-paycraft-web-ui` (≤ 20 KB, imported lazily by buyers), which depends on the stdlib only and calls the page's
+  `PayCraftWeb` through `PayCraftWebApi` — `infra/web-ui-api-check.sh` keeps the two in step,
+  `infra/web-bundle-size.sh` holds both budgets.
+- **GA4 on the dashboard:** tenants add PayCraft's service account (`paycraft-ga4-service-account`, env
+  `PAYCRAFT_GA4_SA_JSON`) as a Viewer on their property; `tenant_ga4_connections` (184) stores only the property id.
+
 ## Database Migrations — single source of truth
 
 **All SQL migrations live in `supabase/migrations/`.** That is the only directory

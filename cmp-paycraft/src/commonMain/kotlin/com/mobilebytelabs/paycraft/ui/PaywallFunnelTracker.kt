@@ -126,6 +126,20 @@ internal class PaywallFunnelTracker(
         send(PayCraftEventName.DeviceLimitView)
     }
 
+    /** The exit survey appeared after an abandon at [atStep]. */
+    fun surveyShown(atStep: PayCraftStep) = send(PayCraftEventName.SurveyView, atStep)
+
+    fun surveyAnswered(reasonCode: String) = send(PayCraftEventName.SurveyAnswer, PayCraftStep.Survey, reason = reasonCode)
+
+    fun offerShown(percentOff: Int) = send(PayCraftEventName.OfferView, PayCraftStep.Offer, reason = "${percentOff}pct")
+
+    /** The buyer claimed the offer: they are back in the buying path, so a later close is a new abandon. */
+    fun offerAccepted() {
+        send(PayCraftEventName.OfferAccept, PayCraftStep.Offer)
+        showing = true
+        step = PayCraftStep.Checkout
+    }
+
     /** The buyer cancelled the device-limit choice: an abandon there. */
     fun deviceLimitCancelled() = send(PayCraftEventName.StepAbandon, PayCraftStep.DeviceLimit)
 

@@ -40,6 +40,8 @@
     <!-- Restore sheet (Google / Apple sign-in only — the typed-email path was removed 2026-11-01) -->
     <string name="paycraft_restore_title">Restore Purchases</string>
     <string name="paycraft_restore_description">Sign in with the account you subscribed with to restore your subscription on this device.</string>
+    <string name="paycraft_restore_already_subscribed_title">You're already subscribed</string>
+    <string name="paycraft_restore_already_subscribed_body">%1$s already has an active subscription. Sign in with Google or Apple using this email to restore it on this device.</string>
     <string name="paycraft_restore_checking">Checking your purchases…</string>
     <string name="paycraft_restore_checking_body">Looking for your subscription in the store and on your account.</string>
     <string name="paycraft_restore_button">Restore Purchases</string>
@@ -327,4 +329,19 @@
     <!-- sdk-plan-card: test purchases renew in minutes -->
     <string name="paycraft_date_today_at">today, %1$s</string>
     <string name="paycraft_plan_card_chip_test">Test</string>
+    <!-- Exit survey + win-back offer (paycraft-paywall-analytics). Question and reasons come from the tenant. -->
+    <string name="paycraft_survey_skip">Skip</string>
+    <string name="paycraft_survey_send">Send</string>
+    <string name="paycraft_survey_other_hint">Tell us more (optional)</string>
+    <string name="paycraft_survey_back">Back to plans</string>
+    <string name="paycraft_winback_badge">%1$d% off</string>
+    <string name="paycraft_winback_title">A better price, just for you</string>
+    <string name="paycraft_winback_once">%1$d% off your first payment</string>
+    <string name="paycraft_winback_months">%1$d% off for %2$d months</string>
+    <string name="paycraft_winback_forever">%1$d% off for as long as you stay subscribed</string>
+    <string name="paycraft_winback_plan">%1$s · %2$s</string>
+    <string name="paycraft_winback_ends_in">Ends in %1$s</string>
+    <string name="paycraft_winback_claim">Claim %1$d% off</string>
+    <string name="paycraft_winback_decline">No thanks</string>
+    <string name="paycraft_winback_note">Applied automatically at checkout. Limited time.</string>
 </resources>

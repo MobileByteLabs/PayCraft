@@ -7,6 +7,7 @@
  */
 
 import { defineConfig, devices } from "@playwright/test"
+import { generateKeyPairSync } from "crypto"
 import { execSync } from "child_process"
 import path from "path"
 
@@ -118,6 +119,14 @@ export default defineConfig({
       // Also expose keys to global-setup (process.env is shared)
       SUPABASE_URL: SUPABASE_URL,
       SUPABASE_ANON_KEY: ANON_KEY,
+      // GA4 (tests/ga4-connect.spec.ts): an ephemeral service account generated per run — never a real key — whose
+      // token endpoint and the GA4 Data API are a local stand-in the spec serves on 54399.
+      PAYCRAFT_GA4_SA_JSON: JSON.stringify({
+        client_email: "paycraft-ga4@paycraft-e2e.iam.gserviceaccount.com",
+        private_key: generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } }).privateKey,
+        token_uri: "http://127.0.0.1:54399/token",
+      }),
+      PAYCRAFT_GA4_API_BASE: "http://127.0.0.1:54399",
     },
   },
 })

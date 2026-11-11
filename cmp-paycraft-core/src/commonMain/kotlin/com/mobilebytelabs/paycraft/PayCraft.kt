@@ -7,6 +7,7 @@ import com.mobilebytelabs.paycraft.billing.CheckoutLane
 import com.mobilebytelabs.paycraft.billing.NativeBillingClient
 import com.mobilebytelabs.paycraft.billing.NativeDisplayPrice
 import com.mobilebytelabs.paycraft.billing.resolveCheckoutLane
+import com.mobilebytelabs.paycraft.billing.storeAppAccountToken
 import com.mobilebytelabs.paycraft.config.ConfigCache
 import com.mobilebytelabs.paycraft.config.ConfigResult
 import com.mobilebytelabs.paycraft.config.CouponDto
@@ -15,8 +16,6 @@ import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.config.readBundledSuiteConfigJsonOrNull
 import com.mobilebytelabs.paycraft.contract.PayCraftContract
-import com.mobilebytelabs.paycraft.winback.ExitSurveyConfig
-import com.mobilebytelabs.paycraft.winback.ExitSurveyGate
 import com.mobilebytelabs.paycraft.core.AdFreeEntitlement
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.EntitlementSnapshot
@@ -41,6 +40,10 @@ import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import com.mobilebytelabs.paycraft.platform.platformSettings
 import com.mobilebytelabs.paycraft.provider.PaymentProvider
 import com.mobilebytelabs.paycraft.provider.withEmailParam
+import com.mobilebytelabs.paycraft.winback.ExitSurveyConfig
+import com.mobilebytelabs.paycraft.winback.ExitSurveyGate
+import com.mobilebytelabs.paycraft.winback.WinbackOffer
+import com.mobilebytelabs.paycraft.winback.WinbackResult
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -64,6 +67,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.koin.mp.KoinPlatform
 
 /**
@@ -170,6 +175,59 @@ object PayCraft {
      * paywall shows it when a buyer closes without buying, at most once per [ExitSurveyConfig.capDays].
      */
     val exitSurvey: StateFlow<ExitSurveyConfig?> = _exitSurvey.asStateFlow()
+
+    /**
+     * The win-back offer the buyer claimed from the exit survey, applied to their next checkout on every lane:
+     * the web checkout sends its id, the Play purchase uses its Play offer id, StoreKit its signed offer. Set
+     * by the paywall when the buyer taps "Claim"; cleared after a purchase or when it expires.
+     */
+    var activeWinbackOffer: WinbackOffer? = null
+
+    /**
+     * Sends the buyer's exit-survey answer and returns what they get: an [WinbackResult.Offer], the tenant's
+     * [WinbackResult.Message], or [WinbackResult.None]. Never throws; offline or unconfigured → None. On iOS
+     * it sends the purchase's appAccountToken so the server can sign an App Store promotional offer for it.
+     */
+    suspend fun answerExitSurvey(reasonCode: String, step: String, sku: String?, freeText: String?): WinbackResult {
+        val key = apiKey ?: return WinbackResult.None
+        if (!isConfigured || backend is PayCraftBackend.Mock) return WinbackResult.None
+        return runCatching {
+            val platform = runCatching { PlatformInfo.platform.lowercase() }.getOrDefault("")
+            var body = PayCraftContract.winbackBody(
+                key,
+                deviceId,
+                DeviceTokenStore.getToken(),
+                reasonCode,
+                step,
+                platform,
+                sku,
+                freeText,
+            )
+            if (platform == "ios") {
+                val appUserId = billingManager?.userEmail?.value?.trim()?.lowercase()?.ifBlank { null } ?: deviceId
+                body = JsonObject(body + ("appAccountToken" to JsonPrimitive(storeAppAccountToken(appUserId))))
+            }
+            val response: HttpResponse = configHttpClient().post(
+                PayCraftContract.winbackUrl(backend.supabaseUrl, key),
+            ) {
+                PayCraftContract.headers(
+                    anonKey = backend.supabaseAnonKey,
+                    platform = platform,
+                    mode = if (mode == Mode.Test) "test" else "live",
+                    json = true,
+                ).forEach { (name, value) -> header(name, value) }
+                setBody(body.toString())
+            }
+            if (!response.status.isSuccess()) {
+                WinbackResult.None
+            } else {
+                PayCraftContract.decodeWinback(
+                    response.body(),
+                    sku,
+                )
+            }
+        }.getOrDefault(WinbackResult.None)
+    }
 
     /** Whether the exit survey may be shown now (on, not premium, outside its cap window). */
     val exitSurveyGate: ExitSurveyGate by lazy { ExitSurveyGate(platformSettings()) }
@@ -1136,6 +1194,25 @@ object PayCraft {
             return CheckoutInitiateClient.Result.Rejected(
                 "An email address is needed to start this subscription.",
             )
+        }
+        // A claimed exit-survey offer rides on the server checkout (Stripe / Razorpay apply its discount). If the
+        // server says it is no longer usable, drop it and check out at the normal price — never a dead end.
+        val offer = activeWinbackOffer?.takeIf { it.stripe || it.razorpay }
+        if (offer != null) {
+            val withOffer = checkoutInitiateClient.initiateWithOffer(
+                apiKey = key,
+                sku = plan.sku,
+                email = email,
+                currency = plan.currency.takeIf { it.isNotBlank() },
+                offerId = offer.id,
+                deviceRef = deviceId,
+            )
+            if (withOffer !is CheckoutInitiateClient.Result.Rejected ||
+                !withOffer.message.contains("offer_not_usable")
+            ) {
+                return withOffer
+            }
+            activeWinbackOffer = null
         }
         return checkoutInitiateClient.initiate(
             apiKey = key,

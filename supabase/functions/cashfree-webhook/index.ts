@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
+import { tenantIdFromPath } from "../_shared/webhook-path.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
@@ -112,9 +113,7 @@ function parsePaycraftLinkId(
 }
 
 serve(withWebhookRateLimit({ bucket: "webhook:cashfree" }, async (req) => {
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const tenantId: string | null = pathParts.length > 3 ? pathParts[3] : null;
+  const tenantId: string | null = tenantIdFromPath(req.url, "cashfree-webhook");
 
   const timestamp = req.headers.get("x-webhook-timestamp") ?? "";
   const signature = req.headers.get("x-webhook-signature") ?? "";

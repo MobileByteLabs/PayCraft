@@ -19,6 +19,9 @@ import { WebhookDonut } from "@/components/charts/webhook-donut"
 import { FunnelChart, RangeMenu, SplitTable } from "@/components/analytics/funnel-chart"
 import { funnel, rangeDays, splitBy, type FunnelEvent } from "@/lib/funnel"
 import { getMode } from "@/lib/mode"
+import { ga4ErrorMessage, ga4Overview, paycraftGa4Account } from "@/lib/ga4"
+import { Ga4ConnectCard, type Ga4ConnectionRow } from "@/components/analytics/ga4-connect-card"
+import { Ga4Panels } from "@/components/analytics/ga4-panels"
 
 export default async function AnalyticsPage({ searchParams }: { searchParams?: { range?: string } }) {
   const { tenant } = await requireTenant()
@@ -33,6 +36,17 @@ export default async function AnalyticsPage({ searchParams }: { searchParams?: {
   const retentionDays = tierRes.data?.analytics_retention_days ?? 7
   const range = rangeDays(searchParams?.range, retentionDays)
   const since = new Date(Date.now() - range.days * 86_400_000).toISOString()
+
+  // Google Analytics (GOAL D4): the tenant's GA4 property, read with PayCraft's Viewer service account.
+  const ga4Account = paycraftGa4Account()
+  const { data: ga4Connection } = await supabase
+    .from("tenant_ga4_connections")
+    .select("property_id,verified_at,last_error")
+    .eq("tenant_id", tenant.id)
+    .maybeSingle()
+  const ga4 = ga4Account && ga4Connection?.verified_at
+    ? await ga4Overview(ga4Connection.property_id, range.days, { token: ga4Account.token, saEmail: ga4Account.email })
+    : null
   const eventsRes = await supabase
     .from("paywall_events")
     .select("name,user_ref,device_ref,country,provider")
@@ -222,6 +236,21 @@ export default async function AnalyticsPage({ searchParams }: { searchParams?: {
           <SplitTable title="By country" rows={byCountry} label={regionName} />
           <SplitTable title="By payment provider" rows={byProvider} label={providerName} base="checkouts" />
         </div>
+      </section>
+
+      {/* Google Analytics — the app's own GA4 property next to PayCraft's exact funnel. */}
+      <section className="rounded-xl border border-ink-200 bg-white p-6 shadow-sm" aria-labelledby="ga4-h">
+        <div className="mb-5">
+          <h3 id="ga4-h" className="text-lg font-bold tracking-tight text-ink-900">Google Analytics</h3>
+          <p className="mt-0.5 text-xs text-ink-500">Your GA4 property, read with PayCraft's Viewer access — app-wide context for the funnel above.</p>
+        </div>
+        <Ga4ConnectCard saEmail={ga4Account?.email ?? null} connection={(ga4Connection as Ga4ConnectionRow | null) ?? null} />
+        {ga4?.ok && <div className="mt-6"><Ga4Panels data={ga4} days={range.days} /></div>}
+        {ga4 && !ga4.ok && (
+          <p className="mt-4 rounded-md bg-warning-50 px-3 py-2 text-sm text-warning-700" role="alert" data-testid="ga4-report-error">
+            {ga4ErrorMessage(ga4.error, ga4Account?.email ?? null)}
+          </p>
+        )}
       </section>
 
       {/* Stats Strip */}

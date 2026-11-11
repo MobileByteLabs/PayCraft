@@ -1001,6 +1001,9 @@ class PayCraftBillingManager(
         }
     }
 
+    override suspend fun hasActiveSubscription(email: String): Boolean =
+        email.isNotBlank() && service.hasActiveSubscription(email.trim())
+
     override suspend fun restoreStorePurchases(): Boolean {
         val repo = repo ?: return false
         val appUserId = resolvedAppUserId()

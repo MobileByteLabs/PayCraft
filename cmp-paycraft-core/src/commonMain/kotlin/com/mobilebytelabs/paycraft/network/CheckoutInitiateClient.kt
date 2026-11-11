@@ -33,7 +33,15 @@ class CheckoutInitiateClient(private val httpClient: HttpClient, private val bac
     private data class CustomerBody(val email: String, val name: String? = null, val phone: String? = null)
 
     @Serializable
-    private data class InitiateRequest(val sku: String, val customer: CustomerBody, val currency: String? = null)
+    private data class InitiateRequest(
+        val sku: String,
+        val customer: CustomerBody,
+        val currency: String? = null,
+        /** A win-back offer the buyer claimed (exit survey); the server validates it is theirs and live. */
+        val offerId: String? = null,
+        /** The device the offer may have been made to (signed-out buyers' offers bind to the device). */
+        val deviceRef: String? = null,
+    )
 
     @Serializable
     private data class InitiateResponse(
@@ -63,6 +71,21 @@ class CheckoutInitiateClient(private val httpClient: HttpClient, private val bac
         name: String? = null,
         phone: String? = null,
         currency: String? = null,
+    ): Result = initiateWithOffer(apiKey, sku, email, name, phone, currency, offerId = null, deviceRef = null)
+
+    /**
+     * [initiate] with a claimed win-back [offerId]: the server applies its discount, or answers 409
+     * `offer_not_usable` (→ [Result.Rejected] carrying that code) when it is not this buyer's or has ended.
+     */
+    suspend fun initiateWithOffer(
+        apiKey: String,
+        sku: String,
+        email: String,
+        name: String? = null,
+        phone: String? = null,
+        currency: String? = null,
+        offerId: String?,
+        deviceRef: String?,
     ): Result {
         val url = PayCraftContract.checkoutInitiateUrl(backend.supabaseUrl, apiKey)
         return try {
@@ -73,6 +96,8 @@ class CheckoutInitiateClient(private val httpClient: HttpClient, private val bac
                         sku = sku,
                         customer = CustomerBody(email = email, name = name, phone = phone),
                         currency = currency,
+                        offerId = offerId,
+                        deviceRef = deviceRef,
                     ),
                 )
             }

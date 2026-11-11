@@ -66,7 +66,7 @@ jobs:
             target: iosSimulatorArm64Test
             os: macos-latest
           - name: JS
-            target: ':cmp-paycraft-core:jsNodeTest :cmp-paycraft-web:jsNodeTest'
+            target: ':cmp-paycraft-core:jsNodeTest :cmp-paycraft-web:jsNodeTest :cmp-paycraft-web-ui:jsNodeTest'
             os: ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
@@ -123,7 +123,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Assemble library modules (all targets)
-        run: ./gradlew :cmp-paycraft-core:assemble :cmp-paycraft:assemble :cmp-paycraft-navigation:assemble :cmp-paycraft-web:assemble
+        run: ./gradlew :cmp-paycraft-core:assemble :cmp-paycraft:assemble :cmp-paycraft-navigation:assemble :cmp-paycraft-web:assemble :cmp-paycraft-web-ui:assemble
 
   # ── Create GitHub Release (triggers publish.yml automatically) ───────────────
   release:

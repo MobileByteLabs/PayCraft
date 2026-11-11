@@ -22,7 +22,7 @@ catalog="$(grep -oE '"paycraft_[a-z_]+"' "$CAT" | tr -d '"' | sort -u)"
 fail=0
 
 # 1. No raw event-name string at an emit / forward call site — events go through PayCraftEventName.
-raw="$(for d in cmp-paycraft/src cmp-paycraft-core/src cmp-paycraft-web/src cmp-paycraft-web-survey/src; do
+raw="$(for d in cmp-paycraft/src cmp-paycraft-core/src cmp-paycraft-web/src cmp-paycraft-web-ui/src; do
   [[ -d "$ROOT/$d" ]] && grep -rnE '(emit|track|logEvent|onEvent|sendEvent)\([^)]*"paycraft_[a-z_]+"' --include='*.kt' "$ROOT/$d" || true
 done)"
 if [[ -n "$raw" ]]; then echo "FAIL raw event-name string at an emit call — use PayCraftEventName:"; echo "$raw"; fail=1; fi

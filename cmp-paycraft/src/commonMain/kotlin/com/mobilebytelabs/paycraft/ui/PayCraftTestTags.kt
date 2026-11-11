@@ -205,6 +205,19 @@ object PayCraftTestTags {
     /** The "Sign out" button of one active device in the device-limit list. */
     fun deviceRemove(deviceRef: String): String = "paycraft_device_remove_$deviceRef"
 
+    // ── Exit survey + win-back offer (paycraft-paywall-analytics) ─────────────────────────────
+    const val EXIT_SURVEY = "paycraft_exit_survey"
+    const val EXIT_SURVEY_SKIP = "paycraft_exit_survey_skip"
+    const val EXIT_SURVEY_OTHER_FIELD = "paycraft_exit_survey_other_field"
+    const val EXIT_SURVEY_SEND = "paycraft_exit_survey_send"
+    const val EXIT_SURVEY_MESSAGE = "paycraft_exit_survey_message"
+    const val EXIT_SURVEY_BACK = "paycraft_exit_survey_back"
+    const val WINBACK_OFFER = "paycraft_winback_offer"
+    const val WINBACK_CLAIM = "paycraft_winback_claim"
+    const val WINBACK_DECLINE = "paycraft_winback_decline"
+
+    fun exitReason(code: String): String = "paycraft_exit_reason_$code"
+
     /** Phase 3a resilience surfaces, tagged here so AC-28 can pair all eleven states. */
     const val CONFIG_FAILED_MESSAGE = "paycraft_config_failed_message"
     const val CONFIG_FAILED_RETRY = "paycraft_config_failed_retry"

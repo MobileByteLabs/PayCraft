@@ -10,7 +10,10 @@ import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.network.ActiveDevice
 import com.mobilebytelabs.paycraft.network.PremiumCheckResult
 import com.mobilebytelabs.paycraft.network.RegisterDeviceResult
+import com.mobilebytelabs.paycraft.winback.AppStorePromotionalOffer
 import com.mobilebytelabs.paycraft.winback.ExitSurveyConfig
+import com.mobilebytelabs.paycraft.winback.WinbackOffer
+import com.mobilebytelabs.paycraft.winback.WinbackResult
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -136,8 +139,31 @@ object PayCraftContract {
 
     /** The `exit_survey` section of a `/config` response; null when absent or malformed (no survey, never a crash). */
     fun decodeExitSurvey(raw: String): ExitSurveyConfig? = runCatching {
-        val section = configJson.parseToJsonElement(raw).jsonObject["exit_survey"] ?: return null
-        configJson.decodeFromJsonElement(ExitSurveyConfig.serializer(), section)
+        // Read by hand, like decodeWinback: generated serializers for these four classes would cost the web SDK
+        // ~3 KB gzip of its 150 KB budget (paycraft-paywall-analytics T14). A wrong type anywhere → no survey.
+        val s = configJson.parseToJsonElement(raw).jsonObject["exit_survey"] as? JsonObject ?: return null
+        ExitSurveyConfig(
+            enabled = s["enabled"]?.jsonPrimitive?.let { it.booleanOrNull ?: error("enabled") } ?: false,
+            title = s.string("title").orEmpty(),
+            reasons = (s["reasons"] as? JsonArray).orEmpty().map { e ->
+                val r = e.jsonObject
+                ExitSurveyConfig.Reason(
+                    code = r.string("code")!!,
+                    label = r.string("label")!!,
+                    action = r.string("action") ?: "none",
+                    message = r.string("message"),
+                    freeText = r.bool("free_text") ?: false,
+                    offer = (r["offer"] as? JsonObject)?.let {
+                        ExitSurveyConfig.Offer(
+                            percentOff = it["percent_off"]!!.jsonPrimitive.intOrNull!!,
+                            duration = it.string("duration") ?: "once",
+                            durationInMonths = it["duration_in_months"]?.jsonPrimitive?.intOrNull,
+                        )
+                    },
+                )
+            },
+            capDays = s["cap_days"]?.jsonPrimitive?.intOrNull ?: 7,
+        )
     }.getOrNull()
 
     /**
@@ -163,6 +189,54 @@ object PayCraftContract {
         if (sku != null) put("sku", sku)
         if (!freeText.isNullOrBlank()) put("freeText", freeText.take(500))
     }
+
+    /** The `winback` answer; anything unreadable is [WinbackResult.None] (close the survey, never crash). */
+    fun decodeWinback(raw: String, sku: String?): WinbackResult = decodeWinbackWith(raw, sku, ::appStoreLane)
+
+    /**
+     * [decodeWinback] for the web SDK: the same answer without the App Store lane, which a website cannot apply —
+     * so the promotional-offer signature parsing stays out of the web bundle (its 150 KB budget, GOAL D5).
+     */
+    fun decodeWinbackForWeb(raw: String, sku: String?): WinbackResult = decodeWinbackWith(raw, sku) { null }
+
+    private inline fun decodeWinbackWith(
+        raw: String,
+        sku: String?,
+        appStore: (JsonObject) -> AppStorePromotionalOffer?,
+    ): WinbackResult = runCatching {
+        val o = configJson.parseToJsonElement(raw).jsonObject
+        when (o.string("action")) {
+            "message" -> o.string("message")?.let { WinbackResult.Message(it) } ?: WinbackResult.None
+            "offer" -> {
+                val offer = o["offer"]!!.jsonObject
+                val lanes = offer["lanes"] as? JsonObject
+                val store = lanes?.get("app_store") as? JsonObject
+                WinbackResult.Offer(
+                    WinbackOffer(
+                        id = offer.string("id")!!,
+                        percentOff = offer["percentOff"]!!.jsonPrimitive.intOrNull!!,
+                        duration = offer.string("duration") ?: "once",
+                        durationInMonths = offer["durationInMonths"]?.jsonPrimitive?.intOrNull,
+                        expiresAtIso = offer.string("expiresAt").orEmpty(),
+                        sku = sku,
+                        stripe = lanes?.get("stripe")?.jsonPrimitive?.booleanOrNull == true,
+                        razorpay = lanes?.get("razorpay")?.jsonPrimitive?.booleanOrNull == true,
+                        googlePlayOfferId = (lanes?.get("google_play") as? JsonPrimitive)?.contentOrNull,
+                        appStoreOffer = store?.let(appStore),
+                    ),
+                )
+            }
+            else -> WinbackResult.None
+        }
+    }.getOrDefault(WinbackResult.None)
+
+    private fun appStoreLane(it: JsonObject) = AppStorePromotionalOffer(
+        offerId = it.string("offerId")!!,
+        keyIdentifier = it.string("keyIdentifier")!!,
+        nonce = it.string("nonce")!!,
+        signature = it.string("signature")!!,
+        timestamp = it["timestamp"]!!.jsonPrimitive.content.toLong(),
+    )
 
     // ── Paywall events ──────────────────────────────────────────────────────────────────────
 

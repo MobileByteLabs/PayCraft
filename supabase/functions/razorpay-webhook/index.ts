@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
+import { tenantIdFromPath } from "../_shared/webhook-path.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
@@ -140,9 +141,7 @@ serve(withWebhookRateLimit({ bucket: "webhook:razorpay" }, async (req) => {
     return new Response("Missing x-razorpay-signature", { status: 400 });
   }
 
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const tenantId: string | null = pathParts.length > 3 ? pathParts[3] : null;
+  const tenantId: string | null = tenantIdFromPath(req.url, "razorpay-webhook");
 
   const body = await req.text();
 

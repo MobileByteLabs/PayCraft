@@ -221,6 +221,8 @@ public final class com/mobilebytelabs/paycraft/generated/resources/String1_commo
 	public static final fun getPaycraft_provider_picker_secure (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_provider_picker_title (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_refresh (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_restore_already_subscribed_body (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_restore_already_subscribed_title (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_restore_button (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_restore_cancel (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_restore_checking (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
@@ -270,11 +272,11 @@ public final class com/mobilebytelabs/paycraft/generated/resources/String1_commo
 	public static final fun getPaycraft_status_auto_renew (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_status_plan (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_status_provider (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
-	public static final fun getPaycraft_status_renews (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
-	public static final fun getPaycraft_strip_checking (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 }
 
 public final class com/mobilebytelabs/paycraft/generated/resources/String2_commonMainKt {
+	public static final fun getPaycraft_status_renews (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_strip_checking (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_strip_manage (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_strip_payment_pending (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_strip_premium_active (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
@@ -284,6 +286,10 @@ public final class com/mobilebytelabs/paycraft/generated/resources/String2_commo
 	public static final fun getPaycraft_strip_verify_ownership (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_subscribe_cta (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_subscribing (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_survey_back (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_survey_other_hint (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_survey_send (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_survey_skip (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_trial_banner_ends_in (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_trial_banner_ends_today (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_trial_banner_title (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
@@ -296,6 +302,16 @@ public final class com/mobilebytelabs/paycraft/generated/resources/String2_commo
 	public static final fun getPaycraft_upgrade_plan (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_upgrade_title (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_what_you_get (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_winback_badge (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_winback_claim (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_winback_decline (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_winback_ends_in (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_winback_forever (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_winback_months (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_winback_note (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_winback_once (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_winback_plan (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
+	public static final fun getPaycraft_winback_title (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 	public static final fun getPaycraft_your_premium_title (Lcom/mobilebytelabs/paycraft/generated/resources/Res$string;)Lorg/jetbrains/compose/resources/StringResource;
 }
 
@@ -1273,8 +1289,8 @@ public final class com/mobilebytelabs/paycraft/ui/PayCraftPaywallKt {
 public final class com/mobilebytelabs/paycraft/ui/PayCraftPaywallState {
 	public static final field $stable I
 	public fun <init> ()V
-	public fun <init> (Lcom/mobilebytelabs/paycraft/model/BillingState;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;IZLcom/mobilebytelabs/paycraft/ui/RestoreResult;ZLjava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;Z)V
-	public synthetic fun <init> (Lcom/mobilebytelabs/paycraft/model/BillingState;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;IZLcom/mobilebytelabs/paycraft/ui/RestoreResult;ZLjava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lcom/mobilebytelabs/paycraft/model/BillingState;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;IZLcom/mobilebytelabs/paycraft/ui/RestoreResult;ZLjava/lang/String;Ljava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;Z)V
+	public synthetic fun <init> (Lcom/mobilebytelabs/paycraft/model/BillingState;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;IZLcom/mobilebytelabs/paycraft/ui/RestoreResult;ZLjava/lang/String;Ljava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun canUpgrade (Lcom/mobilebytelabs/paycraft/model/BillingPlan;)Z
 	public final fun component1 ()Lcom/mobilebytelabs/paycraft/model/BillingState;
 	public final fun component10 ()Ljava/lang/String;
@@ -1282,9 +1298,10 @@ public final class com/mobilebytelabs/paycraft/ui/PayCraftPaywallState {
 	public final fun component12 ()Z
 	public final fun component13 ()Lcom/mobilebytelabs/paycraft/ui/RestoreResult;
 	public final fun component14 ()Z
-	public final fun component15 ()Ljava/util/List;
-	public final fun component16 ()Lcom/mobilebytelabs/paycraft/model/BillingPlan;
-	public final fun component17 ()Z
+	public final fun component15 ()Ljava/lang/String;
+	public final fun component16 ()Ljava/util/List;
+	public final fun component17 ()Lcom/mobilebytelabs/paycraft/model/BillingPlan;
+	public final fun component18 ()Z
 	public final fun component2 ()Ljava/util/List;
 	public final fun component3 ()Ljava/util/List;
 	public final fun component4 ()Lcom/mobilebytelabs/paycraft/model/BillingPlan;
@@ -1293,9 +1310,10 @@ public final class com/mobilebytelabs/paycraft/ui/PayCraftPaywallState {
 	public final fun component7 ()Z
 	public final fun component8 ()Ljava/lang/String;
 	public final fun component9 ()Ljava/lang/String;
-	public final fun copy (Lcom/mobilebytelabs/paycraft/model/BillingState;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;IZLcom/mobilebytelabs/paycraft/ui/RestoreResult;ZLjava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;Z)Lcom/mobilebytelabs/paycraft/ui/PayCraftPaywallState;
-	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/ui/PayCraftPaywallState;Lcom/mobilebytelabs/paycraft/model/BillingState;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;IZLcom/mobilebytelabs/paycraft/ui/RestoreResult;ZLjava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;ZILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/ui/PayCraftPaywallState;
+	public final fun copy (Lcom/mobilebytelabs/paycraft/model/BillingState;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;IZLcom/mobilebytelabs/paycraft/ui/RestoreResult;ZLjava/lang/String;Ljava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;Z)Lcom/mobilebytelabs/paycraft/ui/PayCraftPaywallState;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/ui/PayCraftPaywallState;Lcom/mobilebytelabs/paycraft/model/BillingState;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;IZLcom/mobilebytelabs/paycraft/ui/RestoreResult;ZLjava/lang/String;Ljava/util/List;Lcom/mobilebytelabs/paycraft/model/BillingPlan;ZILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/ui/PayCraftPaywallState;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAlreadySubscribedEmail ()Ljava/lang/String;
 	public final fun getBenefits ()Ljava/util/List;
 	public final fun getBillingState ()Lcom/mobilebytelabs/paycraft/model/BillingState;
 	public final fun getCurrentPlanRank ()I
@@ -1489,6 +1507,12 @@ public final class com/mobilebytelabs/paycraft/ui/PayCraftTestTags {
 	public static final field EMPTY_PRODUCTS_MESSAGE Ljava/lang/String;
 	public static final field EMPTY_PRODUCTS_RETRY Ljava/lang/String;
 	public static final field ERROR_MESSAGE Ljava/lang/String;
+	public static final field EXIT_SURVEY Ljava/lang/String;
+	public static final field EXIT_SURVEY_BACK Ljava/lang/String;
+	public static final field EXIT_SURVEY_MESSAGE Ljava/lang/String;
+	public static final field EXIT_SURVEY_OTHER_FIELD Ljava/lang/String;
+	public static final field EXIT_SURVEY_SEND Ljava/lang/String;
+	public static final field EXIT_SURVEY_SKIP Ljava/lang/String;
 	public static final field GATE_AD_PLAYING Ljava/lang/String;
 	public static final field GATE_LOCKED Ljava/lang/String;
 	public static final field GATE_PLUS_CHIP Ljava/lang/String;
@@ -1566,7 +1590,11 @@ public final class com/mobilebytelabs/paycraft/ui/PayCraftTestTags {
 	public static final field SUBSCRIPTION_UPGRADE_ROW Ljava/lang/String;
 	public static final field TRIAL_BADGE Ljava/lang/String;
 	public static final field TRIAL_BANNER Ljava/lang/String;
+	public static final field WINBACK_CLAIM Ljava/lang/String;
+	public static final field WINBACK_DECLINE Ljava/lang/String;
+	public static final field WINBACK_OFFER Ljava/lang/String;
 	public final fun deviceRemove (Ljava/lang/String;)Ljava/lang/String;
+	public final fun exitReason (Ljava/lang/String;)Ljava/lang/String;
 }
 
 public final class com/mobilebytelabs/paycraft/ui/PayCraftTileRole : java/lang/Enum {
@@ -1734,6 +1762,14 @@ public final class com/mobilebytelabs/paycraft/ui/components/skeleton/PaywallSke
 
 public final class com/mobilebytelabs/paycraft/ui/components/skeleton/ProductListSkeletonKt {
 	public static final fun ProductListSkeleton (IZLandroidx/compose/ui/Modifier;Landroidx/compose/runtime/Composer;II)V
+}
+
+public final class com/mobilebytelabs/paycraft/ui/survey/ComposableSingletons$ExitSurveyContentKt {
+	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/ui/survey/ComposableSingletons$ExitSurveyContentKt;
+	public fun <init> ()V
+	public final fun getLambda$-1713448648$io_github_mobilebytelabs_cmp_paycraft ()Lkotlin/jvm/functions/Function3;
+	public final fun getLambda$1251796865$io_github_mobilebytelabs_cmp_paycraft ()Lkotlin/jvm/functions/Function2;
+	public final fun getLambda$1949665152$io_github_mobilebytelabs_cmp_paycraft ()Lkotlin/jvm/functions/Function3;
 }
 
 public final class com/mobilebytelabs/paycraft/ui/theme/BrandedPalette {

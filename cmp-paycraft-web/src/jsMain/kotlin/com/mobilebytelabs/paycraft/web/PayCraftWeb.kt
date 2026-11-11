@@ -9,6 +9,9 @@ import com.mobilebytelabs.paycraft.contract.PayCraftContract
 import com.mobilebytelabs.paycraft.contract.WebCheckoutFailure
 import com.mobilebytelabs.paycraft.contract.WebCheckoutRoute
 import com.mobilebytelabs.paycraft.network.ActiveDevice
+import com.mobilebytelabs.paycraft.winback.ExitSurveyConfig
+import com.mobilebytelabs.paycraft.winback.WinbackResult
+import com.mobilebytelabs.paycraft.winback.exitSurveyDue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -250,10 +253,14 @@ class PayCraftWeb(
         val cfg = cachedConfig ?: return emptyArray()
         return PayCraftContract.webPaymentOptions(cfg, sku, mode == "test", currency, chargeableBySku[sku].orEmpty())
             .map {
+                val info = paymentMethods(it, currency ?: productCurrency(sku))
                 WebPaymentOption(
                     it,
                     providerDisplayName(it),
-                    paymentMethods(it, currency ?: productCurrency(sku)).summary,
+                    info.summary,
+                    info.methods.toTypedArray(),
+                    info.cardBrands.toTypedArray(),
+                    info.note,
                 )
             }
             .toTypedArray()
@@ -264,15 +271,99 @@ class PayCraftWeb(
         scope.promise { resolveCheckoutUrl(sku, currency, provider) }
 
     /**
-     * PayCraft's checkout page for [sku], rendered into [container] (an empty element on the site's own
-     * `/checkout` page): the order summary, a card per provider listing every way it can take this buyer's
-     * price (UPI, cards, netbanking, wallets, Apple Pay, Google Pay — what the currency allows), and the pay
-     * button that hands over to the chosen provider's secure page. Signed out, an unknown plan or no provider
-     * show a notice instead. Styles are scoped to `.pcx` and inherit the site's font and colour; brand it with
-     * `--pcx-accent`, `--pcx-accent-fg` and `--pcx-radius`. Resolves true when the payment page is shown.
+     * A checkout-page step, for a page that renders its own checkout (PayCraft's lazily loaded
+     * `paycraft-web-ui` does): [kind] `view` (the payment methods were shown), `select` (the buyer picked
+     * [provider]), `start` (they pressed pay), `fail` (it failed, [reason] = the error code), `abandon` (they left
+     * without paying) or `leave` (the page is going away — sends what is queued). Recorded as the paywall events
+     * of the catalog, so a site never names an event itself; an unknown [kind] is ignored.
      */
-    fun mountCheckout(container: dynamic, sku: String, options: CheckoutPageOptions?): Promise<Boolean> =
-        prepareCheckout(container).let { scope.promise { renderCheckout(container, sku, checkoutView(sku, options)) } }
+    fun checkoutEvent(kind: String, sku: String, currency: String?, provider: String?, reason: String?) {
+        val name = when (kind) {
+            "view" -> PayCraftEventName.ProviderView
+            "select" -> PayCraftEventName.ProviderSelect
+            "start" -> PayCraftEventName.CheckoutStart
+            "fail" -> PayCraftEventName.PurchaseFail
+            "abandon" -> PayCraftEventName.StepAbandon
+            "leave" -> null
+            else -> return
+        }
+        if (name != null) {
+            val step = if (kind == "start" || kind == "fail") PayCraftStep.Checkout else PayCraftStep.Provider
+            track(name, step, sku, currency, provider, reason)
+        }
+        if (kind == "abandon" || kind == "leave") flushEventsOnLeave()
+    }
+
+    // ── Exit survey + win-back (paycraft-paywall-analytics GOAL D3/D6/D7) ───────────────────────
+
+    private var exitSurvey: ExitSurveyConfig? = null
+    private var claimedOffer: WebOffer? = null
+    private var offered: WebOffer? = null
+
+    /**
+     * The tenant's exit survey when it should be shown NOW — on, something to ask, the buyer is not premium, and
+     * its cap has passed since it was last shown on this browser — else null. Ask it as the buyer leaves without
+     * paying; call [surveyShown] when it is on screen.
+     */
+    // Promise chains, not `scope.promise { }`: each coroutine is a state-machine class in the 150 KB bundle.
+    fun surveyConfig(): Promise<WebExitSurvey?> =
+        (if (cachedConfig != null) Promise.resolve(Unit) else config().then({}, {})).then { dueSurvey() }
+
+    private fun dueSurvey(): WebExitSurvey? {
+        val cfg = exitSurvey
+        if (cfg == null || !exitSurveyDue(cfg, isPremium(), store.surveyShownAt()?.toLong(), now().toLong())) return null
+        return WebExitSurvey(cfg.title, cfg.reasons.map { WebSurveyReason(it.code, it.label, it.freeText) }.toTypedArray())
+    }
+
+    /** The survey is on screen, asked at [step] (`provider`, `checkout`, `paywall`…): starts its cap, records the view. */
+    fun surveyShown(step: String, sku: String?) {
+        store.saveSurveyShownAt(now())
+        track(PayCraftEventName.SurveyView, stepOf(step), sku, sku?.let { productCurrency(it) })
+    }
+
+    /**
+     * The buyer's answer: records it (with [freeText] for a reason that asks for it — kept first-party, never in
+     * an analytics event) and resolves with what the tenant gives for it: a discount, a message, or nothing.
+     * Never rejects — a failed call is `none`, and the buyer simply leaves.
+     */
+    fun answerSurvey(reasonCode: String, step: String, sku: String?, freeText: String?): Promise<WebWinback> {
+        track(PayCraftEventName.SurveyAnswer, PayCraftStep.Survey, sku, reason = reasonCode)
+        val deviceRef = store.deviceId() ?: newDeviceId().also { store.saveDeviceId(it) }
+        val body = PayCraftContract.winbackBody(apiKey, deviceRef, store.token(), reasonCode, stepOf(step).wire, "web", sku, freeText)
+        val json = JsonObject(body + ("mode" to JsonPrimitive(mode))).toString()
+        val url = PayCraftContract.winbackUrl(base, apiKey)
+        return scope.promise { call("POST", url, json).body }.then({ winbackFrom(it, sku) }, { winbackFrom(null, sku) })
+    }
+
+    private fun winbackFrom(raw: String?, sku: String?): WebWinback =
+        when (val r = raw?.let { PayCraftContract.decodeWinbackForWeb(it, sku) } ?: WinbackResult.None) {
+            is WinbackResult.Message -> WebWinback("message", r.text, null)
+            is WinbackResult.Offer -> {
+                val o = r.offer
+                // Only an offer the web can apply is an offer here (a store-only discount is no use on a website).
+                if (!o.stripe && !o.razorpay) return WebWinback("none", null, null)
+                val web = WebOffer(o.id, o.percentOff, o.duration, o.durationInMonths, o.expiresAtIso, o.stripe, o.razorpay)
+                offered = web
+                track(PayCraftEventName.OfferView, PayCraftStep.Offer, sku, reason = "${o.percentOff}pct")
+                WebWinback("offer", null, web)
+            }
+            WinbackResult.None -> WebWinback("none", null, null)
+        }
+
+    /**
+     * The buyer took the offer [offerId] (from [answerSurvey]): the next [checkoutUrlWith] / [checkoutUrl] applies it
+     * on a lane that can (Stripe or Razorpay). If the server no longer accepts it (expired, used), checkout goes
+     * ahead at the normal price. False when [offerId] is not the offer this page was given.
+     */
+    fun claimOffer(offerId: String): Boolean {
+        val o = offered?.takeIf { it.id == offerId } ?: return false
+        claimedOffer = o
+        track(PayCraftEventName.OfferAccept, PayCraftStep.Offer)
+        return true
+    }
+
+    /** The offer the next checkout applies ([claimOffer]), or null. */
+    fun activeOffer(): WebOffer? = claimedOffer
 
     private var chargeableBySku: Map<String, Map<String, Set<String>>> = emptyMap()
 
@@ -299,6 +390,7 @@ class PayCraftWeb(
             throw PayCraftWebError("bad_response", "Unexpected response: ${e.message}")
         }
         cachedConfig = cfg
+        exitSurvey = PayCraftContract.decodeExitSurvey(res.body)
         // The per-currency price/plan maps the shared model does not carry: which providers can charge what.
         chargeableBySku = runCatching {
             val test = mode == "test"
@@ -413,22 +505,49 @@ class PayCraftWeb(
             preferredProvider = provider,
             chargeable = chargeableBySku[sku].orEmpty(),
         )
+        // A claimed win-back offer needs a server checkout on a lane that carries it: a Stripe payment link is a
+        // fixed price, so with an offer Stripe goes through checkout-initiate (a Checkout Session with the discount).
+        val offer = claimedOffer
         return when (route) {
-            is WebCheckoutRoute.PaymentLink -> route.url
-            is WebCheckoutRoute.ServerCheckout -> {
-                val body = buildJsonObject {
-                    put("sku", sku)
-                    put("currency", route.currency)
-                    put("provider", route.provider)
-                    currentPage()?.let { put("return_url", it) }
-                    putJsonObject("customer") { put("email", email) }
-                }.toString()
-                val res = call("POST", PayCraftContract.checkoutInitiateUrl(base, apiKey), body)
-                decode(CheckoutWire.serializer(), res).url
-                    ?: throw PayCraftWebError("checkout_failed", "the server returned no checkout url")
-            }
+            is WebCheckoutRoute.PaymentLink ->
+                if (offer != null && offer.stripe && route.provider == "stripe") {
+                    serverCheckoutUrl(sku, currency ?: productCurrency(sku), "stripe", email, offer)
+                } else {
+                    route.url
+                }
+            is WebCheckoutRoute.ServerCheckout -> serverCheckoutUrl(
+                sku,
+                route.currency,
+                route.provider,
+                email,
+                offer?.takeIf { (route.provider == "stripe" && it.stripe) || (route.provider == "razorpay" && it.razorpay) },
+            )
             is WebCheckoutRoute.Unavailable -> throw PayCraftWebError(route.reason.code(), route.message)
         }
+    }
+
+    /** checkout-initiate; with [offer], the discount — and if the server no longer accepts it, the normal price. */
+    private suspend fun serverCheckoutUrl(sku: String, currency: String?, provider: String, email: String, offer: WebOffer?): String {
+        val body = buildJsonObject {
+            put("sku", sku)
+            currency?.let { put("currency", it) }
+            put("provider", provider)
+            currentPage()?.let { put("return_url", it) }
+            putJsonObject("customer") { put("email", email) }
+            if (offer != null) {
+                put("offerId", offer.id)
+                store.deviceId()?.let { put("deviceRef", it) }
+            }
+        }.toString()
+        val res = try {
+            call("POST", PayCraftContract.checkoutInitiateUrl(base, apiKey), body)
+        } catch (e: PayCraftWebError) {
+            if (offer == null || e.code != "http_409") throw e
+            claimedOffer = null
+            return serverCheckoutUrl(sku, currency, provider, email, null)
+        }
+        return decode(CheckoutWire.serializer(), res).url
+            ?: throw PayCraftWebError("checkout_failed", "the server returned no checkout url")
     }
 
     // ── HTTP ─────────────────────────────────────────────────────────────────────────────────
@@ -467,6 +586,9 @@ private fun WebCheckoutFailure.code(): String = when (this) {
     WebCheckoutFailure.NoWebProvider -> "no_web_provider"
     WebCheckoutFailure.NoPaymentLink -> "no_payment_link"
 }
+
+/** A step's wire name (`provider`, `checkout`…) → the catalog step; anything else is the checkout. */
+private fun stepOf(wire: String): PayCraftStep = PayCraftStep.entries.firstOrNull { it.wire == wire } ?: PayCraftStep.Checkout
 
 private fun randomDeviceId(): String = js(
     "(globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : " +
