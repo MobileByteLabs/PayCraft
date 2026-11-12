@@ -19,7 +19,6 @@ import com.mobilebytelabs.paycraft.persistence.PayCraftStore
 import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
-import kotlin.random.Random
 import com.mobilebytelabs.paycraft.provider.StripeProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -36,6 +35,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.mobilenativefoundation.store.store5.StoreReadResponse
+import kotlin.random.Random
 
 /**
  * @param repo Optional Store5-backed [EntitlementRepository] (Phase 4). When wired (Android/iOS

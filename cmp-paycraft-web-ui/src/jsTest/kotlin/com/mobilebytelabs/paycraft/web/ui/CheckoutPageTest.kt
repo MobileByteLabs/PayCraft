@@ -1,3 +1,6 @@
+// Config/provider fixtures are verbatim JSON; wrapping them would change what the test parses.
+@file:Suppress("ktlint:standard:max-line-length")
+
 package com.mobilebytelabs.paycraft.web.ui
 
 import kotlin.js.Promise
@@ -19,18 +22,25 @@ class CheckoutPageTest {
     private fun opts(json: String): CheckoutPageOptions = js("JSON.parse(json)").unsafeCast<CheckoutPageOptions>()
 
     @Test
-    fun a_signed_out_buyer_is_sent_to_sign_in_not_shown_a_payment_page(): Promise<*> =
-        checkoutView(fakePc(email = null), "pro-monthly", opts("""{"signInUrl":"/signin/?plan=pro-monthly","backUrl":"/pricing/"}"""))
-            .then { view ->
-                val n = assertIs<CheckoutView.Notice>(view).notice
-                assertEquals("Sign in to continue", n.title)
-                assertEquals("/signin/?plan=pro-monthly", n.actionHref)
-                assertEquals("/pricing/", n.backUrl)
-            }
+    fun a_signed_out_buyer_is_sent_to_sign_in_not_shown_a_payment_page(): Promise<*> = checkoutView(
+        fakePc(email = null),
+        "pro-monthly",
+        opts("""{"signInUrl":"/signin/?plan=pro-monthly","backUrl":"/pricing/"}"""),
+    )
+        .then { view ->
+            val n = assertIs<CheckoutView.Notice>(view).notice
+            assertEquals("Sign in to continue", n.title)
+            assertEquals("/signin/?plan=pro-monthly", n.actionHref)
+            assertEquals("/pricing/", n.backUrl)
+        }
 
     @Test
     fun the_page_lists_every_provider_that_can_charge_the_price_with_every_method_it_offers(): Promise<*> =
-        checkoutView(fakePc(), "pro-monthly", opts("""{"features":["No ads anywhere"," "],"termsUrl":"/terms/"}""")).then { view ->
+        checkoutView(
+            fakePc(),
+            "pro-monthly",
+            opts("""{"features":["No ads anywhere"," "],"termsUrl":"/terms/"}"""),
+        ).then { view ->
             val m = assertIs<CheckoutView.Ready>(view).model
             assertEquals("Pro Monthly", m.planName)
             assertEquals("month", m.period)
@@ -79,7 +89,9 @@ class CheckoutPageTest {
             email = "\"a\"@x.com",
             maxDevices = 1,
             features = listOf("<b>bold</b>"),
-            cards = listOf(CheckoutMethodCard("stripe", "Stripe", listOf("Cards"), listOf("Visa"), null, "Cards", false)),
+            cards = listOf(
+                CheckoutMethodCard("stripe", "Stripe", listOf("Cards"), listOf("Visa"), null, "Cards", false),
+            ),
             backUrl = "javascript:alert(1)",
             termsUrl = "//evil.example/terms",
             refundUrl = "https://site.example/refund/",
@@ -109,7 +121,13 @@ class CheckoutPageTest {
         assertEquals(14950, discountedCents(29900, 50))
         assertEquals(1499, discountedCents(1999, 25), "14.9925 rounds to the nearest cent")
         val once = offer(percentOff = 50, duration = "once")
-        assertTrue(offerAppliedLabel(once, 29900, "INR").let { "50% off applied" in it && "149.50" in it && "first payment" in it })
+        assertTrue(
+            offerAppliedLabel(once, 29900, "INR").let {
+                "50% off applied" in it &&
+                    "149.50" in it &&
+                    "first payment" in it
+            },
+        )
         assertEquals("20% off applied for 3 months", offerAppliedLabel(offer(20, "repeating", 3), null, null))
     }
 
@@ -137,7 +155,13 @@ internal fun fakePc(email: String? = "a@x.com", configFails: Boolean = false): P
     pc.maxDevices = { 1 }
     pc.isPremium = { false }
     pc.config = {
-        if (configFails) Promise.reject(Throwable("offline")).unsafeCast<Promise<Any?>>() else Promise.resolve<Any?>(js("JSON.parse")(CONFIG))
+        if (configFails) {
+            Promise.reject(
+                Throwable("offline"),
+            ).unsafeCast<Promise<Any?>>()
+        } else {
+            Promise.resolve<Any?>(js("JSON.parse")(CONFIG))
+        }
     }
     pc.devices = { Promise.resolve<Any?>(js("JSON.parse")("""[{"maxDevices":2}]""")) }
     pc.paymentOptions = { sku: String, _: String? -> if (sku == "pro-monthly") js("JSON.parse")(OPTIONS) else js("[]") }

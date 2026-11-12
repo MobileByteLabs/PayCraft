@@ -50,11 +50,11 @@ import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.identity.SignInState
 import com.mobilebytelabs.paycraft.generated.resources.Res
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_already_subscribed_body
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_already_subscribed_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_cancel
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_checking
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_checking_body
-import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_already_subscribed_body
-import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_already_subscribed_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_description
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_failed_message
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_failed_title

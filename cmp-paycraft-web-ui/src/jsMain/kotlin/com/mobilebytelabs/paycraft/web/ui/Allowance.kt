@@ -25,7 +25,15 @@ private fun int(v: dynamic): Int = if (jsTypeOf(v) == "number") (v as Number).to
 fun allowance(pc: PayCraftWebApi, sku: String): Promise<WebAllowance> =
     pc.deviceCall("allowance_status", sku, null).then { body ->
         val o: dynamic = JSON.parse(body)
-        WebAllowance(sku, o.is_pro == true, int(o.free_per_month), int(o.used), int(o.remaining), int(o.credits), (o.resets_at as? String) ?: "")
+        WebAllowance(
+            sku,
+            o.is_pro == true,
+            int(o.free_per_month),
+            int(o.used),
+            int(o.remaining),
+            int(o.credits),
+            (o.resets_at as? String) ?: "",
+        )
     }
 
 /** Spend one use of [sku] → `pro` | `allowance` | `credit` | `refused`; the same [idempotencyKey] never charges twice. */

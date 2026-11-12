@@ -165,4 +165,3 @@ internal class CheckoutWire(val url: String? = null)
 
 @Serializable
 internal class ErrorWire(val error: String? = null, val message: String? = null)
-

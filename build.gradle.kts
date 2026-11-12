@@ -53,7 +53,8 @@ spotless {
         target("**/*.kt")
         // `sample/` is a loose reference snippet (not a compiled module) — wildcard imports keep it
         // readable as documentation; it is not production source, so it is excluded from lint.
-        targetExclude("**/build/**/*.kt", "**/.gradle/**/*.kt", "sample/**/*.kt")
+        // infra/tests/** are canary FIXTURES: their files mirror real source paths on purpose (filename rule).
+        targetExclude("**/build/**/*.kt", "**/.gradle/**/*.kt", "sample/**/*.kt", "infra/tests/**/*.kt")
         ktlint(libs.versions.ktlint.get())
             .editorConfigOverride(
                 mapOf(

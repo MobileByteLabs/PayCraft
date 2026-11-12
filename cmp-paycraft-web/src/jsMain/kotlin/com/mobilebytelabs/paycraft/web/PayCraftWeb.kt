@@ -394,7 +394,18 @@ class PayCraftWeb(
     fun deviceCall(fn: String, sku: String, idempotencyKey: String?): Promise<String> {
         val token = store.token() ?: return Promise.reject(PayCraftWebError("sign_in_required", "Sign in first"))
         val p = PayCraftContract.tokenParams(token, apiKey) + ("p_sku" to JsonPrimitive(sku))
-        return post(PayCraftContract.rpcUrl(base, fn), JsonObject(if (idempotencyKey == null) p else p + ("p_idempotency_key" to JsonPrimitive(idempotencyKey))).toString())
+        return post(
+            PayCraftContract.rpcUrl(base, fn),
+            JsonObject(
+                if (idempotencyKey ==
+                    null
+                ) {
+                    p
+                } else {
+                    p + ("p_idempotency_key" to JsonPrimitive(idempotencyKey))
+                },
+            ).toString(),
+        )
     }
 
     // The one suspend lambda for fire-a-POST-get-the-body calls: each `scope.promise { }` is its own class in the bundle.
