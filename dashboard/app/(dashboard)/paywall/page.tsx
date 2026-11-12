@@ -57,6 +57,12 @@ export default async function PaywallPage() {
         >
           Open tree editor →
         </Link>
+        <Link
+          href="/paywall/exit-survey"
+          className="ml-2 inline-flex items-center gap-2 rounded-md border border-ink-300 px-3 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-800"
+        >
+          Exit survey →
+        </Link>
       </div>
       <PaywallDesigner
         initial={

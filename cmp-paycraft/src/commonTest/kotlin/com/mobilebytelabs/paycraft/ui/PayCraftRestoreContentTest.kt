@@ -167,4 +167,19 @@ class PayCraftRestoreContentTest {
         // Still failing (nothing changed server-side in the fake) → the error comes back, retryable.
         onNodeWithTag("paycraft_restore_retry_button").assertExists()
     }
+
+    @Test
+    fun an_already_subscribed_email_is_named_with_the_restore_instruction() = runComposeUiTest {
+        setContent {
+            PayCraftRestoreContent(
+                billingManager = FakeBillingManager(),
+                onCancel = {},
+                onSuccess = {},
+                alreadySubscribedEmail = "paid@buyer.test",
+            )
+        }
+        onNodeWithText("You're already subscribed").assertExists()
+        onNodeWithText("paid@buyer.test already has an active subscription", substring = true).assertExists()
+        onNodeWithText("Restore Purchases").assertDoesNotExist()
+    }
 }

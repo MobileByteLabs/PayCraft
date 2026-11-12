@@ -11,6 +11,8 @@ interface EmailParams {
   to: string;
   subject: string;
   html: string;
+  // Overrides PAYCRAFT_FROM_EMAIL for one message (ops alerts use ALERT_FROM_EMAIL — health/index.ts).
+  from?: string;
 }
 
 interface SendResult {
@@ -33,7 +35,7 @@ export async function sendEmail(params: EmailParams): Promise<SendResult> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: FROM_EMAIL,
+        from: params.from || FROM_EMAIL,
         to: params.to,
         subject: params.subject,
         html: params.html,

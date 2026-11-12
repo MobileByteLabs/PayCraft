@@ -167,6 +167,55 @@ class StoreEntitlementGatingTest {
         assertFalse(cache.cached!!.isPremium, "the cached Premium must be overwritten, or the next launch restores it")
     }
 
+    /**
+     * Device finding 2026-11-10 (reels on PayCraft 3.0.0, Play test purchase, user signed in): init
+     * re-registered the unacknowledged purchase BEFORE the saved email had loaded, so it presented the
+     * anonymous device id. The server refused (the transaction belongs to a signed-in account), the SDK
+     * left it unfinished, and Play reported the purchase ACKNOWLEDGEMENT_STATE_PENDING — the state Play
+     * auto-refunds after 72 hours. Every launch-time registration must wait for the saved identity.
+     */
+    @Test
+    fun launch_registers_an_unfinished_purchase_as_the_saved_email_not_the_device() = runTest {
+        val email = "buyer@test.local"
+        val slowEmailStore = object : PayCraftStore {
+            override suspend fun saveEmail(email: String) = Unit
+            override suspend fun getEmail(): String? {
+                kotlinx.coroutines.delay(300) // the saved identity arrives after init has started
+                return email
+            }
+            override suspend fun clearEmail() = Unit
+        }
+        val service = FakePayCraftService().apply { storeTruth[token] = activeStoreEntitlement(email) }
+        // Unacknowledged — the launch-time reconcile sweep is the path that presented the device id.
+        val native = SpyNativeBillingClient().apply {
+            storePurchases =
+                listOf(storePurchase().copy(isAcknowledged = false))
+        }
+        PayCraftBillingManager(
+            service = service,
+            store = slowEmailStore,
+            repo = EntitlementRepository(
+                cache = EntitlementCache(service, InMemoryEntitlementDao(), ttl = 24.hours),
+                native = native,
+                service = service,
+                platform = { "android" },
+            ),
+            nativeBillingClient = native,
+            dispatcher = Dispatchers.Default,
+            platform = { "android" },
+        )
+
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000) { while (service.registered.isEmpty()) kotlinx.coroutines.delay(20) }
+            kotlinx.coroutines.delay(300) // let any other launch-time registration land too
+        }
+        assertTrue(service.registered.isNotEmpty())
+        assertTrue(
+            service.registered.all { it.second == email },
+            "every registration presents the signed-in email, never the device id: ${service.registered}",
+        )
+    }
+
     @Test
     fun cold_start_without_email_or_store_entitlement_is_still_free() = runTest {
         val manager = manager(FakePayCraftService(), SpyNativeBillingClient())

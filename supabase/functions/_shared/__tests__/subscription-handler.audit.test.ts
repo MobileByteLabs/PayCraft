@@ -212,3 +212,41 @@ Deno.test({
     assertEquals(auditCalls.length, 0, "no audit emit when tenant_id is null");
   },
 });
+
+// A checkout write must not lean on ON CONFLICT inference: the per-tenant unique index is on an
+// EXPRESSION (COALESCE(tenant_id, …), email), which no column list can name — and passing the
+// index NAME as on_conflict made PostgREST answer `column "idx_subscriptions_tenant_email" does
+// not exist`, failing every tenant-attributed web checkout in production.
+Deno.test({
+  name: "checkout for a new subscriber INSERTs, with no on_conflict target",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    const { calls, restore } = installFetchStub({ beforeRow: null });
+    try {
+      await handleSubscriptionEvent({ ...baseEvent });
+    } finally {
+      restore();
+    }
+    const writes = calls.filter((c) => c.url.includes("/rest/v1/subscriptions") && c.method !== "GET");
+    assertEquals(writes.map((c) => c.method), ["POST"]);
+    assert(!writes[0].url.includes("on_conflict"), writes[0].url);
+  },
+});
+
+Deno.test({
+  name: "checkout for an existing (tenant, email) row UPDATEs that row by id",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    const { calls, restore } = installFetchStub({ beforeRow: { id: "row-1" } });
+    try {
+      await handleSubscriptionEvent({ ...baseEvent });
+    } finally {
+      restore();
+    }
+    const writes = calls.filter((c) => c.url.includes("/rest/v1/subscriptions") && c.method !== "GET");
+    assertEquals(writes.map((c) => c.method), ["PATCH"]);
+    assert(writes[0].url.includes("id=eq.row-1"), writes[0].url);
+  },
+});

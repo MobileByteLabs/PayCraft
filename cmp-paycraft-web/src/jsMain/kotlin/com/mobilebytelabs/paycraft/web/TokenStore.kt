@@ -7,6 +7,7 @@ internal const val TOKEN_KEY = "paycraft_web_token"
 internal const val EMAIL_KEY = "paycraft_web_email"
 internal const val PREMIUM_KEY = "paycraft_web_premium"
 internal const val DEVICE_ID_KEY = "paycraft_web_device_id"
+internal const val SURVEY_SHOWN_KEY = "paycraft_web_survey_shown_at"
 
 /** How long a cached premium answer is trusted for the synchronous `isAdFree()` check. */
 internal const val PREMIUM_CACHE_TTL_MS: Double = 6 * 60 * 60 * 1000.0
@@ -59,6 +60,11 @@ internal class TokenStore(private val kv: KeyValue) {
     }
 
     fun saveDeviceId(id: String) = write(DEVICE_ID_KEY, id)
+
+    /** When the exit survey was last shown here (epoch ms) — its cap survives reloads; kept across sign-out. */
+    fun surveyShownAt(): Double? = read(SURVEY_SHOWN_KEY)?.toDoubleOrNull()
+
+    fun saveSurveyShownAt(at: Double) = write(SURVEY_SHOWN_KEY, at.toString())
 
     fun premium(): PremiumCache? =
         read(PREMIUM_KEY)?.let { runCatching { json.decodeFromString(PremiumCache.serializer(), it) }.getOrNull() }

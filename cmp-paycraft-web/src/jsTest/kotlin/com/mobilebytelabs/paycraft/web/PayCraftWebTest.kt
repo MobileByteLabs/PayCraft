@@ -38,7 +38,7 @@ class PayCraftWebTest {
         val net = FakeTransport().on("/functions/v1/config") { CONFIG_JSON }
         val cfg = sdk(net).loadConfig()
         assertEquals(1, cfg.products.size)
-        assertEquals("pro_monthly", cfg.products[0].sku)
+        assertEquals("pro-monthly", cfg.products[0].sku)
         assertEquals(19900, cfg.products[0].amountCents)
         assertEquals("INR", cfg.products[0].currency)
         assertEquals("razorpay", cfg.providers[0])
@@ -138,17 +138,84 @@ class PayCraftWebTest {
     }
 
     @Test
+    fun theVisitorsCountryPricesConfigLikeTheAppDoes() = runTest {
+        // A browser's Accept-Language is a LANGUAGE (most browsers in India say en-US), not where the
+        // visitor is. The site knows the real country (its edge's IP geo) and hands it over; /config then
+        // prices for that country exactly as it does for the app, which sends `en-<country>`.
+        val net = FakeTransport().on("/functions/v1/config") { CONFIG_JSON }
+        val pc = sdk(net)
+        pc.loadConfig()
+        assertEquals(null, net.calls.last().headers["Accept-Language"]) // nothing set → the browser's own
+
+        pc.setCountry("in")
+        pc.loadConfig()
+        assertEquals("en-IN", net.calls.last().headers["Accept-Language"])
+        // ...and in the URL: /config is cacheable and does not vary on Accept-Language, so a browser that
+        // fetched it earlier in another language would otherwise answer from its cache with that country's
+        // prices (seen live: a visitor in India shown £ from a cached en-GB response).
+        assertTrue(net.calls.last().url.contains("country=IN"), net.calls.last().url)
+
+        // Not a country → ignored (never sends a made-up region); null clears it.
+        pc.setCountry("India")
+        pc.loadConfig()
+        assertEquals("en-IN", net.calls.last().headers["Accept-Language"])
+        pc.setCountry("XX")
+        pc.loadConfig()
+        assertEquals("en-IN", net.calls.last().headers["Accept-Language"])
+        pc.setCountry(null)
+        pc.loadConfig()
+        assertEquals(null, net.calls.last().headers["Accept-Language"])
+        assertTrue("country=" !in net.calls.last().url)
+    }
+
+    @Test
+    fun theWebOffersEveryProviderThatCanChargeTheShownCurrencyAndChecksOutWithTheOneChosen() = runTest {
+        // INR: Razorpay holds a plan and Stripe a price → both are offered (the web has no store rules),
+        // the provider /config bound first; the buyer's pick decides the checkout.
+        val cfg = """
+            {"tenant_id":"t1","mode":"ad_supported",
+             "products":[{"id":"p1","sku":"pro-monthly","type":"subscription","display_name":"Pro Monthly",
+               "base_price_cents":999,"base_currency":"USD",
+               "resolved_price":{"amount_cents":29900,"currency":"INR","source":"manual"},
+               "store_binding":{"provider":"razorpay","product_id":"plan_inr"},
+               "stripe_price_id_by_currency":{"USD":"price_usd","INR":"price_inr"},"live_stripe_ids_verified":true,
+               "stripe_price_id_by_currency_test":{"USD":"price_t_usd","INR":"price_t_inr"},
+               "razorpay_plan_id_by_currency":{"INR":"plan_inr"},"razorpay_plan_id_by_currency_test":{"INR":"plan_t_inr"}}],
+             "providers":[{"provider":"stripe"},{"provider":"razorpay"}]}
+        """.trimIndent()
+        val net = signedIn()
+            .on("/functions/v1/config") { cfg }
+            .on("/functions/v1/checkout-initiate") {
+                """{"url":"https://checkout.stripe.com/c/pay/cs_9","provider":"stripe"}"""
+            }
+        val pc = sdk(net)
+        pc.doSignIn("google", "t", null)
+        pc.loadConfig()
+        val options = pc.paymentOptions("pro-monthly", null)
+        assertEquals(listOf("razorpay", "stripe"), options.map { it.provider })
+        assertEquals("UPI, cards, netbanking & wallets", options[0].methods)
+        assertEquals("Cards, Apple Pay & Google Pay", options[1].methods)
+        // USD: only Stripe holds a USD price
+        assertEquals(listOf("stripe"), pc.paymentOptions("pro-monthly", "USD").map { it.provider })
+
+        assertEquals("https://checkout.stripe.com/c/pay/cs_9", pc.resolveCheckoutUrl("pro-monthly", null, "stripe"))
+        val body = net.bodyOf("/functions/v1/checkout-initiate")
+        assertEquals("stripe", body["provider"]!!.jsonPrimitive.content)
+        assertEquals("INR", body["currency"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun razorpayCheckoutPostsTheSignedInEmail() = runTest {
         val net = signedIn()
             .on("/functions/v1/config") { CONFIG_JSON }
             .on("/functions/v1/checkout-initiate") { """{"url":"https://rzp.io/i/abc","provider":"razorpay"}""" }
         val pc = sdk(net)
         pc.doSignIn("google", "t", null)
-        assertEquals("https://rzp.io/i/abc", pc.resolveCheckoutUrl("pro_monthly", "INR"))
+        assertEquals("https://rzp.io/i/abc", pc.resolveCheckoutUrl("pro-monthly", "INR"))
         val call = net.calls.last()
         assertTrue(call.url.endsWith("/functions/v1/checkout-initiate?apiKey=pk_test_abc"))
         val body = Json.parseToJsonElement(call.body!!).jsonObject
-        assertEquals("pro_monthly", body["sku"]!!.jsonPrimitive.content)
+        assertEquals("pro-monthly", body["sku"]!!.jsonPrimitive.content)
         assertEquals("INR", body["currency"]!!.jsonPrimitive.content)
         assertEquals("a+b@x.com", body["customer"]!!.jsonObject["email"]!!.jsonPrimitive.content)
         assertEquals("razorpay", body["provider"]!!.jsonPrimitive.content)
@@ -161,7 +228,7 @@ class PayCraftWebTest {
         // Stripe Checkout Session — the provider is sent so the server knows which PSP to call.
         val usd = """
             {"tenant_id":"t1","mode":"ad_supported",
-             "products":[{"id":"p1","sku":"pro_monthly","type":"subscription","display_name":"Pro Monthly",
+             "products":[{"id":"p1","sku":"pro-monthly","type":"subscription","display_name":"Pro Monthly",
                "interval":"month","base_price_cents":999,"base_currency":"USD",
                "resolved_price":{"amount_cents":999,"currency":"USD","source":"stripe"},
                "store_binding":{"provider":"stripe_card","product_id":"price_usd"}}],
@@ -175,7 +242,7 @@ class PayCraftWebTest {
         val pc = sdk(net)
         pc.currentPage = { "https://site.test/pricing/" }
         pc.doSignIn("google", "t", null)
-        assertEquals("https://checkout.stripe.com/c/pay/cs_1", pc.resolveCheckoutUrl("pro_monthly", null))
+        assertEquals("https://checkout.stripe.com/c/pay/cs_1", pc.resolveCheckoutUrl("pro-monthly", null))
         val body = net.bodyOf("/functions/v1/checkout-initiate")
         assertEquals("stripe", body["provider"]!!.jsonPrimitive.content)
         assertEquals("USD", body["currency"]!!.jsonPrimitive.content)
@@ -190,7 +257,7 @@ class PayCraftWebTest {
         pc.doSignIn("google", "t", null)
         assertEquals(
             "https://buy.stripe.com/test_1?prefilled_email=a%2Bb%40x.com",
-            pc.resolveCheckoutUrl("pro_monthly", "USD"),
+            pc.resolveCheckoutUrl("pro-monthly", "USD"),
         )
     }
 
@@ -212,7 +279,7 @@ class PayCraftWebTest {
             .on("/functions/v1/checkout-initiate") { """{"url":"https://rzp.io/i/abc"}""" }
         val pc = sdk(net)
         pc.doSignIn("google", "t", null)
-        pc.resolveCheckoutUrl("pro_monthly", null)
+        pc.resolveCheckoutUrl("pro-monthly", null)
         assertEquals("INR", net.bodyOf("/functions/v1/checkout-initiate")["currency"]!!.jsonPrimitive.content)
     }
 
@@ -222,7 +289,7 @@ class PayCraftWebTest {
         val pc = sdk(net)
         pc.doSignIn("google", "t", null)
         // shown price is EUR, which has no link → USD
-        assertTrue(pc.resolveCheckoutUrl("pro_monthly", null).startsWith("https://buy.stripe.com/test_usd?"))
+        assertTrue(pc.resolveCheckoutUrl("pro-monthly", null).startsWith("https://buy.stripe.com/test_usd?"))
     }
 
     @Test
@@ -252,13 +319,13 @@ class PayCraftWebTest {
     @Test
     fun subscriptionReturnsPlanRenewalAndCancellation() = runTest {
         val net = signedIn().on("/rest/v1/rpc/get_subscription") {
-            """[{"email":"a+b@x.com","provider":"razorpay","plan":"pro_yearly","status":"active",
+            """[{"email":"a+b@x.com","provider":"razorpay","plan":"pro-annual","status":"active",
                 "current_period_end":"2027-11-07T10:00:00Z","cancel_at_period_end":false,"trial_end":null}]"""
         }
         val pc = sdk(net)
         pc.doSignIn("google", "t", null)
         val sub = pc.loadSubscription()!!
-        assertEquals("pro_yearly", sub.plan)
+        assertEquals("pro-annual", sub.plan)
         assertEquals("active", sub.status)
         assertEquals("razorpay", sub.provider)
         assertEquals("2027-11-07T10:00:00Z", sub.renewsAt)
@@ -290,7 +357,7 @@ class PayCraftWebTest {
     @Test
     fun checkoutRequiresSignIn() = runTest {
         val net = FakeTransport().on("/functions/v1/config") { CONFIG_JSON }
-        assertFailsWith<PayCraftWebError> { sdk(net).resolveCheckoutUrl("pro_monthly", null) }
+        assertFailsWith<PayCraftWebError> { sdk(net).resolveCheckoutUrl("pro-monthly", null) }
     }
 
     @Test
@@ -393,11 +460,11 @@ class PayCraftWebTest {
 
     internal companion object {
         val CONFIG_JSON = """
-            {"tenant_id":"t1","products":[{"id":"p1","sku":"pro_monthly","type":"subscription",
+            {"tenant_id":"t1","products":[{"id":"p1","sku":"pro-monthly","type":"subscription",
               "display_name":"Pro","interval":"month","base_price_cents":19900,"base_currency":"INR",
               "trial_duration_days":7,"resolved_price":{"amount_cents":19900,"currency":"INR","source":"global"},
               "store_binding":{"provider":"razorpay","product_id":"plan_inr"}}],
-             "providers":[{"provider":"razorpay","test_payment_links":{"pro_monthly":{}}}],
+             "providers":[{"provider":"razorpay","test_payment_links":{"pro-monthly":{}}}],
              "mode":"ad_supported",
              "auth":{"google_web_client_id":"web-client.apps.googleusercontent.com","apple_services_id":"com.x.signin"}}
         """.trimIndent()
@@ -408,16 +475,16 @@ class PayCraftWebTest {
              "providers":[{"provider":"razorpay","test_payment_links":{"lifetime":{"INR":"https://rzp.io/l/lifetime-inr"}}}]}
         """.trimIndent()
         val STRIPE_MULTI_CURRENCY_CONFIG_JSON = """
-            {"products":[{"id":"p1","sku":"pro_monthly","type":"subscription","display_name":"Pro",
+            {"products":[{"id":"p1","sku":"pro-monthly","type":"subscription","display_name":"Pro",
               "base_price_cents":500,"base_currency":"EUR","resolved_price":{"amount_cents":500,"currency":"EUR"}}],
-             "providers":[{"provider":"stripe","test_payment_links":{"pro_monthly":{
+             "providers":[{"provider":"stripe","test_payment_links":{"pro-monthly":{
                "GBP":"https://buy.stripe.com/test_gbp","USD":"https://buy.stripe.com/test_usd"}}}]}
         """.trimIndent()
         val STRIPE_CONFIG_JSON = """
-            {"products":[{"id":"p1","sku":"pro_monthly","type":"subscription","display_name":"Pro",
+            {"products":[{"id":"p1","sku":"pro-monthly","type":"subscription","display_name":"Pro",
               "interval":"month","base_price_cents":500,"base_currency":"USD"}],
-             "providers":[{"provider":"stripe","test_payment_links":{"pro_monthly":{"USD":"https://buy.stripe.com/test_1"}},
-                           "live_payment_links":{"pro_monthly":{"USD":"https://buy.stripe.com/live_1"}}}]}
+             "providers":[{"provider":"stripe","test_payment_links":{"pro-monthly":{"USD":"https://buy.stripe.com/test_1"}},
+                           "live_payment_links":{"pro-monthly":{"USD":"https://buy.stripe.com/live_1"}}}]}
         """.trimIndent()
     }
 }
@@ -437,8 +504,20 @@ internal class FakeTransport : Transport {
             Triple(path, status, body)
     }
 
+    /** Answers [path] with each (status, body) in turn, then repeats the last. */
+    fun onSequence(path: String, vararg answers: Pair<Int, String>): FakeTransport = apply {
+        var i = 0
+        sequences[path] = { answers[minOf(i++, answers.size - 1)] }
+    }
+
+    private val sequences = mutableMapOf<String, () -> Pair<Int, String>>()
+
     override suspend fun send(method: String, url: String, headers: Map<String, String>, body: String?): HttpResult {
         calls += Call(method, url, headers, body)
+        sequences.entries.lastOrNull { url.substringBefore('?').endsWith(it.key) }?.let { (_, next) ->
+            val (status, b) = next()
+            return HttpResult(status, b)
+        }
         val route = routes.lastOrNull { url.substringBefore('?').endsWith(it.first) }
             ?: return HttpResult(404, """{"error":"no fake route for $url"}""")
         return HttpResult(route.second, route.third())

@@ -13,6 +13,7 @@ import {
   Layers,
   LayoutGrid,
   LogOut,
+  MessageSquareText,
   Package,
   Plug,
   Settings,
@@ -52,6 +53,7 @@ const groups: NavGroup[] = [
       { href: "/providers", label: "Providers", icon: Plug },
       { href: "/providers/platform", label: "Platform providers", icon: Layers },
       { href: "/paywall", label: "Paywall", icon: LayoutGrid },
+      { href: "/paywall/exit-survey", label: "Exit survey", icon: MessageSquareText },
     ],
   },
   {
@@ -102,6 +104,12 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname()
   const navGroups = isPlatformOwner ? [...groups, adminGroup] : groups
+  // The most specific item wins: /paywall/exit-survey lights "Exit survey", not "Paywall" as well (same for
+  // /providers/platform and the /settings/* pages).
+  const activeHref = navGroups
+    .flatMap((g) => g.items.map((i) => i.href))
+    .filter((href) => pathname === href || (href !== "/" && pathname.startsWith(href + "/")))
+    .sort((a, b) => b.length - a.length)[0]
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-white border-r border-ink-200 flex flex-col py-6 px-4 z-50">
       {/* Brand */}
@@ -167,11 +175,7 @@ export function Sidebar({
             <ul className="space-y-0.5">
               {group.items.map((item) => {
                 const Icon = item.icon
-                const active =
-                  pathname === item.href ||
-                  (item.href !== "/settings" &&
-                    item.href !== "/" &&
-                    pathname.startsWith(item.href + "/"))
+                const active = item.href === activeHref
                 return (
                   <li key={item.href}>
                     <Link

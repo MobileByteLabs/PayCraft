@@ -81,6 +81,15 @@ fun selectBestOffer(offers: List<NativeOffer>): NativeOffer? = offers
     )
 
 /**
+ * The offer to purchase: the buyer's claimed win-back offer ([winbackOfferId], the coupon's store offer id —
+ * paycraft-paywall-analytics) when the store returned it, otherwise [selectBestOffer]. An id the store did not
+ * return (not eligible, not synced) falls back rather than failing — the buyer still gets a working checkout.
+ */
+fun chooseOffer(offers: List<NativeOffer>, winbackOfferId: String?): NativeOffer? =
+    winbackOfferId?.takeIf { it.isNotBlank() }?.let { id -> offers.firstOrNull { it.offerId == id } }
+        ?: selectBestOffer(offers)
+
+/**
  * ISO-8601 duration → whole days, for the subset Play and StoreKit emit for billing periods
  * (`P3D`, `P1W`, `P1M`, `P6M`, `P1Y`). Months are 30 days and years 365 — these drive display copy
  * ("7-day free trial") and trial ranking, never billing arithmetic, so calendar precision would be

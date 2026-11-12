@@ -159,6 +159,8 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
             // ConfigCacheTest — in-memory MapSettings (com.russhwolf.settings.MapSettings)
             implementation("com.russhwolf:multiplatform-settings-test:1.3.0")
+            // ExitSurveyContentTest — ExitSurveyGate takes a Settings; core declares it `implementation`
+            implementation("com.russhwolf:multiplatform-settings:1.3.0")
         }
 
         val jvmTest by getting {

@@ -34,6 +34,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1";
 import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/rate-limit.ts";
 import { preflight, withCors } from "../_shared/cors.ts";
 import { pickByCurrency, returnUrls, stripeSessionForm } from "./stripe-session.ts";
+import { buyerRef, type OfferCoupon, offerUsable, type OfferRow } from "../_shared/winback-offer.ts";
 
 const RAZORPAY_API = "https://api.razorpay.com/v1";
 const STRIPE_API = "https://api.stripe.com/v1";
@@ -192,8 +193,17 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
     );
   }
 
+  // A win-back offer (the exit survey's discount). Refused — not silently dropped — when it is not this
+  // buyer's or no longer live: the buyer clicked "claim 50% off", so charging full price without saying so
+  // would be worse than an error the SDK turns into "this offer has ended" before a normal checkout.
+  let winback: { offer: OfferRow; coupon: OfferCoupon } | null = null;
+  if (typeof body.offerId === "string" && body.offerId.length > 0) {
+    winback = await usableOffer(supabase, tenantId, body.offerId, customer.email!, typeof body.deviceRef === "string" ? body.deviceRef : null);
+    if (!winback) return json({ error: "offer_not_usable" }, 409);
+  }
+
   if (provider === "stripe") {
-    return await stripeCheckout(supabase, req, body, tenantId, mode, product, customer, requestedCurrency);
+    return await stripeCheckout(supabase, req, body, tenantId, mode, product, customer, requestedCurrency, winback);
   }
 
   const resolved = resolvePlanId(
@@ -255,6 +265,10 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
     },
   };
   if (startAt) payload.start_at = startAt;
+  if (winback?.coupon.razorpay_offer_id) {
+    payload.offer_id = winback.coupon.razorpay_offer_id;
+    (payload.notes as Record<string, unknown>).paycraft_winback_offer = winback.offer.id;
+  }
 
   const rzpRes = await fetch(`${RAZORPAY_API}/subscriptions`, {
     method: "POST",
@@ -322,6 +336,7 @@ async function stripeCheckout(
   product: any,
   customer: CustomerInput,
   requestedCurrency: string | null,
+  winback: { offer: OfferRow; coupon: OfferCoupon } | null,
 ): Promise<Response> {
   // Stripe ids are ACCOUNT-scoped per mode (migration 147). A live column not yet verified by a live
   // sync may still hold test ids, which would fail at Stripe with a confusing "No such price".
@@ -356,6 +371,10 @@ async function stripeCheckout(
       trialDays: Number(product.trial_duration_days ?? 0),
       success: back.success,
       cancel: back.cancel,
+      discount: winback
+        ? { promotionCodeId: winback.coupon.stripe_promotion_code_id, couponId: winback.coupon.stripe_coupon_id }
+        : null,
+      winbackOfferId: winback?.offer.id ?? null,
     }),
   });
   const session = await res.json().catch(() => ({}));
@@ -392,4 +411,31 @@ async function stripeCheckout(
 // a port.
 if (!Deno.env.get("CONFIG_SKIP_SERVE")) {
   Deno.serve(handleCheckoutInitiate);
+}
+
+/**
+ * The win-back offer [offerId] if THIS buyer may use it now — matched on their account (the checkout email) or the
+ * device the offer was made to — and marks it applied. Null when it is someone else's, expired, redeemed, or its
+ * coupon is no longer live.
+ */
+async function usableOffer(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  tenantId: string,
+  offerId: string,
+  email: string,
+  deviceRef: string | null,
+): Promise<{ offer: OfferRow; coupon: OfferCoupon } | null> {
+  const { data: offer } = await supabase.from("winback_offers")
+    .select("id,tenant_id,user_ref,coupon_id,expires_at,redeemed_at").eq("id", offerId).eq("tenant_id", tenantId).maybeSingle();
+  if (!offer) return null;
+  const { data: coupon } = await supabase.from("tenant_coupons")
+    .select("id,percent_off,duration,duration_in_months,active,redeem_by,max_redemptions,times_redeemed,stripe_coupon_id,stripe_promotion_code_id,razorpay_offer_id,googleplay_offer_ids,appstore_offer_ids")
+    .eq("id", offer.coupon_id).maybeSingle();
+  if (!coupon) return null;
+  const refs = [await buyerRef(tenantId, email, null), deviceRef ? await buyerRef(tenantId, null, deviceRef) : null];
+  if (!refs.some((r) => offerUsable(offer, coupon, tenantId, r))) return null;
+  // applied_ref: the account this checkout runs as — the webhook marks the offer redeemed when it pays.
+  await supabase.from("winback_offers").update({ applied_at: new Date().toISOString(), applied_ref: refs[0] }).eq("id", offer.id);
+  return { offer, coupon };
 }

@@ -43,4 +43,5 @@ include(":cmp-paycraft")
 // not get to choose an app's navigation library. Same split as cmp-supabase-auth-compose.
 include(":cmp-paycraft-navigation")
 include(":cmp-paycraft-web")
+include(":cmp-paycraft-web-ui")
 include(":sample-app")

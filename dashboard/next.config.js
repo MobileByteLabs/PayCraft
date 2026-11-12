@@ -37,6 +37,11 @@ const nextConfig = {
       { source: '/app', destination: '/dashboard', permanent: false },
     ]
   },
+  // paycraft.mobilebytesensei.com/health — the one public health URL uptime monitors and
+  // .github/workflows/health-check.yml poll (served by app/api/health).
+  async rewrites() {
+    return [{ source: '/health', destination: '/api/health' }]
+  },
   async headers() {
     return [
       // Security headers — previously in dashboard/vercel.json (Vercel-specific).

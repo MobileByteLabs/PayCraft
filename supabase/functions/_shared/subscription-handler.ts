@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1";
 import { reconcileEntitlement, type CanonicalState } from "./entitlement-reconcile.ts";
 import { resolveInboundTenant } from "./inbound-tenant.ts";
+import { buyerRef } from "./winback-offer.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -118,9 +119,20 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
       };
       if (data.tenantId) row.tenant_id = data.tenantId;
 
-      const { error } = await supabase.from("subscriptions").upsert(row, {
-        onConflict: data.tenantId ? "idx_subscriptions_tenant_email" : "email",
-      });
+      // Find-then-write, not upsert: the per-tenant key is an EXPRESSION index
+      // (COALESCE(tenant_id, …), email) that ON CONFLICT cannot name, and naming the index made every
+      // tenant checkout fail with `column "idx_subscriptions_tenant_email" does not exist`.
+      // ponytail: a concurrent duplicate insert hits the unique index and throws → the provider retries
+      // and lands on the update path.
+      let existingQuery = supabase.from("subscriptions").select("id").eq("email", row.email).limit(1);
+      existingQuery = data.tenantId
+        ? existingQuery.eq("tenant_id", data.tenantId)
+        : existingQuery.is("tenant_id", null);
+      const { data: existing, error: lookupError } = await existingQuery;
+      if (lookupError) throw new Error(`DB lookup failed: ${lookupError.message}`);
+      const { error } = existing && existing.length > 0
+        ? await supabase.from("subscriptions").update(row).eq("id", existing[0].id)
+        : await supabase.from("subscriptions").insert(row);
       if (error) {
         throw new Error(`DB upsert failed: ${error.message}`);
       }
@@ -131,6 +143,18 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
 
       // E2: fold the web event onto the canonical entitlement record (D5 single SoT).
       await reconcileWebEntitlement(data, data.email.toLowerCase());
+
+      // Win-back: a paying subscription redeems the offer this buyer applied at checkout (applied_ref is the
+      // account the checkout ran as — the same hash checkout-initiate stored). Best-effort: never fails the webhook.
+      if (data.tenantId && (data.status === "active" || data.status === "trialing")) {
+        try {
+          const ref = await buyerRef(data.tenantId, data.email, null)
+          await supabase.from("winback_offers").update({ redeemed_at: new Date().toISOString() })
+            .eq("tenant_id", data.tenantId).eq("applied_ref", ref).is("redeemed_at", null).not("applied_at", "is", null)
+        } catch (e) {
+          console.warn(`winback redemption mark failed: ${(e as Error).message}`)
+        }
+      }
     } else {
       // Partial update — by subscription ID (renewals, cancellations)
       const updateData: Record<string, any> = {

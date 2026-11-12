@@ -449,6 +449,9 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 verify_jwt = false
 [functions.stripe-webhook]
 verify_jwt = false
+# Uptime monitors poll it unauthenticated (health/index.ts); the body carries no secret, tenant or buyer.
+[functions.health]
+verify_jwt = false
 [functions.paypal-webhook]
 verify_jwt = false
 [functions.paddle-webhook]
@@ -503,6 +506,10 @@ verify_jwt = false
 [functions.config]
 verify_jwt = false
 [functions.checkout-initiate]
+verify_jwt = false
+[functions.events]
+verify_jwt = false
+[functions.winback]
 verify_jwt = false
 [functions.coupon-validate]
 verify_jwt = false

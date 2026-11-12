@@ -131,6 +131,13 @@ interface BillingManager {
     suspend fun restoreStorePurchases(): Boolean = false
 
     /**
+     * Whether [email] already has an active subscription in THIS app (live/test per the API key).
+     * The paywall asks before opening a web checkout so a paying buyer is sent to restore instead of
+     * being charged twice. Fails open — false on any error — so an outage never blocks a purchase.
+     */
+    suspend fun hasActiveSubscription(email: String): Boolean = false
+
+    /**
      * The app returned to the foreground. Re-syncs what the store holds and re-checks premium —
      * Google's guidance is to call `queryPurchasesAsync()` in `onResume()` for purchases that
      * changed while the app was not running. Driven by the SDK itself on Android; no host wiring.

@@ -13,22 +13,7 @@ import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { resolveInboundTenant } from "../_shared/inbound-tenant.ts";
 import { reconcileEntitlement, googleToCanonical } from "../_shared/entitlement-reconcile.ts";
 import { tenantPlayDeveloperJwt } from "../_shared/play-jwt.ts";
-
-// Play Developer API — purchases.subscriptionsv2.get. Re-fetch truth; never trust the RTDN body.
-async function subscriptionsv2Get(
-  pkg: string,
-  token: string,
-  jwt: string,
-): Promise<Record<string, any>> {
-  const res = await fetch(
-    `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${pkg}/purchases/subscriptionsv2/tokens/${token}`,
-    { headers: { Authorization: `Bearer ${jwt}` } },
-  );
-  if (!res.ok) {
-    throw new Error(`subscriptionsv2.get failed (${res.status}): ${await res.text()}`);
-  }
-  return await res.json();
-}
+import { subscriptionsv2Get } from "../_shared/play-api.ts";
 
 /**
  * Resolve the app-supplied account id for a one-time purchase via `purchases.products.get`.
@@ -119,9 +104,31 @@ serve(async (req: Request) => {
       return new Response("ok", { status: 200 });
     }
 
+    // A voided SUBSCRIPTION (productType 1): refund, chargeback or revoke. subscriptionsv2 would
+    // report it merely as EXPIRED, so it is recorded as `refunded` here — support has to tell a
+    // refund from a lapse. Until 2026-11 this notification was acked and dropped.
+    const voided = rtdn.voidedPurchaseNotification;
+    if (voided?.purchaseToken && voided.productType === 1) {
+      const { tenantId: voidTenantId } = await resolveInboundTenant({
+        appIdentifier: rtdn.packageName,
+        provider: "google_play",
+      });
+      const truth = await subscriptionsv2Get(rtdn.packageName, voided.purchaseToken, await tenantPlayDeveloperJwt(voidTenantId));
+      const ev = googleToCanonical(
+        truth,
+        voided.purchaseToken,
+        truth.externalAccountIdentifiers?.obfuscatedExternalAccountId ?? voided.purchaseToken,
+      );
+      await reconcileEntitlement(
+        { ...ev, canonicalState: "refunded", willRenew: false, inGraceUntil: null, tenantId: voidTenantId },
+        { preserveOwner: true },
+      );
+      return new Response("ok", { status: 200 });
+    }
+
     const sub = rtdn.subscriptionNotification;
     if (!sub?.purchaseToken) {
-      // Not a subscription notification (test publish / voidedPurchase) — ack.
+      // Not a subscription notification (test publish / voided one-time product) — ack.
       return new Response("ok", { status: 200 });
     }
 

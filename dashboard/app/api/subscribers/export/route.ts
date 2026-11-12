@@ -31,11 +31,12 @@ export async function GET(request: NextRequest) {
   }
 
   const { data: subscribers } = await supabase
-    .from("subscriptions")
-    .select("email,plan,status,provider,current_period_start,current_period_end,cancel_at_period_end,created_at,updated_at")
+    // Same list as the Subscribers page (tenant_customers_view, migration 186): web, store and attempts.
+    .from("tenant_customers_view")
+    .select("source,email,app_user_id,plan,status,provider,period_end,started_at,updated_at")
     .eq("tenant_id", tenantId)
     .eq("mode", mode)
-    .order("created_at", { ascending: false })
+    .order("started_at", { ascending: false })
 
   if (!subscribers || subscribers.length === 0) {
     return new NextResponse("No subscribers found", { status: 404 })

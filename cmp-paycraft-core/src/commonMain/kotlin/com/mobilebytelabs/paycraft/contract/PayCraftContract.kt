@@ -2,6 +2,7 @@ package com.mobilebytelabs.paycraft.contract
 
 import com.mobilebytelabs.paycraft.CurrencyResolver
 import com.mobilebytelabs.paycraft.PayCraftInternalApi
+import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
 import com.mobilebytelabs.paycraft.config.AuthClientsDto
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
@@ -9,6 +10,10 @@ import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.network.ActiveDevice
 import com.mobilebytelabs.paycraft.network.PremiumCheckResult
 import com.mobilebytelabs.paycraft.network.RegisterDeviceResult
+import com.mobilebytelabs.paycraft.winback.AppStorePromotionalOffer
+import com.mobilebytelabs.paycraft.winback.ExitSurveyConfig
+import com.mobilebytelabs.paycraft.winback.WinbackOffer
+import com.mobilebytelabs.paycraft.winback.WinbackResult
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -53,6 +58,14 @@ object PayCraftContract {
         "$base/functions/v1/checkout-initiate?apiKey=${encodeUrlComponent(apiKey)}"
 
     fun rpcUrl(base: String, function: String): String = "$base/rest/v1/rpc/$function"
+
+    /** Exit-survey answers → win-back decision (GOAL D3/D6). */
+    fun winbackUrl(base: String, apiKey: String): String =
+        "$base/functions/v1/winback?apiKey=${encodeUrlComponent(apiKey)}"
+
+    /** Paywall events ingest (GOAL D1) — the first-party funnel. */
+    fun eventsUrl(base: String, apiKey: String): String =
+        "$base/functions/v1/events?apiKey=${encodeUrlComponent(apiKey)}"
 
     // ── Headers ─────────────────────────────────────────────────────────────────────────────
 
@@ -120,6 +133,141 @@ object PayCraftContract {
             put("provider", provider)
             put("id_token", idToken)
             if (nonce != null) put("nonce", nonce)
+        }
+
+    // ── Exit survey / win-back ──────────────────────────────────────────────────────────────
+
+    /** The `exit_survey` section of a `/config` response; null when absent or malformed (no survey, never a crash). */
+    fun decodeExitSurvey(raw: String): ExitSurveyConfig? = runCatching {
+        // Read by hand, like decodeWinback: generated serializers for these four classes would cost the web SDK
+        // ~3 KB gzip of its 150 KB budget (paycraft-paywall-analytics T14). A wrong type anywhere → no survey.
+        val s = configJson.parseToJsonElement(raw).jsonObject["exit_survey"] as? JsonObject ?: return null
+        ExitSurveyConfig(
+            enabled = s["enabled"]?.jsonPrimitive?.let { it.booleanOrNull ?: error("enabled") } ?: false,
+            title = s.string("title").orEmpty(),
+            reasons = (s["reasons"] as? JsonArray).orEmpty().map { e ->
+                val r = e.jsonObject
+                ExitSurveyConfig.Reason(
+                    code = r.string("code")!!,
+                    label = r.string("label")!!,
+                    action = r.string("action") ?: "none",
+                    message = r.string("message"),
+                    freeText = r.bool("free_text") ?: false,
+                    offer = (r["offer"] as? JsonObject)?.let {
+                        ExitSurveyConfig.Offer(
+                            percentOff = it["percent_off"]!!.jsonPrimitive.intOrNull!!,
+                            duration = it.string("duration") ?: "once",
+                            durationInMonths = it["duration_in_months"]?.jsonPrimitive?.intOrNull,
+                        )
+                    },
+                )
+            },
+            capDays = s["cap_days"]?.jsonPrimitive?.intOrNull ?: 7,
+        )
+    }.getOrNull()
+
+    /**
+     * `winback` body: the buyer's answer. The buyer is the device token's account (resolved server-side to a
+     * hash); [freeText] is sent only for a reason that asks for it and is stored first-party only.
+     */
+    fun winbackBody(
+        apiKey: String,
+        deviceRef: String,
+        deviceToken: String?,
+        reasonCode: String,
+        step: String,
+        platform: String,
+        sku: String?,
+        freeText: String?,
+    ): JsonObject = buildJsonObject {
+        put("apiKey", apiKey)
+        put("deviceRef", deviceRef)
+        if (deviceToken != null) put("deviceToken", deviceToken)
+        put("reasonCode", reasonCode)
+        put("step", step)
+        put("platform", platform)
+        if (sku != null) put("sku", sku)
+        if (!freeText.isNullOrBlank()) put("freeText", freeText.take(500))
+    }
+
+    /** The `winback` answer; anything unreadable is [WinbackResult.None] (close the survey, never crash). */
+    fun decodeWinback(raw: String, sku: String?): WinbackResult = decodeWinbackWith(raw, sku, ::appStoreLane)
+
+    /**
+     * [decodeWinback] for the web SDK: the same answer without the App Store lane, which a website cannot apply —
+     * so the promotional-offer signature parsing stays out of the web bundle (its 150 KB budget, GOAL D5).
+     */
+    fun decodeWinbackForWeb(raw: String, sku: String?): WinbackResult = decodeWinbackWith(raw, sku) { null }
+
+    private inline fun decodeWinbackWith(
+        raw: String,
+        sku: String?,
+        appStore: (JsonObject) -> AppStorePromotionalOffer?,
+    ): WinbackResult = runCatching {
+        val o = configJson.parseToJsonElement(raw).jsonObject
+        when (o.string("action")) {
+            "message" -> o.string("message")?.let { WinbackResult.Message(it) } ?: WinbackResult.None
+            "offer" -> {
+                val offer = o["offer"]!!.jsonObject
+                val lanes = offer["lanes"] as? JsonObject
+                val store = lanes?.get("app_store") as? JsonObject
+                WinbackResult.Offer(
+                    WinbackOffer(
+                        id = offer.string("id")!!,
+                        percentOff = offer["percentOff"]!!.jsonPrimitive.intOrNull!!,
+                        duration = offer.string("duration") ?: "once",
+                        durationInMonths = offer["durationInMonths"]?.jsonPrimitive?.intOrNull,
+                        expiresAtIso = offer.string("expiresAt").orEmpty(),
+                        sku = sku,
+                        stripe = lanes?.get("stripe")?.jsonPrimitive?.booleanOrNull == true,
+                        razorpay = lanes?.get("razorpay")?.jsonPrimitive?.booleanOrNull == true,
+                        googlePlayOfferId = (lanes?.get("google_play") as? JsonPrimitive)?.contentOrNull,
+                        appStoreOffer = store?.let(appStore),
+                    ),
+                )
+            }
+            else -> WinbackResult.None
+        }
+    }.getOrDefault(WinbackResult.None)
+
+    private fun appStoreLane(it: JsonObject) = AppStorePromotionalOffer(
+        offerId = it.string("offerId")!!,
+        keyIdentifier = it.string("keyIdentifier")!!,
+        nonce = it.string("nonce")!!,
+        signature = it.string("signature")!!,
+        timestamp = it["timestamp"]!!.jsonPrimitive.content.toLong(),
+    )
+
+    // ── Paywall events ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * `events` body: a batch of catalog events from one device. No personal data travels (GOAL D10) — the
+     * buyer is resolved server-side from [deviceToken] to a hashed reference, and the visitor's country is
+     * stamped by the server from the request, not trusted from [PayCraftEvent.country].
+     */
+    fun eventsBody(apiKey: String, deviceRef: String, deviceToken: String?, events: List<PayCraftEvent>): JsonObject =
+        buildJsonObject {
+            put("apiKey", apiKey)
+            put("deviceRef", deviceRef)
+            if (deviceToken != null) put("deviceToken", deviceToken)
+            put(
+                "events",
+                JsonArray(
+                    events.map { e ->
+                        buildJsonObject {
+                            put("name", e.name.wire)
+                            put("step", e.step.wire)
+                            put("platform", e.platform)
+                            e.trigger?.let { put("trigger", it) }
+                            e.sku?.let { put("sku", it) }
+                            e.currency?.let { put("currency", it) }
+                            e.provider?.let { put("provider", it) }
+                            e.reason?.let { put("reason", it) }
+                            put("at", e.atMs)
+                        }
+                    },
+                ),
+            )
         }
 
     /** The verified email from a `verify` response, or null when the provider gave none. */
@@ -235,6 +383,8 @@ object PayCraftContract {
         test: Boolean,
         requestedCurrency: String?,
         email: String,
+        preferredProvider: String? = null,
+        chargeable: Map<String, Set<String>> = emptyMap(),
     ): WebCheckoutRoute {
         val product = cfg.products.firstOrNull { it.sku == sku }
             ?: return WebCheckoutRoute.Unavailable(
@@ -252,8 +402,16 @@ object PayCraftContract {
             it in WEB_PROVIDERS &&
                 paymentLinks(cfg, it, sku, test).isNotEmpty()
         }
-        val provider = bound
+        // The buyer's own choice (the web's "Choose how to pay"), only when that provider can charge this
+        // currency — a choice that cannot is ignored, never forced.
+        val chosen = preferredProvider?.takeIf {
+            it in webPaymentOptions(cfg, sku, test, requestedCurrency, chargeable)
+        }
+        val provider = chosen
+            ?: bound
             ?: linked.firstOrNull { p -> paymentLinks(cfg, p, sku, test).keys.any { it.equals(shown, true) } }
+            // a provider holding a price/plan in this currency (server checkout mints the page)
+            ?: webPaymentOptions(cfg, sku, test, requestedCurrency, chargeable).firstOrNull()
             ?: linked.firstOrNull() // a link in another currency ([CurrencyResolver.checkoutCurrency] picks it)
             ?: return WebCheckoutRoute.Unavailable(
                 WebCheckoutFailure.NoWebProvider,
@@ -296,6 +454,60 @@ object PayCraftContract {
     private const val HEX = "0123456789ABCDEF"
     private val NATIVE_STORES = setOf("google_play", "app_store")
     private val WEB_PROVIDERS = setOf("razorpay", "stripe")
+
+    /**
+     * Which currencies each web provider can charge for a product, from the `/config` product row's own
+     * price/plan maps (`stripe_price_id_by_currency[_test]`, `razorpay_plan_id_by_currency[_test]`).
+     * Live Stripe ids that a live sync has not verified (`live_stripe_ids_verified: false`) may still be
+     * TEST ids, so they do not count in live mode. Read from the raw JSON: [ProductDto] does not carry
+     * the maps and widening that public class is a binary change.
+     */
+    fun chargeableCurrencies(product: JsonObject, test: Boolean): Map<String, Set<String>> = buildMap {
+        fun keys(field: String): Set<String> = (product[field] as? JsonObject).orEmpty()
+            .filter { (_, v) -> (v as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true }
+            .keys.map { it.uppercase() }.toSet()
+        val stripeVerified = test || product.bool("live_stripe_ids_verified") != false
+        val stripe = if (stripeVerified) {
+            keys(
+                if (test) "stripe_price_id_by_currency_test" else "stripe_price_id_by_currency",
+            )
+        } else {
+            emptySet()
+        }
+        val razorpay = keys(if (test) "razorpay_plan_id_by_currency_test" else "razorpay_plan_id_by_currency")
+        if (stripe.isNotEmpty()) put("stripe", stripe)
+        if (razorpay.isNotEmpty()) put("razorpay", razorpay)
+    }
+
+    /**
+     * Every web provider that can charge [sku] in the currency the buyer is shown — the web has no store
+     * rules, so ALL of them are offered (the "Choose how to pay" list), the one `/config` bound first. A
+     * provider qualifies with a payment link in that currency or a price/plan for it ([chargeable]).
+     */
+    fun webPaymentOptions(
+        cfg: SuiteConfig,
+        sku: String,
+        test: Boolean,
+        requestedCurrency: String?,
+        chargeable: Map<String, Set<String>>,
+    ): List<String> {
+        val product = cfg.products.firstOrNull { it.sku == sku } ?: return emptyList()
+        val shown = (requestedCurrency ?: product.resolvedPrice?.currency ?: product.baseCurrency).uppercase()
+        // /config binds the product to a provider only when it holds a price/plan in the served currency, so
+        // the bound one can always charge it (when the caller asks for that same currency).
+        val bound = product.storeBinding?.provider?.takeUnless { it in NATIVE_STORES }
+            ?.takeIf { requestedCurrency == null || requestedCurrency.equals(product.resolvedPrice?.currency, true) }
+            ?.let(::webProvider)
+        val able = cfg.providers.map { it.provider }.distinct().filter { p ->
+            p in WEB_PROVIDERS &&
+                (
+                    p == bound ||
+                        paymentLinks(cfg, p, sku, test).keys.any { it.equals(shown, true) } ||
+                        shown in chargeable[p].orEmpty()
+                    )
+        }
+        return able.sortedBy { if (it == bound) 0 else 1 }
+    }
 
     /** `stripe_card` → `stripe`, `razorpay` → `razorpay`; null for anything that is not a web provider. */
     private fun webProvider(method: String): String? =

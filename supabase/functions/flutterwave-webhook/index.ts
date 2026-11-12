@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
+import { tenantIdFromPath } from "../_shared/webhook-path.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 
 /**
@@ -15,9 +16,7 @@ import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 const secretHash = Deno.env.get("FLUTTERWAVE_WEBHOOK_HASH") || "";
 
 serve(withWebhookRateLimit({ bucket: "webhook:flutterwave" }, async (req) => {
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const tenantId: string | null = pathParts.length > 3 ? pathParts[3] : null;
+  const tenantId: string | null = tenantIdFromPath(req.url, "flutterwave-webhook");
 
   // Verify hash — FAIL CLOSED: unset secret or missing/wrong hash is rejected.
   if (!secretHash) return new Response("Webhook secret not configured", { status: 500 });

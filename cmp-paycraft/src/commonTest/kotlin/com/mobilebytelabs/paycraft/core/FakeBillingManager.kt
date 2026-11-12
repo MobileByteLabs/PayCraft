@@ -73,6 +73,11 @@ class FakeBillingManager(
 
     override fun refreshStatus(force: Boolean) { /* no-op in tests */ }
 
+    /** Emails [hasActiveSubscription] reports as already paying for this app. */
+    var activeSubscriptionEmails: Set<String> = emptySet()
+
+    override suspend fun hasActiveSubscription(email: String): Boolean = email.trim().lowercase() in activeSubscriptionEmails
+
     var restoreStorePurchasesCallCount = 0
 
     override suspend fun restoreStorePurchases(): Boolean {

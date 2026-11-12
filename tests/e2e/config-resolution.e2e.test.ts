@@ -15,6 +15,7 @@ import {
   getConfig,
   providerIds,
   psql,
+  psqlRows,
   requireLocalStack,
   seedTenant,
   sqlLit,
@@ -35,7 +36,7 @@ Deno.test("config: a provider with plan ids but ZERO payment links is still offe
   const t = await seedTenant({
     name: "rzp_plans_no_links",
     products: [{
-      sku: "plus_monthly",
+      sku: "plus-monthly",
       basePriceCents: 69900,
       baseCurrency: "INR",
       razorpayPlanIds: { INR: "plan_E2E_MONTHLY" },
@@ -44,8 +45,8 @@ Deno.test("config: a provider with plan ids but ZERO payment links is still offe
     }],
     providers: [
       // Exactly the shape the real tenant had: sku keys present, every currency map EMPTY.
-      { provider: "razorpay", liveKeyId: "rzp_live_e2e", livePaymentLinks: { plus_monthly: {} } },
-      { provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { plus_monthly: { INR: "https://buy.stripe.com/e2e" } } },
+      { provider: "razorpay", liveKeyId: "rzp_live_e2e", livePaymentLinks: { "plus-monthly": {} } },
+      { provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { "plus-monthly": { INR: "https://buy.stripe.com/e2e" } } },
     ],
     routing: { android: ["razorpay"] },
     pricing: [["IN", "INR", 69900]],
@@ -65,7 +66,7 @@ Deno.test("config: a provider with plan ids but ZERO payment links is still offe
       `the tenant's android routing rule names razorpay as primary; got ${JSON.stringify(ids)}`,
     );
 
-    const b = bindingFor(body, "plus_monthly");
+    const b = bindingFor(body, "plus-monthly");
     assertEquals(b?.provider, "razorpay");
     assertEquals(b?.product_id, "plan_E2E_MONTHLY");
   } finally {
@@ -83,12 +84,12 @@ Deno.test("config: android falls through to google_play when the chain cannot se
   const t = await seedTenant({
     name: "android_native_tail",
     products: [{
-      sku: "plus_monthly",
+      sku: "plus-monthly",
       playProductId: "plus_monthly_play",
       razorpayPlanIds: { INR: "plan_INR_ONLY" },
     }],
     providers: [
-      { provider: "razorpay", liveKeyId: "rzp_live_e2e", livePaymentLinks: { plus_monthly: {} } },
+      { provider: "razorpay", liveKeyId: "rzp_live_e2e", livePaymentLinks: { "plus-monthly": {} } },
       { provider: "google_play", storeConfig: { package_name: "com.e2e.app" } },
     ],
     routing: { android: ["razorpay"] },
@@ -99,13 +100,13 @@ Deno.test("config: android falls through to google_play when the chain cannot se
   try {
     const inr = await getConfig(t.apiKeyLive, { platform: "android", locale: "en-IN" });
     assertEquals(
-      bindingFor(inr.body, "plus_monthly")?.provider,
+      bindingFor(inr.body, "plus-monthly")?.provider,
       "razorpay",
       "en-IN must honour the operator's chain — razorpay can serve INR",
     );
 
     const usd = await getConfig(t.apiKeyLive, { platform: "android", locale: "en-US" });
-    const b = bindingFor(usd.body, "plus_monthly");
+    const b = bindingFor(usd.body, "plus-monthly");
     assertNotEquals(b, null, "a US buyer must never be left with no provider at all");
     assertEquals(b?.provider, "google_play");
     assertEquals(b?.product_id, "plus_monthly_play");
@@ -124,14 +125,14 @@ Deno.test("config: web and desktop fall back to a web PSP rather than resolving 
   const t = await seedTenant({
     name: "web_psp_tail",
     products: [{
-      sku: "plus_monthly",
+      sku: "plus-monthly",
       stripeProductId: "prod_E2E",
       stripePriceIds: { USD: "price_E2E_USD" },
       razorpayPlanIds: { INR: "plan_INR_ONLY" },
     }],
     providers: [
-      { provider: "razorpay", liveKeyId: "rzp_live_e2e", livePaymentLinks: { plus_monthly: {} } },
-      { provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { plus_monthly: { USD: "https://buy.stripe.com/e2e" } } },
+      { provider: "razorpay", liveKeyId: "rzp_live_e2e", livePaymentLinks: { "plus-monthly": {} } },
+      { provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { "plus-monthly": { USD: "https://buy.stripe.com/e2e" } } },
     ],
     // The operator narrowed both to razorpay — a preference, not a request to drop the sale.
     routing: { web: ["razorpay"], desktop: ["razorpay"] },
@@ -139,7 +140,7 @@ Deno.test("config: web and desktop fall back to a web PSP rather than resolving 
   try {
     for (const platform of ["web", "desktop"]) {
       const { body } = await getConfig(t.apiKeyLive, { platform, locale: "en-US" });
-      const b = bindingFor(body, "plus_monthly");
+      const b = bindingFor(body, "plus-monthly");
       assertNotEquals(b, null, `${platform}/en-US resolved NO binding — a dead paywall`);
       assertEquals(b?.provider, "stripe_card", `${platform} should fall back to the web PSP`);
     }
@@ -156,15 +157,15 @@ Deno.test("config: the fallback tail never overrides a chain that resolves", asy
   const t = await seedTenant({
     name: "tail_does_not_steal",
     products: [{
-      sku: "plus_monthly",
+      sku: "plus-monthly",
       stripeProductId: "prod_E2E",
       stripePriceIds: { INR: "price_E2E_INR" },
       razorpayPlanIds: { INR: "plan_E2E_INR" },
       playProductId: "plus_monthly_play",
     }],
     providers: [
-      { provider: "razorpay", liveKeyId: "rzp_live_e2e", livePaymentLinks: { plus_monthly: {} } },
-      { provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { plus_monthly: { INR: "https://buy.stripe.com/e2e" } } },
+      { provider: "razorpay", liveKeyId: "rzp_live_e2e", livePaymentLinks: { "plus-monthly": {} } },
+      { provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { "plus-monthly": { INR: "https://buy.stripe.com/e2e" } } },
       { provider: "google_play", storeConfig: { package_name: "com.e2e.app" } },
     ],
     routing: { android: ["razorpay", "stripe_card"] },
@@ -173,7 +174,7 @@ Deno.test("config: the fallback tail never overrides a chain that resolves", asy
   try {
     const { body } = await getConfig(t.apiKeyLive, { platform: "android", locale: "en-IN" });
     assertEquals(
-      bindingFor(body, "plus_monthly")?.provider,
+      bindingFor(body, "plus-monthly")?.provider,
       "razorpay",
       "razorpay can serve INR and is first in the chain — nothing may pre-empt it",
     );
@@ -188,38 +189,38 @@ Deno.test("config: ios binds app_store when the id exists, falls through when it
   const withId = await seedTenant({
     name: "ios_with_appstore_id",
     products: [{
-      sku: "plus_monthly",
+      sku: "plus-monthly",
       appStoreProductId: "com.e2e.app.plus.monthly",
       stripeProductId: "prod_E2E",
       stripePriceIds: { USD: "price_E2E_USD" },
     }],
     providers: [
       { provider: "app_store", storeConfig: { bundle_id: "com.e2e.app" } },
-      { provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { plus_monthly: { USD: "https://buy.stripe.com/e2e" } } },
+      { provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { "plus-monthly": { USD: "https://buy.stripe.com/e2e" } } },
     ],
     routing: { ios: ["app_store", "stripe_card"] },
   });
   const withoutId = await seedTenant({
     name: "ios_without_appstore_id",
     products: [{
-      sku: "plus_monthly",
+      sku: "plus-monthly",
       stripeProductId: "prod_E2E",
       stripePriceIds: { USD: "price_E2E_USD" },
     }],
     providers: [
       { provider: "app_store", storeConfig: { bundle_id: "com.e2e.app" } },
-      { provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { plus_monthly: { USD: "https://buy.stripe.com/e2e" } } },
+      { provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { "plus-monthly": { USD: "https://buy.stripe.com/e2e" } } },
     ],
     routing: { ios: ["app_store", "stripe_card"] },
   });
   try {
     const a = await getConfig(withId.apiKeyLive, { platform: "ios", locale: "en-US" });
-    assertEquals(bindingFor(a.body, "plus_monthly")?.provider, "app_store");
-    assertEquals(bindingFor(a.body, "plus_monthly")?.product_id, "com.e2e.app.plus.monthly");
+    assertEquals(bindingFor(a.body, "plus-monthly")?.provider, "app_store");
+    assertEquals(bindingFor(a.body, "plus-monthly")?.product_id, "com.e2e.app.plus.monthly");
 
     const b = await getConfig(withoutId.apiKeyLive, { platform: "ios", locale: "en-US" });
     assertEquals(
-      bindingFor(b.body, "plus_monthly")?.provider,
+      bindingFor(b.body, "plus-monthly")?.provider,
       "stripe_card",
       "no App Store id means app_store cannot bind — the chain must continue, not stop",
     );
@@ -234,14 +235,14 @@ Deno.test("config: price ids resolve per currency, not per product", async () =>
   const t = await seedTenant({
     name: "per_currency_price",
     products: [{
-      sku: "plus_monthly",
+      sku: "plus-monthly",
       stripeProductId: "prod_E2E",
       stripePriceIds: { USD: "price_USD_E2E", INR: "price_INR_E2E" },
     }],
     providers: [{
       provider: "stripe",
       liveKeyId: "pk_live_e2e",
-      livePaymentLinks: { plus_monthly: { USD: "https://buy.stripe.com/usd", INR: "https://buy.stripe.com/inr" } },
+      livePaymentLinks: { "plus-monthly": { USD: "https://buy.stripe.com/usd", INR: "https://buy.stripe.com/inr" } },
     }],
     routing: { web: ["stripe_card"] },
     pricing: [["US", "USD", 999], ["IN", "INR", 69900]],
@@ -249,8 +250,8 @@ Deno.test("config: price ids resolve per currency, not per product", async () =>
   try {
     const us = await getConfig(t.apiKeyLive, { platform: "web", locale: "en-US" });
     const inn = await getConfig(t.apiKeyLive, { platform: "web", locale: "en-IN" });
-    const usId = bindingFor(us.body, "plus_monthly")?.product_id;
-    const inId = bindingFor(inn.body, "plus_monthly")?.product_id;
+    const usId = bindingFor(us.body, "plus-monthly")?.product_id;
+    const inId = bindingFor(inn.body, "plus-monthly")?.product_id;
     assertEquals(usId, "price_USD_E2E");
     assertEquals(inId, "price_INR_E2E");
     assertNotEquals(usId, inId, "two currencies must not resolve to the same price id");
@@ -264,13 +265,13 @@ Deno.test("config: a provider with no link AND no artifact is correctly excluded
   const t = await seedTenant({
     name: "provider_truly_empty",
     products: [{
-      sku: "plus_monthly",
+      sku: "plus-monthly",
       stripeProductId: "prod_E2E",
       stripePriceIds: { USD: "price_E2E_USD" },
     }],
     providers: [
       { provider: "razorpay", liveKeyId: "rzp_live_e2e", livePaymentLinks: {} },
-      { provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { plus_monthly: { USD: "https://buy.stripe.com/e2e" } } },
+      { provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { "plus-monthly": { USD: "https://buy.stripe.com/e2e" } } },
     ],
     routing: { web: ["stripe_card"] },
   });
@@ -295,8 +296,8 @@ Deno.test("config: a provider with no link AND no artifact is correctly excluded
 Deno.test("config: serves the tenant's cache TTL, defaulting to 5 minutes", async () => {
   const t = await seedTenant({
     name: "ttl_default",
-    products: [{ sku: "plus_monthly", stripeProductId: "prod_E2E", stripePriceIds: { USD: "price_E2E" } }],
-    providers: [{ provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { plus_monthly: { USD: "https://buy.stripe.com/e2e" } } }],
+    products: [{ sku: "plus-monthly", stripeProductId: "prod_E2E", stripePriceIds: { USD: "price_E2E" } }],
+    providers: [{ provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { "plus-monthly": { USD: "https://buy.stripe.com/e2e" } } }],
   });
   try {
     const a = await getConfig(t.apiKeyLive, { platform: "web", locale: "en-US" });
@@ -329,6 +330,32 @@ Deno.test("config: a TTL of 0 cannot be stored", async () => {
       rejected = String(e).includes("tenants_config_cache_ttl_seconds_range");
     }
     assert(rejected, "0 must be refused by CHECK — it is the SDK's stale sentinel");
+  } finally {
+    await dropTenant(t.id);
+  }
+});
+
+Deno.test("config: serves the tenant's exit survey as edited, with the offer's discount and never the coupon", async () => {
+  const t = await seedTenant({ name: "e2e_exit_survey", products: [{ sku: "plus-monthly" }] });
+  try {
+    const [[couponId]] = await psqlRows(`INSERT INTO tenant_coupons (tenant_id, code, percent_off, duration)
+      VALUES (${sqlLit(t.id)}, 'E2EWINBACK50', 50, 'once') RETURNING id`);
+    // the dashboard editor's write, as the database sees it: new title, cap, an offer on "too expensive", one reason off
+    await psql(`UPDATE tenant_exit_survey SET title = 'Why not today?', survey_cap_days = 3,
+      reasons = jsonb_build_array(
+        jsonb_build_object('code','too_expensive','label','Too pricey','enabled',true,'action','offer','coupon_id',${sqlLit(couponId)}),
+        jsonb_build_object('code','just_looking','label','Just looking','enabled',false,'action','none'),
+        jsonb_build_object('code','other','label','Something else','enabled',true,'action','none','free_text',true))
+      WHERE tenant_id = ${sqlLit(t.id)}`);
+    const { status, body } = await getConfig(t.apiKeyLive);
+    assertEquals(status, 200);
+    const s = (body as { exit_survey: any }).exit_survey;
+    assertEquals(s.enabled, true);
+    assertEquals(s.title, "Why not today?");
+    assertEquals(s.cap_days, 3);
+    assertEquals(s.reasons.map((r: { code: string }) => r.code), ["too_expensive", "other"]);
+    assertEquals(s.reasons[0].offer, { percent_off: 50, duration: "once" });
+    assert(!JSON.stringify(s).includes("E2EWINBACK50") && !JSON.stringify(s).includes(couponId), "coupon code/id never served");
   } finally {
     await dropTenant(t.id);
   }

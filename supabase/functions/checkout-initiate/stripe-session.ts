@@ -68,6 +68,10 @@ export interface StripeSessionInput {
   trialDays: number
   success: string
   cancel: string
+  /** A win-back offer's discount: the promotion code when synced, else the coupon (paycraft-paywall-analytics). */
+  discount?: { promotionCodeId: string | null; couponId: string | null } | null
+  /** Echoed on the session so the webhook can mark the offer redeemed once payment succeeds. */
+  winbackOfferId?: string | null
 }
 
 /** The form body for POST https://api.stripe.com/v1/checkout/sessions (a subscription for one price). */
@@ -92,5 +96,11 @@ export function stripeSessionForm(i: StripeSessionInput): string {
     f.set(`subscription_data[metadata][${k}]`, v)
   }
   if (i.trialDays > 0) f.set("subscription_data[trial_period_days]", String(i.trialDays))
+  if (i.discount?.promotionCodeId) f.set("discounts[0][promotion_code]", i.discount.promotionCodeId)
+  else if (i.discount?.couponId) f.set("discounts[0][coupon]", i.discount.couponId)
+  if (i.winbackOfferId) {
+    f.set("metadata[paycraft_winback_offer]", i.winbackOfferId)
+    f.set("subscription_data[metadata][paycraft_winback_offer]", i.winbackOfferId)
+  }
   return f.toString()
 }

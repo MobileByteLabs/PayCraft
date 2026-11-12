@@ -4,16 +4,18 @@ import { useState } from "react"
 import Link from "next/link"
 import { Card, CardBody } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { addProvider, moveProvider, providersFromRule, removeProvider, toPriorityMethods } from "@/lib/platform-provider-order"
 
 /**
- * Per-platform primary + fallback provider selector (migration 075 routing engine).
+ * Per-platform provider ranking (migration 075 routing engine).
  *
- * For each app platform the merchant picks a PRIMARY provider and an optional FALLBACK provider used
- * when the primary can't serve a customer. Saved per platform as a routing rule whose ordered
- * `priority_methods` is `[primary, fallback]`.
+ * For each app platform the merchant ranks ANY NUMBER of providers — the first that can serve a buyer
+ * is used, the rest are fallbacks in order. Saved per platform as a routing rule whose ordered
+ * `priority_methods` holds the list (it was capped at `[primary, fallback]`). On the web there are no
+ * store rules, so the buyer is shown every provider on this list that can charge their price, in order.
  *
  * iOS/Android digital subscriptions always transact through the native store (App Store / Google
- * Play) per store policy — shown as an automatic badge. The primary/fallback dropdowns govern the
+ * Play) per store policy — shown as an automatic badge. The ranked list governs the
  * web-lane (physical goods / non-digital) on those platforms, and full checkout on Desktop/Web.
  */
 
@@ -64,7 +66,6 @@ const PLATFORMS: { key: string; label: string; nativeKey?: string; native?: stri
 ]
 const isNativePlatform = (key: string) => key === "ios" || key === "android"
 
-type Sel = { primary: string; fallback: string }
 
 export function PlatformProvidersPanel({
   registry,
@@ -103,27 +104,26 @@ export function PlatformProvidersPanel({
   }
   const pretty = (p: string) => DISPLAY[p] ?? p
 
-  // load per-platform selections from routing rules (priority_methods = [primary, fallback])
-  const initSel: Record<string, Sel> = {}
+  // load per-platform rankings from routing rules (priority_methods, any length, in order)
+  const initSel: Record<string, string[]> = {}
   const ruleIdByPlatform: Record<string, string> = {}
   for (const rule of initialRules) {
     const plat = rule.platform
     if (!plat || plat === "any") continue
     if (rule.country_code || rule.currency || rule.product_type) continue
     ruleIdByPlatform[plat] = rule.id
-    // priority_methods = [primary, fallback] uniformly (native methods are valid registry entries)
-    const primary = methodToProvider.get(rule.priority_methods?.[0] ?? "") ?? ""
-    const fallback = methodToProvider.get(rule.priority_methods?.[1] ?? "") ?? ""
-    initSel[plat] = { primary, fallback }
+    // native store methods are valid registry entries (migration 076), so they read back like any other
+    initSel[plat] = providersFromRule(rule.priority_methods, methodToProvider)
   }
+  const cheapestMethod = new Map([...providerInfo].map(([p, i]) => [p, i.method]))
 
-  const [sel, setSel] = useState<Record<string, Sel>>(initSel)
+  const [sel, setSel] = useState<Record<string, string[]>>(initSel)
   const [ruleIds, setRuleIds] = useState<Record<string, string>>(ruleIdByPlatform)
   const [saving, setSaving] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  async function save(platform: string, next: Sel) {
+  async function save(platform: string, next: string[]) {
     setError(null)
     setSaving(platform)
     setSaved(null)
@@ -138,14 +138,9 @@ export function PlatformProvidersPanel({
           return c
         })
       }
-      // ordered [primary, fallback] → methods, uniform across platforms. A native store primary
-      // (app_store/google_play) is a valid registry method (migration 076). Fallback must be a
-      // connected web provider; the native primary is always available on its platform.
-      const providers = [next.primary, next.fallback].filter((p, i, a) => {
-        if (!p || a.indexOf(p) !== i) return false
-        return WEB.has(p) ? connected.has(p) : true // web needs a connected account; native store is intrinsic
-      })
-      const methods = providers.map((p) => providerInfo.get(p)?.method).filter(Boolean) as string[]
+      // the ranked list → each provider's cheapest method, in order. A web provider needs a connected
+      // account; a native store (app_store/google_play) is intrinsic to its platform.
+      const methods = toPriorityMethods(next, cheapestMethod, connected, WEB)
       if (methods.length > 0) {
         const res = await fetch("/api/routing-rules", {
           method: "POST",
@@ -187,8 +182,7 @@ export function PlatformProvidersPanel({
             <Badge>{CATALOG.filter((c) => connected.has(c.key)).length} connected</Badge>
           </div>
           <p className="text-xs text-ink-500 mb-4 max-w-2xl">
-            Every provider PayCraft supports. Connect the ones you want, then choose a primary +
-            fallback per platform below. Fees are the provider's domestic rate — lower routes cheaper.
+            Every provider PayCraft supports. Connect the ones you want, then rank them per platform below. Fees are the provider's domestic rate — lower routes cheaper.
           </p>
           <div className="rounded-xl border border-ink-200 divide-y divide-ink-100">
             <div className="hidden sm:grid grid-cols-[1fr_120px_140px_130px] gap-3 px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-400">
@@ -235,72 +229,80 @@ export function PlatformProvidersPanel({
         </CardBody>
       </Card>
 
-      {/* ── Per-platform primary + fallback routing ── */}
+      {/* ── Per-platform provider ranking ── */}
     <Card>
       <CardBody>
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-sm font-bold text-ink-900">Platform providers</h2>
-          <Badge>primary + fallback</Badge>
+          <Badge>ranked · any number</Badge>
         </div>
         <p className="text-xs text-ink-500 mb-4 max-w-2xl">
-          Pick the <strong>primary</strong> provider and an optional <strong>fallback</strong> for
-          each platform. iOS &amp; Android default to the native store (App Store / Google Play) —
-          the required lane for digital subscriptions — but you can change it; the fallback web
-          provider then serves physical goods / non-digital. Saves instantly.
+          Rank as many providers as you like for each platform — the <strong>first</strong> that can
+          serve a customer is used, the rest are fallbacks in order. On the <strong>web</strong> there
+          are no store rules, so buyers see <strong>every</strong> provider on the list that can charge
+          their price and choose how to pay. iOS &amp; Android lead with the native store (App Store /
+          Google Play), the required lane for digital subscriptions. Saves instantly.
         </p>
 
         {noProviders ? (
           <p className="text-xs text-amber-600">
             Connect a payment provider (
             <Link href="/providers" className="font-semibold text-brand-600">Providers</Link>
-            ) first — then set a primary + fallback per platform.
+            ) first — then rank them per platform.
           </p>
         ) : (
           <div className="rounded-xl border border-ink-200 divide-y divide-ink-100">
-            {/* header */}
-            <div className="hidden sm:grid grid-cols-[120px_1fr_1fr] gap-3 px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-400">
+            <div className="hidden sm:grid grid-cols-[120px_1fr] gap-3 px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-ink-400">
               <span>Platform</span>
-              <span>Primary</span>
-              <span>Fallback</span>
+              <span>Providers, in order</span>
             </div>
             {PLATFORMS.map((p) => {
-              const cur = sel[p.key] ?? { primary: "", fallback: "" }
               const native = isNativePlatform(p.key)
-              // native platforms default-show their native store as primary until the merchant changes it
-              const primaryValue = cur.primary || (native ? (p.nativeKey ?? "") : "")
-              const primOpts = primaryOptions(p.key)
+              // native platforms show their store first until the merchant ranks something else
+              const list = sel[p.key] ?? (native && p.nativeKey ? [p.nativeKey] : [])
+              const addable = primaryOptions(p.key).filter((o) => !list.includes(o))
+              const busy = saving === p.key
               return (
-                <div key={p.key} className="grid grid-cols-1 sm:grid-cols-[120px_1fr_1fr] gap-3 px-4 py-3 items-center">
-                  <div className="flex items-center">
+                <div key={p.key} className="grid grid-cols-1 sm:grid-cols-[120px_1fr] gap-3 px-4 py-3">
+                  <div className="flex items-start pt-2">
                     <span className="text-sm font-bold text-ink-900">{p.label}</span>
                   </div>
-
-                  {/* Primary — a real dropdown on every platform; native store leads on iOS/Android */}
-                  <ProviderSelect
-                    label="Primary"
-                    value={primaryValue}
-                    placeholder={native ? "Choose primary" : "Auto — cheapest"}
-                    options={primOpts}
-                    pretty={pretty}
-                    fee={fee}
-                    disabled={saving === p.key}
-                    onChange={(v) => save(p.key, { primary: v, fallback: cur.fallback === v ? "" : cur.fallback })}
-                  />
-
-                  {/* Fallback — a connected web provider (excludes the chosen primary) */}
-                  <div className="flex items-center gap-2">
-                    <ProviderSelect
-                      label="Fallback"
-                      value={cur.fallback}
-                      placeholder="None"
-                      options={webOptions.filter((o) => o !== primaryValue)}
-                      pretty={pretty}
-                      fee={fee}
-                      disabled={saving === p.key}
-                      onChange={(v) => save(p.key, { primary: primaryValue, fallback: v })}
-                    />
-                    {saving === p.key && <span className="text-[11px] text-ink-400">saving…</span>}
-                    {saved === p.key && <span className="text-[11px] font-semibold text-emerald-600">✓ saved</span>}
+                  <div className="space-y-2" data-platform-list={p.key}>
+                    {list.length === 0 && (
+                      <p className="text-[12px] text-ink-400 py-2">Auto — the cheapest connected provider. Add providers to rank them.</p>
+                    )}
+                    <ol className="space-y-1.5">
+                      {list.map((prov, idx) => (
+                        <li key={prov} className="flex items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 py-2">
+                          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-ink-100 text-[11px] font-bold text-ink-600">{idx + 1}</span>
+                          <span className="flex-1 text-sm text-ink-900">
+                            {pretty(prov)}
+                            <span className="text-ink-400">{fee(prov)}</span>
+                            {idx === 0 && <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-700">primary</span>}
+                            {WEB.has(prov) && !connected.has(prov) && <span className="ml-2 text-[10px] font-semibold text-amber-600">not connected — skipped</span>}
+                          </span>
+                          <IconButton label={`Move ${pretty(prov)} up`} disabled={busy || idx === 0} onClick={() => save(p.key, moveProvider(list, idx, -1))}>↑</IconButton>
+                          <IconButton label={`Move ${pretty(prov)} down`} disabled={busy || idx === list.length - 1} onClick={() => save(p.key, moveProvider(list, idx, 1))}>↓</IconButton>
+                          <IconButton label={`Remove ${pretty(prov)}`} disabled={busy} onClick={() => save(p.key, removeProvider(list, idx))}>×</IconButton>
+                        </li>
+                      ))}
+                    </ol>
+                    <div className="flex items-center gap-2">
+                      {addable.length > 0 && (
+                        <ProviderSelect
+                          label={`Add a provider for ${p.label}`}
+                          value=""
+                          placeholder="+ Add provider"
+                          options={addable}
+                          pretty={pretty}
+                          fee={fee}
+                          disabled={busy}
+                          onChange={(v) => v && save(p.key, addProvider(list, v))}
+                        />
+                      )}
+                      {busy && <span className="text-[11px] text-ink-400">saving…</span>}
+                      {saved === p.key && <span className="text-[11px] font-semibold text-emerald-600">✓ saved</span>}
+                    </div>
                   </div>
                 </div>
               )
@@ -311,11 +313,26 @@ export function PlatformProvidersPanel({
         {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
         <p className="text-[11px] text-ink-400 mt-3">
           Fees are the provider's domestic rate — lower routes cheaper. Cross-border adds each
-          provider's FX markup. Fallback applies only after a primary is set.
+          provider's FX markup.
         </p>
       </CardBody>
     </Card>
     </div>
+  )
+}
+
+function IconButton({ label, disabled, onClick, children }: { label: string; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="grid size-7 place-items-center rounded-md text-sm text-ink-500 hover:bg-ink-100 hover:text-ink-900 disabled:opacity-30 disabled:hover:bg-transparent"
+    >
+      {children}
+    </button>
   )
 }
 

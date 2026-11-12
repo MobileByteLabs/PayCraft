@@ -1,8 +1,10 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
+import { tenantIdFromPath } from "../_shared/webhook-path.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
+import { attemptRow, recordAttempt } from "../_shared/checkout-attempts.ts";
 
 /**
  * Cashfree PG webhook handler.
@@ -112,9 +114,7 @@ function parsePaycraftLinkId(
 }
 
 serve(withWebhookRateLimit({ bucket: "webhook:cashfree" }, async (req) => {
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const tenantId: string | null = pathParts.length > 3 ? pathParts[3] : null;
+  const tenantId: string | null = tenantIdFromPath(req.url, "cashfree-webhook");
 
   const timestamp = req.headers.get("x-webhook-timestamp") ?? "";
   const signature = req.headers.get("x-webhook-signature") ?? "";
@@ -219,20 +219,13 @@ serve(withWebhookRateLimit({ bucket: "webhook:cashfree" }, async (req) => {
         if (!email) {
           return ackIgnore("PAYMENT_SUCCESS without customer_email");
         }
-        // Look up the real tenant_id / product_id via prefix match (since
-        // link_id only carries 6 hex chars of each).
         if (!supabase) return ackIgnore("no service role");
-        const { data: products } = await supabase
-          .from("tenant_products")
-          .select("id, sku, tenant_id, type, interval, trial_duration_days")
-          .ilike("id", `${parsed.productPrefix}%`)
-          .ilike("tenant_id", `${parsed.tenantPrefix}%`);
-        if (!products || products.length === 0) {
+        const product = await findLinkProduct(supabase, parsed);
+        if (!product) {
           return ackIgnore(
             `no PayCraft product matching prefix ${parsed.productPrefix}`,
           );
         }
-        const product = products[0];
 
         // Consumable / one-time packs credit a BALANCE rather than an entitlement row. Cashfree is
         // a one-time-only lane (subscriptions self-skip in its product sync), so this is the
@@ -281,9 +274,32 @@ serve(withWebhookRateLimit({ bucket: "webhook:cashfree" }, async (req) => {
         });
       }
 
+      // Someone who TRIED to buy through a PayCraft link — the customer list's "tried" rows
+      // (checkout_attempts, migration 186). Same link → product → app resolution as a success.
       case "PAYMENT_FAILED_WEBHOOK":
-      case "PAYMENT_USER_DROPPED_WEBHOOK":
-        return ackIgnore(`${eventType} — no subscription to update`);
+      case "PAYMENT_USER_DROPPED_WEBHOOK": {
+        const link = payload?.data?.link;
+        const parsed = link?.link_id ? parsePaycraftLinkId(link.link_id) : null;
+        if (!parsed) return ackIgnore(`${eventType} — not a PayCraft link`);
+        if (!supabase) return ackIgnore("no service role");
+        const product = await findLinkProduct(supabase, parsed);
+        if (!product) return ackIgnore(`${eventType} — no PayCraft product for link ${link.link_id}`);
+        const row = attemptRow({
+          tenantId: product.tenant_id,
+          provider: "cashfree",
+          mode,
+          email: payload?.data?.customer_details?.customer_email,
+          plan: product.sku,
+          outcome: eventType === "PAYMENT_FAILED_WEBHOOK" ? "payment_failed" : "abandoned",
+          sessionId: payload?.data?.order?.order_id ?? payload?.data?.payment?.cf_payment_id?.toString(),
+        });
+        if (!row) return ackIgnore(`${eventType} — no buyer email`);
+        await recordAttempt(supabase, row);
+        return new Response(JSON.stringify({ received: true, attempt: row.outcome }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
 
       case "SUBSCRIPTION_AUTHORIZED_WEBHOOK":
       case "SUBSCRIPTION_PAYMENT_SUCCESS_WEBHOOK":
@@ -301,6 +317,18 @@ serve(withWebhookRateLimit({ bucket: "webhook:cashfree" }, async (req) => {
     });
   }
 }));
+
+// A PayCraft link id carries only 6 hex chars of the tenant + product ids, so the real row is found by
+// prefix — shared by the success path and the failed / dropped attempts.
+// deno-lint-ignore no-explicit-any
+async function findLinkProduct(supabase: any, parsed: { tenantPrefix: string; productPrefix: string }) {
+  const { data: products } = await supabase
+    .from("tenant_products")
+    .select("id, sku, tenant_id, type, interval, trial_duration_days")
+    .ilike("id", `${parsed.productPrefix}%`)
+    .ilike("tenant_id", `${parsed.tenantPrefix}%`);
+  return products?.[0] ?? null;
+}
 
 function ackIgnore(reason: string): Response {
   return new Response(

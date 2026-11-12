@@ -44,6 +44,20 @@ class FakePayCraftService(
 
     val cancelledProviders = mutableListOf<String>()
 
+    /** Every store-sheet attempt reported, as (provider, productId, appUserId, outcome). */
+    val storeAttempts = mutableListOf<List<String>>()
+
+    override suspend fun recordStoreAttempt(
+        provider: String,
+        productId: String,
+        appUserId: String,
+        outcome: String,
+        attemptId: String,
+    ): Boolean {
+        storeAttempts += listOf(provider, productId, appUserId, outcome)
+        return true
+    }
+
     /** What `check_premium_with_device` answers. Since 176 the server says true for a store subscriber too. */
     var serverPremium = false
 
@@ -130,7 +144,10 @@ class SpyNativeBillingClient : NativeBillingClient {
         productId: String,
         appUserId: String?,
         productType: com.mobilebytelabs.paycraft.billing.NativeProductType,
-    ): NativePurchaseResult = NativePurchaseResult.Cancelled
+    ): NativePurchaseResult = purchaseResult
+
+    /** What the store sheet answers — the buyer closed it, unless a test says otherwise. */
+    var purchaseResult: NativePurchaseResult = NativePurchaseResult.Cancelled
 
     override suspend fun finishPurchase(purchase: NativePurchase, consumable: Boolean) {
         finishCalls++

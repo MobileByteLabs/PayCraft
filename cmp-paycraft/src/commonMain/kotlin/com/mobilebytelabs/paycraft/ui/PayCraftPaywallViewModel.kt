@@ -11,6 +11,9 @@ import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.network.CheckoutInitiateClient
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
+import com.mobilebytelabs.paycraft.winback.ExitSurveyConfig
+import com.mobilebytelabs.paycraft.winback.ExitSurveyGate
+import com.mobilebytelabs.paycraft.winback.WinbackResult
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +33,78 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
     private val _events = Channel<PayCraftPaywallEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
+
+    /** Paywall analytics: where the buyer is and where they leave (GOAL AC-2). Replaced in tests. */
+    internal var funnel = PaywallFunnelTracker()
+
+    /** The paywall became visible. Called by the composable each time it shows — the ViewModel outlives it. */
+    fun onShown() = funnel.shown()
+
+    // ── Exit survey + win-back offer (paycraft-paywall-analytics, GOAL D6/D7) ────────────────────
+    // Seams: replaced in tests; production reads the live config, the device-persisted cap and the network.
+    internal var surveyConfig: () -> ExitSurveyConfig? = { PayCraft.exitSurvey.value }
+    internal var surveyGate: ExitSurveyGate? = null
+    internal var winback: suspend (code: String, step: String, sku: String?, freeText: String?) -> WinbackResult =
+        { code, step, sku, text -> PayCraft.answerExitSurvey(code, step, sku, text) }
+
+    private val _survey = MutableStateFlow<ExitSurveyUi?>(null)
+
+    /** What the survey surface shows instead of the paywall body; null = the paywall. */
+    internal val survey: StateFlow<ExitSurveyUi?> = _survey.asStateFlow()
+
+    /** Closing: offer the survey once (cap, not premium, enabled), else tell the host to close. */
+    private fun closeOrAsk() {
+        val abandonedAt = funnel.abandoned()
+        val cfg = surveyConfig()
+        val gate = surveyGate ?: PayCraft.exitSurveyGate.also { surveyGate = it }
+        if (abandonedAt != null && _survey.value == null && gate.shouldShow(cfg, _state.value.isPremium)) {
+            gate.markShown()
+            funnel.surveyShown(abandonedAt)
+            _survey.value = ExitSurveyUi.Asking(cfg!!, abandonedAt, _state.value.selectedPlan?.id)
+            return
+        }
+        _survey.value = null
+        viewModelScope.launch { _events.send(PayCraftPaywallEvent.Dismissed) }
+    }
+
+    fun onSurveyAnswer(code: String, freeText: String?) {
+        val asking = _survey.value as? ExitSurveyUi.Asking ?: return
+        _survey.value = asking.copy(sending = true)
+        funnel.surveyAnswered(code)
+        viewModelScope.launch {
+            when (val r = winback(code, asking.step.wire, asking.sku, freeText)) {
+                is WinbackResult.Offer -> {
+                    funnel.offerShown(r.offer.percentOff)
+                    val plan = _state.value.plans.firstOrNull { it.id == (r.offer.sku ?: asking.sku) } ?: _state.value.selectedPlan
+                    _survey.value = ExitSurveyUi.OfferShown(r.offer, plan)
+                }
+                is WinbackResult.Message -> _survey.value = ExitSurveyUi.MessageShown(r.text)
+                WinbackResult.None -> closeSurvey()
+            }
+        }
+    }
+
+    /** "Claim": the offer rides into checkout on every lane, and checkout starts for its plan. */
+    fun onClaimOffer() {
+        val shown = _survey.value as? ExitSurveyUi.OfferShown ?: return
+        PayCraft.activeWinbackOffer = shown.offer
+        funnel.offerAccepted()
+        _survey.value = null
+        shown.plan?.let { _state.update { s -> s.copy(selectedPlan = it) } }
+        dispatch(PayCraftPaywallAction.Subscribe)
+    }
+
+    /** "Back to plans" from a message: the paywall again, as a fresh view. */
+    fun onSurveyBack() {
+        _survey.value = null
+        funnel.shown()
+    }
+
+    /** Skip / No thanks / close: the paywall closes. */
+    fun closeSurvey() {
+        _survey.value = null
+        viewModelScope.launch { _events.send(PayCraftPaywallEvent.Dismissed) }
+    }
 
     init {
         loadConfig()
@@ -110,7 +185,18 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
     private fun observeBillingState() {
         viewModelScope.launch {
+            var previous: BillingState? = null
             billingManager.billingState.collect { billingState ->
+                if (billingState is BillingState.DeviceConflict &&
+                    previous !is BillingState.DeviceConflict
+                ) {
+                    funnel.deviceLimitShown()
+                }
+                if (billingState is BillingState.Premium) {
+                    funnel.purchaseSucceeded(billingState.status.plan)
+                    PayCraft.activeWinbackOffer = null // used (or no longer needed)
+                }
+                previous = billingState
                 val currentPlanRank = when (billingState) {
                     is BillingState.Premium -> {
                         val planId = billingState.status.plan
@@ -138,6 +224,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
         viewModelScope.launch {
             billingManager.userEmail.collect { email ->
+                if (email != null && _state.value.userEmail == null) funnel.signInCompleted()
                 _state.update { current -> current.copy(userEmail = email) }
             }
         }
@@ -162,9 +249,12 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
             is PayCraftPaywallAction.RestoreSubscription -> onRestoreSubscription(action)
             is PayCraftPaywallAction.ClearRestoreResult -> onClearRestoreResult()
             is PayCraftPaywallAction.OpenRestoreSheet -> _state.update { it.copy(isRestoreSheetVisible = true) }
-            is PayCraftPaywallAction.CloseRestoreSheet -> _state.update { it.copy(isRestoreSheetVisible = false) }
-            is PayCraftPaywallAction.SurfaceClosed -> _state.update {
-                it.copy(isRestoreSheetVisible = false, providerSheetTarget = null, isSubmitting = false)
+            is PayCraftPaywallAction.CloseRestoreSheet -> _state.update { it.copy(isRestoreSheetVisible = false, alreadySubscribedEmail = null) }
+            is PayCraftPaywallAction.SurfaceClosed -> {
+                funnel.abandoned() // a swipe / back press closes the surface without a Dismiss action
+                _state.update {
+                    it.copy(isRestoreSheetVisible = false, providerSheetTarget = null, isSubmitting = false)
+                }
             }
             is PayCraftPaywallAction.LoginWithOAuth -> onLoginWithOAuth(action)
             is PayCraftPaywallAction.ConfirmDeviceTransfer -> onConfirmDeviceTransfer()
@@ -174,9 +264,21 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
         }
     }
 
+    /**
+     * The paywall design's pre-selected plan, applied when it opens. It selects the plan like a tap but is NOT the
+     * buyer's choice, so it emits no `paycraft_plan_select` — otherwise every paywall view would count as a plan pick.
+     */
+    internal fun applyDefaultPlan(plan: BillingPlan) {
+        // Held like a pick so a config refresh does not swap it for the "popular" plan (the ring and the charge
+        // must agree) — only the analytics differ from onSelectPlan.
+        userPickedPlan = true
+        _state.update { it.copy(selectedPlan = plan) }
+    }
+
     private fun onSelectPlan(action: PayCraftPaywallAction.SelectPlan) {
         userPickedPlan = true
         _state.update { it.copy(selectedPlan = action.plan) }
+        funnel.planSelected(action.plan)
     }
 
     private fun onUpdateEmail(action: PayCraftPaywallAction.UpdateEmail) {
@@ -201,6 +303,29 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
             return
         }
 
+        // ALREADY SUBSCRIBED → restore, never a second charge. A web checkout cannot refuse a buyer who
+        // already pays (a payment link takes anyone's card), so ask first. The Play lane is skipped:
+        // the store itself refuses a second purchase of the same subscription.
+        val knownEmail = email.ifBlank { currentState.userEmail.orEmpty().trim() }
+        val isPlayLane = PlatformInfo.platform.equals("android", ignoreCase = true) && plan.isDigital
+        if (knownEmail.isBlank() || isPlayLane) {
+            continueSubscribe(plan, email, currentState)
+            return
+        }
+        _state.update { it.copy(isSubmitting = true, emailError = null) }
+        viewModelScope.launch {
+            if (billingManager.hasActiveSubscription(knownEmail)) {
+                _state.update {
+                    it.copy(isSubmitting = false, isRestoreSheetVisible = true, alreadySubscribedEmail = knownEmail)
+                }
+            } else {
+                _state.update { it.copy(isSubmitting = false) }
+                continueSubscribe(plan, email, _state.value)
+            }
+        }
+    }
+
+    private fun continueSubscribe(plan: BillingPlan, email: String, currentState: PayCraftPaywallState) {
         // AutoSkipWhenSingle: show the web-provider picker only when 2+ providers are configured.
         // ANTI-STEERING (Payments policy): on Android for a digital product the pick is irrelevant —
         // checkout MUST go through Google Play Billing, never a web provider — so never surface the
@@ -214,6 +339,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
         _state.update { it.copy(isSubmitting = true, emailError = null) }
         if (email.isNotBlank()) billingManager.logIn(email)
+        funnel.checkoutStarted(plan, providerId = null)
 
         // SERVER-MINTED CHECKOUT.
         //
@@ -255,10 +381,12 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
                     // of being flattened into "please try again".
                     is CheckoutInitiateClient.Result.Rejected -> {
                         logE(TAG) { "checkout rejected for ${plan.sku}: ${r.message}" }
+                        funnel.purchaseFailed("checkout_rejected")
                         _state.update { it.copy(isSubmitting = false, errorMessage = r.message) }
                     }
                     is CheckoutInitiateClient.Result.Error -> {
                         logE(TAG) { "checkout error for ${plan.sku}: ${r.message}" }
+                        funnel.purchaseFailed("checkout_error")
                         _state.update {
                             it.copy(
                                 isSubmitting = false,
@@ -277,6 +405,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
             PayCraft.checkout(plan, email.ifBlank { null })
         } catch (t: Throwable) {
             logE(TAG) { "checkout failed for plan ${plan.id}: ${t.message}" }
+            funnel.purchaseFailed("checkout_error")
             _state.update {
                 it.copy(
                     isSubmitting = false,
@@ -297,20 +426,25 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
     private fun onShowProviderSheet(action: PayCraftPaywallAction.ShowProviderSheet) {
         _state.update { it.copy(providerSheetTarget = action.plan) }
+        funnel.providerSheetShown(action.plan)
     }
 
     private fun onDismissProviderSheet() {
         _state.update { it.copy(providerSheetTarget = null, isSubmitting = false) }
+        funnel.providerSheetDismissed()
     }
 
     private fun onCheckoutWithProvider(action: PayCraftPaywallAction.CheckoutWithProvider) {
         _state.update { it.copy(providerSheetTarget = null, isSubmitting = true) }
         val email = _state.value.email.trim()
         if (email.isNotBlank()) billingManager.logIn(email)
+        funnel.providerChosen(action.plan, action.provider.provider)
+        funnel.checkoutStarted(action.plan, action.provider.provider)
         try {
             PayCraft.checkoutWithProvider(action.plan, action.provider, email.ifBlank { null })
         } catch (t: Throwable) {
             logE(TAG) { "checkoutWithProvider failed for ${action.plan.id}: ${t.message}" }
+            funnel.purchaseFailed("checkout_error")
             _state.update {
                 it.copy(
                     isSubmitting = false,
@@ -356,7 +490,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
     }
 
     private fun onDismiss() {
-        viewModelScope.launch { _events.send(PayCraftPaywallEvent.Dismissed) }
+        closeOrAsk()
     }
 
     private fun onRefreshStatus() {
@@ -406,6 +540,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
     }
 
     private fun onLoginWithOAuth(action: PayCraftPaywallAction.LoginWithOAuth) {
+        funnel.signInShown(action.provider.name.lowercase())
         _state.update { it.copy(isRestoring = true, restoreResult = null) }
         viewModelScope.launch {
             billingManager.loginWithOAuth(action.provider, action.idToken)
@@ -451,6 +586,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
     /** User cancelled the transfer confirmation dialog → stay on DeviceConflict screen */
     private fun onCancelDeviceTransfer() {
+        funnel.deviceLimitCancelled()
         // billingState is still OwnershipVerified — go back to last conflict
         // Re-trigger a fresh conflict state by re-registering (or just refresh)
         billingManager.refreshStatus()
@@ -524,3 +660,17 @@ private inline fun logD(tag: String, message: () -> String) = platformLog(PayCra
 private inline fun logW(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.WARN, tag, message())
 
 private inline fun logE(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.ERROR, tag, message())
+
+/** The exit-survey surface's state. */
+internal sealed interface ExitSurveyUi {
+    data class Asking(
+        val cfg: ExitSurveyConfig,
+        val step: com.mobilebytelabs.paycraft.analytics.PayCraftStep,
+        val sku: String?,
+        val sending: Boolean = false,
+    ) : ExitSurveyUi
+
+    data class OfferShown(val offer: com.mobilebytelabs.paycraft.winback.WinbackOffer, val plan: BillingPlan?) : ExitSurveyUi
+
+    data class MessageShown(val text: String) : ExitSurveyUi
+}

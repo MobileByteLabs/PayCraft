@@ -1,0 +1,30 @@
+name: Production health
+
+# Polls https://paycraft.mobilebytesensei.com/health every 15 minutes — the dashboard's own checks plus
+# the backend's (database, Stripe delivering every live event, webhook failures).
+#
+# Two alert paths, on purpose:
+#   • Each poll drives supabase/functions/health, which opens an incident and emails the platform owner
+#     on every state change (migration 185; history at /admin/health).
+#   • If the whole stack is down, that function cannot email — so a failed run here makes GitHub email
+#     the maintainers instead.
+# Why it exists: live Stripe deliveries failed from 2026-05 to 2026-11 while every internal signal stayed
+# green, because a rejected webhook never reaches our own logs.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+jobs:
+  health:
+    name: paycraft.mobilebytesensei.com/health is 200
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check health
+        run: |
+          STATUS=$(curl -sS -o body.json -w "%{http_code}" --max-time 60 https://paycraft.mobilebytesensei.com/health || echo 000)
+          cat body.json 2>/dev/null; echo
+          if [ "$STATUS" != "200" ]; then
+            echo "::error title=PayCraft unhealthy::/health answered $STATUS — see the checks above"
+            exit 1
+          fi

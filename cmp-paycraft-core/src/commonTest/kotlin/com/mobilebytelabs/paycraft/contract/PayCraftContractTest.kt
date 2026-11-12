@@ -3,11 +3,13 @@ package com.mobilebytelabs.paycraft.contract
 import com.mobilebytelabs.paycraft.PayCraftInternalApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * The wire contract both SDKs speak (paycraft-core-split). If one of these changes, the app SDK and
@@ -109,6 +111,68 @@ class PayCraftContractTest {
         assertEquals(
             WebCheckoutRoute.ServerCheckout("INR", "razorpay"),
             route(config(both, binding = "razorpay"), currency = "inr"),
+        )
+    }
+
+    @Test
+    fun the_currencies_each_provider_can_charge_come_from_the_products_price_and_plan_maps() {
+        val product = obj(
+            """{"sku":"pro_monthly",
+               "stripe_price_id_by_currency":{"USD":"price_usd","INR":"price_inr","GBP":""},
+               "stripe_price_id_by_currency_test":{"USD":"price_test_usd"},
+               "live_stripe_ids_verified":true,
+               "razorpay_plan_id_by_currency":{"INR":"plan_inr"},
+               "razorpay_plan_id_by_currency_test":{"INR":"plan_test_inr"}}""",
+        )
+        assertEquals(
+            mapOf("stripe" to setOf("USD", "INR"), "razorpay" to setOf("INR")),
+            PayCraftContract.chargeableCurrencies(product, test = false),
+        )
+        assertEquals(
+            mapOf("stripe" to setOf("USD"), "razorpay" to setOf("INR")),
+            PayCraftContract.chargeableCurrencies(product, test = true),
+        )
+        // live Stripe ids not verified by a live sync may hold TEST ids → not chargeable live
+        val unverified = obj("""{"stripe_price_id_by_currency":{"USD":"price_usd"},"live_stripe_ids_verified":false}""")
+        assertEquals(emptyMap(), PayCraftContract.chargeableCurrencies(unverified, test = false))
+    }
+
+    @Test
+    fun a_currency_both_providers_can_charge_offers_both_bound_one_first_and_honours_the_choice() {
+        val both = """{"provider":"stripe"},{"provider":"razorpay"}"""
+        val cfg = PayCraftContract.decodeConfig(config(both, binding = "razorpay"))
+        val chargeable = mapOf("stripe" to setOf("USD", "INR"), "razorpay" to setOf("INR"))
+        assertEquals(
+            listOf("razorpay", "stripe"),
+            PayCraftContract.webPaymentOptions(cfg, "pro_monthly", false, null, chargeable),
+        )
+        // USD: only Stripe can charge it → no choice to offer
+        assertEquals(listOf("stripe"), PayCraftContract.webPaymentOptions(cfg, "pro_monthly", false, "USD", chargeable))
+        // the buyer picked Stripe for the INR price → Stripe, in INR
+        assertEquals(
+            WebCheckoutRoute.ServerCheckout("INR", "stripe"),
+            PayCraftContract.routeWebCheckout(
+                cfg,
+                "pro_monthly",
+                false,
+                null,
+                "a@b.c",
+                preferredProvider = "stripe",
+                chargeable = chargeable,
+            ),
+        )
+        // a choice that cannot charge this currency is ignored, never forced
+        assertEquals(
+            WebCheckoutRoute.ServerCheckout("USD", "stripe"),
+            PayCraftContract.routeWebCheckout(
+                cfg,
+                "pro_monthly",
+                false,
+                "USD",
+                "a@b.c",
+                preferredProvider = "razorpay",
+                chargeable = chargeable,
+            ),
         )
     }
 
@@ -257,6 +321,32 @@ class PayCraftContractTest {
         assertEquals(listOf("razorpay"), cfg.providers.map { it.provider })
         assertEquals("g.apps", cfg.auth?.googleWebClientId)
         assertEquals("", cfg.tenantId)
+    }
+
+    @Test
+    fun events_body_carries_the_batch_without_personal_data_or_client_country() {
+        val e = com.mobilebytelabs.paycraft.analytics.PayCraftEvent(
+            com.mobilebytelabs.paycraft.analytics.PayCraftEventName.CheckoutStart,
+            com.mobilebytelabs.paycraft.analytics.PayCraftStep.Checkout,
+            platform = "android",
+            sku = "pro-monthly",
+            currency = "INR",
+            country = "IN",
+            provider = "razorpay",
+            atMs = 42,
+        )
+        val body = PayCraftContract.eventsBody("pk_x", deviceRef = "dev-1", deviceToken = "srv_1", events = listOf(e))
+        assertEquals("pk_x", body["apiKey"]?.jsonPrimitive?.content)
+        assertEquals("srv_1", body["deviceToken"]?.jsonPrimitive?.content)
+        val first = body["events"]!!.jsonArray[0].jsonObject
+        assertEquals("paycraft_checkout_start", first["name"]?.jsonPrimitive?.content)
+        assertEquals("checkout", first["step"]?.jsonPrimitive?.content)
+        assertEquals(42L, first["at"]?.jsonPrimitive?.content?.toLong())
+        assertEquals(null, first["country"], "country is stamped by the server")
+        assertEquals(null, body["email"])
+        assertTrue(
+            PayCraftContract.eventsUrl("https://x.supabase.co", "pk_x").endsWith("/functions/v1/events?apiKey=pk_x"),
+        )
     }
 
     private fun obj(raw: String): JsonObject = Json.parseToJsonElement(raw).jsonObject

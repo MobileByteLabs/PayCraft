@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
+import { checkBackend } from "@/lib/backend-health"
 
 export const runtime = "edge"
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
+// Also served at /health (next.config.js rewrite). The backend checks — database, Stripe delivering
+// every live event, webhook failures — come from supabase/functions/health, which records incidents and
+// emails the platform owner on every state change (migration 185), so polling THIS url drives the alerts.
 type HealthCheck = {
   name: string
   ok: boolean
@@ -65,7 +69,13 @@ function checkEnv(): HealthCheck {
 
 export async function GET() {
   const startedAt = Date.now()
-  const checks = await Promise.all([Promise.resolve(checkEnv()), checkSupabase()])
+  const checks = (
+    await Promise.all([
+      Promise.resolve([checkEnv()]),
+      checkSupabase().then((c) => [c]),
+      checkBackend(process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""),
+    ])
+  ).flat()
   const allOk = checks.every((c) => c.ok)
 
   return NextResponse.json(

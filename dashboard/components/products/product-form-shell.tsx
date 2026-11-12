@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { SKU_RULE, isCanonicalSku } from "@/lib/sku"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import {
@@ -181,7 +182,7 @@ export function ProductFormShell({
           </button>
           <button
             onClick={save}
-            disabled={saving || !p.sku || !p.display_name}
+            disabled={saving || !isCanonicalSku(p.sku) || !p.display_name}
             className="px-4 py-2 text-sm font-semibold bg-brand-600 text-white rounded-lg hover:bg-brand-700 shadow-sm active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? "Creating…" : "Create product"}
@@ -233,9 +234,13 @@ export function ProductFormShell({
                   type="text"
                   value={p.sku}
                   onChange={(e) => setP({ ...p, sku: e.target.value })}
-                  placeholder="e.g. monthly"
+                  placeholder="e.g. pro-monthly"
+                  aria-invalid={!!p.sku && !isCanonicalSku(p.sku)}
                   className="w-full px-4 py-2.5 bg-white border border-ink-200 rounded-lg text-[14px] font-mono transition-all focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
                 />
+                <p className={`text-[11px] ${p.sku && !isCanonicalSku(p.sku) ? "text-red-600 font-semibold" : "text-ink-400"}`}>
+                  {SKU_RULE[0].toUpperCase() + SKU_RULE.slice(1)}. Store product ids are set separately.
+                </p>
               </div>
 
               <div className="space-y-2">

@@ -1,5 +1,8 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
+import { tenantIdFromPath } from "../_shared/webhook-path.ts";
+import { recordAttempt } from "../_shared/checkout-attempts.ts";
+import { attemptFromSession, invoiceSubscriptionId, stripeEventTenant, subscriptionPeriod } from "../_shared/stripe-shape.ts";
 import Stripe from "https://esm.sh/stripe@14.0.0?target=deno";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
@@ -30,13 +33,18 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "http://kong:8000";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
 // Legacy env fallbacks (single-tenant self-hosters).
+// Test mode reads the PAYCRAFT_STRIPE_TEST_* names /paycraft-adopt sets FIRST. Reading only the
+// unprefixed names made a test event fall through to STRIPE_WEBHOOK_SECRET / STRIPE_SECRET_KEY — the
+// LIVE pair — so every test-mode webhook failed signature verification.
 const envTestSecretKey =
-  Deno.env.get("STRIPE_TEST_SECRET_KEY") || Deno.env.get("STRIPE_SECRET_KEY") || "";
-// env-optional: STRIPE_LIVE_SECRET_KEY — falls back at the USE site (line ~111:
-// `isLive ? envLiveSecretKey || envTestSecretKey : ...`), which resolves to STRIPE_SECRET_KEY.
-const envLiveSecretKey = Deno.env.get("STRIPE_LIVE_SECRET_KEY") || "";
+  Deno.env.get("PAYCRAFT_STRIPE_TEST_SECRET_KEY") || Deno.env.get("STRIPE_TEST_SECRET_KEY") ||
+  Deno.env.get("STRIPE_SECRET_KEY") || "";
+// Live resolves to STRIPE_SECRET_KEY by its OWN chain — never through envTestSecretKey, which prefers the
+// PAYCRAFT_STRIPE_TEST_* key and would hand a live event a test key.
+const envLiveSecretKey = Deno.env.get("STRIPE_LIVE_SECRET_KEY") || Deno.env.get("STRIPE_SECRET_KEY") || "";
 const envTestWebhookSecret =
-  Deno.env.get("STRIPE_TEST_WEBHOOK_SECRET") || Deno.env.get("STRIPE_WEBHOOK_SECRET") || "";
+  Deno.env.get("PAYCRAFT_STRIPE_TEST_WEBHOOK_SECRET") || Deno.env.get("STRIPE_TEST_WEBHOOK_SECRET") ||
+  Deno.env.get("STRIPE_WEBHOOK_SECRET") || "";
 const envLiveWebhookSecret =
   Deno.env.get("STRIPE_LIVE_WEBHOOK_SECRET") || Deno.env.get("STRIPE_WEBHOOK_SECRET") || "";
 
@@ -75,16 +83,27 @@ async function loadTenantCreds(
   return { secretKey: data.secret_key, webhookSecret: data.webhook_secret };
 }
 
+// Events the switch acts on — only these need an app; the rest are acked without a Stripe lookup.
+const ATTRIBUTED_EVENTS = new Set([
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  "invoice.paid",
+  "charge.refunded",
+  "checkout.session.expired",
+  "checkout.session.async_payment_failed",
+]);
+
 serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
   const signature = req.headers.get("stripe-signature");
   if (!signature) {
     return new Response("Missing stripe-signature", { status: 400 });
   }
 
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  // Path: ["functions", "v1", "stripe-webhook", maybe-tenant-id]
-  const tenantId: string | null = pathParts.length > 3 ? pathParts[3] : null;
+  // A per-tenant URL picks the credential pair and wins attribution; the account-level URL (one Stripe
+  // account shared by several apps) leaves it null and the event names its app below.
+  const pathTenantId: string | null = tenantIdFromPath(req.url, "stripe-webhook");
 
   const body = await req.text();
 
@@ -103,8 +122,8 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
   // Resolve credentials — tenant DB first, env fallback.
   let secretKey = "";
   let webhookSecret = "";
-  if (tenantId) {
-    const creds = await loadTenantCreds(tenantId, stripeMode);
+  if (pathTenantId) {
+    const creds = await loadTenantCreds(pathTenantId, stripeMode);
     if (creds) {
       secretKey = creds.secretKey;
       webhookSecret = creds.webhookSecret;
@@ -117,24 +136,24 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
 
   if (!webhookSecret) {
     console.error(
-      `[stripe-webhook] No ${stripeMode} webhook secret available (tenant=${tenantId ?? "self-hosted"}). Paste fresh whsec_ via dashboard → /providers/stripe → Update keys.`,
+      `[stripe-webhook] No ${stripeMode} webhook secret available (tenant=${pathTenantId ?? "self-hosted"}). Paste fresh whsec_ via dashboard → /providers/stripe → Update keys.`,
     );
     return new Response(
-      `No ${stripeMode} webhook secret configured for tenant ${tenantId ?? "self-hosted"}`,
+      `No ${stripeMode} webhook secret configured for tenant ${pathTenantId ?? "self-hosted"}`,
       { status: 500 },
     );
   }
   if (!secretKey) {
     console.error(
-      `[stripe-webhook] No ${stripeMode} secret key available (tenant=${tenantId ?? "self-hosted"}).`,
+      `[stripe-webhook] No ${stripeMode} secret key available (tenant=${pathTenantId ?? "self-hosted"}).`,
     );
     return new Response(
-      `No ${stripeMode} secret key configured for tenant ${tenantId ?? "self-hosted"}`,
+      `No ${stripeMode} secret key configured for tenant ${pathTenantId ?? "self-hosted"}`,
       { status: 500 },
     );
   }
 
-  const stripeClient = new Stripe(secretKey, {
+  let stripeClient = new Stripe(secretKey, {
     apiVersion: "2023-10-16",
     httpClient: Stripe.createFetchHttpClient(),
   });
@@ -144,13 +163,13 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
     event = await stripeClient.webhooks.constructEventAsync(body, signature, webhookSecret);
   } catch (err) {
     console.error(
-      `[stripe-webhook] signature verification failed (mode=${stripeMode}, tenant=${tenantId ?? "self-hosted"}): ${(err as Error).message}`,
+      `[stripe-webhook] signature verification failed (mode=${stripeMode}, tenant=${pathTenantId ?? "self-hosted"}): ${(err as Error).message}`,
     );
     return new Response(`Webhook Error: ${(err as Error).message}`, { status: 400 });
   }
 
   console.log(
-    `[stripe-webhook] event=${event.type} mode=${stripeMode} tenant=${tenantId ?? "self-hosted"}`,
+    `[stripe-webhook] event=${event.type} mode=${stripeMode} tenant=${pathTenantId ?? "self-hosted"}`,
   );
 
   // Service-role client for any RPCs that need to write outside RLS. We only
@@ -162,7 +181,16 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
       })
     : null;
 
+  let tenantId: string | null = pathTenantId;
   try {
+    if (ATTRIBUTED_EVENTS.has(event.type)) tenantId ??= await stripeEventTenant(event.data.object, stripeClient);
+    // Event-attributed app: call Stripe with THAT app's stored key, not the deployment env fallback (which may
+    // hold another account's key — test mode did, so every test checkout 500'd on "No such subscription").
+    if (tenantId && !pathTenantId) {
+      const appCreds = await loadTenantCreds(tenantId, stripeMode);
+      if (appCreds) stripeClient = new Stripe(appCreds.secretKey, { apiVersion: "2023-10-16", httpClient: Stripe.createFetchHttpClient() });
+    }
+
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
@@ -197,8 +225,8 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
               "unknown",
             status,
             mode: stripeMode,
-            periodStart: new Date(sub.current_period_start * 1000),
-            periodEnd: new Date(sub.current_period_end * 1000),
+            periodStart: subscriptionPeriod(sub).start,
+            periodEnd: subscriptionPeriod(sub).end,
             cancelAtPeriodEnd: sub.cancel_at_period_end,
             trialStart: sub.trial_start ? new Date(sub.trial_start * 1000) : null,
             trialEnd: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
@@ -357,8 +385,8 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
           plan: null,
           status: sub.status as any,
           mode: stripeMode,
-          periodStart: new Date(sub.current_period_start * 1000),
-          periodEnd: new Date(sub.current_period_end * 1000),
+          periodStart: subscriptionPeriod(sub).start,
+          periodEnd: subscriptionPeriod(sub).end,
           cancelAtPeriodEnd: sub.cancel_at_period_end,
           trialStart: sub.trial_start ? new Date(sub.trial_start * 1000) : null,
           trialEnd: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
@@ -370,12 +398,13 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
 
       case "invoice.paid": {
         const invoice = event.data.object as Stripe.Invoice;
-        if (invoice.subscription) {
+        const invoiceSubId = invoiceSubscriptionId(invoice);
+        if (invoiceSubId) {
           await handleSubscriptionEvent({
             email: null,
             provider: "stripe",
             customerId: null,
-            subscriptionId: invoice.subscription as string,
+            subscriptionId: invoiceSubId,
             plan: null,
             status: "active",
             mode: stripeMode,
@@ -404,7 +433,7 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
           const invoice = await stripeClient.invoices.retrieve(
             charge.invoice as string,
           );
-          subscriptionId = (invoice.subscription as string) || null;
+          subscriptionId = invoiceSubscriptionId(invoice);
         }
         if (!subscriptionId) break;
 
@@ -422,6 +451,19 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
           tenantId,
           eventType: event.type,
         });
+        break;
+      }
+
+      // Tried and did not finish → the merchant's customer list (checkout_attempts, migration 186).
+      // A declined card does not end a Checkout session; it expires 24 h later, so "abandoned" covers both.
+      case "checkout.session.expired":
+      case "checkout.session.async_payment_failed": {
+        const row = attemptFromSession(
+          event.data.object,
+          event.type === "checkout.session.expired" ? "abandoned" : "payment_failed",
+          tenantId,
+        );
+        if (row && supabase) await recordAttempt(supabase, row);
         break;
       }
 

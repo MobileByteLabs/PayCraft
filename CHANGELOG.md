@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.1.0
+
+- **Paywall analytics.** One event catalog for every SDK (`PayCraftEventName`: paywall view, plan / provider select,
+  checkout start / return, purchase success / fail, sign-in, device limit, step abandon, survey, offer) — GA4-valid
+  names and params, no personal data (`infra/event-pii-check.sh`). Apps forward them with
+  `PayCraft.analyticsListener`, sites with `PayCraftWeb.onEvent`; PayCraft stores its own funnel (`events` function,
+  `paywall_events`, migration 180) and the dashboard's Analytics page shows it by step, country and provider.
+- **Exit survey + win-back.** A buyer who closes the paywall or leaves checkout is asked why (in place of the paywall
+  on mobile, a dialog on the web), at most once per `survey_cap_days`; the tenant maps each reason to a discount, a
+  message or nothing on dashboard ▸ Paywall ▸ Exit survey (migrations 181, 183). A claimed discount is applied on
+  Stripe, Razorpay, Google Play (the coupon's offer id) and the App Store (a server-signed promotional offer).
+- **Web SDK split.** The checkout page and the survey moved to `cmp-paycraft-web-ui` (≤ 20 KB, imported lazily:
+  `mountCheckout(pc, el, sku, opts)`, `showExitSurvey(pc, step, sku)`), so `cmp-paycraft-web` stays ≤ 150 KB for
+  every page. New `PayCraftWeb` members: `checkoutEvent`, `surveyConfig`, `surveyShown`, `answerSurvey`, `claimOffer`,
+  `activeOffer`; `WebPaymentOption` carries `methodList`, `cardBrands`, `note`.
+- **Google Analytics on the dashboard.** Connect a GA4 property by adding PayCraft's service account as a Viewer
+  (migration 184); Analytics shows its users, sessions and PayCraft events by country, marking rows Google withholds.
+
 ## 3.0.0
 
 - **One subscription, up to N devices** (server migration 178, per-app `tenants.max_active_devices`, default 1):

@@ -53,6 +53,8 @@ import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_cancel
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_checking
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_checking_body
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_already_subscribed_body
+import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_already_subscribed_title
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_description
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_failed_message
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_restore_failed_title
@@ -126,7 +128,13 @@ private enum class RestoreOutcome { Restored, NotFound, Failed }
  * @param onDismiss Called when the user cancels or restore completes.
  */
 @Composable
-internal fun PayCraftRestore(visible: Boolean, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+internal fun PayCraftRestore(
+    visible: Boolean,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    // Set when the paywall found this email already paying: the sheet says so instead of the generic copy.
+    alreadySubscribedEmail: String? = null,
+) {
     // The visibility check comes BEFORE anything is resolved from Koin, and NOTHING here is a
     // `koinInject()` default, because a DEFAULT ARGUMENT IS EVALUATED AT THE CALL SITE — before this
     // function body runs. With `billingManager: BillingManager = koinInject()` the inject happened
@@ -144,12 +152,18 @@ internal fun PayCraftRestore(visible: Boolean, onDismiss: () -> Unit, modifier: 
     PayCraftRestoreSheet(
         onDismiss = onDismiss,
         modifier = modifier,
+        alreadySubscribedEmail = alreadySubscribedEmail,
         billingManager = koinInject(),
     )
 }
 
 @Composable
-private fun PayCraftRestoreSheet(onDismiss: () -> Unit, modifier: Modifier, billingManager: BillingManager) {
+private fun PayCraftRestoreSheet(
+    onDismiss: () -> Unit,
+    modifier: Modifier,
+    billingManager: BillingManager,
+    alreadySubscribedEmail: String? = null,
+) {
     // Re-apply the dashboard brand theme at the dialog boundary: a Dialog is a separate window that
     // does NOT inherit the PayCraftThemeProvider wrapping the paywall, so without this restore renders
     // in the host app's MaterialTheme instead of PayCraft's brand. Mirrors PayCraftPaywallSheet.
@@ -168,6 +182,7 @@ private fun PayCraftRestoreSheet(onDismiss: () -> Unit, modifier: Modifier, bill
             ) {
                 PayCraftRestoreContent(
                     billingManager = billingManager,
+                    alreadySubscribedEmail = alreadySubscribedEmail,
                     onCancel = onDismiss,
                     onSuccess = onDismiss,
                 )
@@ -189,6 +204,7 @@ internal fun PayCraftRestoreContent(
     onCancel: () -> Unit,
     onSuccess: () -> Unit,
     modifier: Modifier = Modifier,
+    alreadySubscribedEmail: String? = null,
     // Host override, else NATIVE sign-in by default — Apple only where it can complete (iOS, or an
     // Apple Services ID elsewhere). See rememberPayCraftSignIn. A parameter so tests drive each D6 state.
     signIn: PayCraftSignIn? = rememberPayCraftSignIn(),
@@ -308,8 +324,16 @@ internal fun PayCraftRestoreContent(
 
                 // Branded hero header — same component + language as the paywall.
                 PayCraftPaywallHeader(
-                    title = stringResource(Res.string.paycraft_restore_title),
-                    subtitle = stringResource(Res.string.paycraft_restore_description),
+                    title = if (alreadySubscribedEmail != null) {
+                        stringResource(Res.string.paycraft_restore_already_subscribed_title)
+                    } else {
+                        stringResource(Res.string.paycraft_restore_title)
+                    },
+                    subtitle = if (alreadySubscribedEmail != null) {
+                        stringResource(Res.string.paycraft_restore_already_subscribed_body, alreadySubscribedEmail)
+                    } else {
+                        stringResource(Res.string.paycraft_restore_description)
+                    },
                     icon = Icons.Filled.Star,
                     heroIconSvg = heroIconSvg,
                     modifier = Modifier.fillMaxWidth(),

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { SKU_RULE, isCanonicalSku } from "@/lib/sku"
 import { listResource, withApiKey } from "@/lib/api-v1-helpers"
 import { auditApiAction } from "@/lib/api-key-auth"
 import { queryFailed } from "@/lib/api-security"
@@ -59,12 +60,6 @@ export async function POST(req: Request) {
 
     const sku = String(body.sku ?? "").trim()
     if (!sku) return NextResponse.json({ error: "sku_required" }, { status: 400 })
-    if (!/^[A-Za-z0-9._-]{1,128}$/.test(sku)) {
-      return NextResponse.json(
-        { error: "sku_invalid", detail: "letters, digits, dot, underscore, hyphen; max 128" },
-        { status: 400 },
-      )
-    }
     const upsert = body.upsert === true
     const { sku: _sku, upsert: _upsert, ...patch } = body
 
@@ -75,6 +70,12 @@ export async function POST(req: Request) {
       .eq("sku", sku)
       .maybeSingle()
     if (lookupError) return queryFailed("v1/products:lookup", lookupError) as NextResponse
+
+    // The naming convention (migration 179 owns it): a NEW SKU must be lowercase kebab-case. An existing
+    // SKU from before the convention is grandfathered — it may still be upserted.
+    if (!existing && !isCanonicalSku(sku)) {
+      return NextResponse.json({ error: "sku_not_canonical", detail: `A SKU must be ${SKU_RULE}.` }, { status: 400 })
+    }
 
     if (existing && !upsert) {
       return NextResponse.json(

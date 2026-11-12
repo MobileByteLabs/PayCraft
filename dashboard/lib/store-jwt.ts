@@ -15,7 +15,7 @@ import { importPKCS8, SignJWT } from "jose"
  * Nothing here logs or returns the private key material.
  */
 
-// ── Google Play — service-account access token (androidpublisher) ──────────
+// ── Google — service-account access token (any scope) ─────────────────────
 
 export interface PlayServiceAccountJson {
   client_email: string
@@ -25,12 +25,17 @@ export interface PlayServiceAccountJson {
 
 const ANDROID_PUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
 
+/** A Google Play Developer API token from a tenant's own service account. */
+export function playAccessToken(sa: PlayServiceAccountJson): Promise<string> {
+  return googleAccessToken(sa, ANDROID_PUBLISHER_SCOPE)
+}
+
 /**
- * Exchange a service-account RS256 assertion for a short-lived Play Developer
- * API access token, per
- * https://developers.google.com/identity/protocols/oauth2/service-account
+ * Exchange a service-account RS256 assertion for a short-lived access token for [scope], per
+ * https://developers.google.com/identity/protocols/oauth2/service-account — Play (androidpublisher) with a
+ * tenant's own account, GA4 (analytics.readonly) with PayCraft's Viewer account (lib/ga4.ts).
  */
-export async function playAccessToken(sa: PlayServiceAccountJson): Promise<string> {
+export async function googleAccessToken(sa: PlayServiceAccountJson, scope: string): Promise<string> {
   if (!sa.client_email || !sa.private_key) {
     throw new Error("store-jwt: service account JSON missing client_email/private_key")
   }
@@ -38,7 +43,7 @@ export async function playAccessToken(sa: PlayServiceAccountJson): Promise<strin
   const now = Math.floor(Date.now() / 1000)
 
   const key = await importPKCS8(sa.private_key, "RS256")
-  const assertion = await new SignJWT({ scope: ANDROID_PUBLISHER_SCOPE })
+  const assertion = await new SignJWT({ scope })
     .setProtectedHeader({ alg: "RS256", typ: "JWT" })
     .setIssuer(sa.client_email)
     .setAudience(tokenUri)

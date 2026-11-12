@@ -72,7 +72,7 @@ class PaywallPresentationOwnershipTest {
                 if (!src.contains("PayCraft.presentPaywall()")) return@mapNotNull null
                 // Presenting means one of: delegating to the presenter seam, or emitting a paywall
                 // sheet directly (PayCraftTeaseGate does the latter, and predates the seam).
-                val presents = src.contains("rememberPaywallPresenter()") ||
+                val presents = src.contains("rememberPaywallPresenter(") ||
                     src.contains("PayCraftPaywallSheet(") ||
                     src.contains("PayCraftSheet(")
                 if (presents) null else file.name
@@ -108,7 +108,7 @@ class PaywallPresentationOwnershipTest {
         val src = File(uiDir, "PayCraftPlanSection.kt").readText()
 
         assertTrue(
-            src.contains("val upgrade = rememberPaywallPresenter()"),
+            Regex("""val upgrade = rememberPaywallPresenter\([^)]*\)""").containsMatchIn(src),
             "PayCraftPlanSection's upgrade must use the presenter seam — a bare " +
                 "`{ PayCraft.presentPaywall() }` renders nothing in a host that does not observe " +
                 "paywallPresentation, which is the 2026-10-19 dead-row defect.",

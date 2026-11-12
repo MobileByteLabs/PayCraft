@@ -78,6 +78,9 @@ import com.mobilebytelabs.paycraft.ui.components.PaywallTopBar
 import com.mobilebytelabs.paycraft.ui.components.PlansUnavailable
 import com.mobilebytelabs.paycraft.ui.components.StaleConfigNotice
 import com.mobilebytelabs.paycraft.ui.components.skeleton.PaywallSkeleton
+import com.mobilebytelabs.paycraft.ui.survey.ExitSurveyContent
+import com.mobilebytelabs.paycraft.ui.survey.ExitSurveyMessageContent
+import com.mobilebytelabs.paycraft.ui.survey.WinbackOfferContent
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftTheme
 import com.mobilebytelabs.paycraft.ui.theme.PayCraftThemeProvider
 import org.jetbrains.compose.resources.stringResource
@@ -144,6 +147,11 @@ fun PayCraftPaywallComposable(
         onDispose { viewModel.dispatch(PayCraftPaywallAction.SurfaceClosed) }
     }
 
+    // Paywall analytics: each time the full paywall appears (the banner strip is not a paywall view).
+    LaunchedEffect(viewModel) {
+        if (displayMode == DisplayMode.FullScreen) viewModel.onShown()
+    }
+
     LaunchedEffect(viewModel.events) {
         viewModel.events.collect { event ->
             when (event) {
@@ -197,7 +205,34 @@ fun PayCraftPaywallComposable(
             //    inside one stacks two scrims and two windows (UI-3), which is what made the host
             //    app disappear behind an opaque layer.
             //  - FullScreen  → we are a screen, not a sheet, so a real modal sheet on top is right.
+            val survey by viewModel.survey.collectAsStateWithLifecycle()
             val secondary: (@Composable () -> Unit)? = when {
+                // The exit survey replaces the paywall in place — in a sheet AND full screen (it is part of
+                // closing, not a separate surface to stack).
+                survey != null -> {
+                    {
+                        when (val sv = survey) {
+                            is ExitSurveyUi.Asking -> ExitSurveyContent(
+                                cfg = sv.cfg,
+                                sending = sv.sending,
+                                onAnswer = viewModel::onSurveyAnswer,
+                                onSkip = viewModel::closeSurvey,
+                            )
+                            is ExitSurveyUi.OfferShown -> WinbackOfferContent(
+                                offer = sv.offer,
+                                plan = sv.plan,
+                                onClaim = viewModel::onClaimOffer,
+                                onDecline = viewModel::closeSurvey,
+                            )
+                            is ExitSurveyUi.MessageShown -> ExitSurveyMessageContent(
+                                message = sv.text,
+                                onBack = viewModel::onSurveyBack,
+                                onClose = viewModel::closeSurvey,
+                            )
+                            null -> {}
+                        }
+                    }
+                }
                 sheetTarget != null -> {
                     {
                         ProviderPickerContent(
@@ -225,7 +260,7 @@ fun PayCraftPaywallComposable(
                 else -> null
             }
 
-            if (surfaceMode == PayCraftSurfaceMode.Sheet && secondary != null) {
+            if (secondary != null && (surfaceMode == PayCraftSurfaceMode.Sheet || survey != null)) {
                 // ONE modal window: the secondary surface replaces the paywall body in place.
                 secondary()
             } else {
@@ -237,6 +272,7 @@ fun PayCraftPaywallComposable(
                     snackbarHostState = snackbarHostState,
                     onDismiss = onDismiss,
                     onAction = viewModel::dispatch,
+                    onDefaultPlan = viewModel::applyDefaultPlan,
                     modifier = modifier,
                 )
             }
@@ -264,6 +300,7 @@ fun PayCraftPaywallComposable(
                 // PayCraftPaywallSheet / PayCraftPaywall overloads.
                 PayCraftRestore(
                     visible = restoreVisible,
+                    alreadySubscribedEmail = state.alreadySubscribedEmail,
                     onDismiss = { viewModel.dispatch(PayCraftPaywallAction.CloseRestoreSheet) },
                 )
             }
@@ -287,6 +324,7 @@ private fun PayCraftPaywallBody(
     snackbarHostState: SnackbarHostState,
     onDismiss: () -> Unit,
     onAction: (PayCraftPaywallAction) -> Unit,
+    onDefaultPlan: (BillingPlan) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (displayMode) {
@@ -300,6 +338,7 @@ private fun PayCraftPaywallBody(
             config = config,
             snackbarHostState = snackbarHostState,
             onAction = onAction,
+            onDefaultPlan = onDefaultPlan,
             surfaceMode = surfaceMode,
             modifier = modifier,
         )
@@ -325,6 +364,8 @@ private fun PayCraftPaywallSurface(
     config: SuiteConfig?,
     snackbarHostState: SnackbarHostState,
     onAction: (PayCraftPaywallAction) -> Unit,
+    /** The design's pre-selected plan — applied without counting as the buyer's choice (no `paycraft_plan_select`). */
+    onDefaultPlan: (BillingPlan) -> Unit,
     surfaceMode: PayCraftSurfaceMode,
     modifier: Modifier = Modifier,
 ) {
@@ -464,7 +505,7 @@ private fun PayCraftPaywallSurface(
                     }
                     config?.productForRole(authoredDefaultRole)
                         ?.let { dto -> products.firstOrNull { it.id == dto.id } }
-                        ?.let { onAction(PayCraftPaywallAction.SelectPlan(it.toBillingPlan(config))) }
+                        ?.let { onDefaultPlan(it.toBillingPlan(config)) }
                     // Marked applied either way: a role with no matching product is an authoring
                     // mistake, and retrying it every recomposition would fight the user's own taps.
                     appliedDefault.value = true
