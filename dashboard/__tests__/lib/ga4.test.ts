@@ -82,3 +82,27 @@ describe("ga4Overview", () => {
     expect(o).toEqual({ ok: false, error: "no_access", fix: `Add ${SA_EMAIL} as a Viewer on GA4 property 123456789.` })
   })
 })
+
+describe("ga4Overview stream filter", () => {
+  const bodies = (f: jest.Mock) => f.mock.calls.map(([, init]) => JSON.parse(String((init as RequestInit).body)))
+
+  it("limits every report to the tenant's streams when it shares a property with other apps", async () => {
+    const f = jest.fn(async () => json(200, { rows: [] }))
+    await ga4Overview("123456789", 7, deps(f as unknown as typeof fetch), ["13221627257", "10231617924"])
+    const streamFilter = { filter: { fieldName: "streamId", inListFilter: { values: ["13221627257", "10231617924"] } } }
+    const [totals, daily, events] = bodies(f)
+    expect(totals.dimensionFilter).toEqual(streamFilter)
+    expect(daily.dimensionFilter).toEqual(streamFilter)
+    expect(events.dimensionFilter.andGroup.expressions).toEqual([
+      { filter: { fieldName: "eventName", stringFilter: { matchType: "BEGINS_WITH", value: "paycraft_" } } },
+      streamFilter,
+    ])
+  })
+
+  it("reads the whole property when no streams are chosen", async () => {
+    const f = jest.fn(async () => json(200, { rows: [] }))
+    await ga4Overview("123456789", 7, deps(f as unknown as typeof fetch), [])
+    const [totals] = bodies(f)
+    expect(totals.dimensionFilter).toBeUndefined()
+  })
+})

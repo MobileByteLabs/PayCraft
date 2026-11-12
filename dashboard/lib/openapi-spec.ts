@@ -50,6 +50,8 @@ export const OPENAPI_SPEC = {
       "| `paywall:write` | `PATCH /v1/paywall`, `POST /v1/paywall/templates`, `PUT`/`POST /v1/paywall/workflow` |",
       "| `onboarding:read` | `GET /v1/onboarding/state` |",
       "| `onboarding:write` | `PATCH /v1/onboarding/state` |",
+      "| `products:write` (also) | `PUT /v1/allowance` (monthly free allowance of a metered action) |",
+      "| `allowance:refund` | `POST /v1/allowance/refund` (server-to-server: give back a use your server failed to deliver) |",
       "| `webhooks:read` | `GET /v1/webhooks` |",
       "| `audit:read` | `GET /v1/audit` |",
       "",
@@ -596,6 +598,38 @@ export const OPENAPI_SPEC = {
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["step_id", "status"], properties: { step_id: { type: "string" }, status: { type: "string", enum: ["passed", "failed", "blocked"] }, evidence: { type: "object" }, blocked_reason: { type: "string", enum: ["pending-provider-credential", "pending-account-api-key", "provider-api-unavailable", "pending-device-verify", "pending-webhook-roundtrip"] } } } } } },
         responses: {
           "200": { description: "OK.", content: { "application/json": { schema: { type: "object" } } } },
+          "400": { description: "Refused — the detail says why.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/allowance": {
+      put: {
+        tags: ["Catalogue"],
+        operationId: "configureAllowance",
+        summary: "Set a metered action's monthly free allowance",
+        description: "Free uses per calendar month (UTC), then the listed consumable balances pay, in order. Pro users are never metered. Clients spend with the SDK (`allowance_spend`).",
+        security: [{ bearerAuth: ["products:write"] }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["sku", "free_per_month"], properties: { sku: { type: "string" }, free_per_month: { type: "integer", minimum: 0 }, credit_skus: { type: "array", items: { type: "string" } } } } } } },
+        responses: {
+          "200": { description: "OK.", content: { "application/json": { schema: { type: "object" } } } },
+          "400": { description: "Refused — the detail says why.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/allowance/refund": {
+      post: {
+        tags: ["Catalogue"],
+        operationId: "refundAllowance",
+        summary: "Give back one metered use",
+        description: "For when YOUR server failed to deliver what the use paid for (e.g. a failed render). Idempotent: a second refund of the same key answers `refunded: false`. Never expose this scope to a client.",
+        security: [{ bearerAuth: ["allowance:refund"] }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["idempotency_key"], properties: { idempotency_key: { type: "string" } } } } } },
+        responses: {
+          "200": { description: "OK.", content: { "application/json": { schema: { type: "object", properties: { refunded: { type: "boolean" } } } } } },
           "400": { description: "Refused — the detail says why.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },

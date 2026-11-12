@@ -22,6 +22,7 @@ external interface PayCraftWebApi {
     fun answerSurvey(reasonCode: String, step: String, sku: String?, freeText: String?): Promise<WebWinbackView>
     fun claimOffer(offerId: String): Boolean
     fun activeOffer(): WebOfferView?
+    fun deviceCall(fn: String, sku: String, idempotencyKey: String?): Promise<String>
 }
 
 external interface WebConfigView {

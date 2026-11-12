@@ -41,11 +41,11 @@ export default async function AnalyticsPage({ searchParams }: { searchParams?: {
   const ga4Account = paycraftGa4Account()
   const { data: ga4Connection } = await supabase
     .from("tenant_ga4_connections")
-    .select("property_id,verified_at,last_error")
+    .select("property_id,verified_at,last_error,stream_ids")
     .eq("tenant_id", tenant.id)
     .maybeSingle()
   const ga4 = ga4Account && ga4Connection?.verified_at
-    ? await ga4Overview(ga4Connection.property_id, range.days, { token: ga4Account.token, saEmail: ga4Account.email })
+    ? await ga4Overview(ga4Connection.property_id, range.days, { token: ga4Account.token, saEmail: ga4Account.email }, ga4Connection.stream_ids ?? [])
     : null
   const eventsRes = await supabase
     .from("paywall_events")

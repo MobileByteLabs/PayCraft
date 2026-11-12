@@ -125,7 +125,20 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
   `infra/web-bundle-size.sh` holds both budgets.
 - **GA4 on the dashboard:** tenants add PayCraft's service account — the org Firebase account
   (`firebase-adminsdk-fbsvc@prod-applications-c7f87.iam.gserviceaccount.com`; alias `paycraft-ga4-service-account` →
-  vault `mbs-firebase-service-account`, env `PAYCRAFT_GA4_SA_JSON`, raw or base64 JSON) — as a Viewer on their property; `tenant_ga4_connections` (184) stores only the property id.
+  vault `mbs-firebase-service-account`, env `PAYCRAFT_GA4_SA_JSON`, raw or base64 JSON) — as a Viewer on their property; `tenant_ga4_connections` (184) stores only the property id, plus (190) the `stream_ids` that are the tenant's when one property holds several apps — every report (`ga4Overview`) is then filtered by `streamId`.
+
+## Monthly allowance — metered actions
+
+- A tenant can give each user N free uses of a metered action per calendar month (UTC), e.g. Kreatwiz's
+  `kw-full-edit` (5/month). Migration 189: `entitlement_monthly_allowance` (config) +
+  `entitlement_allowance_spends` (the log; "used this month" is a COUNT, never a counter).
+- `allowance_spend(device_token, api_key, sku, idempotency_key)` → `pro` | `allowance` | `credit` | `refused`:
+  Pro is never metered, then the free uses, then the configured credit-pack balances (`credit_skus`).
+  Replays return the original answer; a per-user advisory lock stops two parallel spends taking the
+  last free use. `allowance_status` reports used / remaining / credits / `resets_at`.
+- Refunds (`allowance_refund`) are service-role only and reach consumers through
+  `POST /v1/allowance/refund` with a `pcsk_` key holding `allowance:refund` — a client must never be
+  able to claim "your server failed". Configure with `PUT /v1/allowance` (`products:write`).
 
 ## Database Migrations — single source of truth
 

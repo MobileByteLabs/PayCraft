@@ -96,13 +96,19 @@ export type Ga4Overview =
 
 const n = (v: string | undefined) => Number(v ?? 0) || 0
 
-/** What the Analytics page shows for [rangeDays]: totals, users per day, PayCraft's paywall events by country. */
-export async function ga4Overview(propertyId: string, rangeDays: number, deps: Ga4Deps): Promise<Ga4Overview> {
+/**
+ * What the Analytics page shows for [rangeDays]: totals, users per day, PayCraft's paywall events by country.
+ * [streamIds] limits every report to those data streams — a tenant whose GA4 property also holds other apps
+ * (e.g. one property for an app and two websites) sees only its own. Empty = the whole property.
+ */
+export async function ga4Overview(propertyId: string, rangeDays: number, deps: Ga4Deps, streamIds: string[] = []): Promise<Ga4Overview> {
   const dateRanges = [{ startDate: `${rangeDays}daysAgo`, endDate: "today" }]
-  const paycraftOnly = { filter: { fieldName: "eventName", stringFilter: { matchType: "BEGINS_WITH", value: "paycraft_" } } }
+  const streams = streamIds.length ? { filter: { fieldName: "streamId", inListFilter: { values: streamIds } } } : undefined
+  const paycraftEvents = { filter: { fieldName: "eventName", stringFilter: { matchType: "BEGINS_WITH", value: "paycraft_" } } }
+  const paycraftOnly = streams ? { andGroup: { expressions: [paycraftEvents, streams] } } : paycraftEvents
   const [totals, daily, events] = await Promise.all([
-    runReport(propertyId, { dateRanges, metrics: [{ name: "activeUsers" }, { name: "sessions" }] }, deps),
-    runReport(propertyId, { dateRanges, dimensions: [{ name: "date" }], metrics: [{ name: "activeUsers" }] }, deps),
+    runReport(propertyId, { dateRanges, metrics: [{ name: "activeUsers" }, { name: "sessions" }], dimensionFilter: streams }, deps),
+    runReport(propertyId, { dateRanges, dimensions: [{ name: "date" }], metrics: [{ name: "activeUsers" }], dimensionFilter: streams }, deps),
     runReport(propertyId, {
       dateRanges,
       dimensions: [{ name: "eventName" }, { name: "country" }],

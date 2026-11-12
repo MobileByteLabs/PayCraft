@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic"
  * its SHA-256 hash. The plaintext is returned exactly once, here, and never again.
  */
 
-const SCOPES = ["readiness:read", "providers:read", "products:read", "products:sync"] as const
+const SCOPES = ["readiness:read", "providers:read", "products:read", "products:sync", "allowance:refund"] as const
 
 export async function GET() {
   const { tenant } = await requireTenant()

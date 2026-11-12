@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { CopyButton } from "@/components/ui/copy-button"
 import { ga4ErrorMessage } from "@/lib/ga4-messages"
 
-export type Ga4ConnectionRow = { property_id: string; verified_at: string | null; last_error: string | null }
+export type Ga4ConnectionRow = { property_id: string; verified_at: string | null; last_error: string | null; stream_ids?: string[] }
 
 function ago(iso: string): string {
   const mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000))
@@ -24,13 +24,15 @@ function ago(iso: string): string {
 export function Ga4ConnectCard({ saEmail, connection }: { saEmail: string | null; connection: Ga4ConnectionRow | null }) {
   const router = useRouter()
   const [propertyId, setPropertyId] = useState(connection?.property_id ?? "")
+  const [streams, setStreams] = useState((connection?.stream_ids ?? []).join(", "))
+  const streamIds = streams.split(/[\s,]+/).filter(Boolean)
   const [busy, setBusy] = useState<"connect" | "disconnect" | null>(null)
   const [error, setError] = useState<string | null>(connection?.last_error ?? null)
 
   async function connect(id = propertyId) {
     setBusy("connect")
     setError(null)
-    const res = await fetch("/api/ga4/connection", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ propertyId: id.trim() }) })
+    const res = await fetch("/api/ga4/connection", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ propertyId: id.trim(), streamIds }) })
     const body = await res.json().catch(() => ({}))
     setBusy(null)
     if (!res.ok || body.ok === false) setError(String(body.error ?? `http_${res.status}`))
@@ -83,6 +85,11 @@ export function Ga4ConnectCard({ saEmail, connection }: { saEmail: string | null
               onChange={(e) => setPropertyId(e.target.value.replace(/[^0-9]/g, ""))} aria-label="GA4 property id" data-testid="ga4-property" />
             <Button type="submit" loading={busy === "connect"} disabled={!/^[0-9]{6,12}$/.test(propertyId)}>Connect</Button>
           </form>
+        </li>
+        <li className="grid gap-1.5">
+          <span><span className="font-semibold">3.</span> Optional — if this property also holds other apps, the stream ids that are yours (Admin ▸ Data streams), comma-separated:</span>
+          <input className="input w-full max-w-md tabular-nums" inputMode="numeric" placeholder="10231617924, 13221627257" value={streams}
+            onChange={(e) => setStreams(e.target.value.replace(/[^0-9, ]/g, ""))} aria-label="GA4 stream ids" data-testid="ga4-streams" />
         </li>
       </ol>
       {error && (

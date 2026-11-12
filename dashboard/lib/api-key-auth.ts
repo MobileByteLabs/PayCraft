@@ -87,6 +87,9 @@ export type ApiScope =
   // paywall/products so a token that edits copy cannot rewrite what onboarding claims is done.
   | "onboarding:read"
   | "onboarding:write"
+  // Added by migration 189 — server-to-server refund of a metered use (/v1/allowance/refund). Its own
+  // scope so only the consumer's backend, never a client, can claim "our delivery failed".
+  | "allowance:refund"
 
 export interface ApiKeyContext {
   /**

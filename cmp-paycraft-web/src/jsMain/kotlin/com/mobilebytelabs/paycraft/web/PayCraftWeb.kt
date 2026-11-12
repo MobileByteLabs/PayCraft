@@ -350,7 +350,7 @@ class PayCraftWeb(
         )
         val json = JsonObject(body + ("mode" to JsonPrimitive(mode))).toString()
         val url = PayCraftContract.winbackUrl(base, apiKey)
-        return scope.promise { call("POST", url, json).body }.then({ winbackFrom(it, sku) }, { winbackFrom(null, sku) })
+        return post(url, json).then({ winbackFrom(it, sku) }, { winbackFrom(null, sku) })
     }
 
     private fun winbackFrom(raw: String?, sku: String?): WebWinback =
@@ -383,6 +383,22 @@ class PayCraftWeb(
 
     /** The offer the next checkout applies ([claimOffer]), or null. */
     fun activeOffer(): WebOffer? = claimedOffer
+
+    /**
+     * One device-scoped PayCraft RPC as the signed-in browser — the transport behind paycraft-web-ui's
+     * `allowance`, `spendAllowance` and `creditBalance` (migration 189), kept out of this always-loaded bundle.
+     * Always as this browser's own device: the server resolves who that is, so a page can never name a subject
+     * (it holds nothing a plain fetch with the same token could not do — the server is the guard). Rejects with
+     * `sign_in_required` when nobody is signed in here.
+     */
+    fun deviceCall(fn: String, sku: String, idempotencyKey: String?): Promise<String> {
+        val token = store.token() ?: return Promise.reject(PayCraftWebError("sign_in_required", "Sign in first"))
+        val p = PayCraftContract.tokenParams(token, apiKey) + ("p_sku" to JsonPrimitive(sku))
+        return post(PayCraftContract.rpcUrl(base, fn), JsonObject(if (idempotencyKey == null) p else p + ("p_idempotency_key" to JsonPrimitive(idempotencyKey))).toString())
+    }
+
+    // The one suspend lambda for fire-a-POST-get-the-body calls: each `scope.promise { }` is its own class in the bundle.
+    private fun post(url: String, body: String): Promise<String> = scope.promise { call("POST", url, body).body }
 
     private var chargeableBySku: Map<String, Map<String, Set<String>>> = emptyMap()
 

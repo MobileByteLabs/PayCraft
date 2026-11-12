@@ -70,8 +70,20 @@ async function syncApple(app: { id: string }, days: number) {
   const jwt = await tenantAppStoreServerJwt(app.id);
   const end = Date.now(), start = end - Math.min(days, 180) * DAY;
   let replayed = 0, errors = 0;
-  for (const host of Object.values(APPLE_HOSTS)) {
-    for (const payload of await appleHistory(host, jwt, start, end)) {
+  const environments: Record<string, string> = {};
+  // Each environment on its own: production answers 401 for an app that is not live on the App Store
+  // yet while sandbox works with the SAME key, so one failing must not hide the other. Only BOTH failing
+  // (a revoked / wrong key) is an error — that is what opens an incident.
+  for (const [env, host] of Object.entries(APPLE_HOSTS)) {
+    let payloads: string[];
+    try {
+      payloads = await appleHistory(host, jwt, start, end);
+    } catch (e) {
+      environments[env] = (e as Error).message.slice(0, 120);
+      continue;
+    }
+    environments[env] = `${payloads.length} notification(s)`;
+    for (const payload of payloads) {
       try {
         await processAppleNotification(payload);
         replayed++;
@@ -81,7 +93,10 @@ async function syncApple(app: { id: string }, days: number) {
       }
     }
   }
-  return { replayed, errors };
+  if (Object.values(environments).every((v) => !v.includes("notification(s)"))) {
+    throw new Error(`App Store unreachable in every environment — ${JSON.stringify(environments)}`);
+  }
+  return { replayed, errors, environments };
 }
 
 serve(async (req) => {
