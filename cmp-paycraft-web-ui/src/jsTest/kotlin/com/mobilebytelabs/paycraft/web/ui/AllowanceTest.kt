@@ -18,16 +18,20 @@ class AllowanceTest {
         return o.unsafeCast<PayCraftWebApi>()
     }
 
-    @Test fun allowance_reads_this_months_use(): Promise<*> =
-        allowance(
-            pc(mapOf("allowance_status" to """{"sku":"kw-full-edit","is_pro":false,"free_per_month":5,"used":2,"remaining":3,"credits":10,"resets_at":"2026-12-01T00:00:00+00:00"}""")),
-            "kw-full-edit",
-        ).then { a ->
-            assertEquals(listOf(5, 2, 3, 10), listOf(a.freePerMonth, a.used, a.remaining, a.credits))
-            assertFalse(a.isPro)
-            assertEquals("2026-12-01T00:00:00+00:00", a.resetsAt)
-            assertEquals(listOf("allowance_status", "kw-full-edit", null), calls.single())
-        }
+    @Test fun allowance_reads_this_months_use(): Promise<*> = allowance(
+        pc(
+            mapOf(
+                "allowance_status" to
+                    """{"sku":"kw-full-edit","is_pro":false,"free_per_month":5,"used":2,"remaining":3,"credits":10,"resets_at":"2026-12-01T00:00:00+00:00"}""",
+            ),
+        ),
+        "kw-full-edit",
+    ).then { a ->
+        assertEquals(listOf(5, 2, 3, 10), listOf(a.freePerMonth, a.used, a.remaining, a.credits))
+        assertFalse(a.isPro)
+        assertEquals("2026-12-01T00:00:00+00:00", a.resetsAt)
+        assertEquals(listOf("allowance_status", "kw-full-edit", null), calls.single())
+    }
 
     @Test fun spend_passes_the_idempotency_key(): Promise<*> =
         spendAllowance(pc(mapOf("allowance_spend" to "\"credit\"")), "kw-full-edit", "export-42").then {

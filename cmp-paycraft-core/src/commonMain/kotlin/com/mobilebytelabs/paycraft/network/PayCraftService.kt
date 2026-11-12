@@ -163,7 +163,13 @@ interface PayCraftService {
      * (record_store_attempt, migration 188). Neither store tells any server about these — no purchase
      * exists — so this is the only way they reach the merchant's customer list.
      */
-    suspend fun recordStoreAttempt(provider: String, productId: String, appUserId: String, outcome: String, attemptId: String): Boolean = false
+    suspend fun recordStoreAttempt(
+        provider: String,
+        productId: String,
+        appUserId: String,
+        outcome: String,
+        attemptId: String,
+    ): Boolean = false
     suspend fun transferToDevice(serverToken: String, newDeviceToken: String): Boolean
 
     /**

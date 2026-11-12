@@ -1,8 +1,8 @@
 package com.mobilebytelabs.paycraft.core
 
 import com.mobilebytelabs.paycraft.billing.NativePurchaseResult
-import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.config.StoreBinding
+import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
 import com.mobilebytelabs.paycraft.testsupport.FakePayCraftService
 import com.mobilebytelabs.paycraft.testsupport.SpyNativeBillingClient
@@ -37,21 +37,30 @@ class StoreAttemptReportTest {
         isDigital = true,
     )
 
-    private suspend fun FakePayCraftService.awaitAttempts(n: Int): List<List<String>> = withContext(Dispatchers.Default) {
-        withTimeout(5_000) {
-            while (storeAttempts.size < n) delay(10)
-            storeAttempts
+    private suspend fun FakePayCraftService.awaitAttempts(n: Int): List<List<String>> =
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000) {
+                while (storeAttempts.size < n) delay(10)
+                storeAttempts
+            }
         }
-    }
 
     private fun manager(service: FakePayCraftService, native: SpyNativeBillingClient, email: String? = null) =
-        PayCraftBillingManager(service = service, store = EmailStore(email), nativeBillingClient = native, dispatcher = Dispatchers.Default)
+        PayCraftBillingManager(
+            service = service,
+            store = EmailStore(email),
+            nativeBillingClient = native,
+            dispatcher = Dispatchers.Default,
+        )
 
     @Test
     fun closing_the_play_sheet_is_reported_as_abandoned() = runTest {
         val service = FakePayCraftService()
         manager(service, SpyNativeBillingClient()).purchaseViaPlayBilling(plan("google_play"), email = "buyer@x.test")
-        assertEquals(listOf(listOf("google_play", "premium_monthly", "buyer@x.test", "abandoned")), service.awaitAttempts(1))
+        assertEquals(
+            listOf(listOf("google_play", "premium_monthly", "buyer@x.test", "abandoned")),
+            service.awaitAttempts(1),
+        )
     }
 
     @Test

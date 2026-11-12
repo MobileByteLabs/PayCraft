@@ -20,7 +20,15 @@ import kotlin.test.assertTrue
  */
 class AlreadySubscribedGuardTest {
 
-    private val monthly = BillingPlan(id = "pro-monthly", name = "Pro Monthly", price = "$4", interval = "month", rank = 1, currency = "USD")
+    private val monthly =
+        BillingPlan(
+            id = "pro-monthly",
+            name = "Pro Monthly",
+            price = "$4",
+            interval = "month",
+            rank = 1,
+            currency = "USD",
+        )
 
     @BeforeTest fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 

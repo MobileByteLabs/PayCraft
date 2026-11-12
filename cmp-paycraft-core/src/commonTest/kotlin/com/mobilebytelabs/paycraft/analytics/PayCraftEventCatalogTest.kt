@@ -1,3 +1,6 @@
+// Event fixtures read as one call per line; wrapping them hides which field a case is about.
+@file:Suppress("ktlint:standard:max-line-length")
+
 package com.mobilebytelabs.paycraft.analytics
 
 import kotlin.test.Test
@@ -18,7 +21,13 @@ class PayCraftEventCatalogTest {
         PayCraftEventName.entries.forEach { e ->
             assertTrue(Regex("^paycraft_[a-z][a-z_]*$").matches(e.wire), "not snake_case with prefix: ${e.wire}")
             assertTrue(e.wire.length <= 40, "longer than 40 chars: ${e.wire}")
-            assertTrue(e.wire !in reservedNames && reservedPrefixes.none { e.wire.startsWith(it) }, "reserved: ${e.wire}")
+            assertTrue(
+                e.wire !in reservedNames &&
+                    reservedPrefixes.none {
+                        e.wire.startsWith(it)
+                    },
+                "reserved: ${e.wire}",
+            )
         }
     }
 
@@ -46,7 +55,14 @@ class PayCraftEventCatalogTest {
     }
 
     @Test fun long_values_are_cut_to_the_ga4_limit() {
-        val e = PayCraftEvent(PayCraftEventName.PlanSelect, PayCraftStep.Plan, platform = "ios", sku = "x".repeat(150), atMs = 1)
+        val e =
+            PayCraftEvent(
+                PayCraftEventName.PlanSelect,
+                PayCraftStep.Plan,
+                platform = "ios",
+                sku = "x".repeat(150),
+                atMs = 1,
+            )
         assertEquals(100, e.params().getValue("sku").length)
     }
 }
