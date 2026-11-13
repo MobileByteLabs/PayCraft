@@ -34,6 +34,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1";
 import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/rate-limit.ts";
 import { preflight, withCors } from "../_shared/cors.ts";
 import { pickByCurrency, returnUrls, stripeSessionForm } from "./stripe-session.ts";
+import { razorpayCheckoutTarget } from "./razorpay-return.ts";
 import { buyerRef, type OfferCoupon, offerUsable, type OfferRow } from "../_shared/winback-offer.ts";
 import { effectiveTrial } from "../_shared/trial.ts";
 
@@ -317,8 +318,31 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
       () => {},
     );
 
+  // Bring the buyer BACK to the site afterwards, as Stripe does with success_url: a browser checkout with a
+  // valid return_url goes to PayCraft's pay page (Razorpay Checkout + redirect). Anything else — KMP apps,
+  // a missing Origin, a return_url on another site — keeps the hosted short_url. See razorpay-return.ts.
+  const target = razorpayCheckoutTarget({
+    subscriptionId: rzpJson.id,
+    shortUrl: rzpJson.short_url,
+    tenantId,
+    mode,
+    keyId,
+    payBase: Deno.env.get("PAYCRAFT_DASHBOARD_URL") || "https://paycraft.mobilebytesensei.com",
+    returnUrl: typeof body.return_url === "string" ? body.return_url : null,
+    origin: req.headers.get("origin"),
+    email: customer.email ?? null,
+    productName: (product.display_name as string | null) ?? product.sku,
+  });
+  let checkoutUrl = rzpJson.short_url;
+  if (target.row) {
+    // A failed write falls back to the hosted page: the buyer can still pay, they just are not returned.
+    const { error: retErr } = await supabase.from("razorpay_checkout_returns").upsert(target.row);
+    if (!retErr) checkoutUrl = target.url;
+    else console.error("[checkout-initiate] razorpay return row:", retErr.message);
+  }
+
   return json({
-    url: rzpJson.short_url,
+    url: checkoutUrl,
     provider: "razorpay",
     method: "razorpay",
     currency: resolved.currency,
