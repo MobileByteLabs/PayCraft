@@ -73,6 +73,12 @@ serve(async (req) => {
     },
     mode: isTestKey ? "test" : "live",
     webhook_url: webhookUrl,
+    // Per provider. Razorpay's is account-level (no tenant segment): one org account can serve several
+    // apps, and razorpay-webhook takes the app from the event notes.
+    webhook_urls: {
+      stripe: webhookUrl,
+      razorpay: `${Deno.env.get("SUPABASE_URL")}/functions/v1/razorpay-webhook`,
+    },
     providers: activeProviders.map((p: any) => p.provider),
     usage: {
       active_subscribers: activeSubscribers ?? 0,

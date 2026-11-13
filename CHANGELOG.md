@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Monthly allowance + credits on the web.** `cmp-paycraft-web-ui` gains `allowance(pc, sku)` (free uses left
+  this month, when it resets, whether the buyer is Pro), `spendAllowance(pc, sku, idempotencyKey)` (`"allowance"`
+  / `"credit"` / `"pro"` / `"refused"`; a retried key never double-charges) and `creditBalance(pc, sku)`, over
+  migration 189's RPCs. The core `PayCraftWeb` only adds `deviceCall`, the signed-in door to those RPCs, and still
+  fits its 150 KB budget (shared RPC and promise helpers paid for it).
+- **Razorpay webhooks for shared accounts.** One org Razorpay account attached to several apps registers a single
+  tenant-less webhook; `razorpay-webhook` now takes the app from `notes.paycraft_tenant_id` (or a Payment Link's
+  product) and still verifies the signature with that app's secret. Before this no Razorpay delivery reached a
+  multi-app account.
+
 ## 3.1.0
 
 - **Paywall analytics.** One event catalog for every SDK (`PayCraftEventName`: paywall view, plan / provider select,

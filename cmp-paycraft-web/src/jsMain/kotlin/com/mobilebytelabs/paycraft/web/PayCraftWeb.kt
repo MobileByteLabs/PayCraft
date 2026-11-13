@@ -85,7 +85,7 @@ class PayCraftWeb(
 
     /** The page checkout starts from — a Stripe Checkout Session returns the buyer here. Null off-browser. */
     internal var currentPage: () -> String? = {
-        js("(typeof location !== 'undefined' && location.href) ? location.href : null") as String?
+        js("(globalThis.location || {}).href || null") as String?
     }
     internal var newDeviceId: () -> String = ::randomDeviceId
 
@@ -110,7 +110,10 @@ class PayCraftWeb(
      * active device per account (any platform), so this SIGNS THE OTHER DEVICE OUT of premium — ask the
      * buyer first ("Use premium here instead of <device>?"); never call it automatically.
      */
-    fun useThisDevice(): Promise<Boolean> = scope.promise { doUseThisDevice(null) }
+    fun useThisDevice(): Promise<Boolean> = moveHere(null)
+
+    // One suspend lambda shared by useThisDevice and useThisDeviceInstead (bundle budget).
+    private fun moveHere(replaceDevice: String?): Promise<Boolean> = scope.promise { doUseThisDevice(replaceDevice) }
 
     /**
      * The visitor's country (ISO 3166-1 alpha-2, e.g. "IN"), so [config] returns that country's prices
@@ -214,7 +217,7 @@ class PayCraftWeb(
     fun maxDevices(): Int = maxDevicesSeen
 
     /** Signs out the device the buyer chose ([WebDevice.ref]) and uses Pro in this browser instead. */
-    fun useThisDeviceInstead(deviceRef: String): Promise<Boolean> = scope.promise { doUseThisDevice(deviceRef) }
+    fun useThisDeviceInstead(deviceRef: String): Promise<Boolean> = moveHere(deviceRef)
 
     /** "Your devices": the subscription's active devices, this browser first. Empty when signed out. */
     fun devices(): Promise<Array<WebDevice>> = scope.promise { loadDevices().toTypedArray() }
@@ -241,8 +244,11 @@ class PayCraftWeb(
     fun email(): String? = store.email()
 
     /** A checkout URL for [sku] for the signed-in buyer (Razorpay subscription or Stripe payment link). */
-    fun checkoutUrl(sku: String, currency: String?): Promise<String> =
-        scope.promise { resolveCheckoutUrl(sku, currency, null) }
+    fun checkoutUrl(sku: String, currency: String?): Promise<String> = checkoutPromise(sku, currency, null)
+
+    // One suspend lambda shared by checkoutUrl and checkoutUrlWith (each `scope.promise { }` is a class in the bundle).
+    private fun checkoutPromise(sku: String, currency: String?, provider: String?): Promise<String> =
+        scope.promise { resolveCheckoutUrl(sku, currency, provider) }
 
     /**
      * Every way to pay for [sku] in [currency] (null = the price the buyer saw) — each web provider that can
@@ -268,7 +274,7 @@ class PayCraftWeb(
 
     /** [checkoutUrl] with the provider the buyer chose from [paymentOptions] (ignored if it cannot charge). */
     fun checkoutUrlWith(sku: String, currency: String?, provider: String): Promise<String> =
-        scope.promise { resolveCheckoutUrl(sku, currency, provider) }
+        checkoutPromise(sku, currency, provider)
 
     /**
      * A checkout-page step, for a page that renders its own checkout (PayCraft's lazily loaded
@@ -459,7 +465,7 @@ class PayCraftWeb(
         val deviceId = store.deviceId() ?: newDeviceId().also { store.saveDeviceId(it) }
         val params = PayCraftContract.registerDeviceParams(email, "web", deviceName(), deviceId, mode, apiKey)
         val reg = PayCraftContract.parseRegister(
-            obj(call("POST", PayCraftContract.rpcUrl(base, "register_device"), params.toString())),
+            obj(rpc("register_device", params)),
         ) ?: throw PayCraftWebError("register_failed", "register_device returned no token")
         store.saveSignIn(reg.deviceToken, email)
         conflictDevices = if (reg.conflict) reg.activeDevices else emptyList()
@@ -474,7 +480,7 @@ class PayCraftWeb(
         val token = store.token() ?: throw PayCraftWebError("sign_in_required", "Sign in first")
         val params = PayCraftContract.transferParams(token, token, apiKey, replaceDevice)
         val moved = PayCraftContract.parseTransferred(
-            obj(call("POST", PayCraftContract.rpcUrl(base, "transfer_to_device"), params.toString())),
+            obj(rpc("transfer_to_device", params)),
         )
         if (moved) {
             conflictDevices = emptyList()
@@ -487,7 +493,7 @@ class PayCraftWeb(
         val token = store.token() ?: return emptyList()
         val params = PayCraftContract.tokenParams(token, apiKey)
         val rows = Json.parseToJsonElement(
-            call("POST", PayCraftContract.rpcUrl(base, "get_active_devices"), params.toString()).body,
+            rpc("get_active_devices", params).body,
         )
         return PayCraftContract.parseDevices(rows as? JsonArray).map { it.toWeb(it.maxDevices) }
     }
@@ -497,7 +503,7 @@ class PayCraftWeb(
         val self = loadDevices().firstOrNull { it.ref == deviceRef }?.thisDevice == true
         val params = PayCraftContract.signOutDeviceParams(token, deviceRef, apiKey)
         val ok = PayCraftContract.parseSignedOut(
-            obj(call("POST", PayCraftContract.rpcUrl(base, "sign_out_device"), params.toString())),
+            obj(rpc("sign_out_device", params)),
         )
         if (ok && self) signOut()
         return ok
@@ -509,7 +515,7 @@ class PayCraftWeb(
         val token = store.token() ?: return PremiumState(isPremium = false, tokenValid = false, email = null)
         val params = PayCraftContract.tokenParams(token, apiKey)
         val result = PayCraftContract.parsePremium(
-            obj(call("POST", PayCraftContract.rpcUrl(base, "check_premium_with_device"), params.toString())),
+            obj(rpc("check_premium_with_device", params)),
         )
         val premium = result.isPremium && result.tokenValid
         val email = result.boundEmail ?: store.email()
@@ -522,7 +528,7 @@ class PayCraftWeb(
         val params = PayCraftContract.tokenParams(token, apiKey)
         val rows = decode(
             ListSerializer(SubscriptionWire.serializer()),
-            call("POST", PayCraftContract.rpcUrl(base, "get_subscription"), params.toString()),
+            rpc("get_subscription", params),
         )
         val s = rows.firstOrNull() ?: return null
         return WebSubscription(
@@ -607,6 +613,9 @@ class PayCraftWeb(
 
     // ── HTTP ─────────────────────────────────────────────────────────────────────────────────
 
+    // One door for the device RPCs: the URL + POST shape is written once instead of at every call site (bundle budget).
+    private suspend fun rpc(fn: String, params: Any): HttpResult = call("POST", PayCraftContract.rpcUrl(base, fn), params.toString())
+
     private suspend fun call(method: String, url: String, body: String?): HttpResult {
         val headers = PayCraftContract.headers(anonKey, "web", mode, json = body != null) +
             (visitorCountry?.let { mapOf("Accept-Language" to "en-$it") } ?: emptyMap())
@@ -647,12 +656,12 @@ private fun stepOf(wire: String): PayCraftStep =
     PayCraftStep.entries.firstOrNull { it.wire == wire } ?: PayCraftStep.Checkout
 
 private fun randomDeviceId(): String = js(
-    "(globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : " +
+    "(globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : " +
         "('web-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2))",
 ) as String
 
 private fun browserDeviceName(): String {
-    val ua = js("(typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : ''") as String
+    val ua = js("(globalThis.navigator || {}).userAgent || ''") as String
     val browser = when {
         "Edg/" in ua -> "Edge"
         "OPR/" in ua -> "Opera"
@@ -676,9 +685,9 @@ private const val MAX_PENDING_EVENTS = 50
 private const val EVENT_FLUSH_MS = 3_000
 
 private val setTimeoutJs: (() -> Unit, Int) -> Unit =
-    js("(function (f, ms) { if (typeof setTimeout !== 'undefined') setTimeout(f, ms); })")
+    js("(function (f, ms) { if (globalThis.setTimeout) setTimeout(f, ms); })")
 
 // A function expression (not inline js() over Kotlin locals, which the compiler renames).
 private val sendBeaconJs: (String, String) -> Boolean = js(
-    "(function (u, b) { return (typeof navigator !== 'undefined' && navigator.sendBeacon) ? navigator.sendBeacon(u, b) : false; })",
+    "(function (u, b) { var n = globalThis.navigator; return n && n.sendBeacon ? n.sendBeacon(u, b) : false; })",
 )
