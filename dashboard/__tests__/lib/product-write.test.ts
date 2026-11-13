@@ -7,7 +7,7 @@
  * on a product that may be synced to three live storefronts.
  */
 
-import { buildProductRow, toRpcRow } from "@/lib/product-write"
+import { buildProductRow, MERGEABLE_COLUMNS, PRODUCT_LOOKUP_COLUMNS, toRpcRow } from "@/lib/product-write"
 
 const TENANT = "ba973ad0-8788-4c0f-89c8-1ff9533fa79f"
 
@@ -266,5 +266,36 @@ describe("grant_quantity (consumable packs)", () => {
       display_name: "Cappy Annual 2",
     })
     expect(r).not.toHaveProperty("error")
+  })
+})
+
+describe("PRODUCT_LOOKUP_COLUMNS — the PATCH reads everything it writes back", () => {
+  // The PATCH route used to select a fixed column list that predated grant_quantity, grant_sku and
+  // the ad-reward caps. buildProductRow carried those forward as NULL, so ANY patch on a consumable —
+  // even `{ trial_enabled: false }` — broke the consumable rule and answered a bare 500 query_failed.
+  const lookup = PRODUCT_LOOKUP_COLUMNS.split(", ")
+
+  it("covers every mergeable column, plus identity and the preserved store ids", () => {
+    for (const col of [...MERGEABLE_COLUMNS, "id", "sku", "play_product_id", "app_store_product_id"]) {
+      expect(lookup).toContain(col)
+    }
+  })
+
+  it("a consumable read through the lookup keeps its grant_quantity when only the trial changes", () => {
+    const stored: Record<string, unknown> = {
+      id: "c-1", sku: "edits-10", type: "consumable", display_name: "10 full edits", trial_enabled: true,
+      trial_duration_days: null, trial_per_platform: null, attaches_to_product_id: null, interval: null,
+      base_price_cents: 499, base_currency: "USD", display_order: 4, active: true, pricing_mode: "manual",
+      global_price_cents: null, global_currency: null, discount_percent: null, discount_ends_at: null,
+      grant_quantity: 10, grant_sku: "full-edit", daily_earn_cap: null, ad_reward_quantity: null,
+      daily_ad_reward_cap: null, play_product_id: null, app_store_product_id: null, store_description: "x",
+    }
+    // What the route actually receives: only the selected columns.
+    const fetched = Object.fromEntries(Object.entries(stored).filter(([k]) => lookup.includes(k)))
+    const r = buildProductRow(TENANT, "edits-10", fetched, { trial_enabled: false })
+    if ("error" in r) throw new Error(JSON.stringify(r))
+    expect(r.row.grant_quantity).toBe(10)
+    expect(r.row.grant_sku).toBe("full-edit")
+    expect(r.row.trial_enabled).toBe(false)
   })
 })
