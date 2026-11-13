@@ -129,8 +129,8 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
 
 ## Monthly allowance — metered actions
 
-- A tenant can give each user N free uses of a metered action per calendar month (UTC), e.g. Kreatwiz's
-  `kw-full-edit` (5/month). Migration 189: `entitlement_monthly_allowance` (config) +
+- A tenant can give each user N free uses of a metered action per calendar month (UTC), e.g. ReelExport's
+  `full-edit` (5/month). Migration 189: `entitlement_monthly_allowance` (config) +
   `entitlement_allowance_spends` (the log; "used this month" is a COUNT, never a counter).
 - `allowance_spend(device_token, api_key, sku, idempotency_key)` → `pro` | `allowance` | `credit` | `refused`:
   Pro is never metered, then the free uses, then the configured credit-pack balances (`credit_skus`).

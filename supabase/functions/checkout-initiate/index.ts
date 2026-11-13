@@ -35,6 +35,7 @@ import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/
 import { preflight, withCors } from "../_shared/cors.ts";
 import { pickByCurrency, returnUrls, stripeSessionForm } from "./stripe-session.ts";
 import { buyerRef, type OfferCoupon, offerUsable, type OfferRow } from "../_shared/winback-offer.ts";
+import { effectiveTrial } from "../_shared/trial.ts";
 
 const RAZORPAY_API = "https://api.razorpay.com/v1";
 const STRIPE_API = "https://api.stripe.com/v1";
@@ -174,7 +175,7 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
     .from("tenant_products")
     // One literal: supabase-js types the row from it (a concatenated string types it as an error).
     .select(
-      "id, sku, type, interval, trial_duration_days, razorpay_plan_id_by_currency, display_name, stripe_price_id_by_currency, stripe_price_id_by_currency_test, live_stripe_ids_verified",
+      "id, sku, type, interval, trial_enabled, trial_duration_days, razorpay_plan_id_by_currency, razorpay_plan_id_by_currency_test, display_name, stripe_price_id_by_currency, stripe_price_id_by_currency_test, live_stripe_ids_verified",
     )
     .eq("tenant_id", tenantId)
     .eq("active", true);
@@ -206,8 +207,13 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
     return await stripeCheckout(supabase, req, body, tenantId, mode, product, customer, requestedCurrency, winback);
   }
 
+  // Plan ids are ACCOUNT-scoped per mode: a test key cannot see a live plan. Sending the live map in
+  // test mode answered "The ID provided is invalid or could not be found", so no app could take a
+  // test-mode Razorpay subscription — and no webhook round-trip could be proven without real money.
   const resolved = resolvePlanId(
-    product.razorpay_plan_id_by_currency as Record<string, string> | null,
+    (mode === "test" ? product.razorpay_plan_id_by_currency_test : product.razorpay_plan_id_by_currency) as
+      | Record<string, string>
+      | null,
     requestedCurrency,
   );
   if ("error" in resolved) return json({ error: resolved.error }, 409);
@@ -234,7 +240,7 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
   // Razorpay's start_at is the FIRST CHARGE time, so a trial is expressed as the gap between now
   // and start_at rather than as a trial flag.
   const now = Math.floor(Date.now() / 1000);
-  const trialDays = Number(product.trial_duration_days ?? 0);
+  const trialDays = effectiveTrial(product).days; // the rule /config advertises (_shared/trial.ts)
   const startAt = trialDays > 0 ? now + trialDays * 86_400 : undefined;
 
   const payload: Record<string, unknown> = {
@@ -368,7 +374,7 @@ async function stripeCheckout(
       tenantId,
       productId: product.id,
       mode,
-      trialDays: Number(product.trial_duration_days ?? 0),
+      trialDays: effectiveTrial(product).days,
       success: back.success,
       cancel: back.cancel,
       discount: winback

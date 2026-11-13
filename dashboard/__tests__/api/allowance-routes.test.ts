@@ -32,17 +32,17 @@ beforeEach(() => {
 
 describe("PUT /v1/allowance", () => {
   it("configures the allowance for the key's tenant with products:write", async () => {
-    const res = await PUT(req("PUT", { sku: "kw-full-edit", free_per_month: 5, credit_skus: ["edits-10"] }))
+    const res = await PUT(req("PUT", { sku: "full-edit", free_per_month: 5, credit_skus: ["edits-10"] }))
     expect(res.status).toBe(200)
     expect(demanded).toEqual(["products:write"])
-    expect(calls).toEqual([{ fn: "allowance_configure", args: { p_tenant_id: "t-1", p_sku: "kw-full-edit", p_free_per_month: 5, p_credit_skus: ["edits-10"] } }])
+    expect(calls).toEqual([{ fn: "allowance_configure", args: { p_tenant_id: "t-1", p_sku: "full-edit", p_free_per_month: 5, p_credit_skus: ["edits-10"] } }])
   })
 
   it.each([
     [{ sku: "Bad SKU", free_per_month: 5 }, "invalid_sku"],
-    [{ sku: "kw-full-edit", free_per_month: -1 }, "invalid_free_per_month"],
-    [{ sku: "kw-full-edit", free_per_month: 2.5 }, "invalid_free_per_month"],
-    [{ sku: "kw-full-edit", free_per_month: 5, credit_skus: ["OK NOT"] }, "invalid_credit_sku"],
+    [{ sku: "full-edit", free_per_month: -1 }, "invalid_free_per_month"],
+    [{ sku: "full-edit", free_per_month: 2.5 }, "invalid_free_per_month"],
+    [{ sku: "full-edit", free_per_month: 5, credit_skus: ["OK NOT"] }, "invalid_credit_sku"],
   ])("refuses %j", async (body, error) => {
     const res = await PUT(req("PUT", body))
     expect(res.status).toBe(400)

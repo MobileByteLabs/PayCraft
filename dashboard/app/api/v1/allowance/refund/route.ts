@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic"
 
 /**
  * POST /v1/allowance/refund — give back one metered use because the consumer's server failed to
- * deliver it (e.g. a Kreatwiz export whose render failed). Body: `{ idempotency_key }` — the key the
+ * deliver it (e.g. a ReelExport export whose render failed). Body: `{ idempotency_key }` — the key the
  * spend was made with. Refunding twice returns `refunded: false` and changes nothing.
  *
  * Server-to-server only: needs the `allowance:refund` scope, which a browser never holds. A client

@@ -22,21 +22,21 @@ class AllowanceTest {
         pc(
             mapOf(
                 "allowance_status" to
-                    """{"sku":"kw-full-edit","is_pro":false,"free_per_month":5,"used":2,"remaining":3,"credits":10,"resets_at":"2026-12-01T00:00:00+00:00"}""",
+                    """{"sku":"full-edit","is_pro":false,"free_per_month":5,"used":2,"remaining":3,"credits":10,"resets_at":"2026-12-01T00:00:00+00:00"}""",
             ),
         ),
-        "kw-full-edit",
+        "full-edit",
     ).then { a ->
         assertEquals(listOf(5, 2, 3, 10), listOf(a.freePerMonth, a.used, a.remaining, a.credits))
         assertFalse(a.isPro)
         assertEquals("2026-12-01T00:00:00+00:00", a.resetsAt)
-        assertEquals(listOf("allowance_status", "kw-full-edit", null), calls.single())
+        assertEquals(listOf("allowance_status", "full-edit", null), calls.single())
     }
 
     @Test fun spend_passes_the_idempotency_key(): Promise<*> =
-        spendAllowance(pc(mapOf("allowance_spend" to "\"credit\"")), "kw-full-edit", "export-42").then {
+        spendAllowance(pc(mapOf("allowance_spend" to "\"credit\"")), "full-edit", "export-42").then {
             assertEquals("credit", it)
-            assertEquals(listOf("allowance_spend", "kw-full-edit", "export-42"), calls.single())
+            assertEquals(listOf("allowance_spend", "full-edit", "export-42"), calls.single())
         }
 
     @Test fun balance_reads_a_number(): Promise<*> =

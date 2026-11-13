@@ -33,12 +33,12 @@ class WebBalanceTest {
 
     @Test fun calls_an_allowed_rpc_as_this_device() = runTest {
         val n = net()
-        val body = signedIn(n).deviceCall("allowance_status", "kw-full-edit", null).await()
+        val body = signedIn(n).deviceCall("allowance_status", "full-edit", null).await()
         assertEquals("""{"free_per_month":5,"used":2}""", body)
         val sent = n.body(n.calls.indexOfLast { it.url.contains("allowance_status") })
         assertEquals("srv_1", sent["p_server_token"]!!.jsonPrimitive.content)
         assertEquals("pk_test_abc", sent["p_api_key"]!!.jsonPrimitive.content)
-        assertEquals("kw-full-edit", sent["p_sku"]!!.jsonPrimitive.content)
+        assertEquals("full-edit", sent["p_sku"]!!.jsonPrimitive.content)
     }
 
     @Test fun signed_out_calls_fail_with_sign_in_required() = runTest {
@@ -60,7 +60,7 @@ class WebBalanceSpendTest {
             it.deviceName = { "Chrome on Mac" }
         }
         pc.signIn("google", "id-token", null).await()
-        assertEquals("\"allowance\"", pc.deviceCall("allowance_spend", "kw-full-edit", "export-42").await())
+        assertEquals("\"allowance\"", pc.deviceCall("allowance_spend", "full-edit", "export-42").await())
         val sent = n.body(n.calls.indexOfLast { it.url.contains("allowance_spend") })
         assertEquals("export-42", sent["p_idempotency_key"]!!.jsonPrimitive.content)
         assertEquals("srv_1", sent["p_server_token"]!!.jsonPrimitive.content)
