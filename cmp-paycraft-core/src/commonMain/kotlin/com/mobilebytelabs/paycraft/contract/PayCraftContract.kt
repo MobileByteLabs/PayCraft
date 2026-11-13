@@ -131,14 +131,19 @@ object PayCraftContract {
      * device's random id: the server binds the verified sign-in to it, and `register_device` then marks THAT
      * device identity-verified (migration 193) — without it the metering RPCs refuse a verified user's device.
      */
-    fun identityVerifyBody(apiKey: String?, provider: String, idToken: String, nonce: String?, deviceId: String? = null): JsonObject =
-        buildJsonObject {
-            put("api_key", apiKey.orEmpty())
-            put("provider", provider)
-            put("id_token", idToken)
-            if (nonce != null) put("nonce", nonce)
-            if (deviceId != null) put("device_id", deviceId)
-        }
+    fun identityVerifyBody(
+        apiKey: String?,
+        provider: String,
+        idToken: String,
+        nonce: String?,
+        deviceId: String? = null,
+    ): JsonObject = buildJsonObject {
+        put("api_key", apiKey.orEmpty())
+        put("provider", provider)
+        put("id_token", idToken)
+        if (nonce != null) put("nonce", nonce)
+        if (deviceId != null) put("device_id", deviceId)
+    }
 
     // ── Exit survey / win-back ──────────────────────────────────────────────────────────────
 

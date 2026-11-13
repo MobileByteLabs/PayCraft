@@ -118,11 +118,12 @@ internal class IdentityTokenClient(
     val isConfigured: Boolean get() = !apiKey.isNullOrBlank()
 
     fun startUrl(provider: OAuthProvider, session: String): String =
-        "$base/start?api_key=${apiKey.orEmpty().encodeURLParameter()}&provider=${provider.wire}&session=$session&platform=$platform" +
-            "&device_id=${deviceId().encodeURLParameter()}"
+        "$base/start?api_key=${apiKey.orEmpty().encodeURLParameter()}&provider=${provider.wire}" +
+            "&session=$session&platform=$platform&device_id=${deviceId().encodeURLParameter()}"
 
     suspend fun verify(provider: OAuthProvider, idToken: String, nonce: String?): VerifyOutcome = try {
-        val response = postBody("verify", PayCraftContract.identityVerifyBody(apiKey, provider.wire, idToken, nonce, deviceId()))
+        val response =
+            postBody("verify", PayCraftContract.identityVerifyBody(apiKey, provider.wire, idToken, nonce, deviceId()))
         when {
             response.status.isSuccess() ->
                 PayCraftContract.parseVerifiedEmail(response.body<JsonObject>())

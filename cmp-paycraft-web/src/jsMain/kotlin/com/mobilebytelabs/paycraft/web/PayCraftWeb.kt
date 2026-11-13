@@ -615,7 +615,8 @@ class PayCraftWeb(
     // ── HTTP ─────────────────────────────────────────────────────────────────────────────────
 
     // One door for the device RPCs: the URL + POST shape is written once instead of at every call site (bundle budget).
-    private suspend fun rpc(fn: String, params: Any): HttpResult = call("POST", PayCraftContract.rpcUrl(base, fn), params.toString())
+    private suspend fun rpc(fn: String, params: Any): HttpResult =
+        call("POST", PayCraftContract.rpcUrl(base, fn), params.toString())
 
     /** This browser's random device id, created on first use (sign-in, events, win-back). */
     private fun myDeviceId(): String = store.deviceId() ?: newDeviceId().also { store.saveDeviceId(it) }

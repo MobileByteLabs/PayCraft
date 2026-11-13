@@ -364,7 +364,11 @@ class PayCraftBillingManagerTest {
 
         // The re-check now runs inside the call (it registers, which also consumes the verified sign-in claim —
         // migration 193), so assert that the server was asked and the state settled, not a transient Loading.
-        assertEquals(registersBefore + 1, service.registerCalls, "same account must re-check with the server, not do nothing")
+        assertEquals(
+            registersBefore + 1,
+            service.registerCalls,
+            "same account must re-check with the server, not do nothing",
+        )
         assertFalse(manager.billingState.value is BillingState.Loading, "and the re-check must resolve")
     }
 

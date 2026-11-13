@@ -45,7 +45,12 @@ class VerifiedSignInRegistrationTest {
             mode: String,
         ): RegisterDeviceResult {
             registerCalls++
-            return RegisterDeviceResult(TOKEN, conflict = false, conflictingDeviceName = null, conflictingLastSeen = null)
+            return RegisterDeviceResult(
+                TOKEN,
+                conflict = false,
+                conflictingDeviceName = null,
+                conflictingLastSeen = null,
+            )
         }
     }
 
@@ -64,7 +69,12 @@ class VerifiedSignInRegistrationTest {
     @Test
     fun a_new_verified_sign_in_registers_even_with_a_valid_stored_token() = runTest {
         val service = CountingService()
-        val manager = PayCraftBillingManager(service = service, store = Store(email = null), dispatcher = StandardTestDispatcher(testScheduler))
+        val manager =
+            PayCraftBillingManager(
+                service = service,
+                store = Store(email = null),
+                dispatcher = StandardTestDispatcher(testScheduler),
+            )
         advanceUntilIdle()
         val before = service.registerCalls
 
@@ -77,7 +87,12 @@ class VerifiedSignInRegistrationTest {
     @Test
     fun re_proving_the_same_account_registers_too() = runTest {
         val service = CountingService()
-        val manager = PayCraftBillingManager(service = service, store = Store(email = "buyer@example.com"), dispatcher = StandardTestDispatcher(testScheduler))
+        val manager =
+            PayCraftBillingManager(
+                service = service,
+                store = Store(email = "buyer@example.com"),
+                dispatcher = StandardTestDispatcher(testScheduler),
+            )
         advanceUntilIdle()
         val before = service.registerCalls
 

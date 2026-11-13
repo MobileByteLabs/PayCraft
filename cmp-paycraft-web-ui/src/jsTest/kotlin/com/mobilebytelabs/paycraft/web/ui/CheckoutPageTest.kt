@@ -149,7 +149,11 @@ internal fun offer(percentOff: Int, duration: String, months: Int? = null): WebO
     }
 
 /** The page's PayCraftWeb as this module sees it: a plain object with the exported members it calls. */
-internal fun fakePc(email: String? = "a@x.com", configFails: Boolean = false, premium: Boolean = false): PayCraftWebApi {
+internal fun fakePc(
+    email: String? = "a@x.com",
+    configFails: Boolean = false,
+    premium: Boolean = false,
+): PayCraftWebApi {
     val pc: dynamic = js("({})")
     pc.email = { email }
     pc.maxDevices = { 1 }

@@ -180,7 +180,13 @@ class VerifiedSignInTest {
     @Test
     fun the_in_app_browser_flow_sends_the_device_id_to_start() = runTest {
         val opened = mutableListOf<String>()
-        val sut = signIn(Server(StandardTestDispatcher(testScheduler)), NativeTokenResult.Unavailable, opened, platform = "android")
+        val sut =
+            signIn(
+                Server(StandardTestDispatcher(testScheduler)),
+                NativeTokenResult.Unavailable,
+                opened,
+                platform = "android",
+            )
         sut.signIn(OAuthProvider.GOOGLE)
         assertTrue("device_id=$DEVICE_ID" in opened.single(), opened.single())
         sut.reset()

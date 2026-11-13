@@ -101,8 +101,14 @@ internal fun checkoutView(
     }.unsafeCast<Promise<CheckoutView>>()
 }
 
-private fun notice(title: String, body: String, label: String?, href: String?, back: String?, pending: Boolean = false) =
-    CheckoutView.Notice(CheckoutNotice(title, body, label?.takeIf { href != null }, href, back, pending))
+private fun notice(
+    title: String,
+    body: String,
+    label: String?,
+    href: String?,
+    back: String?,
+    pending: Boolean = false,
+) = CheckoutView.Notice(CheckoutNotice(title, body, label?.takeIf { href != null }, href, back, pending))
 
 /**
  * Back from the provider, paid. A pack is final at once (its link was paid); a subscription is confirmed by the
@@ -112,7 +118,9 @@ private fun notice(title: String, body: String, label: String?, href: String?, b
 private fun paidView(pc: PayCraftWebApi, product: WebProductView, o: CheckoutPageOptions?): Promise<CheckoutView> {
     val next = o?.successUrl ?: o?.backUrl
     if (product.interval == null) {
-        return Promise.resolve(notice("Payment received", "${product.name} has been added to your account.", "Continue", next, null))
+        return Promise.resolve(
+            notice("Payment received", "${product.name} has been added to your account.", "Continue", next, null),
+        )
     }
     return pc.premium().then({ it.isPremium }, { false }).then { active ->
         if (active) {

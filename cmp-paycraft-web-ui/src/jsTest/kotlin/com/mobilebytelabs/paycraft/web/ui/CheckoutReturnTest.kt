@@ -35,16 +35,20 @@ class CheckoutReturnTest {
     }
 
     @Test
-    fun a_paid_subscription_that_is_active_says_so_and_offers_to_continue(): Promise<*> =
-        checkoutView(fakePc(premium = true), "pro-monthly", opts("""{"successUrl":"/studio/","backUrl":"/pricing/"}"""), "success")
-            .then { view ->
-                val n = assertIs<CheckoutView.Notice>(view).notice
-                assertEquals("You're all set", n.title)
-                assertTrue("Pro Monthly" in n.body)
-                assertEquals("Continue", n.actionLabel)
-                assertEquals("/studio/", n.actionHref)
-                assertEquals(false, n.pending)
-            }
+    fun a_paid_subscription_that_is_active_says_so_and_offers_to_continue(): Promise<*> = checkoutView(
+        fakePc(premium = true),
+        "pro-monthly",
+        opts("""{"successUrl":"/studio/","backUrl":"/pricing/"}"""),
+        "success",
+    )
+        .then { view ->
+            val n = assertIs<CheckoutView.Notice>(view).notice
+            assertEquals("You're all set", n.title)
+            assertTrue("Pro Monthly" in n.body)
+            assertEquals("Continue", n.actionLabel)
+            assertEquals("/studio/", n.actionHref)
+            assertEquals(false, n.pending)
+        }
 
     @Test
     fun a_paid_subscription_the_provider_has_not_confirmed_yet_says_payment_received_and_waits(): Promise<*> =
@@ -76,8 +80,12 @@ class CheckoutReturnTest {
         }
 
     @Test
-    fun without_a_success_url_continue_goes_back(): Promise<*> =
-        checkoutView(fakePc(premium = true), "pro-monthly", opts("""{"backUrl":"/pricing/"}"""), "success").then { view ->
-            assertEquals("/pricing/", assertIs<CheckoutView.Notice>(view).notice.actionHref)
-        }
+    fun without_a_success_url_continue_goes_back(): Promise<*> = checkoutView(
+        fakePc(premium = true),
+        "pro-monthly",
+        opts("""{"backUrl":"/pricing/"}"""),
+        "success",
+    ).then { view ->
+        assertEquals("/pricing/", assertIs<CheckoutView.Notice>(view).notice.actionHref)
+    }
 }
