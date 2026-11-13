@@ -32,6 +32,10 @@ import kotlin.test.assertTrue
  */
 class VerifiedSignInTest {
 
+    private companion object {
+        const val DEVICE_ID = "dev-kmp-12345678"
+    }
+
     private class Server(private val engineDispatcher: CoroutineDispatcher) {
         val requests = mutableListOf<Pair<String, String>>() // (route, body)
         var verify: Pair<HttpStatusCode, String> =
@@ -72,6 +76,7 @@ class VerifiedSignInTest {
             backend,
             apiKey,
             platform,
+            deviceId = { DEVICE_ID },
         ),
         onVerified = { verified += it },
         nativeToken = { _, _ -> native },
@@ -160,6 +165,25 @@ class VerifiedSignInTest {
         assertEquals(listOf("apple@example.com"), verified)
         val session = url.substringAfter("session=").substringBefore('&')
         assertTrue(server.requests.filter { it.first == "result" }.all { session in it.second })
+    }
+
+    // Migration 193: the sign-in carries the device id that register_device will send, so the server marks THIS device
+    // identity-verified — the metering RPCs refuse a verified user's unverified device.
+    @Test
+    fun native_verify_sends_the_device_id_register_device_uses() = runTest {
+        val server = Server(StandardTestDispatcher(testScheduler))
+        signIn(server, NativeTokenResult.Token("id-tok")).signIn(OAuthProvider.GOOGLE)
+        val (_, body) = server.requests.single()
+        assertTrue(""""device_id":"$DEVICE_ID"""" in body, body)
+    }
+
+    @Test
+    fun the_in_app_browser_flow_sends_the_device_id_to_start() = runTest {
+        val opened = mutableListOf<String>()
+        val sut = signIn(Server(StandardTestDispatcher(testScheduler)), NativeTokenResult.Unavailable, opened, platform = "android")
+        sut.signIn(OAuthProvider.GOOGLE)
+        assertTrue("device_id=$DEVICE_ID" in opened.single(), opened.single())
+        sut.reset()
     }
 
     @Test

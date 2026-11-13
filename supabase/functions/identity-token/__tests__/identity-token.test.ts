@@ -53,6 +53,7 @@ const appleToken = (claims: Record<string, unknown>, aud = TENANT.app_identifier
 // ── fetch stub: tiny in-memory PostgREST + provider endpoints ───────────────────────────────────
 type Row = Record<string, unknown>;
 const sessions = new Map<string, Row>();
+const claims: Row[] = []; // record_verified_sign_in calls (migration 193)
 let tokenEndpointIdToken = "";
 let lastTokenRequest: URLSearchParams | null = null;
 let tenantGoogleSecret: string | null = null; // migration 169 — null = tenant has not stored one
@@ -82,6 +83,7 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     lastTokenRequest = new URLSearchParams(String(init?.body));
     return tokenEndpointIdToken ? ok({ id_token: tokenEndpointIdToken }) : ok({ error: "invalid_grant" }, 400);
   }
+  if (url.pathname === "/rest/v1/rpc/record_verified_sign_in") { claims.push(JSON.parse(String(init?.body))); return ok(null, 204); }
   if (url.pathname === "/rest/v1/rpc/tenant_apple_client_secret") return ok("stub-apple-client-secret");
   if (url.pathname === "/rest/v1/rpc/tenant_google_client_secret") return ok(tenantGoogleSecret);
   if (url.pathname === "/rest/v1/tenants") {
@@ -373,4 +375,63 @@ t("an app identifier that is unsafe to embed is never put in the page", async ()
   } finally {
     TENANT.app_identifier = original;
   }
+});
+
+// ── /verify + device_id → verified sign-in claim (migration 193) ─────────────────────────────────
+// Without it every SDK sign-in left the device unverified and the metering RPCs refused verified users.
+t("verified token + device_id records a claim bound to that device", async () => {
+  claims.length = 0;
+  const res = await verify({ provider: "google", id_token: await googleToken({ sub: "g-123" }), device_id: "web-1a2b3c4d-device" });
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { email: "buyer@example.com", provider: "google" });
+  assertEquals(claims.length, 1);
+  assertEquals(claims[0], { p_tenant_id: TENANT.id, p_device_id: "web-1a2b3c4d-device", p_email: "buyer@example.com", p_provider: "google", p_auth_sub: "g-123" });
+});
+
+t("no device_id → no claim (older SDKs keep working)", async () => {
+  claims.length = 0;
+  const res = await verify({ provider: "google", id_token: await googleToken({ sub: "g-123" }) });
+  assertEquals(res.status, 200);
+  assertEquals(claims.length, 0);
+});
+
+t("an invalid token never records a claim", async () => {
+  claims.length = 0;
+  const res = await verify({ provider: "google", id_token: await googleToken({ sub: "g-123" }, "someone-else"), device_id: "web-1a2b3c4d-device" });
+  assertEquals(res.status, 401);
+  assertEquals(claims.length, 0);
+});
+
+t("a malformed device_id is ignored", async () => {
+  claims.length = 0;
+  for (const bad of ["short", "x".repeat(200), "has spaces in it"]) {
+    const res = await verify({ provider: "google", id_token: await googleToken({ sub: "g-123" }), device_id: bad });
+    assertEquals(res.status, 200);
+  }
+  assertEquals(claims.length, 0);
+});
+
+// ── in-app browser flow (Custom Tabs / web-auth session / desktop browser) carries the device id too ──
+t("/start with device_id → /callback records a claim bound to that device", async () => {
+  claims.length = 0;
+  const session = "v".repeat(44);
+  const res = await handler(new Request(`${base}/start?api_key=${API_KEY}&provider=google&session=${session}&platform=android&device_id=app-dev-12345678`));
+  assertEquals(res.status, 302);
+  assertEquals(sessions.get(session)?.device_id, "app-dev-12345678");
+  tokenEndpointIdToken = await googleToken({ sub: "g-777" }, "paycraft-web.apps.googleusercontent.com");
+  await (await handler(new Request(`${base}/callback?code=abc&state=${session}`))).text();
+  assertEquals(claims.length, 1);
+  assertEquals(claims[0], { p_tenant_id: TENANT.id, p_device_id: "app-dev-12345678", p_email: "buyer@example.com", p_provider: "google", p_auth_sub: "g-777" });
+});
+
+t("/start without (or with a malformed) device_id → /callback records nothing", async () => {
+  claims.length = 0;
+  for (const [i, extra] of ["", "&device_id=bad%20id"].entries()) {
+    const session = (i ? "x" : "w").repeat(44);
+    await handler(new Request(`${base}/start?api_key=${API_KEY}&provider=google&session=${session}${extra}`));
+    assertEquals(sessions.get(session)?.device_id ?? null, null);
+    tokenEndpointIdToken = await googleToken({ sub: "g-777" }, "paycraft-web.apps.googleusercontent.com");
+    await (await handler(new Request(`${base}/callback?code=abc&state=${session}`))).text();
+  }
+  assertEquals(claims.length, 0);
 });

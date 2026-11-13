@@ -107,7 +107,7 @@ export async function verifyIdToken(
   idToken: string,
   audiences: string[],
   nonce?: string | null,
-): Promise<{ email: string } | { error: "invalid" | "no_email" }> {
+): Promise<{ email: string; sub: string | null } | { error: "invalid" | "no_email" }> {
   if (!idToken || audiences.length === 0) return { error: "invalid" };
   try {
     const cfg = provider === "google" ? GOOGLE : APPLE;
@@ -121,7 +121,8 @@ export async function verifyIdToken(
       if (payload.nonce !== expected) return { error: "invalid" };
     }
     const email = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
-    return email ? { email } : { error: "no_email" };
+    const sub = typeof payload.sub === "string" && payload.sub.trim() ? payload.sub.trim() : null;
+    return email ? { email, sub } : { error: "no_email" };
   } catch {
     return { error: "invalid" };
   }
@@ -192,6 +193,30 @@ async function readBody(req: Request): Promise<Record<string, unknown> | null> {
   }
 }
 
+// ── verified sign-in claims (migration 193) ─────────────────────────────────────────────────────
+// The SDK sends its device's random id with the sign-in (/verify body, or /start for the in-app browser
+// flow). A claim bound to it lets register_device mark THAT device identity-verified — without it every
+// SDK sign-in left the device unverified and the metering RPCs refused verified users.
+
+/** A well-formed device id, or null (absent / malformed → no claim; older SDKs keep working). */
+export function deviceIdOf(v: unknown): string | null {
+  const s = typeof v === "string" ? v.trim() : "";
+  return /^[A-Za-z0-9._:-]{8,128}$/.test(s) ? s : null;
+}
+
+/** Best-effort: the email is verified either way; a missing claim only leaves the device unverified. */
+async function recordClaim(tenantId: string, deviceId: string | null, email: string, provider: Provider, sub: string | null) {
+  if (!deviceId || !sub) return;
+  const { error } = await supabaseAdmin.rpc("record_verified_sign_in", {
+    p_tenant_id: tenantId,
+    p_device_id: deviceId,
+    p_email: email,
+    p_provider: provider,
+    p_auth_sub: sub,
+  });
+  if (error) console.error("[identity-token] verified sign-in claim not recorded:", error.message);
+}
+
 // ── POST /verify ───────────────────────────────────────────────────────────────────────────────
 async function handleVerify(req: Request): Promise<Response> {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -216,6 +241,8 @@ async function handleVerify(req: Request): Promise<Response> {
 
   const r = await verifyIdToken(provider, idToken, audiences, nonce);
   if ("error" in r) return r.error === "no_email" ? json({ error: "token_has_no_email" }, 401) : INVALID();
+
+  await recordClaim(tenant.id, deviceIdOf(body.device_id), r.email, provider, r.sub);
   return json({ email: r.email, provider });
 }
 
@@ -228,6 +255,7 @@ async function handleStart(req: Request): Promise<Response> {
   const session = q.get("session") ?? "";
   // Optional (older SDKs omit it); anything unrecognised is stored as NULL → plain page.
   const platform = PLATFORMS.find((p) => p === q.get("platform")) ?? null;
+  const deviceId = deviceIdOf(q.get("device_id")); // optional: claimed at /callback (migration 193)
   if (!apiKey || !provider) return json({ error: "api_key and provider (google|apple) are required" }, 400);
   if (!SESSION_RE.test(session)) return json({ error: "invalid_session" }, 400);
 
@@ -242,7 +270,7 @@ async function handleStart(req: Request): Promise<Response> {
 
   const { error } = await supabaseAdmin
     .from("identity_sessions")
-    .insert({ id: session, tenant_id: tenant.id, provider, status: "pending", platform });
+    .insert({ id: session, tenant_id: tenant.id, provider, status: "pending", platform, device_id: deviceId });
   if (error) {
     return error.code === "23505" ? json({ error: "session_exists" }, 409) : json({ error: "session_create_failed" }, 500);
   }
@@ -292,11 +320,11 @@ async function handleCallback(req: Request): Promise<Response> {
 
   const { data: row } = await supabaseAdmin
     .from("identity_sessions")
-    .select("id, tenant_id, provider, status, created_at, platform")
+    .select("id, tenant_id, provider, status, created_at, platform, device_id")
     .eq("id", state)
     .maybeSingle();
   const s = row as
-    | { id: string; tenant_id: string; provider: Provider; status: string; created_at: string; platform: string | null }
+    | { id: string; tenant_id: string; provider: Provider; status: string; created_at: string; platform: string | null; device_id: string | null }
     | null;
   if (!s) return html(false);
   const tenant = await tenantById(s.tenant_id);
@@ -345,6 +373,7 @@ async function handleCallback(req: Request): Promise<Response> {
   if ("error" in r) {
     return finish({ status: "failed", error: r.error === "no_email" ? "token_has_no_email" : "invalid_identity_token" });
   }
+  await recordClaim(s.tenant_id, s.device_id, r.email, s.provider, r.sub);
   return finish({ status: "verified", email: r.email });
 }
 

@@ -776,8 +776,9 @@ class PayCraftBillingManager(
             // Same account re-proven (Restore → sign in with the account already linked). This used to
             // `return` — built for a session observer re-emitting one identity — which left the restore
             // sheet with no state change and so no answer. Sign-in is now always an explicit tap: re-check.
+            // Registering (not just refreshing) also consumes the verified sign-in claim — see performRegisterAndLogin.
             _billingState.value = BillingState.Loading
-            refreshStatus(force = true)
+            performRegisterAndLogin(email.trim().lowercase(), afterVerifiedSignIn = true)
             return
         }
         _billingState.value = BillingState.Loading
@@ -820,7 +821,7 @@ class PayCraftBillingManager(
 
         // No prior conflict — treat as a fresh login
         PayCraftLogger.onFlow("loginWithOAuth", "→ No prior conflict, performing fresh register+login")
-        performRegisterAndLogin(normalized)
+        performRegisterAndLogin(normalized, afterVerifiedSignIn = true)
     }
 
     // ─── Confirm transfer (after user confirms the dialog) ───────────────────
@@ -1108,7 +1109,13 @@ class PayCraftBillingManager(
             .getOrDefault(0)
     }
 
-    private suspend fun performRegisterAndLogin(email: String) {
+    /**
+     * [afterVerifiedSignIn]: identity-token/verify just bound a verified sign-in to this device (migration 193), and
+     * only `register_device` consumes it — so the stored-token fast path is skipped. With a valid token the server's
+     * same-device branch returns the SAME token; skipping it left the device unverified, and the metering RPCs refuse
+     * a verified user's unverified device.
+     */
+    private suspend fun performRegisterAndLogin(email: String, afterVerifiedSignIn: Boolean = false) {
         relinkStorePurchasesTo(email)
         val mode = stripeMode
         val platform = PlatformInfo.platform
@@ -1122,7 +1129,7 @@ class PayCraftBillingManager(
         // Fast path: existing token already validated by server
         val existingToken = DeviceTokenStore.getToken()
         PayCraftLogger.onFlow("performRegisterAndLogin", "existingToken=${existingToken?.take(20) ?: "null"}")
-        if (existingToken != null) {
+        if (existingToken != null && !afterVerifiedSignIn) {
             val check = try {
                 service.checkPremiumWithDevice(existingToken)
             } catch (e: Exception) {

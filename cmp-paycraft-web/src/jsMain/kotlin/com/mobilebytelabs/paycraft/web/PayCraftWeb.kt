@@ -190,7 +190,7 @@ class PayCraftWeb(
         if (pendingEvents.isEmpty()) return null
         val batch = pendingEvents.toList()
         pendingEvents.clear()
-        val deviceRef = store.deviceId() ?: newDeviceId().also { store.saveDeviceId(it) }
+        val deviceRef = myDeviceId()
         val body = PayCraftContract.eventsBody(apiKey, deviceRef, store.token(), batch)
         return JsonObject(body + ("mode" to JsonPrimitive(mode))).toString()
     }
@@ -343,7 +343,7 @@ class PayCraftWeb(
      */
     fun answerSurvey(reasonCode: String, step: String, sku: String?, freeText: String?): Promise<WebWinback> {
         track(PayCraftEventName.SurveyAnswer, PayCraftStep.Survey, sku, reason = reasonCode)
-        val deviceRef = store.deviceId() ?: newDeviceId().also { store.saveDeviceId(it) }
+        val deviceRef = myDeviceId()
         val body = PayCraftContract.winbackBody(
             apiKey,
             deviceRef,
@@ -456,13 +456,14 @@ class PayCraftWeb(
     }
 
     internal suspend fun doSignIn(provider: String, idToken: String, nonce: String?): SignInResult {
-        val verifyBody = PayCraftContract.identityVerifyBody(apiKey, provider, idToken, nonce)
+        // The device id goes WITH the token, so the server marks this device identity-verified (migration 193).
+        val deviceId = myDeviceId()
+        val verifyBody = PayCraftContract.identityVerifyBody(apiKey, provider, idToken, nonce, deviceId)
         val verified = obj(call("POST", PayCraftContract.identityVerifyUrl(base), verifyBody.toString()))
         val email = PayCraftContract.parseVerifiedEmail(verified)
             ?: throw PayCraftWebError("identity_unverified", "The identity provider returned no verified email")
 
         // Only ever register an email the server just verified — never a typed one.
-        val deviceId = store.deviceId() ?: newDeviceId().also { store.saveDeviceId(it) }
         val params = PayCraftContract.registerDeviceParams(email, "web", deviceName(), deviceId, mode, apiKey)
         val reg = PayCraftContract.parseRegister(
             obj(rpc("register_device", params)),
@@ -615,6 +616,9 @@ class PayCraftWeb(
 
     // One door for the device RPCs: the URL + POST shape is written once instead of at every call site (bundle budget).
     private suspend fun rpc(fn: String, params: Any): HttpResult = call("POST", PayCraftContract.rpcUrl(base, fn), params.toString())
+
+    /** This browser's random device id, created on first use (sign-in, events, win-back). */
+    private fun myDeviceId(): String = store.deviceId() ?: newDeviceId().also { store.saveDeviceId(it) }
 
     private suspend fun call(method: String, url: String, body: String?): HttpResult {
         val headers = PayCraftContract.headers(anonKey, "web", mode, json = body != null) +
