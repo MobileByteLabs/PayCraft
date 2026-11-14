@@ -367,6 +367,8 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
             formatted = phase.formattedPrice,
             currencyCode = phase.currencyCode,
             amountMicros = phase.priceAmountMicros,
+            // Same offer the purchase will use, so the paywall's trial line matches the store sheet.
+            freeTrialDays = best.freeTrialDays,
         )
     }
 
