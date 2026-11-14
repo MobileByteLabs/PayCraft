@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A missing key no longer crashes the app.** `PayCraft.initialize` (and so `payCraft(...)`, whose binder starts
+  with Koin) used to throw on any non-`pk_` key — a release build whose live key was never injected crashed in
+  `Application.onCreate` on every launch. A blank or non-publishable key now logs an error and boots unconfigured
+  (Free, no backend calls); only an `sk_` secret key still throws. Debug builds running on `testApiKey` log when the
+  live key is unusable. Add a release-build check for the key (see `client-skills/paycraft-setup.md`).
 - **Monthly allowance + credits on the web.** `cmp-paycraft-web-ui` gains `allowance(pc, sku)` (free uses left
   this month, when it resets, whether the buyer is Pro), `spendAllowance(pc, sku, idempotencyKey)` (`"allowance"`
   / `"credit"` / `"pro"` / `"refused"`; a retried key never double-charges) and `creditBalance(pc, sku)`, over

@@ -5,13 +5,11 @@ Fully automates adding PayCraft billing to this KMP app.
 ## What This Does
 
 1. Adds PayCraft dependency to gradle files
-2. Reads existing Supabase config from BuildConfig/env
-3. Asks for payment links, plans, benefits
-4. Generates `PayCraft.configure()` in app initialization
-5. Adds `PayCraftModule` to Koin modules
-6. Adds `PayCraftSheet` + `PayCraftRestore` to SettingsScreen
-7. Replaces inline premium checks with `PayCraftRepository.entitlement` (the SDK is the SoT; no app-authored wrapper)
-8. Builds and verifies
+2. Provisions the publishable keys + a release-build guard
+3. Wires `payCraft(...)` into the shared Koin module
+4. Adds `PayCraftSheet` + `PayCraftRestore` to SettingsScreen
+5. Replaces inline premium checks with `PayCraftRepository.entitlement` (the SDK is the SoT; no app-authored wrapper)
+6. Builds and verifies
 
 ## Steps
 
@@ -34,80 +32,51 @@ commonMain.dependencies {
 }
 ```
 
-### Step 2: Read Existing Supabase Config
+### Step 2: Provision the publishable keys
 
-Search for `SUPABASE_URL`, `supabaseUrl`, or similar in:
-- `BuildConfig` classes
-- `local.properties`
-- `config/` directory
-- App module's constants
+PayCraft needs ONE publishable key per app (`pk_…`, from the PayCraft dashboard), optionally a
+second test key. Do NOT use the Supabase URL or anon key — the SDK carries its own backend
+constants, and an anon JWT passed as `apiKey` is not a PayCraft key.
 
-Extract the Supabase URL and anon key values.
+Expose them as build-config fields fed from the project's secrets path (never hardcode in source):
+`PAYCRAFT_API_KEY_LIVE` (release) and `PAYCRAFT_API_KEY_TEST` (debug).
 
-### Step 3: Gather Configuration
-
-Ask the user:
-1. Payment provider: stripe or razorpay?
-2. Payment link URLs for each plan (monthly/quarterly/yearly)
-3. Customer portal URL (Stripe) or dashboard URL (Razorpay)
-4. Plan names and prices (for display)
-5. App benefits to show in paywall (3-5 benefits with icons from `Icons.Default.*`)
-6. Support email
-
-### Step 4: Generate PayCraft.configure()
-
-Find the app initialization file (Application.kt, App.kt, or main entry point).
-
-Add/update PayCraft configuration:
+**Release guard (required):** fail the release build when the live key is blank or not `pk_…`.
+Debug builds run on the test key, so a missing live key is invisible until the release reaches
+users — the SDK no longer crashes on it, but it boots UNCONFIGURED and sells nothing:
 
 ```kotlin
-PayCraft.configure {
-    supabase(
-        url = BuildConfig.SUPABASE_URL,         // use existing constant
-        anonKey = BuildConfig.SUPABASE_ANON_KEY, // use existing constant
-    )
-    provider(
-        StripeProvider(  // or RazorpayProvider
-            paymentLinks = mapOf(
-                "monthly"   to "[MONTHLY_URL]",
-                "quarterly" to "[QUARTERLY_URL]",
-                "yearly"    to "[YEARLY_URL]",
-            ),
-            customerPortalUrl = "[PORTAL_URL]",
-        )
-    )
-    plans(
-        BillingPlan(id = "monthly",   name = "Monthly",   price = "[PRICE]", interval = "/month",  rank = 1),
-        BillingPlan(id = "quarterly", name = "Quarterly", price = "[PRICE]", interval = "/3 months", rank = 2),
-        BillingPlan(id = "yearly",    name = "Yearly",    price = "[PRICE]", interval = "/year",   rank = 3, isPopular = true),
-    )
-    benefits(
-        BillingBenefit(icon = Icons.Default.[Icon], text = "[benefit text]"),
-        // ... more benefits
-    )
-    supportEmail("[SUPPORT_EMAIL]")
-}
+// in the module that declares the build-config fields
+val liveKey = /* the value you feed PAYCRAFT_API_KEY_LIVE */
+tasks.matching { it.name.contains("Release") && (it.name.startsWith("assemble") || it.name.startsWith("bundle")) }
+    .configureEach {
+        doFirst {
+            check(liveKey.startsWith("pk_")) { "PAYCRAFT_API_KEY_LIVE is missing or not a pk_ key — release would ship billing unconfigured" }
+        }
+    }
 ```
 
-Call `PayCraft.configure {}` BEFORE Koin initialization.
+### Step 3: Wire `payCraft(...)` into Koin
 
-### Step 5: Add PayCraftModule to Koin
-
-Find where `startKoin {}` or `KoinApplication` is configured.
-
-Add `PayCraftModule` to the modules list:
+In the shared network/DI module (commonMain, NOT a per-platform Application class):
 
 ```kotlin
-startKoin {
-    modules(
-        existingModule1,
-        existingModule2,
-        PayCraftModule,  // ← add this
+val ProjectNetworkModule = module {
+    includes(
+        payCraft(
+            apiKey = BuildKonfig.PAYCRAFT_API_KEY_LIVE,
+            testApiKey = BuildKonfig.PAYCRAFT_API_KEY_TEST,
+            identity = { get<AuthRepository>().session.map { it.user?.email } }, // omit if no accounts
+        ),
     )
 }
 ```
 
-### Step 6: Add PayCraft UI to SettingsScreen
+That is the whole integration: `payCraft(...)` includes `PayCraftModule`, initializes the SDK before
+anything resolves, and keeps identity bound. Products, providers, plans, prices and paywall styling
+come from the dashboard. (`PayCraft.configure { … }` was removed in v2.0.)
+
+### Step 4: Add PayCraft UI to SettingsScreen
 
 Find `SettingsScreen.kt` or equivalent. Add:
 
@@ -145,7 +114,7 @@ import com.mobilebytelabs.paycraft.ui.PayCraftSheet
 import com.mobilebytelabs.paycraft.ui.PayCraftRestore
 ```
 
-### Step 7: Replace Existing Premium Checks
+### Step 5: Replace Existing Premium Checks
 
 Search for existing premium checks (`isPremium`, `isSubscribed`, `hasPremium`, `SubscriptionManager`).
 
@@ -185,7 +154,7 @@ Remove any existing:
   `FakePayCraftRepository` in its MAIN artifact, so dropping the wrapper costs no testability.
 - a local plan catalogue — plans come from `paycraft.plans` (tenant config)
 
-### Step 8: Build Verification
+### Step 6: Build Verification
 
 Note any compilation errors. Common fixes:
 - Add import: `import com.mobilebytelabs.paycraft.ui.PayCraftBanner`

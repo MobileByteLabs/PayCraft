@@ -1,6 +1,7 @@
 package com.mobilebytelabs.paycraft.di
 
 import com.mobilebytelabs.paycraft.InitOptions
+import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.PayCraftBackend
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.core.MonetizationMode
@@ -13,6 +14,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 /**
  * The identity bind — the half of integration a consumer used to hand-write.
@@ -61,6 +63,24 @@ class PayCraftIdentityBinderTest {
         mode = MonetizationMode.AdSupported,
         scope = scope,
     )
+
+    @Test
+    fun blank_live_key_does_not_crash_koin_start() = runTest(UnconfinedTestDispatcher()) {
+        // reels-downloader v43: release build config compiled PAYCRAFT_API_KEY_LIVE = "", and the
+        // binder (createdAtStart) threw out of Application.onCreate. Constructing it must survive.
+        PayCraftIdentityBinder(
+            email = MutableStateFlow(null),
+            repository = { null },
+            store = { null },
+            apiKey = "",
+            testApiKey = "",
+            backend = PayCraftBackend.Cloud,
+            options = InitOptions(),
+            mode = MonetizationMode.AdSupported,
+            scope = backgroundScope,
+        )
+        assertFalse(PayCraft.isConfigured, "a blank key must leave the SDK unconfigured, not crash")
+    }
 
     @Test
     fun binds_the_signed_in_email() = runTest(UnconfinedTestDispatcher()) {

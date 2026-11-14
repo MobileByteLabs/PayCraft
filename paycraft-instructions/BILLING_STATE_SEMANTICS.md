@@ -1,4 +1,4 @@
-example-provenance: d17c43b42c05b30b9029e3cbcbbfa314a8bd372b
+example-provenance: 6ff9324b389a66041d220bd9b2e4e92ec81563df
 
 # BILLING_STATE_SEMANTICS.md — the billing state machine and realtime invalidation
 
