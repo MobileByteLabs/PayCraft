@@ -50,8 +50,10 @@ class CoreParityTest {
             .on("/functions/v1/identity-token/verify") { """{"email":"a@x.com","provider":"apple"}""" }
             .on("/rest/v1/rpc/register_device") { """{"server_token":"srv","conflict":false}""" }
         sdk(net).doSignIn("apple", "tok", "n-1")
+        // The SAME device id the register_device call below sends — what lets the server mark this device
+        // identity-verified (migration 193). Without it the metering RPCs refuse a verified user's device.
         assertEquals(
-            PayCraftContract.identityVerifyBody("pk_test_abc", "apple", "tok", "n-1").toString(),
+            PayCraftContract.identityVerifyBody("pk_test_abc", "apple", "tok", "n-1", deviceId = "dev-1").toString(),
             net.calls[0].body,
         )
         assertEquals(PayCraftContract.identityVerifyUrl(backend), net.calls[0].url)

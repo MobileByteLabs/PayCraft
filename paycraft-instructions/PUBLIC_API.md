@@ -1,4 +1,4 @@
-example-provenance: d17c43b42c05b30b9029e3cbcbbfa314a8bd372b
+example-provenance: 6ff9324b389a66041d220bd9b2e4e92ec81563df
 
 # PUBLIC_API.md — PayCraft SDK public integration surface
 
@@ -26,8 +26,13 @@ fun initialize(
   once (override → device region → `US`), resets `paywallPresentation` to `Hidden`, republishes the
   last-known-good `SuiteConfig` from disk (`ConfigCache`), then launches the `/config` revalidation
   fire-and-forget. It never awaits the network.
-- **Precondition (hard).** `apiKey` must be PUBLISHABLE — `startsWith("pk_")` — unless `backend` is
-  `PayCraftBackend.Mock`. An `sk_…` secret key throws `IllegalArgumentException` at the call site.
+- **Key handling.** Only an `sk_…` SECRET key throws (`IllegalArgumentException`) — that is a leak.
+  Any other non-publishable value (blank, garbage) NEVER throws: `initialize` logs it via
+  `PayCraftLogger.onError` and boots UNCONFIGURED (`isConfigured == false`, Free entitlement, no
+  `/config` requests). It used to throw, and through `payCraft(...)`'s eager Koin singleton that
+  crashed hosts in `Application.onCreate` (reels-downloader v43, blank release key). When a debug
+  build runs on `testApiKey` while the live `apiKey` is unusable, it logs that RELEASE will be
+  unconfigured. `PayCraftBackend.Mock` skips every key check.
   Mode is NOT in the prefix. `PayCraft.mode` AND the key choice both resolve from
   `PlatformInfo.buildKind`, read from the artifact itself (APK signing certificate / embedded
   provisioning profile / packaging / origin) — see KEY_TIERING.md. A
@@ -45,8 +50,8 @@ Related surface on the same object:
 |---|---|---|
 | `suiteConfigFlow` | `StateFlow<SuiteConfig?>` | Null until the first config (cached or fetched) lands |
 | `configResultFlow` | `StateFlow<ConfigResult>` | **WHICH resilience layer answered** — see below |
-| `isConfigured` | `Boolean` | True when a `pk_test_`/`pk_live_` key was supplied. The SDK owns this question |
-| `mode` | `Mode.{Test,Live,Unknown}` | Derived from the `pk_` key prefix, never configured separately |
+| `isConfigured` | `Boolean` | True when any `pk_…` key except the `pk_YOUR…` placeholder was supplied. The SDK owns this question |
+| `mode` | `Mode.{Test,Live,Unknown}` | Derived from `PlatformInfo.buildKind` (never the key prefix), overridable by `InitOptions.modeOverride` — see KEY_TIERING.md |
 | `monetizationMode` | `MonetizationMode` | Resolved: cloud `SuiteConfig.mode` wins over the `initialize` argument |
 | `isAdFree` | `StateFlow<Boolean>` | Host ad-gating signal under `MonetizationMode.AdSupported` |
 | `paywallPresentation` | `StateFlow<PaywallPresentation>` | `Hidden`/`Shown(trigger)` — the auto-present signal |

@@ -1,4 +1,4 @@
-example-provenance: d17c43b42c05b30b9029e3cbcbbfa314a8bd372b
+example-provenance: 6ff9324b389a66041d220bd9b2e4e92ec81563df
 
 # FAILURE_MODES.md — enumerated integration failures and their source-level remedies
 
@@ -16,7 +16,8 @@ never faked green and never spun on.
 
 | # | Symptom | Root cause | Class | Remedy |
 |---|---|---|:--:|---|
-| F1 | `IllegalArgumentException: apiKey must be a PayCraft publishable key (pk_…)` | A non-publishable value reached `initialize` — most often an `sk_` secret key, or a blank/garbled literal | heal | Materialize the app's ONE `pk_` key (KEY_TIERING.md) and wire it into the shared init. A `pk_YOUR…` placeholder does NOT throw — it surfaces as F2 instead |
+| F1 | `IllegalArgumentException: apiKey must be a PayCraft publishable key (pk_…); got a secret key (sk_…)` | An `sk_` secret key reached client code | heal | Materialize the app's publishable `pk_` key (KEY_TIERING.md) and rotate the leaked secret |
+| F1b | Release build reports Free / sells nothing; log `apiKey is not a PayCraft publishable key … BLANK` | The release build config never received the live key — debug ran on `testApiKey`, so nothing showed until users had it. Before 2026-11-14 this THREW from `payCraft(...)`'s eager singleton and crashed the app at launch (reels-downloader v43) | heal | Feed the live key from the secrets path into the release build AND fail `assemble/bundle*Release` on a blank / non-`pk_` live key (client-skills/paycraft-setup.md Step 2). A `pk_YOUR…` placeholder lands here too |
 | F2 | Billing silently reports Free on a configured app | `startKoin` ran before `PayCraft.initialize`, so `PayCraftService` materialized with a null api key | heal | Reorder: `initialize` → `startKoin` (WIRING_CONTRACTS.md). This no longer crashes — it answers Free, which is harder to notice |
 | F3 | `requireConfig()` throws | `initialize` never ran on this platform | heal | Move init into the shared `commonMain` seam; a per-platform init silently skips other targets |
 | F4 | Billing works on Android only | `initialize` in the Android `Application` class | heal | Same as F3 — commonMain-first |

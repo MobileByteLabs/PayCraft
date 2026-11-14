@@ -270,6 +270,11 @@ class PayCraftContractTest {
             """{"api_key":"pk","provider":"google","id_token":"t"}""",
             PayCraftContract.identityVerifyBody("pk", "google", "t", null).toString(),
         )
+        // The device's random id rides with the token so the server can mark THAT device identity-verified (193).
+        assertEquals(
+            """{"api_key":"pk","provider":"google","id_token":"t","device_id":"dev-1"}""",
+            PayCraftContract.identityVerifyBody("pk", "google", "t", null, deviceId = "dev-1").toString(),
+        )
         assertNull(PayCraftContract.parseVerifiedEmail(obj("""{"email":" "}""")))
         assertEquals("v@x", PayCraftContract.parseVerifiedEmail(obj("""{"email":"v@x"}""")))
     }

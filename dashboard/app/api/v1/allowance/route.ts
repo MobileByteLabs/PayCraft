@@ -10,7 +10,7 @@ const SKU = /^[a-z0-9][a-z0-9-]{1,63}$/
 /**
  * PUT /v1/allowance — set a metered action's monthly free allowance (migration 189).
  * Body: `{ sku, free_per_month, credit_skus? }`. `credit_skus` are consumable balances that pay for a
- * use once the free ones run out, tried in order (e.g. Kreatwiz: `kw-full-edit`, 5, `["edits-10"]`).
+ * use once the free ones run out, tried in order (e.g. ReelExport: `full-edit`, 5, `["edits-10"]`).
  */
 export async function PUT(req: Request) {
   return withApiKey(req, "products:write", async (ctx) => {

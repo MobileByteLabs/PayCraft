@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
 import { tenantIdFromPath } from "../_shared/webhook-path.ts";
+import { razorpayNotesProductId, razorpayNotesTenantId } from "../_shared/razorpay-tenant.ts";
+import { razorpaySubscriptionState } from "../_shared/razorpay-subscription-state.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
@@ -88,6 +90,16 @@ interface TenantCreds {
   webhookSecret: string;
 }
 
+/** The app that owns a product — how a consumable Payment Link (notes carry only the product) finds its tenant. */
+async function tenantIdForProduct(productId: string | null): Promise<string | null> {
+  if (!productId || !SERVICE_ROLE) return null;
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data } = await admin.from("tenant_products").select("tenant_id").eq("id", productId).maybeSingle();
+  return (data as { tenant_id?: string } | null)?.tenant_id ?? null;
+}
+
 async function loadTenantWebhookSecret(
   tenantId: string,
   mode: "test" | "live",
@@ -143,8 +155,6 @@ serve(withWebhookRateLimit({ bucket: "webhook:razorpay" }, async (req) => {
     return new Response("Missing x-razorpay-signature", { status: 400 });
   }
 
-  const tenantId: string | null = tenantIdFromPath(req.url, "razorpay-webhook");
-
   const body = await req.text();
 
   let parsed: RazorpayEventEnvelope;
@@ -153,6 +163,14 @@ serve(withWebhookRateLimit({ bucket: "webhook:razorpay" }, async (req) => {
   } catch {
     return new Response("Invalid JSON body", { status: 400 });
   }
+
+  // The path names the app for a per-app account. A SHARED org account (one Razorpay account
+  // attached to several apps) can register only one URL, so it arrives tenant-less: take the app
+  // from the notes PayCraft stamped, or from the product a consumable Payment Link names. Either is
+  // only a claim — the signature below must still verify with THAT tenant's webhook secret.
+  const tenantId: string | null = tenantIdFromPath(req.url, "razorpay-webhook") ??
+    razorpayNotesTenantId(parsed) ??
+    await tenantIdForProduct(razorpayNotesProductId(parsed));
 
   // Resolve mode via notes hint (most reliable when set), then by which
   // secret verifies. The notes hint is set by PayCraft's adopt-flow when
@@ -284,107 +302,32 @@ serve(withWebhookRateLimit({ bucket: "webhook:razorpay" }, async (req) => {
     );
   }
 
-  const trialStart =
-    sub.start_at && sub.created_at && sub.start_at > sub.created_at
-      ? new Date(sub.created_at * 1000)
-      : null;
-  const trialEnd =
-    sub.start_at && sub.created_at && sub.start_at > sub.created_at
-      ? new Date(sub.start_at * 1000)
-      : null;
-  const inTrialWindow = trialEnd !== null && trialEnd > new Date();
-
-  const email = sub.notes?.paycraft_email || sub.notes?.email || null;
-  const plan = sub.notes?.paycraft_plan || sub.plan_id || "unknown";
+  // One mapping for the whole Razorpay lifecycle (incl. `authenticated` = a trial has started), shared
+  // with its tests — see _shared/razorpay-subscription-state.ts.
+  const state = razorpaySubscriptionState(eventType, sub);
 
   try {
-    switch (eventType) {
-      case "subscription.activated": {
-        const status = inTrialWindow ? "trialing" : "active";
-        await handleSubscriptionEvent({
-          email,
-          provider: "razorpay",
-          customerId: sub.customer_id,
-          subscriptionId: sub.id,
-          plan,
-          status,
-          mode,
-          periodStart: sub.current_start ? new Date(sub.current_start * 1000) : null,
-          periodEnd: sub.current_end ? new Date(sub.current_end * 1000) : trialEnd,
-          cancelAtPeriodEnd: false,
-          trialStart,
-          trialEnd,
-          tenantId,
-          eventType,
-        });
-        break;
-      }
-
-      case "subscription.charged": {
-        await handleSubscriptionEvent({
-          email: null,
-          provider: "razorpay",
-          customerId: null,
-          subscriptionId: sub.id,
-          plan: null,
-          status: "active",
-          mode,
-          periodStart: sub.current_start ? new Date(sub.current_start * 1000) : null,
-          periodEnd: sub.current_end ? new Date(sub.current_end * 1000) : null,
-          cancelAtPeriodEnd: false,
-          tenantId,
-          eventType,
-        });
-        break;
-      }
-
-      case "subscription.cancelled":
-      case "subscription.completed": {
-        await handleSubscriptionEvent({
-          email: null,
-          provider: "razorpay",
-          customerId: null,
-          subscriptionId: sub.id,
-          plan: null,
-          status: "canceled",
-          mode,
-          periodStart: null,
-          periodEnd: sub.ended_at ? new Date(sub.ended_at * 1000) : null,
-          cancelAtPeriodEnd: true,
-          tenantId,
-          eventType,
-        });
-        break;
-      }
-
-      case "subscription.halted": {
-        await handleSubscriptionEvent({
-          email: null,
-          provider: "razorpay",
-          customerId: null,
-          subscriptionId: sub.id,
-          plan: null,
-          status: "past_due",
-          mode,
-          periodStart: null,
-          periodEnd: null,
-          cancelAtPeriodEnd: false,
-          tenantId,
-          eventType,
-        });
-        break;
-      }
-
-      default:
-        return new Response(
-          JSON.stringify({
-            received: true,
-            ignored: true,
-            reason: `event ${eventType} not handled`,
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+    if (!state) {
+      return new Response(
+        JSON.stringify({ received: true, ignored: true, reason: `event ${eventType} not handled` }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
     }
+    await handleSubscriptionEvent({
+      email: state.email,
+      provider: "razorpay",
+      customerId: state.customerId,
+      subscriptionId: sub.id,
+      plan: state.plan,
+      status: state.status,
+      mode,
+      periodStart: state.periodStart,
+      periodEnd: state.periodEnd,
+      cancelAtPeriodEnd: state.cancelAtPeriodEnd,
+      ...(state.trialEnd ? { trialStart: state.trialStart, trialEnd: state.trialEnd } : {}),
+      tenantId,
+      eventType,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[razorpay-webhook] processing error:", message);

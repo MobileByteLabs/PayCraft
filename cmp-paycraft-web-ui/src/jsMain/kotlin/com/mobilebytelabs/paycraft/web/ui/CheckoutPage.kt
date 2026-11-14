@@ -33,6 +33,9 @@ external interface CheckoutPageOptions {
 
     /** Ask the tenant's exit survey when the buyer leaves without paying (default true). */
     val exitSurvey: Boolean?
+
+    /** Where "Continue" goes after a successful payment (the studio, the app's home…); defaults to [backUrl]. */
+    val successUrl: String?
 }
 
 /** One payment-method card on the page. */
@@ -66,6 +69,8 @@ internal class CheckoutModel(
     val currency: String? = null,
     /** [price] in minor units — for the discounted price when a win-back offer is applied. */
     val amountCents: Int? = null,
+    /** Back from the provider without paying — the page says nothing was charged. */
+    val cancelled: Boolean = false,
 )
 
 /** A state other than the ready page: a message and at most one link onward. */
@@ -75,6 +80,8 @@ internal class CheckoutNotice(
     val actionLabel: String?,
     val actionHref: String?,
     val backUrl: String?,
+    /** Paid, but the provider has not confirmed yet: [mountCheckout] checks again by itself. */
+    val pending: Boolean = false,
 )
 
 internal fun periodLabel(interval: String?): String? = when (interval) {
@@ -209,7 +216,7 @@ internal fun checkoutPageHtml(m: CheckoutModel): String {
     val renew = if (m.period != null) "Renews automatically. Cancel any time." else "One-time payment."
     return """<div class="pcx" data-pcx-state="ready">${backLink(
         m.backUrl,
-    )}${steps()}<header class="pcx-head"><h1 class="pcx-h1">Checkout</h1><p class="pcx-lead">Choose how you'd like to pay. You'll finish on the provider's secure payment page.</p></header><div class="pcx-grid"><section class="pcx-methods" aria-labelledby="pcx-methods-h"><h2 class="pcx-h2" id="pcx-methods-h">Payment method</h2><div class="pcx-method-list" role="radiogroup" aria-labelledby="pcx-methods-h">${m.cards.mapIndexed {
+    )}${steps()}${if (m.cancelled) """<p class="pcx-note pcx-cancelled" role="status">Checkout cancelled — you weren't charged. Pick a payment method to try again.</p>""" else ""}<header class="pcx-head"><h1 class="pcx-h1">Checkout</h1><p class="pcx-lead">Choose how you'd like to pay. You'll finish on the provider's secure payment page.</p></header><div class="pcx-grid"><section class="pcx-methods" aria-labelledby="pcx-methods-h"><h2 class="pcx-h2" id="pcx-methods-h">Payment method</h2><div class="pcx-method-list" role="radiogroup" aria-labelledby="pcx-methods-h">${m.cards.mapIndexed {
             i,
             c,
         ->

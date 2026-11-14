@@ -58,7 +58,7 @@ That's it. Claude handles everything from here:
 | **Phase 1 — ENV** | Creates `.env`, walks you through each credential | Answer ~8 questions (Supabase keys, Stripe key, plans) |
 | **Phase 2 — Supabase** | Applies migrations, creates RPCs, deploys webhook, verifies every step | Nothing |
 | **Phase 3 — Stripe** | Creates test product, prices, payment links automatically via Stripe MCP | 2 browser steps: add webhook endpoint + enable portal |
-| **Phase 4 — Client** | Adds dependency, writes `PayCraft.configure()`, wires Koin + paywall UI | Nothing |
+| **Phase 4 — Client** | Adds dependency, wires `payCraft(apiKey = …)` into Koin + a release-build key guard, adds paywall UI | Nothing |
 | **Phase 5 — Verify** | Writes real DB row, calls `is_premium()`, confirms `true`, cleans up | Nothing |
 
 **Result:** fully operational billing in test mode. No real charges until you opt in.

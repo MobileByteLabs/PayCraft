@@ -511,8 +511,8 @@ object PayCraft {
         // `pk_…`, but nothing could get such a key past this line, so both of those paths were
         // dead code and a correctly-provisioned one-key app crashed at boot.
         //
-        // Still rejected, and this is the half that matters: anything that is not publishable. A
-        // `sk_…` secret key reaching client source is the leak [KEY_TIERING] exists to prevent, and
+        // Still rejected, and this is the half that matters: a SECRET key. (Other non-publishable
+        // values — blank, garbage — boot UNCONFIGURED instead; see below.) A `sk_…` secret key reaching client source is the leak [KEY_TIERING] exists to prevent, and
         // it fails loudly here rather than shipping in a binary.
         //
         // A `pk_YOUR…` template placeholder now PASSES this guard and is caught one level up by
@@ -525,12 +525,41 @@ object PayCraft {
         // first. A blank testApiKey is treated as absent — an unprovisioned field in a generated
         // build config arrives as "" far more often than as null, and falling through to the live
         // key is the safe reading of "no test key configured".
-        val effectiveApiKey = testApiKey
-            ?.takeIf { it.isNotBlank() && PlatformInfo.buildKind == BuildKind.Debug }
-            ?: apiKey
+        val usingTestKey = !testApiKey.isNullOrBlank() && PlatformInfo.buildKind == BuildKind.Debug
+        val effectiveApiKey = if (usingTestKey) testApiKey.orEmpty() else apiKey
 
-        require(effectiveApiKey.startsWith("pk_") || backend is PayCraftBackend.Mock) {
-            "apiKey must be a PayCraft publishable key (pk_…); got a non-publishable value"
+        // A SECRET key still throws: that is a leak, and refusing to boot is the point.
+        require(!effectiveApiKey.startsWith("sk_") || backend is PayCraftBackend.Mock) {
+            "apiKey must be a PayCraft publishable key (pk_…); got a secret key (sk_…)"
+        }
+        // Anything else that is not publishable — overwhelmingly a BLANK key from a release build
+        // config whose secret was never injected — must NOT crash the host. This used to be a
+        // `require`, and because `payCraft(...)` initializes inside an eager Koin singleton the
+        // throw landed in Application.onCreate: reels-downloader v43 shipped to Play with an empty
+        // live key and crashed on every launch. Unconfigured is the documented graceful state
+        // ([isConfigured] false → Free entitlement), so log loudly and boot into it instead.
+        if (!effectiveApiKey.startsWith("pk_") && backend !is PayCraftBackend.Mock) {
+            runCatching {
+                PayCraftLogger.onError(
+                    "initialize",
+                    "apiKey is not a PayCraft publishable key (pk_…)" +
+                        (if (effectiveApiKey.isBlank()) " — it is BLANK" else "") +
+                        "; PayCraft is UNCONFIGURED and serves a Free entitlement. " +
+                        "Check that the release build config injects the key.",
+                )
+            }
+        }
+        // The case that hid the reels crash: debug builds run on testApiKey, so a blank LIVE key is
+        // invisible until the release build reaches users. Say so while it is still a dev build.
+        if (usingTestKey && !apiKey.startsWith("pk_") && backend !is PayCraftBackend.Mock) {
+            runCatching {
+                PayCraftLogger.onError(
+                    "initialize",
+                    "using testApiKey, but apiKey (the LIVE key) is not publishable" +
+                        (if (apiKey.isBlank()) " — it is BLANK" else "") +
+                        ". RELEASE builds will run UNCONFIGURED (Free only).",
+                )
+            }
         }
         this.apiKey = effectiveApiKey
         this.backend = backend
@@ -654,7 +683,8 @@ object PayCraft {
      */
     suspend fun prefetchProducts() {
         val key = apiKey ?: return
-        if (backend is PayCraftBackend.Mock) return
+        // Unconfigured (blank / non-pk_ / placeholder key): nothing the backend would accept.
+        if (!isConfigured || backend is PayCraftBackend.Mock) return
         fetchAndApplySuiteConfig(key, backend, initOptions)
     }
 
@@ -667,7 +697,8 @@ object PayCraft {
      */
     fun refreshConfig() {
         val key = apiKey ?: return
-        if (backend is PayCraftBackend.Mock) return
+        // Unconfigured (blank / non-pk_ / placeholder key): nothing the backend would accept.
+        if (!isConfigured || backend is PayCraftBackend.Mock) return
         configFetchJob?.cancel()
         configFetchJob = applicationScope.launch {
             fetchAndApplySuiteConfig(key, backend, initOptions)

@@ -149,11 +149,19 @@ internal fun offer(percentOff: Int, duration: String, months: Int? = null): WebO
     }
 
 /** The page's PayCraftWeb as this module sees it: a plain object with the exported members it calls. */
-internal fun fakePc(email: String? = "a@x.com", configFails: Boolean = false): PayCraftWebApi {
+internal fun fakePc(
+    email: String? = "a@x.com",
+    configFails: Boolean = false,
+    premium: Boolean = false,
+): PayCraftWebApi {
     val pc: dynamic = js("({})")
     pc.email = { email }
     pc.maxDevices = { 1 }
-    pc.isPremium = { false }
+    pc.isPremium = { premium }
+    val state: dynamic = js("({})")
+    state.isPremium = premium
+    state.tokenValid = true
+    pc.premium = { Promise.resolve<Any?>(state) }
     pc.config = {
         if (configFails) {
             Promise.reject(
@@ -169,7 +177,7 @@ internal fun fakePc(email: String? = "a@x.com", configFails: Boolean = false): P
 }
 
 private const val CONFIG =
-    """{"products":[{"sku":"pro-monthly","name":"Pro Monthly","interval":"month","amountCents":29900,"currency":"INR","trialDays":14}]}"""
+    """{"products":[{"sku":"pro-monthly","name":"Pro Monthly","interval":"month","amountCents":29900,"currency":"INR","trialDays":14},{"sku":"edits-10","name":"10 edits","interval":null,"amountCents":9900,"currency":"INR","trialDays":null}]}"""
 private const val OPTIONS =
     """[{"provider":"razorpay","name":"Razorpay","methods":"UPI, cards, netbanking & wallets","methodList":["UPI","Cards","Netbanking","Wallets"],"cardBrands":["Visa","Mastercard","RuPay"],"note":"Pay with any UPI app."},
        {"provider":"stripe","name":"Stripe","methods":"Cards, Apple Pay & Google Pay","methodList":["Cards","Apple Pay","Google Pay"],"cardBrands":["Visa","Mastercard","American Express"],"note":null}]"""

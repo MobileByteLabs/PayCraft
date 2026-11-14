@@ -107,16 +107,23 @@ internal class IdentityTokenClient(
     private val apiKey: String?,
     /** Sent to /start so /callback can hand control straight back to this app (D2b). */
     private val platform: String = authPlatform(com.mobilebytelabs.paycraft.core.currentPlatform()),
+    /**
+     * This device's id — the SAME value register_device sends. It goes with the sign-in (verify body, or /start for
+     * the in-app browser) so the server marks this device identity-verified (migration 193).
+     */
+    private val deviceId: () -> String = { com.mobilebytelabs.paycraft.platform.PlatformInfo.deviceId },
 ) {
     private val base get() = "${backend.supabaseUrl}/functions/v1/identity-token"
 
     val isConfigured: Boolean get() = !apiKey.isNullOrBlank()
 
     fun startUrl(provider: OAuthProvider, session: String): String =
-        "$base/start?api_key=${apiKey.orEmpty().encodeURLParameter()}&provider=${provider.wire}&session=$session&platform=$platform"
+        "$base/start?api_key=${apiKey.orEmpty().encodeURLParameter()}&provider=${provider.wire}" +
+            "&session=$session&platform=$platform&device_id=${deviceId().encodeURLParameter()}"
 
     suspend fun verify(provider: OAuthProvider, idToken: String, nonce: String?): VerifyOutcome = try {
-        val response = postBody("verify", PayCraftContract.identityVerifyBody(apiKey, provider.wire, idToken, nonce))
+        val response =
+            postBody("verify", PayCraftContract.identityVerifyBody(apiKey, provider.wire, idToken, nonce, deviceId()))
         when {
             response.status.isSuccess() ->
                 PayCraftContract.parseVerifiedEmail(response.body<JsonObject>())

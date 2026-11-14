@@ -21,6 +21,7 @@ import {
   requireRateLimit,
 } from "../_shared/rate-limit.ts"
 import { toAlpha2 } from "../_shared/country-code.ts"
+import { effectiveTrial } from "../_shared/trial.ts"
 import { preflight, withCors } from "../_shared/cors.ts"
 
 /** Map a routing method name (stripe_card, razorpay_upi, direct_upi…) to its provider. */
@@ -508,12 +509,10 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
     // platform-scoped rule matches and no binding is emitted, which the SDK treats as BLOCKED
     // rather than silently routing to a store the tenant did not choose.
     (productsRes.data ?? []).map(async (p: Record<string, unknown>) => {
-      const trialEnabled = p.trial_enabled === undefined || p.trial_enabled === null
-        ? true
-        : Boolean(p.trial_enabled)
-      const trialDurationDays = typeof p.trial_duration_days === "number"
-        ? p.trial_duration_days
-        : 7
+      // The same rule checkout-initiate charges by (_shared/trial.ts) — what is advertised is what is billed.
+      const trial = effectiveTrial(p)
+      const trialEnabled = trial.enabled
+      const trialDurationDays = trial.days
 
       // Pull through the promotional-discount fields with safe defaults.
       // The SDK paywall reads these to render strike-through + discounted price.

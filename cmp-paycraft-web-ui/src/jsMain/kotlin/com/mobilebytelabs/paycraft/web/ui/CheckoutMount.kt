@@ -11,14 +11,51 @@ import kotlin.js.Promise
  * bar) asks the tenant's exit survey first, unless `options.exitSurvey` is false. Styles are scoped to `.pcx` and
  * inherit the site's font and colour; brand it with `--pcx-accent`, `--pcx-accent-fg` and `--pcx-radius`.
  * Resolves true when the payment page is shown.
+ *
+ * It also owns the RETURN from the provider: Stripe (success_url) and Razorpay (PayCraft's pay page) send the buyer
+ * back here with `paycraft_checkout=success|cancel`. Paid → a confirmation once PayCraft has the payment (checked
+ * again by itself until the provider's webhook lands), with "Continue" to `options.successUrl`; cancelled → the
+ * payment page again, saying nothing was charged. The parameter is then removed, so a reload shows checkout.
  */
 @JsExport
 fun mountCheckout(pc: dynamic, container: dynamic, sku: String, options: dynamic): Promise<Boolean> {
     val api = pc.unsafeCast<PayCraftWebApi>()
     val o = options?.unsafeCast<CheckoutPageOptions>()
+    val returned = checkoutReturn(currentPage())
+    if (returned != null) currentPage()?.let { replaceUrl(withoutReturn(it)) }
     prepareCheckout(container)
-    return checkoutView(api, sku, o).then { view -> renderCheckout(api, container, sku, view, o?.exitSurvey != false) }
+    fun show(tries: Int): Promise<Boolean> = checkoutView(api, sku, o, returned).then { view ->
+        val pending = (view as? CheckoutView.Notice)?.notice?.pending == true
+        val shown = renderCheckout(api, container, sku, view, o?.exitSurvey != false)
+        // Paid but not confirmed yet: look again every 4 s for about a minute; the notice already says so.
+        if (pending && tries > 0) {
+            Promise<Boolean> { ok, _ -> setTimeoutJs({ show(tries - 1).then { ok(it) } }, 4_000) }
+        } else {
+            Promise.resolve(shown)
+        }
+    }.unsafeCast<Promise<Boolean>>()
+    return show(15)
 }
+
+/** `paycraft_checkout` on [href]: "success" | "cancel", or null for a normal visit (anything else is ignored). */
+internal fun checkoutReturn(href: String?): String? = if (href == null) null else returnParam(href)
+
+/** [href] without `paycraft_checkout`, so a reload shows checkout instead of the return message again. */
+internal fun withoutReturn(href: String): String = dropReturnParam(href)
+
+// The browser's URL API, not Kotlin's string splitting: split/substring pulled ~3 KB of stdlib into this 20 KB
+// dist. Each parses into a variable first — Kotlin's js() re-printer mangles `new URL(h).searchParams` chains.
+private val returnParam: (String) -> String? = js(
+    "(function (h) { try { var u = new URL(h); var v = u.searchParams.get('paycraft_checkout'); " +
+        "return v === 'success' || v === 'cancel' ? v : null; } catch (e) { return null; } })",
+)
+private val dropReturnParam: (String) -> String = js(
+    "(function (h) { try { var u = new URL(h); u.searchParams.delete('paycraft_checkout'); return u.toString(); } catch (e) { return h; } })",
+)
+
+private val replaceUrl: (String) -> Unit =
+    js("(function (u) { if (typeof history !== 'undefined') history.replaceState(history.state, '', u); })")
+private val setTimeoutJs: (() -> Unit, Int) -> Unit = js("(function (f, ms) { setTimeout(f, ms); })")
 
 /** What [mountCheckout] shows: the payment page, or a notice instead of it. */
 internal sealed class CheckoutView {
@@ -40,23 +77,72 @@ internal fun checkoutErrorMessage(code: String?): String = when (code) {
  * Decides the page for [sku] — signed in, plan known, at least one provider that can charge its price — and builds
  * its model. Only the reads are asynchronous; the decisions live in [checkoutViewFor].
  */
-internal fun checkoutView(pc: PayCraftWebApi, sku: String, o: CheckoutPageOptions?): Promise<CheckoutView> {
+internal fun checkoutView(
+    pc: PayCraftWebApi,
+    sku: String,
+    o: CheckoutPageOptions?,
+    returned: String? = null,
+): Promise<CheckoutView> {
     if (pc.email() == null) return Promise.resolve(checkoutViewFor(pc, sku, o, null, 0))
+    val cancelled = returned == "cancel"
     return pc.config().then({ it.unsafeCast<WebConfigView?>() }, { null }).then { cfg ->
-        // The seat count: known from this session's sign-in, else read from the account's device list.
-        if (cfg == null || pc.maxDevices() > 1) {
-            Promise.resolve(checkoutViewFor(pc, sku, o, cfg, pc.maxDevices()))
+        val product = cfg?.products?.firstOrNull { it.sku == sku }
+        if (returned == "success" && product != null) {
+            paidView(pc, product, o)
+        } else if (cfg == null || pc.maxDevices() > 1) {
+            // The seat count: known from this session's sign-in, else read from the account's device list.
+            Promise.resolve(checkoutViewFor(pc, sku, o, cfg, pc.maxDevices(), cancelled))
         } else {
             pc.devices().then(
-                { d -> checkoutViewFor(pc, sku, o, cfg, d.firstOrNull()?.maxDevices ?: 1) },
-                { checkoutViewFor(pc, sku, o, cfg, 1) },
+                { d -> checkoutViewFor(pc, sku, o, cfg, d.firstOrNull()?.maxDevices ?: 1, cancelled) },
+                { checkoutViewFor(pc, sku, o, cfg, 1, cancelled) },
             )
         }
     }.unsafeCast<Promise<CheckoutView>>()
 }
 
-private fun notice(title: String, body: String, label: String?, href: String?, back: String?) =
-    CheckoutView.Notice(CheckoutNotice(title, body, label?.takeIf { href != null }, href, back))
+private fun notice(
+    title: String,
+    body: String,
+    label: String?,
+    href: String?,
+    back: String?,
+    pending: Boolean = false,
+) = CheckoutView.Notice(CheckoutNotice(title, body, label?.takeIf { href != null }, href, back, pending))
+
+/**
+ * Back from the provider, paid. A pack is final at once (its link was paid); a subscription is confirmed by the
+ * provider's webhook a few seconds later, so the entitlement is re-read and, until it shows, the page says the
+ * payment arrived and is being confirmed — never "Go Pro" to someone who just paid.
+ */
+private fun paidView(pc: PayCraftWebApi, product: WebProductView, o: CheckoutPageOptions?): Promise<CheckoutView> {
+    val next = o?.successUrl ?: o?.backUrl
+    if (product.interval == null) {
+        return Promise.resolve(
+            notice("Payment received", "${product.name} has been added to your account.", "Continue", next, null),
+        )
+    }
+    return pc.premium().then({ it.isPremium }, { false }).then { active ->
+        if (active) {
+            notice(
+                "You're all set",
+                "Your payment went through and ${product.name} is active on ${pc.email()} — on the web and in the app.",
+                "Continue",
+                next,
+                null,
+            )
+        } else {
+            notice(
+                "Payment received",
+                "We're confirming it with the payment provider — this usually takes under a minute. This page updates by itself.",
+                "Continue",
+                next,
+                null,
+                pending = true,
+            )
+        }
+    }.unsafeCast<Promise<CheckoutView>>()
+}
 
 internal fun checkoutViewFor(
     pc: PayCraftWebApi,
@@ -64,6 +150,7 @@ internal fun checkoutViewFor(
     o: CheckoutPageOptions?,
     cfg: WebConfigView?,
     seats: Int,
+    cancelled: Boolean = false,
 ): CheckoutView {
     val back = o?.backUrl
     val email = pc.email()
@@ -126,6 +213,7 @@ internal fun checkoutViewFor(
             refundUrl = o?.refundUrl,
             currency = product.currency,
             amountCents = product.amountCents,
+            cancelled = cancelled,
         ),
     )
 }

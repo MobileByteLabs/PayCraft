@@ -1,5 +1,5 @@
 import { auditApiAction } from "@/lib/api-key-auth"
-import { buildProductRow, toRpcRow } from "@/lib/product-write"
+import { buildProductRow, PRODUCT_LOOKUP_COLUMNS, toRpcRow } from "@/lib/product-write"
 import { NextResponse } from "next/server"
 import { withApiKey } from "@/lib/api-v1-helpers"
 import { queryFailed } from "@/lib/api-security"
@@ -89,12 +89,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     const { data: existing, error: lookupError } = await ctx.admin
       .from("tenant_products")
-      .select(
-        "id, sku, type, display_name, trial_enabled, trial_duration_days, trial_per_platform, " +
-          "attaches_to_product_id, interval, base_price_cents, base_currency, display_order, active, " +
-          "pricing_mode, global_price_cents, global_currency, discount_percent, discount_ends_at, " +
-          "play_product_id, app_store_product_id",
-      )
+      // Every column the merge carries forward (lib/product-write.ts). A column missing here is
+      // written back as NULL — which is how consumables lost grant_quantity on every PATCH.
+      .select(PRODUCT_LOOKUP_COLUMNS)
       .eq("tenant_id", ctx.tenantId)
       .eq("id", productId)
       .maybeSingle()

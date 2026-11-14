@@ -43,10 +43,18 @@ class InitializeTest {
     }
 
     @Test
-    fun initialize_rejects_unprefixed_api_key_against_cloud_backend() {
-        assertFailsWith<IllegalArgumentException> {
-            PayCraft.initialize(apiKey = "bare-key", backend = PayCraftBackend.Cloud)
-        }
+    fun unprefixed_api_key_boots_unconfigured_instead_of_throwing() {
+        // INVERTED 2026-11-14. This used to assertFailsWith — and through payCraft(...)'s eager Koin
+        // singleton that throw crashed reels-downloader v43 in Application.onCreate on every launch.
+        PayCraft.initialize(apiKey = "bare-key", backend = PayCraftBackend.Cloud)
+        assertFalse(PayCraft.isConfigured, "a non-publishable key must read as unconfigured")
+    }
+
+    @Test
+    fun blank_api_key_boots_unconfigured_instead_of_throwing() {
+        // The actual v43 value: a release build config whose live-key secret was never injected.
+        PayCraft.initialize(apiKey = "", backend = PayCraftBackend.Cloud)
+        assertFalse(PayCraft.isConfigured, "a blank key must read as unconfigured")
     }
 
     @Test

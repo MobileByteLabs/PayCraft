@@ -5,6 +5,7 @@ import { razorpayRest } from "@/lib/razorpay-rest"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
 import { savePspAccount } from "@/lib/psp-account-save"
+import { ensureRazorpayWebhook, type EnsureResult } from "@/lib/razorpay-webhook"
 
 /**
  * Razorpay manual API keys flow — mirrors the Stripe Manual keys route.
@@ -128,7 +129,7 @@ export async function POST(req: NextRequest) {
   // ONE call: the account-tier RPC merges over the existing credential document, so a blank field
   // means "unchanged" and the old create-vs-update branch is no longer needed. `liveProvided`
   // still decides whether the live slots carry real values or echo the test ones.
-  return savePspAccount(
+  const saved = await savePspAccount(
     supabase,
     tenant.id,
     "razorpay",
@@ -147,4 +148,26 @@ export async function POST(req: NextRequest) {
       confirmShared: body.confirm_shared_overwrite === true,
     },
   )
+  if (!saved.ok) return saved
+
+  // Register PayCraft's webhook on the account — Razorpay's twin of the Stripe connect callback's
+  // webhookEndpoints.create. Only for a mode whose keys AND webhook secret were typed now (the secret
+  // must match what PayCraft verifies with). Non-fatal: the keys are saved either way, and the result
+  // rides back so the page can show it.
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:54321"
+  const webhooks: Record<string, EnsureResult> = {}
+  const modes: Array<[mode: "test" | "live", keyId: string, secret: string, whsec: string]> = [
+    ["test", test_pk, test_sk, test_wh],
+    ...(liveProvided ? [["live", live_pk, live_sk, live_wh] as ["live", string, string, string]] : []),
+  ]
+  for (const [mode, keyId, secret, whsec] of modes) {
+    if (!keyId || !secret || !whsec) continue
+    webhooks[mode] = await ensureRazorpayWebhook(razorpayRest(keyId, secret), {
+      supabaseUrl,
+      secret: whsec,
+      tenantId: tenant.id,
+    })
+  }
+  const payload = await saved.json()
+  return NextResponse.json({ ...payload, webhooks }, { status: saved.status })
 }

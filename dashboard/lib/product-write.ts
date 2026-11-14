@@ -79,6 +79,15 @@ export const MERGEABLE_COLUMNS = [
   "daily_ad_reward_cap",
 ] as const
 
+/**
+ * The columns a PATCH must READ before it merges: every mergeable column, plus the row's identity and
+ * the store ids the merge preserves. Derived, never hand-listed — the route used to select a fixed
+ * 20-column string that predated grant_quantity/grant_sku/the ad-reward caps, so `buildProductRow`
+ * carried those forward as NULL and every PATCH on a consumable failed the consumable rule with a
+ * bare 500 (`query_failed`) — even a change that only touched `trial_enabled`.
+ */
+export const PRODUCT_LOOKUP_COLUMNS = ["id", "sku", ...MERGEABLE_COLUMNS, "play_product_id", "app_store_product_id"].join(", ")
+
 /** Columns the caller may never set directly. */
 export const REFUSED_INPUT = ["play_product_id", "app_store_product_id", "tenant_id", "id"] as const
 

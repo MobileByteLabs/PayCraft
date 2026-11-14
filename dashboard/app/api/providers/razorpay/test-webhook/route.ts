@@ -3,6 +3,7 @@ export const runtime = "edge"
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
+import { isPayCraftWebhook, razorpayWebhookUrl, webhookCoverage } from "@/lib/razorpay-webhook"
 
 /**
  * Probe the tenant's Razorpay account for registered webhooks and check
@@ -23,7 +24,7 @@ interface WebhookRow {
   id: string
   url: string
   alert_email?: string
-  events: string[]
+  events: Record<string, boolean> | string[]
   active?: boolean
 }
 
@@ -67,14 +68,17 @@ export async function POST() {
 
   const expectedUrlBase =
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:54321"
-  const expectedUrl = `${expectedUrlBase}/functions/v1/razorpay-webhook/${tenant.id}`
+  // One account-level URL (an org Razorpay account can serve several apps); a per-app URL registered
+  // before 2026-11-13 still counts — lib/razorpay-webhook.ts#isPayCraftWebhook.
+  const expectedUrl = razorpayWebhookUrl(expectedUrlBase)
 
   const results: Array<{
     mode: "test" | "live"
     url: string
     status: "ok" | "no_endpoint" | "key_missing" | "error"
     endpoint_id?: string
-    enabled_events?: string[]
+    enabled_events?: Record<string, boolean> | string[]
+    missing_events?: string[]
     message?: string
   }> = []
 
@@ -91,7 +95,7 @@ export async function POST() {
     }
     try {
       const hooks = await listWebhooks(creds.keyId, creds.secret)
-      const match = hooks.find((h) => h.url === expectedUrl && h.active !== false)
+      const match = hooks.find((h) => isPayCraftWebhook(h.url, expectedUrlBase, tenant.id) && h.active !== false)
       if (!match) {
         results.push({
           mode,
@@ -103,10 +107,11 @@ export async function POST() {
       } else {
         results.push({
           mode,
-          url: expectedUrl,
+          url: match.url,
           status: "ok",
           endpoint_id: match.id,
           enabled_events: match.events,
+          missing_events: webhookCoverage(match.events),
         })
       }
     } catch (e: any) {

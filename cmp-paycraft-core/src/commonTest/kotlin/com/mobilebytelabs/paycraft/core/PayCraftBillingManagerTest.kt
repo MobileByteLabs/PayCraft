@@ -62,6 +62,7 @@ class PayCraftBillingManagerTest {
         var transferCalled = false
         var revokeCalled = false
         var getSubscriptionCalled = false
+        var registerCalls = 0
 
         var verifyOAuthBehavior: (suspend (OAuthProvider, String) -> String?) = { _, _ -> null }
         var getSubscriptionBehavior: (suspend (String) -> SubscriptionDto?) = { null }
@@ -82,7 +83,7 @@ class PayCraftBillingManagerTest {
             deviceId: String,
             mode: String,
         ): RegisterDeviceResult = RegisterDeviceResult(
-            deviceToken = "tok",
+            deviceToken = "tok".also { registerCalls++ },
             conflict = false,
             conflictingDeviceName = null,
             conflictingLastSeen = null,
@@ -356,11 +357,18 @@ class PayCraftBillingManagerTest {
         advanceUntilIdle()
         val settled = manager.billingState.value
         assertFalse(settled is BillingState.Loading, "precondition: settled before the re-sign-in")
+        val registersBefore = service.registerCalls
 
         manager.onVerifiedSignIn("Buyer@Example.com")
-
-        assertIs<BillingState.Loading>(manager.billingState.value, "same account must start a re-check")
         advanceUntilIdle()
+
+        // The re-check now runs inside the call (it registers, which also consumes the verified sign-in claim —
+        // migration 193), so assert that the server was asked and the state settled, not a transient Loading.
+        assertEquals(
+            registersBefore + 1,
+            service.registerCalls,
+            "same account must re-check with the server, not do nothing",
+        )
         assertFalse(manager.billingState.value is BillingState.Loading, "and the re-check must resolve")
     }
 

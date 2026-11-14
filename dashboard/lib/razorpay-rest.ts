@@ -26,6 +26,11 @@ export interface RazorpayRestClient {
   subscriptionRegistration: {
     createRegistrationLink(payload: Record<string, unknown>): Promise<any>
   }
+  /** Webhooks on THIS account (lib/razorpay-webhook.ts registers PayCraft's). */
+  webhooks: {
+    all(): Promise<any>
+    create(payload: Record<string, unknown>): Promise<any>
+  }
 }
 
 export function razorpayRest(keyId: string, keySecret: string): RazorpayRestClient {
@@ -77,6 +82,10 @@ export function razorpayRest(keyId: string, keySecret: string): RazorpayRestClie
     subscriptionRegistration: {
       createRegistrationLink: (payload) =>
         call("POST", "/subscription_registration/auth_links", payload),
+    },
+    webhooks: {
+      all: () => call("GET", "/webhooks", undefined, { count: 100 }),
+      create: (payload) => call("POST", "/webhooks", payload),
     },
   }
 }

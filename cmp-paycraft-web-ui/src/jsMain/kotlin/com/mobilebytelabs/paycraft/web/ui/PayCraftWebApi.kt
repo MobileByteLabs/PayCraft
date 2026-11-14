@@ -23,6 +23,13 @@ external interface PayCraftWebApi {
     fun claimOffer(offerId: String): Boolean
     fun activeOffer(): WebOfferView?
     fun deviceCall(fn: String, sku: String, idempotencyKey: String?): Promise<String>
+
+    /** Re-reads this buyer's entitlement from PayCraft (checkout's return: has the payment landed yet?). */
+    fun premium(): Promise<WebPremiumView>
+}
+
+external interface WebPremiumView {
+    val isPremium: Boolean
 }
 
 external interface WebConfigView {

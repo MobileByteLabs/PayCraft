@@ -1,4 +1,4 @@
-example-provenance: d17c43b42c05b30b9029e3cbcbbfa314a8bd372b
+example-provenance: 6ff9324b389a66041d220bd9b2e4e92ec81563df
 
 # KEY_TIERING.md — publishable vs secret, and how each reaches its consumer
 
@@ -13,10 +13,14 @@ blocks working integrations.
 
 `PayCraft.initialize(apiKey = <live>, testApiKey = <test>)` — **the dashboard's test/live PAIR.**
 
-- The guard at the call site admits any **publishable** key: `apiKey.startsWith("pk_")`, else
-  `IllegalArgumentException("apiKey must be a PayCraft publishable key (pk_…)…")`. The sole exemption
-  is `PayCraftBackend.Mock`. An `sk_…` secret key is refused here — that is the half of the guard
-  that must never relax.
+- The guard at the call site refuses a **secret** key: `sk_…` throws
+  `IllegalArgumentException(… got a secret key (sk_…))` — the half that must never relax. Any other
+  non-`pk_` value (blank, garbage) boots UNCONFIGURED with a logged error instead of throwing, because
+  `payCraft(...)` initializes inside an eager Koin singleton and a throw there kills the host at
+  launch. The sole exemption from all of this is `PayCraftBackend.Mock`.
+- **Release-key provisioning is the consumer's to guard.** Debug runs on `testApiKey`, so a live key
+  the release build never received is invisible in development (the SDK logs it, nothing more). Fail
+  `assemble/bundle*Release` when the live key is blank or not `pk_…`.
 - **Which key is used, and the reported mode, come from ONE signal: `PlatformInfo.buildKind`.**
   It is read from the ARTIFACT, not declared by anyone:
   | platform | evidence |
