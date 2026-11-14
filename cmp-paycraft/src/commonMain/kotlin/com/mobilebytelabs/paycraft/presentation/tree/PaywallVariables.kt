@@ -63,24 +63,43 @@ internal fun hasVariable(text: String): Boolean = PATTERN.containsMatchIn(text)
 internal fun substituteVariables(text: String, price: PackagePrice?): String = if (!hasVariable(text)) {
     text
 } else {
-    PATTERN.replace(text) { m ->
-        when (m.groupValues[1]) {
-            "product.price" -> price?.display.orEmpty()
-            "product.price_per_period" -> price?.perPeriodNote.orEmpty()
-            "product.offer_savings" -> price?.savingsPercent?.let { "$it%" }.orEmpty()
-            // The WHOLE label, including the word, because a literal wrapped around an empty
-            // variable survives the variable: "SAVE {{ product.offer_savings }}" on a plan with no
-            // saving renders the chip "SAVE" — a badge that promises a discount and names none.
-            "product.offer_savings_label" -> price?.savingsPercent?.let { "SAVE $it%" }.orEmpty()
-            "product.trial_days" -> price?.trialDays?.takeIf { it > 0 }?.toString().orEmpty()
-            // The WHOLE phrase, for the same reason offer_savings_label is: a literal wrapped
-            // around an empty variable survives it, so "{{ product.trial_days }}-day free trial"
-            // on a plan with no trial renders "-day free trial" at a paying customer.
-            "product.trial_label" -> price?.trialDays?.takeIf { it > 0 }
-                ?.let { "$it-day free trial" }.orEmpty()
-            else -> ""
+    var emptied = false
+    val out = PATTERN.replace(text) { m ->
+        resolveVariable(m.groupValues[1], price).also {
+            if (it.isEmpty()) {
+                emptied =
+                    true
+            }
         }
     }
+    // A separator survives its empty neighbour the same way a literal does: "Billed monthly ·
+    // {{ product.trial_label }}" on a plan the store gives no trial rendered "Billed monthly ·".
+    if (emptied) out.withoutOrphanSeparators() else out
+}
+
+private val SEPARATOR = Regex("""\s*([·•|])\s*""")
+
+/** Drop separators left at either end or doubled up; the remaining parts rejoin with the copy's own glyph. */
+private fun String.withoutOrphanSeparators(): String {
+    val glyph = SEPARATOR.find(this)?.groupValues?.get(1) ?: return this
+    return split(SEPARATOR).filter { it.isNotBlank() }.joinToString(" $glyph ")
+}
+
+private fun resolveVariable(name: String, price: PackagePrice?): String = when (name) {
+    "product.price" -> price?.display.orEmpty()
+    "product.price_per_period" -> price?.perPeriodNote.orEmpty()
+    "product.offer_savings" -> price?.savingsPercent?.let { "$it%" }.orEmpty()
+    // The WHOLE label, including the word, because a literal wrapped around an empty
+    // variable survives the variable: "SAVE {{ product.offer_savings }}" on a plan with no
+    // saving renders the chip "SAVE" — a badge that promises a discount and names none.
+    "product.offer_savings_label" -> price?.savingsPercent?.let { "SAVE $it%" }.orEmpty()
+    "product.trial_days" -> price?.trialDays?.takeIf { it > 0 }?.toString().orEmpty()
+    // The WHOLE phrase, for the same reason offer_savings_label is: a literal wrapped
+    // around an empty variable survives it, so "{{ product.trial_days }}-day free trial"
+    // on a plan with no trial renders "-day free trial" at a paying customer.
+    "product.trial_label" -> price?.trialDays?.takeIf { it > 0 }
+        ?.let { "$it-day free trial" }.orEmpty()
+    else -> ""
 }
 
 /**
