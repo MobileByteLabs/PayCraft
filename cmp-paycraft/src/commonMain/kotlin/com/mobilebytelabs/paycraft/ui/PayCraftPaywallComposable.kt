@@ -54,6 +54,7 @@ import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Product
 import com.mobilebytelabs.paycraft.model.ProductMapper
+import com.mobilebytelabs.paycraft.model.advertisedTrialDays
 import com.mobilebytelabs.paycraft.model.laneAwareDisplayPrice
 import com.mobilebytelabs.paycraft.model.sessionDisplayPriceFormatted
 import com.mobilebytelabs.paycraft.presentation.PaywallStateHost
@@ -623,7 +624,13 @@ private fun PayCraftPaywallSurface(
                                         // catalogue, never authored. The published cappy paywall
                                         // spelled "7-day free trial" in its copy while the
                                         // catalogue said 14 — and the copy is what the buyer read.
-                                        trialDays = dto.trialDurationDays?.takeIf { dto.trialEnabled },
+                                        // ...and the STORE outranks the catalogue on a native lane: Play only
+                                        // offers this shopper a trial if they never subscribed, so the
+                                        // catalogue's 14 days would promise what the store sheet won't give.
+                                        trialDays = product.advertisedTrialDays(
+                                            config,
+                                            dto.trialDurationDays?.takeIf { dto.trialEnabled },
+                                        ),
                                         periodLabel = when (product) {
                                             is Product.Subscription ->
                                                 product.monthlyEquivalent()?.let { "${it.format()} $perMonthSuffix" }

@@ -59,7 +59,30 @@ data class NativePurchase(
  * @param currencyCode  ISO 4217 currency of the store price (e.g. "INR", "USD").
  * @param amountMicros  Price in micro-units of the currency (1_000_000 micros = 1 unit).
  */
-data class NativeDisplayPrice(val formatted: String, val currencyCode: String, val amountMicros: Long)
+data class NativeDisplayPrice(
+    val formatted: String,
+    val currencyCode: String,
+    val amountMicros: Long,
+    /**
+     * The free trial THIS shopper gets from the store, in days: the trial of the offer the purchase will
+     * actually use (Play returns only offers the account is eligible for). `0` = the store reported no
+     * eligible trial (e.g. the account already subscribed once); `null` = the store did not report one
+     * (one-time products, platforms that don't resolve offers) → the catalogue trial is used.
+     */
+    val freeTrialDays: Int? = null,
+)
+
+/**
+ * The trial a plan should ADVERTISE. The store's per-shopper answer wins whenever it gave one, because
+ * that is what the store sheet will charge: the catalogue said "14-day free trial" while Play — which
+ * only offers a trial to accounts that never subscribed — charged a returning user on day one
+ * (reels-downloader 2026-11-14). Falls back to [catalogTrialDays] only when the store said nothing.
+ */
+fun resolveAdvertisedTrialDays(catalogTrialDays: Int?, native: NativeDisplayPrice?): Int? =
+    when (val storeTrial = native?.freeTrialDays) {
+        null -> catalogTrialDays?.takeIf { it > 0 }
+        else -> storeTrial.takeIf { it > 0 }
+    }
 
 /** Outcome of a native purchase attempt. */
 sealed interface NativePurchaseResult {

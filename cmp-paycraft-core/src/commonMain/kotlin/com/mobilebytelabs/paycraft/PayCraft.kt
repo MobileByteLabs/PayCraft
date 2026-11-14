@@ -6,6 +6,7 @@ import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
 import com.mobilebytelabs.paycraft.billing.CheckoutLane
 import com.mobilebytelabs.paycraft.billing.NativeBillingClient
 import com.mobilebytelabs.paycraft.billing.NativeDisplayPrice
+import com.mobilebytelabs.paycraft.billing.resolveAdvertisedTrialDays
 import com.mobilebytelabs.paycraft.billing.resolveCheckoutLane
 import com.mobilebytelabs.paycraft.billing.storeAppAccountToken
 import com.mobilebytelabs.paycraft.config.ConfigCache
@@ -1731,17 +1732,19 @@ private fun List<ProductDto>.toBillingPlans(
         .sortedBy { it.displayOrder }
     val trials = filter { it.type == "trial" }
     return sellable.mapIndexed { idx, dto ->
-        val attachedTrial = trials.firstOrNull { it.attachesToProductId == dto.id }
-        val trialDays = when {
-            attachedTrial != null -> attachedTrial.trialDurationDays
-            dto.trialEnabled -> dto.trialDurationDays
-            else -> null
-        }
-
         // Prefer the NATIVE store price (Play/StoreKit) when one was resolved for this sku — it is
         // the store truth (already reflects the store storefront, e.g. ₹799 from the IN storefront)
         // and its own formatted string is authoritative, overriding the cloud /config price+currency.
         val nativePrice = nativePricesBySku[dto.sku]
+
+        val attachedTrial = trials.firstOrNull { it.attachesToProductId == dto.id }
+        val catalogTrialDays = when {
+            attachedTrial != null -> attachedTrial.trialDurationDays
+            dto.trialEnabled -> dto.trialDurationDays
+            else -> null
+        }
+        // The store's per-shopper trial outranks the catalogue's, exactly like the price above.
+        val trialDays = resolveAdvertisedTrialDays(catalogTrialDays, nativePrice)
 
         // Resolve the display amounts. resolvedPrice wins (per-locale); fall back to
         // baseCurrency for tenants without a tenant_pricing row.

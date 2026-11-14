@@ -2,6 +2,7 @@ package com.mobilebytelabs.paycraft.model
 
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.billing.NativeDisplayPrice
+import com.mobilebytelabs.paycraft.billing.resolveAdvertisedTrialDays
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 
 /** Money amount in minor units (cents/paise) + ISO 4217 currency code. */
@@ -120,6 +121,18 @@ fun Product.laneAwareDisplayPrice(config: SuiteConfig?): Money? {
         null
     }
     return displayPrice(config, native)
+}
+
+/**
+ * The free trial this product should ADVERTISE on a paywall — the trial twin of [laneAwareDisplayPrice].
+ * On a native-store lane the store's per-shopper answer wins (Play only offers a trial to accounts that
+ * never subscribed); elsewhere, or when the store said nothing, [catalogTrialDays] is used. Without
+ * this the paywall read the catalogue's "14-day free trial" while the store sheet charged on day one.
+ */
+fun Product.advertisedTrialDays(config: SuiteConfig?, catalogTrialDays: Int?): Int? {
+    val dto = config?.products?.firstOrNull { it.id == this.id }
+    val native = if (dto?.storeBinding?.provider in NATIVE_STORE_PROVIDERS) PayCraft.nativePriceForSku(sku) else null
+    return resolveAdvertisedTrialDays(catalogTrialDays, native)
 }
 
 /** Lanes whose store owns the price the buyer is charged. */
