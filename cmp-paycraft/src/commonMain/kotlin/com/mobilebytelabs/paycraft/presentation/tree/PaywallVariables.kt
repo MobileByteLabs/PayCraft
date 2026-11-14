@@ -64,7 +64,14 @@ internal fun substituteVariables(text: String, price: PackagePrice?): String = i
     text
 } else {
     var emptied = false
-    val out = PATTERN.replace(text) { m -> resolveVariable(m.groupValues[1], price).also { if (it.isEmpty()) emptied = true } }
+    val out = PATTERN.replace(text) { m ->
+        resolveVariable(m.groupValues[1], price).also {
+            if (it.isEmpty()) {
+                emptied =
+                    true
+            }
+        }
+    }
     // A separator survives its empty neighbour the same way a literal does: "Billed monthly ·
     // {{ product.trial_label }}" on a plan the store gives no trial rendered "Billed monthly ·".
     if (emptied) out.withoutOrphanSeparators() else out

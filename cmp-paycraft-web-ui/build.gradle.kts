@@ -114,7 +114,8 @@ tasks.named("check") { dependsOn(webUiApiCheck) }
 // here works at runtime but breaks every TypeScript site's typecheck (2026-11-14: successUrl). Keep them identical.
 val webUiOptionsDtsCheck by tasks.registering(Exec::class) {
     group = "verification"
-    description = "Fails when the hand-written CheckoutPageOptions in paycraft-web-ui.d.mts drifts from CheckoutPage.kt."
+    description =
+        "Fails when the hand-written CheckoutPageOptions in paycraft-web-ui.d.mts drifts from CheckoutPage.kt."
     dependsOn("jsBrowserProductionLibraryDistribution")
     workingDir = rootDir
     commandLine("bash", "infra/web-ui-options-dts-check.sh")
