@@ -52,6 +52,8 @@ val uiOptionsDts =
     |    readonly refundUrl?: Nullable<string>;
     |    /** Ask the tenant's exit survey when the buyer leaves without paying (default true). */
     |    readonly exitSurvey?: Nullable<boolean>;
+    |    /** Where "Continue" goes after a successful payment (the studio, the app's home…); defaults to backUrl. */
+    |    readonly successUrl?: Nullable<string>;
     |}
     |
     """.trimMargin()
@@ -107,3 +109,15 @@ val webUiApiCheck by tasks.registering(Exec::class) {
 }
 
 tasks.named("check") { dependsOn(webUiApiCheck) }
+
+// The CheckoutPageOptions written above is a copy of the Kotlin `external interface` — an option added there and not
+// here works at runtime but breaks every TypeScript site's typecheck (2026-11-14: successUrl). Keep them identical.
+val webUiOptionsDtsCheck by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Fails when the hand-written CheckoutPageOptions in paycraft-web-ui.d.mts drifts from CheckoutPage.kt."
+    dependsOn("jsBrowserProductionLibraryDistribution")
+    workingDir = rootDir
+    commandLine("bash", "infra/web-ui-options-dts-check.sh")
+}
+
+tasks.named("check") { dependsOn(webUiOptionsDtsCheck) }
