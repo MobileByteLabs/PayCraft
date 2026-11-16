@@ -167,6 +167,11 @@ export async function requireApiKey(
    * pass it here; this function decides whether the key may reach it.
    */
   requestedTenantId?: string | null,
+  /**
+   * `tenantOptional`: an account key may name no tenant; `tenantId` is then "" (no app selected).
+   * ONLY for routes that act on the key's reach as a whole — GET /v1/apps, the discovery step.
+   */
+  opts: { tenantOptional?: boolean } = {},
 ): Promise<ApiKeyContext | ApiKeyFailure> {
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     // Detailed in the LOG, generic in the RESPONSE. Naming the variable matters for whoever is
@@ -247,7 +252,9 @@ export async function requireApiKey(
       return fail(403, "tenant_not_reachable", "this key is scoped to a single app")
     }
   } else {
-    if (!requestedTenantId) {
+    if (!requestedTenantId && opts.tenantOptional) {
+      tenantId = ""
+    } else if (!requestedTenantId) {
       // NEVER pick one. Same defect class as rotate_api_key taking an arbitrary row.
       //
       // But DO name them. A bare count is a dead end: the caller is told to choose and given
@@ -260,13 +267,13 @@ export async function requireApiKey(
         "tenant_required",
         `this key reaches ${reachable.length} app(s); name the one you mean via tenant_id: ${reachable.join(", ")}`,
       )
-    }
-    if (!reachable.includes(requestedTenantId)) {
+    } else if (!reachable.includes(requestedTenantId)) {
       // Indistinguishable from "app does not exist" on purpose: telling a caller that an app
       // exists but is out of reach enumerates the account's apps.
       return fail(403, "tenant_not_reachable")
+    } else {
+      tenantId = requestedTenantId
     }
-    tenantId = requestedTenantId
   }
 
   const scopes: string[] = row.scopes ?? []

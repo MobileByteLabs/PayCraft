@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic"
  * The missing first step of automated onboarding: an account key previously had to be TOLD a
  * tenant id before it could do anything, and the only way to learn one was to trigger the
  * `tenant_required` error and read the list out of its message. Which worked, but meant the
- * discovery path was an error string.
+ * discovery path was an error string. It still demanded a tenant_id itself (the shared guard) until
+ * `tenantOptional` — listing the apps a key reaches is the one call that needs none.
  */
 export async function GET(req: Request) {
   return withApiKey(req, "apps:read", async (ctx) => {
@@ -25,7 +26,7 @@ export async function GET(req: Request) {
       data: (data ?? []).map((t) => ({ ...t, is_current: t.id === ctx.tenantId })),
       account_scoped: ctx.accountScoped,
     })
-  })
+  }, { tenantOptional: true })
 }
 
 /**

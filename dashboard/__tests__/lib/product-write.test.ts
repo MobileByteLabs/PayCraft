@@ -122,6 +122,19 @@ describe("buildProductRow — trial_per_platform, the F1 field", () => {
   })
 })
 
+describe("buildProductRow — trial_duration_days 0 means no trial", () => {
+  // The column's CHECK (migration 050) is NULL or 1..365, so a 0 the validator accepted reached the database and
+  // came back as a bare 500 (ReelExport plus-monthly / max5-monthly, 2026-11-16). 0 is "no trial": store NULL.
+  it("stores 0 as null", () => {
+    expect(row({ trial_duration_days: 0, trial_enabled: false }).trial_duration_days).toBeNull()
+  })
+  it("keeps 1..365 and rejects anything else with a 400-class error", () => {
+    expect(row({ trial_duration_days: 7 }).trial_duration_days).toBe(7)
+    expect(buildProductRow(TENANT, "s", existing, { trial_duration_days: 366 })).toHaveProperty("error", "trial_duration_days_must_be_integer_0_to_365")
+    expect(buildProductRow(TENANT, "s", existing, { trial_duration_days: -1 })).toHaveProperty("error", "trial_duration_days_must_be_integer_0_to_365")
+  })
+})
+
 describe("buildProductRow — validation", () => {
   it("rejects an interval outside the check constraint", () => {
     expect(buildProductRow(TENANT, "s", existing, { interval: "fortnight" })).toHaveProperty(
