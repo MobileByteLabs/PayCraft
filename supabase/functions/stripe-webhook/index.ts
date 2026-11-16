@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { withWebhookRateLimit } from "../_shared/webhook-rate-limit.ts";
 import { tenantIdFromPath } from "../_shared/webhook-path.ts";
 import { recordAttempt } from "../_shared/checkout-attempts.ts";
-import { attemptFromSession, invoiceSubscriptionId, stripeEventTenant, subscriptionPeriod } from "../_shared/stripe-shape.ts";
+import { attemptFromSession, invoiceSubscriptionId, skuForStripePrice, stripeEventTenant, subscriptionPeriod, type StripePricedProduct } from "../_shared/stripe-shape.ts";
 import Stripe from "https://esm.sh/stripe@14.0.0?target=deno";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
@@ -213,6 +213,14 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
           // Stripe `status === "trialing"` when the subscription is in its trial window.
           // `trial_start` / `trial_end` are unix seconds on the Subscription object.
           const status = sub.status === "trialing" ? "trialing" : "active";
+          // No plan_id metadata (e.g. a Payment Link made in the Stripe dashboard): name the plan by the
+          // catalogue SKU that owns the price, never the raw price id — grants and plan changes key on SKU.
+          const priceId = sub.items.data[0]?.price?.id ?? null;
+          let catalogueSku: string | null = null;
+          if (!session.metadata?.plan_id && !sub.items.data[0]?.price?.metadata?.plan_id && supabase && tenantId) {
+            const { data: products } = await supabase.from("tenant_products").select("sku, stripe_price_id_by_currency, stripe_price_id_by_currency_test").eq("tenant_id", tenantId);
+            catalogueSku = skuForStripePrice((products ?? []) as StripePricedProduct[], priceId);
+          }
           await handleSubscriptionEvent({
             email,
             provider: "stripe",
@@ -221,7 +229,8 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
             plan:
               session.metadata?.plan_id ||
               sub.items.data[0]?.price?.metadata?.plan_id ||
-              sub.items.data[0]?.price?.id ||
+              catalogueSku ||
+              priceId ||
               "unknown",
             status,
             mode: stripeMode,

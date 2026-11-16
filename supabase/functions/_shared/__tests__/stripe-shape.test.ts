@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { invoiceSubscriptionId, subscriptionPeriod } from "../stripe-shape.ts";
+import { invoiceSubscriptionId, skuForStripePrice, subscriptionPeriod, type StripePricedProduct } from "../stripe-shape.ts";
 
 Deno.test("pre-basil subscription: period on the subscription", () => {
   const p = subscriptionPeriod({ current_period_start: 100, current_period_end: 200, items: { data: [{}] } });
@@ -85,4 +85,18 @@ Deno.test("an attempt with no email (left before typing it) is not recorded", ()
 
 Deno.test("no app → not recorded (never a NULL-tenant row)", () => {
   assertEquals(attemptFromSession({ id: "cs_3", customer_email: "a@b.test" }, "abandoned", null), null);
+});
+
+// 2026-11-17: a Reels Downloader subscription was stored with plan = "price_1TQMR2…" because neither the
+// session nor the price carried metadata.plan_id. The catalogue knows which SKU owns that price.
+Deno.test("plan from the catalogue when Stripe metadata has no plan_id", () => {
+  const products: StripePricedProduct[] = [
+    { sku: "monthly", stripe_price_id_by_currency: { usd: "price_m_usd", inr: "price_m_inr" }, stripe_price_id_by_currency_test: { usd: "price_m_test" } },
+    { sku: "yearly", stripe_price_id_by_currency: { usd: "price_y_usd" }, stripe_price_id_by_currency_test: {} },
+  ];
+  assertEquals(skuForStripePrice(products, "price_m_inr"), "monthly");
+  assertEquals(skuForStripePrice(products, "price_y_usd"), "yearly");
+  assertEquals(skuForStripePrice(products, "price_m_test"), "monthly");
+  assertEquals(skuForStripePrice(products, "price_unknown"), null);
+  assertEquals(skuForStripePrice(products, null), null);
 });

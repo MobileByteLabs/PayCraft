@@ -84,3 +84,24 @@ export function attemptFromSession(session: Any, outcome: AttemptRow["outcome"],
     plan: session?.metadata?.plan_id ?? session?.metadata?.paycraft_plan, outcome, sessionId: session?.id,
   });
 }
+
+/** A catalogue row's Stripe prices, live and test, keyed by currency (tenant_products). */
+export interface StripePricedProduct {
+  sku: string;
+  stripe_price_id_by_currency?: Record<string, string> | null;
+  stripe_price_id_by_currency_test?: Record<string, string> | null;
+}
+
+/**
+ * The tenant's SKU that owns a Stripe price, or null. Used when neither the checkout session nor the price
+ * carries metadata.plan_id (e.g. a Payment Link made in the Stripe dashboard) — storing the raw price id as
+ * `plan` broke plan grants and plan changes, which both look subscriptions up by SKU (2026-11-17).
+ */
+export function skuForStripePrice(products: StripePricedProduct[], priceId: string | null | undefined): string | null {
+  if (!priceId) return null;
+  for (const p of products) {
+    const ids = [...Object.values(p.stripe_price_id_by_currency ?? {}), ...Object.values(p.stripe_price_id_by_currency_test ?? {})];
+    if (ids.includes(priceId)) return p.sku;
+  }
+  return null;
+}
