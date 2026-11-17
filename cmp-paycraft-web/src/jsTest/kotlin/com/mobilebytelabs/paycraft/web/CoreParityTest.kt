@@ -91,7 +91,8 @@ class CoreParityTest {
     fun checkoutFollowsTheContractRouting() = runTest {
         // Stripe: link with the prefilled, encoded email
         val stripe = FakeTransport().on("/functions/v1/config") { PayCraftWebTest.STRIPE_CONFIG_JSON }
-        val stripeUrl = signedIn(stripe).resolveCheckoutUrl("pro-monthly", null)
+        // No page to return to → the contract's payment link (a browser page gets a Checkout Session instead).
+        val stripeUrl = signedIn(stripe).also { it.currentPage = { null } }.resolveCheckoutUrl("pro-monthly", null)
         val expected = PayCraftContract.routeWebCheckout(
             PayCraftContract.decodeConfigForWeb(PayCraftWebTest.STRIPE_CONFIG_JSON),
             "pro-monthly",
