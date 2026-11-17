@@ -510,6 +510,9 @@ verify_jwt = false
 [functions.subscription-change]
 # Authenticated by the publishable api key + the caller's device token (subscription_change_caller), like checkout-initiate.
 verify_jwt = false
+[functions.subscription-cancel]
+# Same auth as subscription-change: publishable api key + the caller's device token.
+verify_jwt = false
 [functions.events]
 verify_jwt = false
 [functions.winback]
