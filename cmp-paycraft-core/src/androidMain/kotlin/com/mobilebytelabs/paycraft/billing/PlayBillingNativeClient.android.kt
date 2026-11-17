@@ -118,12 +118,15 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
     ): NativePurchaseResult {
         val connect = ensureConnected()
         if (connect.responseCode != BillingResponseCode.OK) {
-            return NativePurchaseResult.Failed("Play billing connect failed: ${connect.debugMessage}")
+            return NativePurchaseResult.Failed(
+                "Play billing connect failed: ${connect.debugMessage}",
+                "connect_${connect.responseCode}",
+            )
         }
         val productDetails = queryProductDetails(productId, productType)
-            ?: return NativePurchaseResult.Failed("Product not found on Play: $productId")
+            ?: return NativePurchaseResult.Failed("Product not found on Play: $productId", "product_not_found")
         val activity = activityProvider()
-            ?: return NativePurchaseResult.Failed("No foreground Activity to launch the billing flow")
+            ?: return NativePurchaseResult.Failed("No foreground Activity to launch the billing flow", "no_activity")
 
         val detailsParams = BillingFlowParams.ProductDetailsParams.newBuilder()
             .setProductDetails(productDetails)
@@ -164,7 +167,7 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
             // belongs to one product, so for any other product Play does not return it and chooseOffer falls back.
             val winbackOfferId = com.mobilebytelabs.paycraft.PayCraft.activeWinbackOffer?.googlePlayOfferId
             val best = chooseOffer(offers, winbackOfferId)
-                ?: return NativePurchaseResult.Failed("No subscription offer for $productId")
+                ?: return NativePurchaseResult.Failed("No subscription offer for $productId", "no_offer")
             detailsParams.setOfferToken(best.offerToken)
             logD("PlayBillingNativeClient") {
                 "offer selected for $productId: id=${best.offerId} trialDays=${best.freeTrialDays}"
@@ -182,7 +185,10 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
 
         val launch = billingClient.launchBillingFlow(activity, flowParams)
         if (launch.responseCode != BillingResponseCode.OK) {
-            return NativePurchaseResult.Failed("launchBillingFlow failed: ${launch.debugMessage}")
+            return NativePurchaseResult.Failed(
+                "launchBillingFlow failed: ${launch.debugMessage}",
+                "launch_${launch.responseCode}",
+            )
         }
 
         // Correlate on the launched product and bound the wait: an uncorrelated `first()` could be
@@ -199,13 +205,14 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
             null
         } ?: return NativePurchaseResult.Failed(
             "Play did not report a result for $productId in time — check your purchases and retry",
+            "timeout",
         )
 
         return when (update.billingResult.responseCode) {
             BillingResponseCode.OK -> {
                 val purchase = update.purchases.firstOrNull { productId in it.products }
                     ?: update.purchases.firstOrNull()
-                    ?: return NativePurchaseResult.Failed("Play reported OK with no Purchase")
+                    ?: return NativePurchaseResult.Failed("Play reported OK with no Purchase", "ok_no_purchase")
                 val native = purchase.toNativePurchase()
                 // NOTE: no acknowledge here. The purchase is acknowledged in [finishPurchase],
                 // AFTER the server records the entitlement — see the contract on that method.
@@ -216,7 +223,10 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
                 }
             }
             BillingResponseCode.USER_CANCELED -> NativePurchaseResult.Cancelled
-            else -> NativePurchaseResult.Failed("Purchase failed: ${update.billingResult.debugMessage}")
+            else -> NativePurchaseResult.Failed(
+                "Purchase failed: ${update.billingResult.debugMessage}",
+                "purchase_${update.billingResult.responseCode}",
+            )
         }
     }
 

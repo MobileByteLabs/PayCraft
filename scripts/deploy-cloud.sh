@@ -42,6 +42,8 @@
 #   bash scripts/deploy-cloud.sh              # migrations + functions + smoke
 #   bash scripts/deploy-cloud.sh --smoke-only # verify only, deploy nothing
 #   bash scripts/deploy-cloud.sh --dry-run    # show what would run
+#   bash scripts/deploy-cloud.sh --migrations-only  # schema only — no edge functions from this checkout
+#     (a session branch can ship a migration without also shipping its unmerged function changes)
 #
 # CREDENTIAL: $SUPABASE_ACCESS_TOKEN if already set (CI injects it from repo secrets), otherwise
 # resolved from the framework vault (local). One code path, two credential sources.
@@ -62,11 +64,15 @@ FW_ROOT="${FW_ROOT:-$(cd "$REPO_ROOT/../../../../.." 2>/dev/null && pwd)}"
 # fallback), where its absence is actually a problem and can say so precisely.
 
 MODE=deploy
+MIGRATIONS_ONLY=0
+ONLY_FN=""   # --function <name>: migrations + that one function (a session branch shipping one new function)
 case "${1:-}" in
-  --smoke-only) MODE=smoke ;;
-  --dry-run)    MODE=dry ;;
-  "")           MODE=deploy ;;
-  *) echo "usage: $0 [--smoke-only|--dry-run]" >&2; exit 2 ;;
+  --smoke-only)      MODE=smoke ;;
+  --dry-run)         MODE=dry ;;
+  --migrations-only) MODE=deploy; MIGRATIONS_ONLY=1 ;;
+  --function)        MODE=deploy; ONLY_FN="${2:-}"; [ -d "supabase/functions/$ONLY_FN" ] && [ -n "$ONLY_FN" ] || { echo "usage: $0 --function <name under supabase/functions/>" >&2; exit 2; } ;;
+  "")                MODE=deploy ;;
+  *) echo "usage: $0 [--smoke-only|--dry-run|--migrations-only|--function <name>]" >&2; exit 2 ;;
 esac
 
 # GitHub Actions renders `::error::` as an annotation on the run; locally it is just noise.
@@ -146,6 +152,7 @@ if [ "$MODE" = deploy ]; then
   # subsequent `functions deploy` in this same run failed — 25 spurious "failed to deploy" lines
   # from one unanswered question. The operator already consented by invoking a script whose header
   # says THIS DEPLOYS TO PRODUCTION; re-asking mid-run buys nothing and breaks the run.
+  supabase db push --dry-run 2>&1 | sed 's/^/   /'
   if supabase db push --yes; then echo "✓ migrations applied"; else echo "❌ db push failed"; exit 1; fi
 elif [ "$MODE" = dry ]; then
   echo "── 1/3  migrations (dry) ──"
@@ -153,12 +160,16 @@ elif [ "$MODE" = dry ]; then
 fi
 
 # ── 2. functions ─────────────────────────────────────────────────────────────
-if [ "$MODE" = deploy ] || [ "$MODE" = dry ]; then
+if [ "$MIGRATIONS_ONLY" = 1 ]; then
+  echo ""
+  echo "── 2/3  edge functions — skipped (--migrations-only) ──"
+elif [ "$MODE" = deploy ] || [ "$MODE" = dry ]; then
   echo ""
   echo "── 2/3  edge functions ──"
   deployed=0
   for d in supabase/functions/*/; do
     name="$(basename "$d")"
+    [ -n "$ONLY_FN" ] && [ "$name" != "$ONLY_FN" ] && continue
     [ -f "${d}index.ts" ] || { echo "   ↷ ${name}: no index.ts — not a function"; continue; }
     if [ "$MODE" = dry ]; then echo "   would deploy: $name"; deployed=$((deployed+1)); continue; fi
     # Capture rather than discard: a bare "failed to deploy" with the reason sent to /dev/null is
@@ -183,7 +194,7 @@ fi
 # name is a string), the smoke passes (a 500 IS reachable), and the deploy succeeds. But the
 # remaining findings are unconfigured OPTIONAL providers, so failing the deploy on them would make
 # every run red and train people to ignore it.
-if [ "$MODE" = deploy ] && [ -x scripts/verify-edge-env.sh ]; then
+if [ "$MODE" = deploy ] && [ "$MIGRATIONS_ONLY" = 0 ] && [ -x scripts/verify-edge-env.sh ]; then
   echo ""
   bash scripts/verify-edge-env.sh || true
 fi

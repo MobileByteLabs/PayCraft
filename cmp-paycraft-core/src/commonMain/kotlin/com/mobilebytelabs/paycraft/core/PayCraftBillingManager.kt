@@ -520,7 +520,7 @@ class PayCraftBillingManager(
 
                 is NativePurchaseResult.Failed -> {
                     PayCraftLogger.onError(tag, "$storeLabel purchase failed: ${result.message}")
-                    reportStoreAttempt(provider, productId, appUserId, "payment_failed")
+                    reportStoreAttempt(provider, productId, appUserId, "payment_failed", result.code)
                     _billingState.value = BillingState.Error(result.message)
                 }
             }
@@ -531,11 +531,17 @@ class PayCraftBillingManager(
      * The store sheet ended without a purchase. Fire-and-forget: the report only feeds the merchant's
      * customer list, so it must never delay, fail or alter the buyer's flow.
      */
-    private fun reportStoreAttempt(provider: String, productId: String, appUserId: String, outcome: String) {
+    private fun reportStoreAttempt(
+        provider: String,
+        productId: String,
+        appUserId: String,
+        outcome: String,
+        reason: String? = null,
+    ) {
         val attemptId = "${currentTimeMillis()}-${Random.nextLong().toULong().toString(16)}"
         scope.launch {
             try {
-                service.recordStoreAttempt(provider, productId, appUserId, outcome, attemptId)
+                service.recordStoreAttempt(provider, productId, appUserId, outcome, attemptId, reason)
             } catch (e: Exception) {
                 PayCraftLogger.onError("reportStoreAttempt", e.message)
             }
@@ -1145,6 +1151,13 @@ class PayCraftBillingManager(
                 applyPremiumResult(email, check.isPremium, mode)
                 return
             }
+            // The check never reached the server (offline, timeout): the token is NOT known to be bad. Keep it and
+            // the cached state; re-registering here minted a new device per offline launch and, past the device
+            // limit, a new pending row each time (one member: 44 rows from 2 phones, 2026-11-17).
+            if (check == null) {
+                PayCraftLogger.onFlow("performRegisterAndLogin", "→ Check failed (network), keeping the stored token")
+                return
+            }
             // Token was revoked — clear and re-register below
             PayCraftLogger.onFlow("performRegisterAndLogin", "→ Token invalid/revoked, clearing and re-registering")
             DeviceTokenStore.clearToken()
@@ -1172,7 +1185,7 @@ class PayCraftBillingManager(
 
         if (!reg.conflict) {
             PayCraftLogger.onFlow("performRegisterAndLogin", "→ No conflict, checking premium...")
-            checkPremiumWithDeviceToken(email)
+            checkPremiumWithDeviceToken(email, mayReRegister = false)
         } else {
             PayCraftLogger.onFlow("performRegisterAndLogin", "→ CONFLICT detected")
             // No OTP budget probe here any more: the emailed-code gate was removed 2026-09-06, so
@@ -1192,7 +1205,9 @@ class PayCraftBillingManager(
         }
     }
 
-    private suspend fun checkPremiumWithDeviceToken(email: String) {
+    // mayReRegister = false for a token registered a moment ago: if the server rejects even that, registering
+    // again loops forever, minting a device per pass (2026-11-17). Report the error instead.
+    private suspend fun checkPremiumWithDeviceToken(email: String, mayReRegister: Boolean = true) {
         val token = DeviceTokenStore.getToken()
         val mode = stripeMode
         PayCraftLogger.onFlow(
@@ -1214,6 +1229,11 @@ class PayCraftBillingManager(
             )
             // A token registered for ANOTHER account (user switched sign-in on this device) answers for
             // that account — re-register for the current one, same as an invalid token.
+            if ((!result.tokenValid || !result.isBoundTo(email)) && !mayReRegister) {
+                PayCraftLogger.onError("checkPremiumWithDeviceToken", "server rejected a just-registered token")
+                _billingState.value = BillingState.Error("Device registration was not accepted")
+                return
+            }
             if (!result.tokenValid || !result.isBoundTo(email)) {
                 PayCraftLogger.onFlow(
                     "checkPremiumWithDeviceToken",

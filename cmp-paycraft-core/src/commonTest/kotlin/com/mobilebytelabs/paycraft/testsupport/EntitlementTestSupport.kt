@@ -53,10 +53,15 @@ class FakePayCraftService(
         appUserId: String,
         outcome: String,
         attemptId: String,
+        reason: String?,
     ): Boolean {
         storeAttempts += listOf(provider, productId, appUserId, outcome)
+        storeAttemptReasons += reason
         return true
     }
+
+    /** The reason code sent with each store-sheet attempt (null for a cancel). */
+    val storeAttemptReasons = mutableListOf<String?>()
 
     /** What `check_premium_with_device` answers. Since 176 the server says true for a store subscriber too. */
     var serverPremium = false

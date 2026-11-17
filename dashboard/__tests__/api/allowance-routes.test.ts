@@ -38,7 +38,29 @@ describe("PUT /v1/allowance", () => {
     expect(calls).toEqual([{ fn: "allowance_configure", args: { p_tenant_id: "t-1", p_sku: "full-edit", p_free_per_month: 5, p_credit_skus: ["edits-10"] } }])
   })
 
+  it("sets a Pro monthly grant of units when pro_per_month is given (migration 195)", async () => {
+    const res = await PUT(req("PUT", { sku: "credits", free_per_month: 0, credit_skus: ["credits"], pro_per_month: 300 }))
+    expect(res.status).toBe(200)
+    expect(calls).toEqual([{ fn: "allowance_configure", args: { p_tenant_id: "t-1", p_sku: "credits", p_free_per_month: 0, p_credit_skus: ["credits"], p_pro_per_month: 300 } }])
+    expect(((await res.json()) as { pro_per_month: number }).pro_per_month).toBe(300)
+  })
+
+  it("sets per-plan monthly grants when plan_grants is given (migration 196)", async () => {
+    const grants = { "plus-monthly": 100, "max5-monthly": 1500, "max20-monthly": 6000 }
+    const res = await PUT(req("PUT", { sku: "credits", free_per_month: 0, credit_skus: ["credits"], pro_per_month: 300, plan_grants: grants }))
+    expect(res.status).toBe(200)
+    expect(calls).toEqual([
+      { fn: "allowance_configure", args: { p_tenant_id: "t-1", p_sku: "credits", p_free_per_month: 0, p_credit_skus: ["credits"], p_pro_per_month: 300 } },
+      { fn: "allowance_set_plan_grants", args: { p_tenant_id: "t-1", p_sku: "credits", p_plan_grants: grants } },
+    ])
+    expect(((await res.json()) as { plan_grants: unknown }).plan_grants).toEqual(grants)
+  })
+
   it.each([
+    [{ sku: "credits", free_per_month: 0, plan_grants: { "plus-monthly": -1 } }, "invalid_plan_grants"],
+    [{ sku: "credits", free_per_month: 0, plan_grants: { "Not A Sku": 10 } }, "invalid_plan_grants"],
+    [{ sku: "credits", free_per_month: 0, plan_grants: [100] }, "invalid_plan_grants"],
+    [{ sku: "credits", free_per_month: 0, pro_per_month: -5 }, "invalid_pro_per_month"],
     [{ sku: "Bad SKU", free_per_month: 5 }, "invalid_sku"],
     [{ sku: "full-edit", free_per_month: -1 }, "invalid_free_per_month"],
     [{ sku: "full-edit", free_per_month: 2.5 }, "invalid_free_per_month"],

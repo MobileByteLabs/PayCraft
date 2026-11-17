@@ -48,7 +48,7 @@ export function rawToDer(raw: Uint8Array): Uint8Array {
 }
 
 /** DER → r‖s (32 + 32 bytes for P-256) — for verifying with WebCrypto. */
-export function derToRaw(der: Uint8Array): Uint8Array {
+export function derToRaw(der: Uint8Array): Uint8Array<ArrayBuffer> {
   const read = (at: number) => {
     const len = der[at + 1]
     let v = der.slice(at + 2, at + 2 + len)

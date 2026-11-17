@@ -169,6 +169,7 @@ interface PayCraftService {
         appUserId: String,
         outcome: String,
         attemptId: String,
+        reason: String? = null,
     ): Boolean = false
     suspend fun transferToDevice(serverToken: String, newDeviceToken: String): Boolean
 
@@ -483,6 +484,7 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         appUserId: String,
         outcome: String,
         attemptId: String,
+        reason: String?,
     ): Boolean = try {
         postgrest.rpc(
             function = "record_store_attempt",
@@ -493,6 +495,8 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
                 put("p_product_id", productId)
                 put("p_outcome", outcome)
                 put("p_attempt_id", attemptId)
+                // Migration 201's overload; omitted when there is no reason so 188's 6-arg function still matches.
+                if (reason != null) put("p_reason", reason)
             },
         ).data.trim().toBooleanStrictOrNull() ?: false
     } catch (e: Exception) {

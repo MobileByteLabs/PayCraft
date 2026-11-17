@@ -71,4 +71,18 @@ class StoreAttemptReportTest {
         assertEquals("app_store", service.awaitAttempts(1)[0][0])
         assertEquals("payment_failed", service.storeAttempts[0][3])
     }
+
+    // 2026-11-17: 41 Reels Downloader Play failures reached the merchant with no cause. The store's reason code
+    // now travels with the attempt; a cancel carries none.
+    @Test
+    fun a_failed_play_payment_carries_the_store_reason_code() = runTest {
+        val service = FakePayCraftService()
+        val native = SpyNativeBillingClient().apply {
+            purchaseResult =
+                NativePurchaseResult.Failed("Product not found on Play: x", "product_not_found")
+        }
+        manager(service, native).purchaseViaPlayBilling(plan("google_play"), email = "buyer@x.test")
+        service.awaitAttempts(1)
+        assertEquals(listOf<String?>("product_not_found"), service.storeAttemptReasons)
+    }
 }

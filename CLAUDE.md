@@ -139,6 +139,23 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
 - Refunds (`allowance_refund`) are service-role only and reach consumers through
   `POST /v1/allowance/refund` with a `pcsk_` key holding `allowance:refund` — a client must never be
   able to claim "your server failed". Configure with `PUT /v1/allowance` (`products:write`).
+- **Units + a Pro grant (migration 195)** — for a credits wallet: `allowance_spend_units(token, key, sku, qty, idem)`
+  → `{source, quantity, period_units, credit_units}`. `pro_per_month` (NULL = Pro unmetered, the 189 default) gives
+  Pro N units a calendar month, spent first; the rest comes from ONE credit balance in the same call; short →
+  `refused` with nothing debited. Refund returns both parts. `allowance_status` adds `grant_per_month` /
+  `grant_used` / `grant_remaining`. `allowance_spend` (189) is the 1-unit case and still returns text. First
+  consumer: ReelExport `credits` (0 free, 300 Pro, packs grant `credits`).
+- **A grant per plan (migration 196)** — `plan_grants` JSONB `{ "<plan sku>": units }` on the allowance, set with
+  `allowance_set_plan_grants` / `PUT /v1/allowance { plan_grants }`. A Pro caller gets the largest grant among their
+  live subscriptions' `plan` values the map lists, else `pro_per_month` (store entitlements carry no plan → fallback).
+  NULL map = 195 behaviour. Test `supabase/tests/196_allowance_plan_grants_test.sql`.
+- **Subscriber plan change (migration 197 + `subscription-change`)**: `POST /functions/v1/subscription-change?apiKey=`
+  `{ token, plan }` moves the caller's live subscription to another plan of the same app — never a second checkout
+  (one subscriptions row per email per tenant, so a second checkout double-billed). Stripe: single item's price
+  swapped with `proration_behavior=always_invoice`, effective now. Razorpay: `schedule_change_at=cycle_end`
+  (mid-cycle proration undocumented); `subscriptions.pending_plan` / `plan_changes_at` carry the switch and
+  `subscription_effective_plan()` (read by the 196 grant) applies it when due. Stores → 501. Decisions in
+  `subscription-change/change.ts` (deno tests); SQL `supabase/tests/197_subscription_plan_change_test.sql`.
 
 ## Database Migrations — single source of truth
 

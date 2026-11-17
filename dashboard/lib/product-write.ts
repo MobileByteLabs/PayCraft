@@ -146,7 +146,9 @@ function validateField(key: string, raw: unknown): { value: unknown } | Validati
       if (!Number.isInteger(raw) || (raw as number) < 0 || (raw as number) > 365) {
         return { error: "trial_duration_days_must_be_integer_0_to_365" }
       }
-      return { value: raw }
+      // 0 = no trial. The column's CHECK (migration 050) is NULL or 1..365, so 0 is stored as NULL rather than
+      // reaching the database and surfacing as a bare 500.
+      return { value: raw === 0 ? null : raw }
     }
     case "trial_per_platform": {
       // null CLEARS the override so the scalar `trial_duration_days` governs every platform again.

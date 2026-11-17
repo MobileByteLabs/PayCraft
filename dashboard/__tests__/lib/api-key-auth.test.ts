@@ -338,6 +338,16 @@ describe("requireApiKey — account-scoped reach", () => {
     expect(body.detail).toContain(OTHER)
   })
 
+  it("lets ONE route (listing apps) run with no tenant named — every app in reach, none selected", async () => {
+    // paycraft_apps is documented as START HERE for account keys, yet it answered 400
+    // tenant_required: the caller had to pass the id it was trying to discover.
+    mockVerify(accountRow())
+    const r = await requireApiKey(req(auth), "readiness:read", undefined, { tenantOptional: true })
+    expect(isFailure(r)).toBe(false)
+    expect((r as ApiKeyContext).tenantId).toBe("")
+    expect((r as ApiKeyContext).reachableTenantIds).toEqual([TENANT, OTHER])
+  })
+
   it("403s when an account key names a tenant outside its reach", async () => {
     mockVerify(accountRow(["readiness:read"], [TENANT, OTHER]))
     const r = await requireApiKey(req(auth), "readiness:read", THIRD)
