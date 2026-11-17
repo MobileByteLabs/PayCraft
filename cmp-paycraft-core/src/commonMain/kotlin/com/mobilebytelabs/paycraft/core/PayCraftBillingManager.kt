@@ -531,7 +531,13 @@ class PayCraftBillingManager(
      * The store sheet ended without a purchase. Fire-and-forget: the report only feeds the merchant's
      * customer list, so it must never delay, fail or alter the buyer's flow.
      */
-    private fun reportStoreAttempt(provider: String, productId: String, appUserId: String, outcome: String, reason: String? = null) {
+    private fun reportStoreAttempt(
+        provider: String,
+        productId: String,
+        appUserId: String,
+        outcome: String,
+        reason: String? = null,
+    ) {
         val attemptId = "${currentTimeMillis()}-${Random.nextLong().toULong().toString(16)}"
         scope.launch {
             try {

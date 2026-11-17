@@ -118,7 +118,10 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
     ): NativePurchaseResult {
         val connect = ensureConnected()
         if (connect.responseCode != BillingResponseCode.OK) {
-            return NativePurchaseResult.Failed("Play billing connect failed: ${connect.debugMessage}", "connect_${connect.responseCode}")
+            return NativePurchaseResult.Failed(
+                "Play billing connect failed: ${connect.debugMessage}",
+                "connect_${connect.responseCode}",
+            )
         }
         val productDetails = queryProductDetails(productId, productType)
             ?: return NativePurchaseResult.Failed("Product not found on Play: $productId", "product_not_found")
@@ -182,7 +185,10 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
 
         val launch = billingClient.launchBillingFlow(activity, flowParams)
         if (launch.responseCode != BillingResponseCode.OK) {
-            return NativePurchaseResult.Failed("launchBillingFlow failed: ${launch.debugMessage}", "launch_${launch.responseCode}")
+            return NativePurchaseResult.Failed(
+                "launchBillingFlow failed: ${launch.debugMessage}",
+                "launch_${launch.responseCode}",
+            )
         }
 
         // Correlate on the launched product and bound the wait: an uncorrelated `first()` could be
@@ -217,7 +223,10 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
                 }
             }
             BillingResponseCode.USER_CANCELED -> NativePurchaseResult.Cancelled
-            else -> NativePurchaseResult.Failed("Purchase failed: ${update.billingResult.debugMessage}", "purchase_${update.billingResult.responseCode}")
+            else -> NativePurchaseResult.Failed(
+                "Purchase failed: ${update.billingResult.debugMessage}",
+                "purchase_${update.billingResult.responseCode}",
+            )
         }
     }
 

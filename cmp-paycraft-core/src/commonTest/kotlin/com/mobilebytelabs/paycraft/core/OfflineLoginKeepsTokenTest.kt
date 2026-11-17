@@ -34,9 +34,20 @@ class OfflineLoginKeepsTokenTest {
         override suspend fun transferToDevice(serverToken: String, newDeviceToken: String): Boolean = false
         override suspend fun revokeDevice(serverToken: String, targetToken: String): Boolean = false
         override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String? = null
-        override suspend fun registerDevice(email: String, platform: String, deviceName: String, deviceId: String, mode: String): RegisterDeviceResult {
+        override suspend fun registerDevice(
+            email: String,
+            platform: String,
+            deviceName: String,
+            deviceId: String,
+            mode: String,
+        ): RegisterDeviceResult {
             registerCalls++
-            return RegisterDeviceResult(NEW_TOKEN, conflict = false, conflictingDeviceName = null, conflictingLastSeen = null)
+            return RegisterDeviceResult(
+                NEW_TOKEN,
+                conflict = false,
+                conflictingDeviceName = null,
+                conflictingLastSeen = null,
+            )
         }
     }
 
@@ -55,7 +66,12 @@ class OfflineLoginKeepsTokenTest {
     @Test
     fun an_offline_token_check_keeps_the_token_and_does_not_register() = runTest {
         val service = Service { throw IllegalStateException("Unable to resolve host") }
-        val manager = PayCraftBillingManager(service = service, store = Store(), dispatcher = StandardTestDispatcher(testScheduler))
+        val manager =
+            PayCraftBillingManager(
+                service = service,
+                store = Store(),
+                dispatcher = StandardTestDispatcher(testScheduler),
+            )
         advanceUntilIdle()
 
         manager.logIn("buyer@example.com")
@@ -68,8 +84,19 @@ class OfflineLoginKeepsTokenTest {
     @Test
     fun a_token_the_server_rejects_is_replaced() = runTest {
         // The stored token is rejected; the freshly registered one is accepted.
-        val service = Service { PremiumCheckResult(isPremium = false, tokenValid = DeviceTokenStore.getToken() == NEW_TOKEN) }
-        val manager = PayCraftBillingManager(service = service, store = Store(), dispatcher = StandardTestDispatcher(testScheduler))
+        val service = Service {
+            PremiumCheckResult(
+                isPremium = false,
+                tokenValid =
+                DeviceTokenStore.getToken() == NEW_TOKEN,
+            )
+        }
+        val manager =
+            PayCraftBillingManager(
+                service = service,
+                store = Store(),
+                dispatcher = StandardTestDispatcher(testScheduler),
+            )
         advanceUntilIdle()
 
         manager.logIn("buyer@example.com")
@@ -82,7 +109,12 @@ class OfflineLoginKeepsTokenTest {
     @Test
     fun a_server_that_rejects_every_token_registers_once_not_forever() = runTest {
         val service = Service { PremiumCheckResult(isPremium = false, tokenValid = false) }
-        val manager = PayCraftBillingManager(service = service, store = Store(), dispatcher = StandardTestDispatcher(testScheduler))
+        val manager =
+            PayCraftBillingManager(
+                service = service,
+                store = Store(),
+                dispatcher = StandardTestDispatcher(testScheduler),
+            )
         advanceUntilIdle()
 
         manager.logIn("buyer@example.com")

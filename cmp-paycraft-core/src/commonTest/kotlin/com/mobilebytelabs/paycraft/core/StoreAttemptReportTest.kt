@@ -77,7 +77,10 @@ class StoreAttemptReportTest {
     @Test
     fun a_failed_play_payment_carries_the_store_reason_code() = runTest {
         val service = FakePayCraftService()
-        val native = SpyNativeBillingClient().apply { purchaseResult = NativePurchaseResult.Failed("Product not found on Play: x", "product_not_found") }
+        val native = SpyNativeBillingClient().apply {
+            purchaseResult =
+                NativePurchaseResult.Failed("Product not found on Play: x", "product_not_found")
+        }
         manager(service, native).purchaseViaPlayBilling(plan("google_play"), email = "buyer@x.test")
         service.awaitAttempts(1)
         assertEquals(listOf<String?>("product_not_found"), service.storeAttemptReasons)
