@@ -254,11 +254,31 @@ class PayCraftWebTest {
     fun stripeCheckoutUsesThePaymentLinkWithAnEncodedEmail() = runTest {
         val net = signedIn().on("/functions/v1/config") { STRIPE_CONFIG_JSON }
         val pc = sdk(net)
+        pc.currentPage = { null } // no page to return to (a browser page gets a Checkout Session — see below)
         pc.doSignIn("google", "t", null)
         assertEquals(
             "https://buy.stripe.com/test_1?prefilled_email=a%2Bb%40x.com",
             pc.resolveCheckoutUrl("pro-monthly", "USD"),
         )
+    }
+
+    @Test
+    fun inABrowserStripeOpensACheckoutSessionThatReturnsTheBuyerEvenWhenAPaymentLinkExists() = runTest {
+        // 2026-11-17 live ReelExport purchase: a Payment Link ends on Stripe's "Thanks for subscribing" page with no
+        // way back (links are created without a redirect). A page that can be returned to gets a Checkout Session,
+        // whose success_url brings the buyer back; only a caller with no page (no return_url) keeps the link.
+        val net = signedIn()
+            .on("/functions/v1/config") { STRIPE_CONFIG_JSON }
+            .on("/functions/v1/checkout-initiate") {
+                """{"url":"https://checkout.stripe.com/c/pay/cs_back","provider":"stripe"}"""
+            }
+        val pc = sdk(net)
+        pc.currentPage = { "https://site.test/checkout/?plan=pro-monthly" }
+        pc.doSignIn("google", "t", null)
+        assertEquals("https://checkout.stripe.com/c/pay/cs_back", pc.resolveCheckoutUrl("pro-monthly", "USD"))
+        val body = net.bodyOf("/functions/v1/checkout-initiate")
+        assertEquals("stripe", body["provider"]!!.jsonPrimitive.content)
+        assertEquals("https://site.test/checkout/?plan=pro-monthly", body["return_url"]!!.jsonPrimitive.content)
     }
 
     @Test
@@ -287,6 +307,7 @@ class PayCraftWebTest {
     fun stripeFallsBackToUsdThenTheFirstLinkWhenTheShownCurrencyHasNone() = runTest {
         val net = signedIn().on("/functions/v1/config") { STRIPE_MULTI_CURRENCY_CONFIG_JSON }
         val pc = sdk(net)
+        pc.currentPage = { null } // the link's currency fallback is what's under test
         pc.doSignIn("google", "t", null)
         // shown price is EUR, which has no link → USD
         assertTrue(pc.resolveCheckoutUrl("pro-monthly", null).startsWith("https://buy.stripe.com/test_usd?"))

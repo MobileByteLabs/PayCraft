@@ -558,13 +558,23 @@ class PayCraftWeb(
             preferredProvider = provider,
             chargeable = chargeableBySku[sku].orEmpty(),
         )
-        // A claimed win-back offer needs a server checkout on a lane that carries it: a Stripe payment link is a
-        // fixed price, so with an offer Stripe goes through checkout-initiate (a Checkout Session with the discount).
+        // A Stripe payment link ends on Stripe's own "Thanks for subscribing" page — it has no way back to the site
+        // (2026-11-17, live ReelExport purchase). So whenever there is a page to return to, Stripe goes through
+        // checkout-initiate: a Checkout Session whose success_url brings the buyer back (and which carries a claimed
+        // win-back offer, which a fixed-price link cannot). A caller with no page keeps the link.
         val offer = claimedOffer
         return when (route) {
             is WebCheckoutRoute.PaymentLink ->
-                if (offer != null && offer.stripe && route.provider == "stripe") {
-                    serverCheckoutUrl(sku, currency ?: productCurrency(sku), "stripe", email, offer)
+                if (route.provider == "stripe" && (currentPage() != null || (offer != null && offer.stripe))) {
+                    serverCheckoutUrl(
+                        sku,
+                        currency ?: productCurrency(sku),
+                        "stripe",
+                        email,
+                        offer?.takeIf {
+                            it.stripe
+                        },
+                    )
                 } else {
                     route.url
                 }
