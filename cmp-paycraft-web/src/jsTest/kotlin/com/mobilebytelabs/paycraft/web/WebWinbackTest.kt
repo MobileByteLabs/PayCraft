@@ -99,6 +99,7 @@ class WebWinbackTest {
         val n = net().on("/functions/v1/winback") { OFFER_ANSWER }
             .on("/functions/v1/checkout-initiate") { """{"url":"https://checkout.stripe.com/c/pay/cs_1"}""" }
         val pc = sdk(n)
+        pc.currentPage = { null } // no page to return to: only the offer may turn the link into a session
         pc.doSignIn("google", "t", null)
         assertTrue(
             pc.checkoutUrlWith("pro-monthly", null, "stripe").await().startsWith("https://buy.stripe.com/"),
