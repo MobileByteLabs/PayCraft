@@ -106,6 +106,28 @@ class PayCraftWeb(
         scope.promise { doSignIn(provider, idToken, nonce) }
 
     /**
+     * Binds this browser's signed-in PayCraft device to the site's own auth user — e.g. its Supabase
+     * session's `access_token`, verified server-side against the tenant's `auth_issuer_url` JWKS. Call after
+     * [signIn]; resolves with the server reply (`{"subject_id","verified":true}`). Rejects `sign_in_required` when nobody is signed in here, and with
+     * the server's reason otherwise (`verified_identity_not_configured` until the tenant sets its issuer).
+     */
+    fun verifyIdentity(accessToken: String): Promise<String> {
+        val token = store.token() ?: return Promise.reject(PayCraftWebError("sign_in_required", "Sign in first"))
+        // Through [post]: no suspend lambda of its own (bundle budget).
+        return post(
+            "$base/functions/v1/identity-verify",
+            JsonObject(
+                mapOf(
+                    "api_key" to JsonPrimitive(apiKey),
+                    "access_token" to JsonPrimitive(accessToken),
+                    "device_token" to JsonPrimitive(token),
+                    "platform" to JsonPrimitive("web"),
+                ),
+            ).toString(),
+        )
+    }
+
+    /**
      * After a sign-in that reported a conflict: moves the account to this browser. PayCraft allows ONE
      * active device per account (any platform), so this SIGNS THE OTHER DEVICE OUT of premium — ask the
      * buyer first ("Use premium here instead of <device>?"); never call it automatically.

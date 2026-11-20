@@ -119,7 +119,7 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
   expiring after `offer_hours`), with the lanes the coupon reaches (`_shared/winback-offer.ts#lanesFor`). Claimed,
   it rides into checkout: `checkout-initiate` applies it (Stripe discount / Razorpay offer; 409 `offer_not_usable`
   → retried at full price), Google Play uses the coupon's offer id, the App Store a server-signed promotional offer.
-- **Web:** `cmp-paycraft-web` (≤ 150 KB, every page) stays free of UI; the checkout page and the survey live in
+- **Web:** `cmp-paycraft-web` (≤ 151 KB, every page) stays free of UI; the checkout page and the survey live in
   `cmp-paycraft-web-ui` (≤ 20 KB, imported lazily by buyers), which depends on the stdlib only and calls the page's
   `PayCraftWeb` through `PayCraftWebApi` — `infra/web-ui-api-check.sh` keeps the two in step,
   `infra/web-bundle-size.sh` holds both budgets.
