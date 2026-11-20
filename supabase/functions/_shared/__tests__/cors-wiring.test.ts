@@ -1,6 +1,6 @@
 // supabase/functions/_shared/__tests__/cors-wiring.test.ts
 //
-// The three edge functions a website calls (cmp-paycraft-web) must answer the browser's CORS
+// The edge functions a website calls (cmp-paycraft-web) must answer the browser's CORS
 // preflight and carry `access-control-allow-origin` on EVERY response — including errors, which a
 // browser otherwise reports as an opaque CORS failure instead of the function's real error.
 // Only paths that return before any database call are exercised, so no network or stubs are needed.
@@ -10,6 +10,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts"
 
 Deno.env.set("CONFIG_SKIP_SERVE", "1")
 Deno.env.set("IDENTITY_TOKEN_SKIP_SERVE", "1")
+Deno.env.set("IDENTITY_VERIFY_SKIP_SERVE", "1")
 // _shared/supabase-admin.ts builds its client at import time; these stubs are never contacted
 // because every path exercised below returns before a database call.
 if (!Deno.env.get("SUPABASE_URL")) Deno.env.set("SUPABASE_URL", "http://127.0.0.1:54321")
@@ -18,12 +19,14 @@ if (!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) Deno.env.set("SUPABASE_SERVICE_R
 const { handleConfigRequest } = await import("../../config/index.ts")
 const { handleIdentityTokenRequest } = await import("../../identity-token/index.ts")
 const { handleCheckoutInitiate } = await import("../../checkout-initiate/index.ts")
+const { handleIdentityVerifyRequest } = await import("../../identity-verify/index.ts")
 
 const BASE = "https://example.supabase.co/functions/v1"
 const handlers: Array<[string, (r: Request) => Promise<Response>, string]> = [
   ["config", handleConfigRequest, `${BASE}/config?apiKey=pk_test_x`],
   ["identity-token", handleIdentityTokenRequest, `${BASE}/identity-token/verify`],
   ["checkout-initiate", handleCheckoutInitiate, `${BASE}/checkout-initiate?apiKey=pk_test_x`],
+  ["identity-verify", handleIdentityVerifyRequest, `${BASE}/identity-verify`],
 ]
 
 for (const [name, handle, url] of handlers) {
@@ -55,6 +58,14 @@ Deno.test("identity-token: unknown path still carries CORS (404)", async () => {
 
 Deno.test("checkout-initiate: validation error still carries CORS (400)", async () => {
   const r = await handleCheckoutInitiate(new Request(`${BASE}/checkout-initiate`, { method: "POST", body: "{}" }))
+  assertEquals(r.status, 400)
+  assertEquals(r.headers.get("access-control-allow-origin"), "*")
+  await r.body?.cancel()
+})
+
+// A website binds its own auth session (pc.verifyIdentity, ReelExport FR-017) straight from the browser.
+Deno.test("identity-verify: missing fields still carries CORS (400)", async () => {
+  const r = await handleIdentityVerifyRequest(new Request(`${BASE}/identity-verify`, { method: "POST", body: "{}" }))
   assertEquals(r.status, 400)
   assertEquals(r.headers.get("access-control-allow-origin"), "*")
   await r.body?.cancel()

@@ -33,6 +33,7 @@
 
 import { createRemoteJWKSet, jwtVerify } from "https://deno.land/x/jose@v5.9.6/index.ts";
 import { supabaseAdmin } from "../_shared/supabase-admin.ts";
+import { preflight, withCors } from "../_shared/cors.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -59,7 +60,7 @@ function jwksFor(issuerUrl: string) {
   return set;
 }
 
-Deno.serve(async (req) => {
+async function handleInner(req: Request): Promise<Response> {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   let body: Record<string, unknown>;
@@ -135,4 +136,12 @@ Deno.serve(async (req) => {
   if (regError) return json({ error: `registration_failed: ${regError.message}` }, 500);
 
   return json({ subject_id: subjectId, verified: true });
-});
+}
+
+// Browser entry: a website binds its own auth session straight from the page (cmp-paycraft-web verifyIdentity).
+export async function handleIdentityVerifyRequest(req: Request): Promise<Response> {
+  return preflight(req) ?? withCors(await handleInner(req));
+}
+
+// IDENTITY_VERIFY_SKIP_SERVE — test-only switch (skip Deno.serve so tests can import).
+if (!Deno.env.get("IDENTITY_VERIFY_SKIP_SERVE")) Deno.serve(handleIdentityVerifyRequest);
