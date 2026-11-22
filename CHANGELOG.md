@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Web prices are region-specific by default.** `PayCraftWeb` on PayCraft Cloud now looks up the visitor's
+  country once per page (new dashboard route `GET /api/geo`, the edge's IP-geo header, CORS `*`) before the first
+  `/config`, so a site that never calls `setCountry` still quotes its visitor's currency — before, a browser in India
+  saying `en-GB` was priced in pounds, because Supabase's edge strips `cf-ipcountry` and `/config` only saw the
+  language. `setCountry` still wins (and `setCountry(null)` turns the lookup off); a failed lookup never blocks
+  `/config`; self-hosted backends skip it.
 - **A missing key no longer crashes the app.** `PayCraft.initialize` (and so `payCraft(...)`, whose binder starts
   with Koin) used to throw on any non-`pk_` key — a release build whose live key was never injected crashed in
   `Application.onCreate` on every launch. A blank or non-publishable key now logs an error and boots unconfigured

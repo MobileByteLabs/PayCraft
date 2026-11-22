@@ -126,7 +126,8 @@ class CoreParityTest {
             it.transport = net
             it.store = TokenStore(MemoryKeyValue())
         }.loadConfig()
-        assertTrue(net.calls[0].url.startsWith(PayCraftBackend.Cloud.supabaseUrl))
-        assertEquals(PayCraftBackend.Cloud.supabaseAnonKey, net.calls[0].headers["apikey"])
+        val config = net.calls.single { it.url.contains("/functions/v1/config") } // after the one geo lookup
+        assertTrue(config.url.startsWith(PayCraftBackend.Cloud.supabaseUrl))
+        assertEquals(PayCraftBackend.Cloud.supabaseAnonKey, config.headers["apikey"])
     }
 }
