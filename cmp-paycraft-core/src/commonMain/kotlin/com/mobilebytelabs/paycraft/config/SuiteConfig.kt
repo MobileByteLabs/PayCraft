@@ -435,7 +435,7 @@ internal fun SuiteConfig.productForCanonicalRole(role: String): ProductDto? {
         "six_month", "semiannual" -> subs("semiannual")
         "three_month", "quarterly", "quarter" -> subs("quarter")
         "weekly", "week" -> subs("week")
-        "lifetime" -> active.firstOrNull { it.type == "lifetime" }
+        "lifetime" -> active.firstOrNull { it.type == "lifetime" || it.type == "one_time" }
         else -> null
     }
 }

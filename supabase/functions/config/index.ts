@@ -568,6 +568,11 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
           }
       return {
         ...stripRawStoreIds(p),
+        // Every shipped SDK knows a one-time product as "lifetime" (ProductMapper.fromDto errors on any
+        // other name; the $rc_lifetime role matches only "lifetime"). The API and migration 205 call it
+        // "one_time", so serve the name the installed apps understand — a one_time row otherwise broke
+        // the paywall of every app already in users' hands (Status Saver pro-lifetime, 2026-11-22).
+        type: p.type === "one_time" ? "lifetime" : p.type,
         trial_enabled: trialEnabled,
         trial_duration_days: trialDurationDays,
         discount_percent: discountActive ? discountPercent : null,

@@ -86,7 +86,8 @@ object ProductMapper {
                 ?: error("trial product '${dto.id}' missing trial_duration_days"),
             attachesToProductId = dto.attachesToProductId,
         )
-        "lifetime" -> Product.Lifetime(
+        // "one_time" is the API's name for it (migration 205); `config` serves it as "lifetime" for older SDKs.
+        "lifetime", "one_time" -> Product.Lifetime(
             id = dto.id,
             sku = dto.sku,
             displayName = dto.displayName,

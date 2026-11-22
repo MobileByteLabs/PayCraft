@@ -39,6 +39,7 @@ interface StubProduct {
   base_currency: string;
   global_price_cents?: number | null;
   global_currency?: string | null;
+  type?: string;
 }
 
 interface StubOpts {
@@ -191,6 +192,28 @@ function buildRequest(opts: { acceptLanguage?: string | null } = {}): Request {
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Tests
+
+Deno.test({
+  sanitizeOps: false,
+  sanitizeResources: false,
+  name: "a one_time product is served as 'lifetime' — the name every shipped SDK parses",
+  async fn() {
+    const { restore } = installFetchStub({
+      products: [
+        { id: "p-life", name: "Lifetime", type: "one_time", pricing_mode: "manual", base_price_cents: 399, base_currency: "USD" },
+        { id: "p-year", name: "Yearly", type: "subscription", pricing_mode: "manual", base_price_cents: 199, base_currency: "USD" },
+      ],
+    });
+    try {
+      const body = await (await handler(buildRequest({ acceptLanguage: "en-US" }))).json();
+      const byId = Object.fromEntries(body.products.map((p: { id: string; type: string }) => [p.id, p.type]));
+      assertEquals(byId["p-life"], "lifetime");
+      assertEquals(byId["p-year"], "subscription");
+    } finally {
+      restore();
+    }
+  },
+});
 
 Deno.test({
   sanitizeOps: false,
