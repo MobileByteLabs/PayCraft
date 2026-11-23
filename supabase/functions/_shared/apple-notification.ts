@@ -9,6 +9,7 @@ import { handleConsumablePurchase } from "./consumable-handler.ts";
 import { resolveInboundTenant } from "./inbound-tenant.ts";
 import { appleToCanonical, reconcileEntitlement } from "./entitlement-reconcile.ts";
 import { tenantAppStoreServerJwt } from "./apple-jwt.ts";
+import { answerConsumptionRequest } from "./appstore-consumption.ts";
 
 // App Store Server API — "Get All Subscription Statuses". NEVER trust the ASSN-V2 payload state;
 // re-fetch the authoritative status for the originalTransactionId.
@@ -55,6 +56,25 @@ export async function processAppleNotification(signedPayload: string): Promise<v
     // original inline version also threw on a malformed segment, where the helper returns null.
     decodeSignedTransaction(data.signedTransactionInfo)?.originalTransactionId;
   if (!originalTxn) throw new Error("missing originalTransactionId");
+
+  // ── Refund request (migration 207) ────────────────────────────────────────────────────────
+  // A customer asked Apple for a refund. Nothing about the entitlement changes yet (a granted refund arrives later
+  // as REFUND), so this only answers Apple with consumption information, within its 12-hour window.
+  if (notif.notificationType === "CONSUMPTION_REQUEST") {
+    const tx = decodeSignedTransaction(data.signedTransactionInfo) ?? {};
+    const { tenantId } = await resolveInboundTenant({
+      appIdentifier: data.bundleId ?? tx.bundleId ?? null,
+      provider: "app_store",
+    });
+    const outcome = await answerConsumptionRequest({
+      tenantId,
+      tx,
+      sandbox: (data.environment ?? notif.environment) === "Sandbox",
+      jwt: () => tenantAppStoreServerJwt(tenantId),
+    });
+    console.log(`[apple-server-notifications] CONSUMPTION_REQUEST ${tx.transactionId ?? "?"}: ${outcome}`);
+    return;
+  }
 
   // ── One-time charge (consumable pack) ─────────────────────────────────────────────────────
   // ASSN-V2 fires ONE_TIME_CHARGE for a consumable / non-consumable purchase. It has no

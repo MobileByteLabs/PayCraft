@@ -18,6 +18,7 @@ import {
   Plug,
   Settings,
   ShieldCheck,
+  FlaskConical,
   Sparkles,
   Tag,
   Users,
@@ -54,6 +55,7 @@ const groups: NavGroup[] = [
       { href: "/providers/platform", label: "Platform providers", icon: Layers },
       { href: "/paywall", label: "Paywall", icon: LayoutGrid },
       { href: "/paywall/exit-survey", label: "Exit survey", icon: MessageSquareText },
+      { href: "/paywall/experiments", label: "Experiments", icon: FlaskConical },
     ],
   },
   {

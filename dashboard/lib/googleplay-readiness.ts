@@ -58,7 +58,7 @@ export interface PlayProductInput {
   /** How many currencies the product declares, to spot a catalogue narrower on Play than on web. */
   configuredCurrencies?: number
   /** tenant_products.type. Anything but "subscription" is a Play ONE-TIME product, a different resource. */
-  type?: string
+  type?: string | null
 }
 
 /**
