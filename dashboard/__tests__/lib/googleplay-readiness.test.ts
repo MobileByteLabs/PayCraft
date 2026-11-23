@@ -177,3 +177,52 @@ test("an unsynced product is reported, not skipped", async () => {
   expect(r.ready).toBe(false)
   expect(r.blockers).toContain("not synced to Google Play")
 })
+
+// ── One-time products (lifetime / one_time / consumable) — a different Play resource ──────────────
+// Asking /subscriptions for one answered 404 and reported Status Saver's live `pro_lifetime` as
+// "no such subscription" (2026-11-22). It must be read from /oneTimeProducts (camelCase GET).
+
+function installOneTime(product: any | null, status = 200) {
+  const fetchMock = jest.fn(async (url: unknown) => {
+    const u = String(url)
+    if (u.includes("/subscriptions/")) return res(null, false, 404, "{}") // the old, wrong lookup
+    if (u.includes("/oneTimeProducts/")) return product === null ? res(null, false, status, "{}") : res(product)
+    return res(null, false, 404, "{}")
+  })
+  ;(global as unknown as { fetch: unknown }).fetch = fetchMock
+  return fetchMock
+}
+
+const LIFETIME = (over: Partial<{ configuredCurrencies: number }> = {}) => [
+  { id: "row-life", sku: "pro-lifetime", playProductId: "pro_lifetime", type: "one_time",
+    androidTrialDays: null, configuredCurrencies: 13, ...over },
+]
+const option = (state: string, regions: number) => ({
+  purchaseOptionId: "buy", state,
+  regionalPricingAndAvailabilityConfigs: Array.from({ length: regions }, (_, i) => ({ regionCode: `R${i}` })),
+})
+
+test("a live one-time product is read from /oneTimeProducts and reads as ready", async () => {
+  const f = installOneTime({ listings: [{ title: "Status Saver Pro — Lifetime" }], purchaseOptions: [option("ACTIVE", 13)] })
+  const [r] = await googlePlaySubscriptionReadiness(CREDS, LIFETIME())
+  expect(r.ready).toBe(true)
+  expect(r.state).toBe("ACTIVE")
+  expect(r.regions).toBe(13)
+  const urls = f.mock.calls.map((c) => String(c[0]))
+  expect(urls.some((u) => u.includes("/oneTimeProducts/pro_lifetime"))).toBe(true)
+  expect(urls.some((u) => u.includes("/subscriptions/"))).toBe(false)
+})
+
+test("a one-time product's DRAFT purchase option is a blocker", async () => {
+  installOneTime({ listings: [{ title: "Lifetime" }], purchaseOptions: [option("DRAFT", 13)] })
+  const [r] = await googlePlaySubscriptionReadiness(CREDS, LIFETIME())
+  expect(r.ready).toBe(false)
+  expect(r.blockers.join(" ")).toMatch(/purchase option buy is DRAFT — not purchasable/)
+})
+
+test("a legacy 'lifetime' row takes the one-time path too, and a missing one says so precisely", async () => {
+  installOneTime(null, 404)
+  const [r] = await googlePlaySubscriptionReadiness(CREDS, LIFETIME().map((p) => ({ ...p, type: "lifetime" })))
+  expect(r.ready).toBe(false)
+  expect(r.blockers).toEqual(["product id recorded locally but no such one-time product in Google Play"])
+})

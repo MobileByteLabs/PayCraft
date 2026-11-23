@@ -102,6 +102,7 @@ export async function computeStoreReadiness(client: SupabaseClient<any>, tenantI
           id: p.id,
           sku: p.sku,
           playProductId: p.play_product_id,
+          type: p.type,
           androidTrialDays: trialDaysFor(p, "android"),
           configuredCurrencies: Object.keys(p.stripe_price_id_by_currency ?? {}).length,
         })),

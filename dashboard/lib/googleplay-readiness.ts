@@ -57,6 +57,48 @@ export interface PlayProductInput {
   androidTrialDays: number | null
   /** How many currencies the product declares, to spot a catalogue narrower on Play than on web. */
   configuredCurrencies?: number
+  /** tenant_products.type. Anything but "subscription" is a Play ONE-TIME product, a different resource. */
+  type?: string
+}
+
+/**
+ * A one-time product (lifetime / one_time / consumable) lives at `/oneTimeProducts`, NOT
+ * `/subscriptions` — asking the subscriptions endpoint answered 404 and reported a live, buyable
+ * product as "no such subscription" (Status Saver `pro_lifetime`, 2026-11-22). GET is camelCase
+ * `oneTimeProducts` (see googleplay-inapp-sync.ts: the lowercase spelling is patch-only and 404s).
+ * A purchase option's `state` is output-only and is what a buyer sees, so it is the ACTIVE check.
+ */
+async function oneTimeReadiness(token: string, pkg: string, p: PlayProductInput): Promise<PlayReadiness> {
+  const productId = p.playProductId as string
+  const got = await playJson(token, `/applications/${pkg}/oneTimeProducts/${encodeURIComponent(productId)}`)
+  if (!got.ok) {
+    return {
+      id: p.id, sku: p.sku, productId, state: null, ready: false, warnings: [],
+      blockers: [
+        got.status === 404
+          ? "product id recorded locally but no such one-time product in Google Play"
+          : `Google Play returned ${got.status} for this one-time product`,
+      ],
+    }
+  }
+  const blockers: string[] = []
+  const warnings: string[] = []
+  const listings: any[] = got.json.listings ?? []
+  if (listings.length === 0) blockers.push("no store listing (title + description)")
+  else if (!listings.some((l) => l?.title)) blockers.push("store listing has no title")
+
+  const options: any[] = got.json.purchaseOptions ?? []
+  const option = options.find((o) => o?.state === "ACTIVE") ?? options[0]
+  const state: string | null = option?.state ?? null
+  if (!option) blockers.push("no purchase option — nothing to purchase")
+  else if (state !== "ACTIVE") blockers.push(`purchase option ${option.purchaseOptionId ?? "?"} is ${state ?? "in an unknown state"} — not purchasable`)
+
+  const regions: number = (option?.regionalPricingAndAvailabilityConfigs ?? []).length
+  if (option && regions === 0) blockers.push("purchase option is priced in no regions — cannot be sold anywhere")
+  else if (p.configuredCurrencies && p.configuredCurrencies > 1 && regions < p.configuredCurrencies) {
+    warnings.push(`priced in ${regions} region${regions === 1 ? "" : "s"} while the product declares ${p.configuredCurrencies} currencies — sold in fewer places than configured`)
+  }
+  return { id: p.id, sku: p.sku, productId, state, ready: blockers.length === 0, blockers, warnings, regions }
 }
 
 export async function googlePlaySubscriptionReadiness(
@@ -70,6 +112,11 @@ export async function googlePlaySubscriptionReadiness(
   for (const p of products) {
     if (!p.playProductId) {
       out.push({ id: p.id, sku: p.sku, productId: null, state: null, ready: false, blockers: ["not synced to Google Play"], warnings: [] })
+      continue
+    }
+
+    if (p.type && p.type !== "subscription") {
+      out.push(await oneTimeReadiness(token, pkg, p))
       continue
     }
 

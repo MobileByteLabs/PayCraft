@@ -62,6 +62,8 @@ data class SuiteConfig(
      * Manager's `serverClientId` on Android; the Apple Services ID enables Apple's browser flow off iOS.
      */
     val auth: AuthClientsDto? = null,
+    /** The running paywall A/B experiment (migration 206), or null. Applied once in `PayCraft.applySuiteConfig`. */
+    val experiment: ExperimentDto? = null,
     // Set by the client on receipt; not returned by the server.
     @SerialName("fetched_at_epoch_millis") val fetchedAtEpochMillis: Long = 0L,
 )

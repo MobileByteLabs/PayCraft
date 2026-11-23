@@ -779,6 +779,10 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
     // The exit survey (migration 181) — shown when a buyer closes the paywall or leaves checkout. Enabled
     // reasons only; an offer carries only its discount, never the coupon's code. `{enabled:false}` = no survey.
     exit_survey: await loadExitSurvey(supabase, tenantId),
+    // The running A/B experiment (migration 206) or null: `{ key, variants: [{ key, weight, offering_id }] }`.
+    // The SDK assigns the device a variant by hashing its device ref, and shows that variant's offering. A failed
+    // read degrades to null — no experiment is a normal paywall, never a broken one.
+    experiment: await loadExperiment(supabase, tenantId),
   }
 
   return new Response(JSON.stringify(body), {
@@ -798,6 +802,11 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
 // binding a port.
 if (!Deno.env.get("CONFIG_SKIP_SERVE")) {
   serve(handleConfigRequest)
+}
+
+async function loadExperiment(supabase: SupabaseClient, tenantId: string): Promise<unknown> {
+  const { data, error } = await supabase.rpc("paywall_experiment_public_get", { p_tenant_id: tenantId })
+  return error ? null : (data ?? null)
 }
 
 async function loadExitSurvey(

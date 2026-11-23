@@ -26,11 +26,11 @@ done
 for f in "$EVENT" "$CONTRACT" "$INGEST" "$TABLE"; do [[ -s "$f" ]] || { echo "FAIL missing input: $f"; exit 2; }; done
 
 # What each layer may carry. Identity is only ever a hash (user_ref) or the device's own random id (device_ref).
-ALLOW_EVENT="name step platform trigger sku currency country provider reason atMs"
-ALLOW_PARAMS="step platform trigger sku currency country provider reason"
-ALLOW_WIRE="apiKey deviceRef deviceToken events name step platform trigger sku currency provider reason at"
-ALLOW_ROWS="name step platform trigger sku currency provider reason occurred_at tenant_id user_ref device_ref country mode"
-ALLOW_TABLE="id tenant_id user_ref device_ref name step platform trigger sku currency provider reason country mode occurred_at received_at"
+ALLOW_EVENT="name step platform trigger sku currency country provider reason atMs experiment variant"
+ALLOW_PARAMS="step platform trigger sku currency country provider reason experiment variant"
+ALLOW_WIRE="apiKey deviceRef deviceToken events name step platform trigger sku currency provider reason experiment variant at"
+ALLOW_ROWS="name step platform trigger sku currency provider reason experiment variant occurred_at tenant_id user_ref device_ref country mode"
+ALLOW_TABLE="id tenant_id user_ref device_ref name step platform trigger sku currency provider reason country mode occurred_at received_at experiment variant"
 
 event_fields="$(perl -0ne 'if (/public class PayCraftEvent\((.*?)\n\)/s) { my $b = $1; print "$1\n" while $b =~ /public val (\w+)\s*:/g }' "$EVENT")"
 params_keys="$(perl -0ne 'if (/fun params\(\)(.*?)(?:private companion|\n\}\n)/s) { my $b = $1; print "$1\n" while $b =~ /put\("(\w+)"/g }' "$EVENT")"

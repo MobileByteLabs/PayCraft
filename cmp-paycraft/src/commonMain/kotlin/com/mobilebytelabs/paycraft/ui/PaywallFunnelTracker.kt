@@ -53,6 +53,7 @@ internal class PaywallFunnelTracker(
     }
 
     private fun send(name: PayCraftEventName, step: PayCraftStep = this.step, reason: String? = null) {
+        val experiment = runCatching { PayCraft.activeExperiment }.getOrNull()
         emit(
             PayCraftEvent(
                 name = name, step = step,
@@ -60,6 +61,7 @@ internal class PaywallFunnelTracker(
                 trigger = trigger, sku = sku, currency = currency,
                 country = runCatching { PayCraft.activeCountry }.getOrNull(),
                 provider = provider, reason = reason, atMs = now(),
+                experiment = experiment?.experiment, variant = experiment?.variant,
             ),
         )
     }

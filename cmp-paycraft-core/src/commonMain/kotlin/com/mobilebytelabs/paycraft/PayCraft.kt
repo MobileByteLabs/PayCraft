@@ -15,6 +15,7 @@ import com.mobilebytelabs.paycraft.config.CouponDto
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
+import com.mobilebytelabs.paycraft.config.withExperimentAssigned
 import com.mobilebytelabs.paycraft.config.readBundledSuiteConfigJsonOrNull
 import com.mobilebytelabs.paycraft.contract.PayCraftContract
 import com.mobilebytelabs.paycraft.core.AdFreeEntitlement
@@ -184,6 +185,10 @@ object PayCraft {
      * by the paywall when the buyer taps "Claim"; cleared after a purchase or when it expires.
      */
     var activeWinbackOffer: WinbackOffer? = null
+
+    /** The A/B experiment variant this device is in, from the last applied config; tagged onto paywall events. */
+    var activeExperiment: com.mobilebytelabs.paycraft.config.ExperimentAssignment? = null
+        private set
 
     /**
      * Sends the buyer's exit-survey answer and returns what they get: an [WinbackResult.Offer], the tenant's
@@ -1069,7 +1074,13 @@ object PayCraft {
     }
 
     /** Apply a cloud-fetched [SuiteConfig] into the existing PayCraftConfig shape. */
-    internal fun applySuiteConfig(suite: SuiteConfig) {
+    internal fun applySuiteConfig(served: SuiteConfig) {
+        // The device's A/B variant (migration 206) is applied HERE, the one door every config passes through
+        // (cloud, cache, bundled, native-price re-apply), so every paywall path sees the same variant. Idempotent:
+        // re-applying an already-applied suite keeps the same variant and plans.
+        val (suite, assignment) = runCatching { served.withExperimentAssigned(deviceId) }
+            .getOrElse { served to null }
+        activeExperiment = assignment
         // Resolve + assign `config` BEFORE emitting on the flow. The paywall ViewModel
         // collects suiteConfigFlow and re-reads PayCraft.config on each emission; if the
         // emit came first, the collector could run while `config` still held the previous
