@@ -16,12 +16,12 @@ import com.mobilebytelabs.paycraft.core.AdRewardProvider
 import com.mobilebytelabs.paycraft.core.MonetizationMode
 import com.mobilebytelabs.paycraft.core.PayCraftAdRewards
 import com.mobilebytelabs.paycraft.core.PayCraftBalances
+import com.mobilebytelabs.paycraft.debug.PayCraftLogger
+import com.mobilebytelabs.paycraft.debug.payCraftScope
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
 import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.mobilebytelabs.paycraft.repository.PayCraftRepository
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
@@ -161,7 +161,7 @@ internal class PayCraftIdentityBinder(
     backend: PayCraftBackend,
     options: InitOptions,
     mode: MonetizationMode,
-    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    scope: CoroutineScope = payCraftScope(),
 ) {
     init {
         // FIRST, synchronously, before anything can resolve a PayCraft singleton. See (1).
@@ -183,7 +183,16 @@ internal class PayCraftIdentityBinder(
                 // else must re-point the entitlement, or the second user inherits the first's
                 // subscription. The blank check covers sign-OUT, where the SDK keeps its last
                 // identity rather than being told the user is "".
-                .collect { address -> if (address.isNotBlank()) repository()?.logIn(address) }
+                .collect { address ->
+                    if (address.isBlank()) return@collect
+                    // Per-item guard: a failed logIn must not end the collection, or every later
+                    // identity change is silently dropped for the rest of the process.
+                    try {
+                        repository()?.logIn(address)
+                    } catch (e: Exception) {
+                        PayCraftLogger.onError("identityBinder", "logIn failed: ${e.message}")
+                    }
+                }
         }
     }
 }

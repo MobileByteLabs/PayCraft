@@ -73,6 +73,7 @@ public final class com/mobilebytelabs/paycraft/PayCraft {
 	public final fun dismissPaywall ()V
 	public final fun getActiveCountry ()Ljava/lang/String;
 	public final fun getActiveCurrency ()Ljava/lang/String;
+	public final fun getActiveExperiment ()Lcom/mobilebytelabs/paycraft/config/ExperimentAssignment;
 	public final fun getActiveRegion ()Lcom/mobilebytelabs/paycraft/ResolvedRegion;
 	public final fun getActiveWinbackOffer ()Lcom/mobilebytelabs/paycraft/winback/WinbackOffer;
 	public final fun getAnalytics ()Lcom/mobilebytelabs/paycraft/analytics/PayCraftAnalytics;
@@ -81,6 +82,7 @@ public final class com/mobilebytelabs/paycraft/PayCraft {
 	public final fun getDeviceId ()Ljava/lang/String;
 	public final fun getExitSurvey ()Lkotlinx/coroutines/flow/StateFlow;
 	public final fun getExitSurveyGate ()Lcom/mobilebytelabs/paycraft/winback/ExitSurveyGate;
+	public final fun getLastError ()Lkotlinx/coroutines/flow/StateFlow;
 	public final fun getMode ()Lcom/mobilebytelabs/paycraft/PayCraft$Mode;
 	public final fun getMonetizationMode ()Lcom/mobilebytelabs/paycraft/core/MonetizationMode;
 	public final fun getPaywallPlacement ()Ljava/lang/String;
@@ -107,6 +109,8 @@ public final class com/mobilebytelabs/paycraft/PayCraft {
 	public final fun setActiveWinbackOffer (Lcom/mobilebytelabs/paycraft/winback/WinbackOffer;)V
 	public final fun setAnalyticsListener (Lcom/mobilebytelabs/paycraft/analytics/PayCraftAnalyticsListener;)V
 	public final fun setAppliedCoupon (Ljava/lang/String;Lcom/mobilebytelabs/paycraft/config/CouponDto;)V
+	public final fun setAttributionIds (Ljava/lang/String;Ljava/lang/String;)V
+	public static synthetic fun setAttributionIds$default (Lcom/mobilebytelabs/paycraft/PayCraft;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)V
 	public final fun setPaywallPlacement (Ljava/lang/String;)V
 }
 
@@ -236,11 +240,12 @@ public abstract interface class com/mobilebytelabs/paycraft/analytics/PayCraftAn
 
 public final class com/mobilebytelabs/paycraft/analytics/PayCraftEvent {
 	public static final field MAX_VALUE I
-	public fun <init> (Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
-	public synthetic fun <init> (Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun getAtMs ()J
 	public final fun getCountry ()Ljava/lang/String;
 	public final fun getCurrency ()Ljava/lang/String;
+	public final fun getExperiment ()Ljava/lang/String;
 	public final fun getName ()Lcom/mobilebytelabs/paycraft/analytics/PayCraftEventName;
 	public final fun getPlatform ()Ljava/lang/String;
 	public final fun getProvider ()Ljava/lang/String;
@@ -248,6 +253,7 @@ public final class com/mobilebytelabs/paycraft/analytics/PayCraftEvent {
 	public final fun getSku ()Ljava/lang/String;
 	public final fun getStep ()Lcom/mobilebytelabs/paycraft/analytics/PayCraftStep;
 	public final fun getTrigger ()Ljava/lang/String;
+	public final fun getVariant ()Ljava/lang/String;
 	public final fun params ()Ljava/util/Map;
 }
 
@@ -358,17 +364,24 @@ public final class com/mobilebytelabs/paycraft/billing/NativeBillingClient$Defau
 	public static synthetic fun purchase$default (Lcom/mobilebytelabs/paycraft/billing/NativeBillingClient;Ljava/lang/String;Ljava/lang/String;Lcom/mobilebytelabs/paycraft/billing/NativeProductType;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
+public final class com/mobilebytelabs/paycraft/billing/NativeBillingClientKt {
+	public static final fun resolveAdvertisedTrialDays (Ljava/lang/Integer;Lcom/mobilebytelabs/paycraft/billing/NativeDisplayPrice;)Ljava/lang/Integer;
+}
+
 public final class com/mobilebytelabs/paycraft/billing/NativeDisplayPrice {
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;J)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;JLjava/lang/Integer;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;JLjava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3 ()J
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;J)Lcom/mobilebytelabs/paycraft/billing/NativeDisplayPrice;
-	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/billing/NativeDisplayPrice;Ljava/lang/String;Ljava/lang/String;JILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/billing/NativeDisplayPrice;
+	public final fun component4 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;JLjava/lang/Integer;)Lcom/mobilebytelabs/paycraft/billing/NativeDisplayPrice;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/billing/NativeDisplayPrice;Ljava/lang/String;Ljava/lang/String;JLjava/lang/Integer;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/billing/NativeDisplayPrice;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAmountMicros ()J
 	public final fun getCurrencyCode ()Ljava/lang/String;
 	public final fun getFormatted ()Ljava/lang/String;
+	public final fun getFreeTrialDays ()Ljava/lang/Integer;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -462,11 +475,14 @@ public final class com/mobilebytelabs/paycraft/billing/NativePurchaseResult$Canc
 }
 
 public final class com/mobilebytelabs/paycraft/billing/NativePurchaseResult$Failed : com/mobilebytelabs/paycraft/billing/NativePurchaseResult {
-	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;)Lcom/mobilebytelabs/paycraft/billing/NativePurchaseResult$Failed;
-	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/billing/NativePurchaseResult$Failed;Ljava/lang/String;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/billing/NativePurchaseResult$Failed;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lcom/mobilebytelabs/paycraft/billing/NativePurchaseResult$Failed;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/billing/NativePurchaseResult$Failed;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/billing/NativePurchaseResult$Failed;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCode ()Ljava/lang/String;
 	public final fun getMessage ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -730,6 +746,56 @@ public final synthetic class com/mobilebytelabs/paycraft/config/CouponDto$$seria
 
 public final class com/mobilebytelabs/paycraft/config/CouponDto$Companion {
 	public final fun serializer ()Lkotlinx/serialization/KSerializer;
+}
+
+public final class com/mobilebytelabs/paycraft/config/ExperimentAssignment {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lcom/mobilebytelabs/paycraft/config/ExperimentAssignment;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/config/ExperimentAssignment;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/config/ExperimentAssignment;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getExperiment ()Ljava/lang/String;
+	public final fun getVariant ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/mobilebytelabs/paycraft/config/ExperimentDto {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;)Lcom/mobilebytelabs/paycraft/config/ExperimentDto;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/config/ExperimentDto;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/config/ExperimentDto;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getVariants ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/mobilebytelabs/paycraft/config/ExperimentKt {
+	public static final fun experimentOrNull (Lcom/mobilebytelabs/paycraft/config/SuiteConfig;)Lcom/mobilebytelabs/paycraft/config/ExperimentDto;
+	public static final fun toJson (Lcom/mobilebytelabs/paycraft/config/ExperimentDto;)Lkotlinx/serialization/json/JsonObject;
+}
+
+public final class com/mobilebytelabs/paycraft/config/ExperimentVariantDto {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;ILjava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;ILjava/lang/String;)Lcom/mobilebytelabs/paycraft/config/ExperimentVariantDto;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/config/ExperimentVariantDto;Ljava/lang/String;ILjava/lang/String;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/config/ExperimentVariantDto;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getOfferingId ()Ljava/lang/String;
+	public final fun getWeight ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class com/mobilebytelabs/paycraft/config/OfferingDto {
@@ -1071,13 +1137,14 @@ public final class com/mobilebytelabs/paycraft/config/StoreBinding$Companion {
 
 public final class com/mobilebytelabs/paycraft/config/SuiteConfig {
 	public static final field Companion Lcom/mobilebytelabs/paycraft/config/SuiteConfig$Companion;
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/config/PaywallDto;Ljava/util/List;Ljava/lang/String;Lcom/mobilebytelabs/paycraft/core/MonetizationMode;Ljava/lang/String;Ljava/lang/String;ILcom/mobilebytelabs/paycraft/config/AuthClientsDto;J)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/config/PaywallDto;Ljava/util/List;Ljava/lang/String;Lcom/mobilebytelabs/paycraft/core/MonetizationMode;Ljava/lang/String;Ljava/lang/String;ILcom/mobilebytelabs/paycraft/config/AuthClientsDto;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/config/PaywallDto;Ljava/util/List;Ljava/lang/String;Lcom/mobilebytelabs/paycraft/core/MonetizationMode;Ljava/lang/String;Ljava/lang/String;ILcom/mobilebytelabs/paycraft/config/AuthClientsDto;Lkotlinx/serialization/json/JsonObject;J)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/config/PaywallDto;Ljava/util/List;Ljava/lang/String;Lcom/mobilebytelabs/paycraft/core/MonetizationMode;Ljava/lang/String;Ljava/lang/String;ILcom/mobilebytelabs/paycraft/config/AuthClientsDto;Lkotlinx/serialization/json/JsonObject;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component10 ()Ljava/lang/String;
 	public final fun component11 ()I
 	public final fun component12 ()Lcom/mobilebytelabs/paycraft/config/AuthClientsDto;
-	public final fun component13 ()J
+	public final fun component13 ()Lkotlinx/serialization/json/JsonObject;
+	public final fun component14 ()J
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3 ()Ljava/util/List;
 	public final fun component4 ()Ljava/util/List;
@@ -1086,11 +1153,12 @@ public final class com/mobilebytelabs/paycraft/config/SuiteConfig {
 	public final fun component7 ()Ljava/lang/String;
 	public final fun component8 ()Lcom/mobilebytelabs/paycraft/core/MonetizationMode;
 	public final fun component9 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/config/PaywallDto;Ljava/util/List;Ljava/lang/String;Lcom/mobilebytelabs/paycraft/core/MonetizationMode;Ljava/lang/String;Ljava/lang/String;ILcom/mobilebytelabs/paycraft/config/AuthClientsDto;J)Lcom/mobilebytelabs/paycraft/config/SuiteConfig;
-	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/config/SuiteConfig;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/config/PaywallDto;Ljava/util/List;Ljava/lang/String;Lcom/mobilebytelabs/paycraft/core/MonetizationMode;Ljava/lang/String;Ljava/lang/String;ILcom/mobilebytelabs/paycraft/config/AuthClientsDto;JILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/config/SuiteConfig;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/config/PaywallDto;Ljava/util/List;Ljava/lang/String;Lcom/mobilebytelabs/paycraft/core/MonetizationMode;Ljava/lang/String;Ljava/lang/String;ILcom/mobilebytelabs/paycraft/config/AuthClientsDto;Lkotlinx/serialization/json/JsonObject;J)Lcom/mobilebytelabs/paycraft/config/SuiteConfig;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/config/SuiteConfig;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lcom/mobilebytelabs/paycraft/config/PaywallDto;Ljava/util/List;Ljava/lang/String;Lcom/mobilebytelabs/paycraft/core/MonetizationMode;Ljava/lang/String;Ljava/lang/String;ILcom/mobilebytelabs/paycraft/config/AuthClientsDto;Lkotlinx/serialization/json/JsonObject;JILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/config/SuiteConfig;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAuth ()Lcom/mobilebytelabs/paycraft/config/AuthClientsDto;
 	public final fun getCacheTtlSeconds ()I
+	public final fun getExperiment ()Lkotlinx/serialization/json/JsonObject;
 	public final fun getFetchedAtEpochMillis ()J
 	public final fun getGeoCountry ()Ljava/lang/String;
 	public final fun getGeoSource ()Ljava/lang/String;
@@ -1455,6 +1523,21 @@ public final class com/mobilebytelabs/paycraft/core/identity/SignInState$Waiting
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class com/mobilebytelabs/paycraft/debug/PayCraftError {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;J)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;J)Lcom/mobilebytelabs/paycraft/debug/PayCraftError;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/debug/PayCraftError;Ljava/lang/String;Ljava/lang/String;JILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/debug/PayCraftError;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAtEpochMillis ()J
+	public final fun getMessage ()Ljava/lang/String;
+	public final fun getSource ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class com/mobilebytelabs/paycraft/debug/PayCraftLogLevel : java/lang/Enum {
 	public static final field DEBUG Lcom/mobilebytelabs/paycraft/debug/PayCraftLogLevel;
 	public static final field ERROR Lcom/mobilebytelabs/paycraft/debug/PayCraftLogLevel;
@@ -1467,6 +1550,7 @@ public final class com/mobilebytelabs/paycraft/debug/PayCraftLogLevel : java/lan
 public final class com/mobilebytelabs/paycraft/debug/PayCraftLogger {
 	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/debug/PayCraftLogger;
 	public final fun getEnabled ()Z
+	public final fun getLastError ()Lkotlinx/coroutines/flow/StateFlow;
 	public final fun onCheckout (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
 	public final fun onError (Ljava/lang/String;Ljava/lang/String;)V
 	public final fun onFlow (Ljava/lang/String;Ljava/lang/String;)V
@@ -1933,6 +2017,7 @@ public final class com/mobilebytelabs/paycraft/model/ProductMapper {
 }
 
 public final class com/mobilebytelabs/paycraft/model/ProductPricingKt {
+	public static final fun advertisedTrialDays (Lcom/mobilebytelabs/paycraft/model/Product;Lcom/mobilebytelabs/paycraft/config/SuiteConfig;Ljava/lang/Integer;)Ljava/lang/Integer;
 	public static final fun displayPrice (Lcom/mobilebytelabs/paycraft/model/Product;Lcom/mobilebytelabs/paycraft/config/SuiteConfig;Lcom/mobilebytelabs/paycraft/billing/NativeDisplayPrice;)Lcom/mobilebytelabs/paycraft/model/Money;
 	public static synthetic fun displayPrice$default (Lcom/mobilebytelabs/paycraft/model/Product;Lcom/mobilebytelabs/paycraft/config/SuiteConfig;Lcom/mobilebytelabs/paycraft/billing/NativeDisplayPrice;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/model/Money;
 	public static final fun laneAwareDisplayPrice (Lcom/mobilebytelabs/paycraft/model/Product;Lcom/mobilebytelabs/paycraft/config/SuiteConfig;)Lcom/mobilebytelabs/paycraft/model/Money;
@@ -2265,7 +2350,8 @@ public abstract interface class com/mobilebytelabs/paycraft/network/PayCraftServ
 	public abstract fun isPremium (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun isTrialEligible (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun owns (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun recordStoreAttempt (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun recordStoreAttempt (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun recordStoreAttempt$default (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public fun registerAppStorePurchase (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun registerDevice (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun registerDevice$default (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
@@ -2286,7 +2372,8 @@ public final class com/mobilebytelabs/paycraft/network/PayCraftService$DefaultIm
 	public static fun getEntitlements (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static fun hasActiveSubscription (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static fun owns (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static fun recordStoreAttempt (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static fun recordStoreAttempt (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun recordStoreAttempt$default (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static fun registerAppStorePurchase (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun registerDevice$default (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static fun registerPlayPurchase (Lcom/mobilebytelabs/paycraft/network/PayCraftService;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -2309,7 +2396,7 @@ public final class com/mobilebytelabs/paycraft/network/PayCraftServiceImpl : com
 	public fun isPremium (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun isTrialEligible (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun owns (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun recordStoreAttempt (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun recordStoreAttempt (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun registerAppStorePurchase (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun registerDevice (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun registerPlayPurchase (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

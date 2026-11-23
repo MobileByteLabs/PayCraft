@@ -1,5 +1,15 @@
 package com.mobilebytelabs.paycraft.debug
 
+import com.mobilebytelabs.paycraft.platform.currentTimeMillis
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
 /**
  * Central logging layer for PayCraft.
  *
@@ -114,6 +124,7 @@ object PayCraftLogger {
     }
 
     fun onRpcError(function: String, message: String?) {
+        record(function, message)
         if (!enabled) return
         logE(TAG) { "  ✗ $function error: $message" }
     }
@@ -133,8 +144,27 @@ object PayCraftLogger {
     // ── Error ────────────────────────────────────────────────────────────────
 
     fun onError(source: String, message: String?) {
+        record(source, message)
         if (!enabled) return
         logE(TAG) { "Error in $source: $message" }
+    }
+
+    // ── Error visibility ─────────────────────────────────────────────────────
+
+    private val _lastError = MutableStateFlow<PayCraftError?>(null)
+
+    /**
+     * The most recent SDK failure — config fetch, store connection, purchase registration, RPC,
+     * an uncaught background exception. Every failure path already reports through [onError] /
+     * [onRpcError], so this is the one place a host can observe them; before it, a failure that did
+     * not change [com.mobilebytelabs.paycraft.core.BillingState] left the user on Free with nothing
+     * but a log line (and none at all once a release build set [enabled] = false). Recorded even
+     * when logging is disabled. Exposed as `PayCraft.lastError`.
+     */
+    val lastError: StateFlow<PayCraftError?> = _lastError.asStateFlow()
+
+    private fun record(source: String, message: String?) {
+        _lastError.value = PayCraftError(source, message, runCatching { currentTimeMillis() }.getOrDefault(0L))
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -147,6 +177,22 @@ object PayCraftLogger {
         return "${parts[0].take(1)}***@${parts[1]}"
     }
 }
+
+/** One SDK failure, as seen on [PayCraftLogger.lastError]. No PII: messages are the SDK's own. */
+data class PayCraftError(val source: String, val message: String?, val atEpochMillis: Long)
+
+/**
+ * The scope every SDK-owned background job runs in. A [SupervisorJob] alone does NOT protect the
+ * host: it only stops a failure cancelling sibling jobs — the exception still reaches the thread's
+ * uncaught handler, which on Android kills the process. The handler logs it (and records it on
+ * [PayCraftLogger.lastError]) instead, so a billing failure can never crash the app that embeds us.
+ */
+internal fun payCraftScope(dispatcher: CoroutineDispatcher = Dispatchers.Default): CoroutineScope =
+    CoroutineScope(
+        SupervisorJob() + dispatcher + CoroutineExceptionHandler { _, e ->
+            PayCraftLogger.onError("uncaught", "${e::class.simpleName}: ${e.message}")
+        },
+    )
 
 // ── Logging shim ─────────────────────────────────────────────────────────────
 // Kermit was removed from PayCraft: it was a published transitive dependency doing nothing this

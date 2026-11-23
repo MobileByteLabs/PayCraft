@@ -3,6 +3,7 @@ package com.mobilebytelabs.paycraft
 import com.mobilebytelabs.paycraft.analytics.PayCraftAnalytics
 import com.mobilebytelabs.paycraft.analytics.PayCraftAnalyticsListener
 import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
+import com.mobilebytelabs.paycraft.attribution.AttributionIdsSync
 import com.mobilebytelabs.paycraft.billing.CheckoutLane
 import com.mobilebytelabs.paycraft.billing.NativeBillingClient
 import com.mobilebytelabs.paycraft.billing.NativeDisplayPrice
@@ -27,7 +28,9 @@ import com.mobilebytelabs.paycraft.core.PaywallPresentation
 import com.mobilebytelabs.paycraft.core.SessionDebounce
 import com.mobilebytelabs.paycraft.core.TrialSnapshot
 import com.mobilebytelabs.paycraft.core.identity.VerifiedSignIn
+import com.mobilebytelabs.paycraft.debug.PayCraftError
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
+import com.mobilebytelabs.paycraft.debug.payCraftScope
 import com.mobilebytelabs.paycraft.model.BillingBenefit
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.network.CheckoutInitiateClient
@@ -58,10 +61,7 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -114,6 +114,14 @@ object PayCraft {
      * those apart.
      */
     val configResultFlow: StateFlow<ConfigResult> = _configResultFlow.asStateFlow()
+
+    /**
+     * The most recent SDK failure (config fetch, store connection, purchase registration, RPC, an
+     * uncaught background exception), or null. Billing failures that do not change [BillingState]
+     * — a background re-sync, an out-of-band purchase the server refused — used to leave the user
+     * on Free with only a log line; collect this to report them (e.g. to Crashlytics as non-fatal).
+     */
+    val lastError: StateFlow<PayCraftError?> get() = PayCraftLogger.lastError
 
     @PayCraftInternalApi
     val suiteConfig: SuiteConfig? get() = _suiteConfigFlow.value
@@ -246,6 +254,45 @@ object PayCraft {
             analytics.listener = value
         }
 
+    private val attributionIds by lazy { AttributionIdsSync(send = ::postAttributionIds) }
+
+    /**
+     * The app's ad/analytics ids for this device — `FirebaseAnalytics.getAppInstanceId()` and
+     * `AppsFlyerLib.getAppsFlyerUID()`. PayCraft's server then forwards this buyer's verified purchase,
+     * trial start, renewal and refund to the GA4 / AppsFlyer credentials set on the dashboard, so ad
+     * campaigns see buyers and renewals (which the SDK alone never sees). Call whenever an id is known;
+     * a null keeps the one already set. Sent once the device is registered; never throws.
+     */
+    fun setAttributionIds(firebaseAppInstanceId: String? = null, appsFlyerId: String? = null) {
+        attributionIds.set(firebaseAppInstanceId, appsFlyerId)
+        flushAttributionIds()
+    }
+
+    /** Delivers pending ids, waiting up to a minute for the device token on first launch. */
+    private fun flushAttributionIds() {
+        applicationScope.launch {
+            repeat(12) {
+                if (attributionIds.flush(DeviceTokenStore.getToken())) return@launch
+                delay(5_000)
+            }
+        }
+    }
+
+    private suspend fun postAttributionIds(token: String, firebaseAppInstanceId: String?, appsFlyerId: String?): Boolean {
+        val key = apiKey ?: return false
+        if (!isConfigured) return false
+        if (backend is PayCraftBackend.Mock) return true // nothing to deliver to
+        return configHttpClient().post("${backend.supabaseUrl}/functions/v1/attribution-ids") {
+            PayCraftContract.headers(
+                anonKey = backend.supabaseAnonKey,
+                platform = runCatching { PlatformInfo.platform.lowercase() }.getOrDefault(""),
+                mode = if (mode == Mode.Test) "test" else "live",
+                json = true,
+            ).forEach { (name, value) -> header(name, value) }
+            setBody(AttributionIdsSync.body(key, token, firebaseAppInstanceId, appsFlyerId).toString())
+        }.status.isSuccess()
+    }
+
     private suspend fun postEvents(batch: List<PayCraftEvent>) {
         val key = apiKey ?: return
         if (!isConfigured || backend is PayCraftBackend.Mock) return
@@ -313,7 +360,7 @@ object PayCraft {
     enum class Mode { Test, Live, Unknown }
 
     /** Long-lived scope for the SDK's background work — currently just the cloud SuiteConfig fetch. */
-    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val applicationScope = payCraftScope()
     private var configFetchJob: Job? = null
     private var initOptions: InitOptions = InitOptions()
 
@@ -397,9 +444,17 @@ object PayCraft {
     /** Platform foreground signal (Android: first Activity started after all were stopped). */
     internal fun onAppForegrounded() {
         if (!isConfigured) return
-        billingManager?.onAppForegrounded()
-        // A browser sign-in (D2) completes in the browser; the app learns the result on return.
-        KoinPlatform.getKoinOrNull()?.getOrNull<VerifiedSignIn>()?.onForeground()
+        // Runs on the main thread from an Activity lifecycle / UIKit callback: a throw here (e.g. a
+        // Koin definition that fails to construct) would crash the host on every app resume.
+        try {
+            billingManager?.onAppForegrounded()
+            // A browser sign-in (D2) completes in the browser; the app learns the result on return.
+            KoinPlatform.getKoinOrNull()?.getOrNull<VerifiedSignIn>()?.onForeground()
+            // A device that registered (or re-registered) since the ids were set gets them now.
+            flushAttributionIds()
+        } catch (e: Exception) {
+            PayCraftLogger.onError("onAppForegrounded", e.message)
+        }
     }
 
     /**
@@ -944,8 +999,7 @@ object PayCraft {
         // already present, because its job is a cold-start warm-up. Here we WANT the cache even if
         // something is loaded, since what is loaded may be the thing that just failed to refresh.
         val cached = runCatching { configCacheOrNull()?.read() }.getOrNull()
-        if (cached != null) {
-            applySuiteConfig(cached)
+        if (cached != null && applyPersistedSuiteConfig(cached)) {
             // ConfigCache.read() signals expiry by handing back a copy with cacheTtlSeconds = 0.
             val stale = cached.cacheTtlSeconds == 0
             _configResultFlow.value = if (stale) {
@@ -970,8 +1024,7 @@ object PayCraft {
                 }
                     .decodeFromString(SuiteConfig.serializer(), bundledJson)
             }.getOrNull()
-            if (bundled != null) {
-                applySuiteConfig(bundled)
+            if (bundled != null && runCatching { applySuiteConfig(bundled) }.isSuccess) {
                 _configResultFlow.value = ConfigResult.Bundled(bundled)
                 PayCraftLogger.onFlow("loadConfig", "serving BUNDLED fallback — ${bundled.products.size} products")
                 return
@@ -998,7 +1051,7 @@ object PayCraft {
     private fun applyCachedSuiteConfig() {
         if (_suiteConfigFlow.value != null) return
         val cached = configCacheOrNull()?.let { runCatching { it.read() }.getOrNull() } ?: return
-        applySuiteConfig(cached)
+        if (!applyPersistedSuiteConfig(cached)) return
         // Publish the layer as well as the data: a warm start from an EXPIRED cache still renders,
         // but the user should be told the prices may have moved rather than shown stale numbers as
         // though they were fresh. The in-flight refresh will overwrite this with Fresh if it lands.
@@ -1011,6 +1064,23 @@ object PayCraft {
             "loadConfig",
             "warm start from persisted cache — ${cached.products.size} products (revalidating)",
         )
+    }
+
+    /**
+     * Apply a config read back from DISK; false (and the cache dropped) if applying it throws.
+     *
+     * A persisted config that decodes but cannot be applied is a crash LOOP, not a crash: the warm
+     * start runs synchronously inside [initialize] — i.e. inside Application.onCreate for a host
+     * that boots PayCraft from an eager Koin singleton — and the same bytes are read on every launch.
+     * Dropping it costs one cold start; keeping it would brick the app until a reinstall.
+     */
+    private fun applyPersistedSuiteConfig(cached: SuiteConfig): Boolean = try {
+        applySuiteConfig(cached)
+        true
+    } catch (e: Exception) {
+        PayCraftLogger.onError("loadConfig", "persisted config could not be applied — dropping it: ${e.message}")
+        runCatching { configCacheOrNull()?.clear() }
+        false
     }
 
     /** The Koin-resolved native billing client (Play on Android / StoreKit2 on iOS), or null. */
@@ -1125,8 +1195,7 @@ object PayCraft {
      * re-subscribes the entitlement channel when the buyer's identity changes.
      */
     private fun startRealtime(tenantId: String) {
-        val koin = KoinPlatform.getKoinOrNull() ?: return
-        val realtime = koin.getOrNull<PayCraftRealtime>() ?: return
+        val realtime = realtimeOrNull() ?: return
         realtime.ensureConfigChannel(tenantId) {
             // Cancel first — refreshConfig() has always done this, the ping path never did, so a
             // burst of dashboard saves left parallel fetches racing to publish onto the same
@@ -1157,6 +1226,18 @@ object PayCraft {
      * Best-effort and safe to call when realtime was never started; the TTL/foreground sync
      * remains the fallback either way.
      */
+    /**
+     * Realtime is best-effort, but resolving it builds the Supabase client — and Koin's getOrNull
+     * rethrows a definition that fails to CONSTRUCT. This runs inside [applySuiteConfig], i.e.
+     * synchronously inside [initialize] on a warm start, so an unguarded resolution is a startup crash.
+     */
+    private fun realtimeOrNull(): PayCraftRealtime? = try {
+        KoinPlatform.getKoinOrNull()?.getOrNull<PayCraftRealtime>()
+    } catch (e: Exception) {
+        PayCraftLogger.onError("realtime", "unavailable — TTL/foreground sync only: ${e.message}")
+        null
+    }
+
     internal fun resubscribeRealtime() {
         val koin = KoinPlatform.getKoinOrNull() ?: return
         runCatching { koin.getOrNull<PayCraftRealtime>()?.resubscribe() }
@@ -1165,7 +1246,7 @@ object PayCraft {
     internal fun refreshRealtimeIdentity() {
         val tenantId = suiteConfig?.tenantId ?: return
         val koin = KoinPlatform.getKoinOrNull() ?: return
-        val realtime = koin.getOrNull<PayCraftRealtime>() ?: return
+        val realtime = realtimeOrNull() ?: return
         applicationScope.launch {
             val email = runCatching { koin.getOrNull<PayCraftStore>()?.getEmail() }.getOrNull()
             val appUserId = email?.trim()?.lowercase()?.ifBlank { null } ?: deviceId

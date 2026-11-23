@@ -64,6 +64,17 @@ Before committing, run:
 ./gradlew linuxX64Test
 ```
 
+### Before every release: a real store-sandbox purchase
+
+There is no automated sandbox purchase yet. The `maestro/` flows run against `sample-app`, which is a
+Mock/Free showcase: they seed a cached entitlement through launch arguments and never open the Play or
+App Store purchase sheet, so they cannot catch a broken purchase or startup path. Until the sample app
+ships on a Play internal track with real products, run this by hand on a consumer app's **release**
+build installed from its internal track (Play) or TestFlight (App Store), signed in as a license
+tester / sandbox account: cold start (`adb shell am force-stop <pkg>` first) → open the paywall → buy →
+confirm Premium, force-stop, relaunch, confirm it is still Premium, then restore on a second install.
+Watch `PayCraft.lastError` (or logcat `-s PayCraft`) — it must stay null through the purchase.
+
 ## Pull Request Process
 
 1. Create a feature branch from `development`

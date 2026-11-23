@@ -16,6 +16,8 @@ import com.mobilebytelabs.paycraft.core.EntitlementSnapshot
 import com.mobilebytelabs.paycraft.core.PaywallPresentation
 import com.mobilebytelabs.paycraft.core.SubscriptionActivated
 import com.mobilebytelabs.paycraft.core.TrialSnapshot
+import com.mobilebytelabs.paycraft.debug.PayCraftLogger
+import com.mobilebytelabs.paycraft.debug.payCraftScope
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.Entitlement
@@ -24,8 +26,6 @@ import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
 import com.mobilebytelabs.paycraft.network.CouponClient
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -48,12 +48,13 @@ import kotlinx.coroutines.flow.stateIn
  *   facade exists to hide.
  * @param scope drives the [plans] projection only. The SDK's own `applicationScope` is private, so
  *   rather than widening that for one flow this single (app-lifetime, Koin-scoped) object owns a
- *   SupervisorJob of its own — a child failure cannot take the app down with it.
+ *   [payCraftScope] of its own — whose exception handler is what keeps a child failure from taking the
+ *   app down (a SupervisorJob alone does not).
  */
 internal class PayCraftRepositoryImpl(
     private val billing: BillingManager,
     private val entitlements: EntitlementRepository,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val scope: CoroutineScope = payCraftScope(),
 ) : PayCraftRepository {
 
     override val isPremium: StateFlow<Boolean> get() = billing.isPremium
@@ -105,7 +106,16 @@ internal class PayCraftRepositoryImpl(
         }.stateIn(scope, SharingStarted.Eagerly, EntitlementSummary.Free)
 
     /** Fire-and-observe; lane resolution (native vs web) belongs to the SDK and is not re-decided. */
-    override fun checkout(plan: BillingPlan, email: String?) = PayCraft.checkout(plan, email)
+    override fun checkout(plan: BillingPlan, email: String?) {
+        // Hosts call this straight from a click handler. PayCraft.checkout throws on a config gap (no
+        // payment link for the plan, no BillingManager for a native lane) — rethrowing that into a
+        // host lambda crashes the app. Fail soft: the failure lands on PayCraft.lastError instead.
+        try {
+            PayCraft.checkout(plan, email)
+        } catch (e: Exception) {
+            PayCraftLogger.onError("checkout", "checkout for ${plan.sku} failed: ${e.message}")
+        }
+    }
 
     /**
      * `appUserId` resolved the same way the rest of the SDK resolves it — `email ?: deviceId`

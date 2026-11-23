@@ -88,7 +88,9 @@ internal class StoreKit2NativeBillingClient(private val shim: PayCraftStoreKitSh
 
                     else -> NativePurchaseResult.Failed(outcome?.message ?: "StoreKit purchase failed")
                 }
-                cont.resume(result)
+                // A shim that reports twice (or after cancellation) must not crash the app with
+                // "Already resumed".
+                if (cont.isActive) cont.resume(result)
             }
             if (offer != null) {
                 shim.purchaseWithOffer(

@@ -36,7 +36,7 @@ class ExperimentAssignmentTest {
         tenantId = "t",
         products = listOf(sub("pro-monthly"), sub("pro-monthly-low"), sub("pro-lifetime", "year")),
         offerings = listOf(offering("control", "pro-monthly"), offering("cheaper", "pro-monthly-low")),
-        experiment = experiment,
+        experiment = experiment.toJson(),
     )
 
     @Test
@@ -69,7 +69,7 @@ class ExperimentAssignmentTest {
         val none = config.copy(experiment = null)
         assertSame(none, none.withExperimentAssigned("d").first)
         val missingOffering = config.copy(
-            experiment = experiment.copy(variants = experiment.variants.map { it.copy(offeringId = "gone") }),
+            experiment = experiment.copy(variants = experiment.variants.map { it.copy(offeringId = "gone") }).toJson(),
         )
         val (same, assignment) = missingOffering.withExperimentAssigned("d")
         assertSame(missingOffering, same)
@@ -84,7 +84,7 @@ class ExperimentAssignmentTest {
         val wire = """{"tenant_id":"t","experiment":{"key":"price-test","variants":[""" +
             """{"key":"control","weight":50,"offering_id":"o-1"},{"key":"cheaper","weight":50,"offering_id":"o-2"}]}}"""
         val cfg = Json { ignoreUnknownKeys = true }.decodeFromString(SuiteConfig.serializer(), wire)
-        assertEquals(ExperimentVariantDto("cheaper", 50, "o-2"), cfg.experiment?.variants?.last())
-        assertNull(Json { ignoreUnknownKeys = true }.decodeFromString(SuiteConfig.serializer(), """{"tenant_id":"t","experiment":null}""").experiment)
+        assertEquals(ExperimentVariantDto("cheaper", 50, "o-2"), cfg.experimentOrNull()?.variants?.last())
+        assertNull(Json { ignoreUnknownKeys = true }.decodeFromString(SuiteConfig.serializer(), """{"tenant_id":"t","experiment":null}""").experimentOrNull())
     }
 }

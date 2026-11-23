@@ -1,24 +1,50 @@
 package com.mobilebytelabs.paycraft.config
 
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
 
 /**
  * The tenant's running paywall A/B experiment, as `/config` serves it (migration 206). A variant is an OFFERING —
  * which plans, at which prices — so applying one is choosing which offering this device sees.
  */
-@Serializable
 data class ExperimentDto(
     val key: String = "",
     val variants: List<ExperimentVariantDto> = emptyList(),
 )
 
-@Serializable
 data class ExperimentVariantDto(
     val key: String = "",
     val weight: Int = 0,
-    @SerialName("offering_id") val offeringId: String = "",
+    val offeringId: String = "",
 )
+
+/** The wire form `/config` serves: `{ key, variants: [{ key, weight, offering_id }] }`. */
+fun ExperimentDto.toJson(): JsonObject = buildJsonObject {
+    put("key", key)
+    put(
+        "variants",
+        buildJsonArray {
+            variants.forEach { v ->
+                add(buildJsonObject { put("key", v.key); put("weight", v.weight); put("offering_id", v.offeringId) })
+            }
+        },
+    )
+}
+
+/** The served experiment, or null when absent or malformed (a malformed one must never break the paywall). */
+fun SuiteConfig.experimentOrNull(): ExperimentDto? {
+    val o = experiment ?: return null
+    fun JsonObject.str(k: String) = (get(k) as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+    val variants = (o["variants"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }.map {
+        ExperimentVariantDto(it.str("key"), (it["weight"] as? JsonPrimitive)?.intOrNull ?: 0, it.str("offering_id"))
+    }
+    return ExperimentDto(o.str("key"), variants).takeIf { it.key.isNotBlank() }
+}
 
 /** Which variant of which experiment this device is in — tagged onto every paywall event. */
 data class ExperimentAssignment(val experiment: String, val variant: String)
@@ -49,7 +75,7 @@ internal fun ExperimentDto.assign(unitId: String): ExperimentVariantDto? {
  * the payload, the config is returned unchanged — a broken experiment must fall back to the normal paywall.
  */
 internal fun SuiteConfig.withExperimentAssigned(unitId: String): Pair<SuiteConfig, ExperimentAssignment?> {
-    val exp = experiment ?: return this to null
+    val exp = experimentOrNull() ?: return this to null
     val arm = exp.assign(unitId) ?: return this to null
     val chosen = offerings.firstOrNull { it.id == arm.offeringId } ?: return this to null
     val skusOf = { offeringId: String ->

@@ -5,6 +5,7 @@ import { ArrowLeft, Info, Key, ShieldCheck } from "lucide-react"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
 import { AppStoreKeysForm } from "@/components/providers/app-store-keys-form"
+import { AppStoreRefundsForm } from "@/components/providers/app-store-refunds-form"
 import { ProviderAccountPicker } from "@/components/providers/provider-account-picker"
 
 /**
@@ -34,7 +35,14 @@ export default async function AppStoreSetupPage() {
   // Same single application id the Play page reads (111) — iOS bundle id and Android package name
   // are the same string, so they must come from the same place.
   const { data: appRow } = await supabase
-    .from("tenants").select("app_identifier").eq("id", tenant.id).maybeSingle<{ app_identifier: string | null }>()
+    .from("tenants")
+    .select("app_identifier, appstore_consumption_consent, appstore_refund_preference")
+    .eq("id", tenant.id)
+    .maybeSingle<{
+      app_identifier: string | null
+      appstore_consumption_consent: boolean | null
+      appstore_refund_preference: number | null
+    }>()
 
   // Which App Store Connect team this app bills through — see the Google Play page for why this
   // asks `tenant_provider_resolve` rather than reading the pointer.
@@ -116,6 +124,11 @@ export default async function AppStoreSetupPage() {
         bundleId={appRow?.app_identifier ?? ((cfg.bundle_id as string | undefined) ?? null)}
         connectionLabel={conn.label ?? null}
         reviewScreenshotUrl={(cfg.review_screenshot_url as string | undefined) ?? null}
+      />
+
+      <AppStoreRefundsForm
+        consent={!!appRow?.appstore_consumption_consent}
+        refundPreference={appRow?.appstore_refund_preference ?? 0}
       />
 
       {/* Status */}

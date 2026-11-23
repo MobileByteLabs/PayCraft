@@ -1,14 +1,12 @@
 package com.mobilebytelabs.paycraft.network
 
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
+import com.mobilebytelabs.paycraft.debug.payCraftScope
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.broadcastFlow
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.realtime
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -42,7 +40,7 @@ import kotlinx.serialization.json.JsonObject
  */
 class PayCraftRealtime(private val supabase: SupabaseClient) {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = payCraftScope()
 
     // All channel state is read/written ONLY inside [mutex] — this makes the
     // check-then-subscribe atomic (no duplicate channel when startRealtime is

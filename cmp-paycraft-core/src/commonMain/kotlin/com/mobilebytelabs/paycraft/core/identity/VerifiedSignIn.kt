@@ -5,6 +5,7 @@ import com.mobilebytelabs.paycraft.PayCraftInternalApi
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.contract.PayCraftContract
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
+import com.mobilebytelabs.paycraft.debug.payCraftScope
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -19,9 +20,7 @@ import io.ktor.http.encodeURLParameter
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -197,7 +196,7 @@ class VerifiedSignIn internal constructor(
     private val openBrowser: (String, (BrowserReturn) -> Unit) -> Unit = { url, onReturn ->
         InAppAuthBrowser.open(url, onReturn)
     },
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val scope: CoroutineScope = payCraftScope(),
 ) {
     private val _state = MutableStateFlow<SignInState>(SignInState.Idle)
     val state: StateFlow<SignInState> = _state.asStateFlow()
