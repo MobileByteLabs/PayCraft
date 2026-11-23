@@ -382,7 +382,7 @@ export interface ConvertedRegions {
  *
  * Null when the call fails: the sync then prices only the configured currencies, as before.
  */
-async function convertAllRegions(
+export async function convertAllRegions(
   token: string,
   pkg: string,
   prices: GooglePlayPriceInput[],

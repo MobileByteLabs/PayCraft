@@ -120,7 +120,9 @@ internal class PaywallFunnelTracker(
     fun purchaseSucceeded(planId: String?) {
         if (purchased || !checkoutStarted) return
         purchased = true
-        if (planId != null) sku = planId
+        // The checkout already set the catalogue SKU; a store status reports its OWN id (`pro_quarterly`),
+        // which no dashboard row is keyed on. Only fall back to it when the checkout left no SKU.
+        if (sku == null) sku = planId
         send(PayCraftEventName.PurchaseSuccess)
     }
 

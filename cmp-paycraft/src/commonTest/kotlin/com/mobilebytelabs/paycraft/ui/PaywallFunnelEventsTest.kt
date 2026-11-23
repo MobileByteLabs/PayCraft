@@ -166,6 +166,17 @@ class PaywallFunnelEventsTest {
         currency = "INR",
     )
 
+    /** Play's status carries the STORE id (`pro_quarterly`); the success must keep the catalogue SKU the checkout used. */
+    @Test fun a_store_purchase_is_counted_under_the_catalogue_sku_not_the_store_id() {
+        val billing = FakeBillingManager()
+        val v = vm(billing)
+        v.onShown()
+        v.dispatch(PayCraftPaywallAction.CheckoutWithProvider(quarterly, ProviderDto(provider = "google_play")))
+        billing.emitState(BillingState.Premium(SubscriptionStatus(isPremium = true, plan = "pro_quarterly")))
+        assertEquals(PayCraftEventName.PurchaseSuccess, events.last().name)
+        assertEquals("pro-quarterly", events.last().sku)
+    }
+
     @Test fun events_carry_the_plan_sku_not_its_product_id() {
         val v = vm()
         v.onShown()
