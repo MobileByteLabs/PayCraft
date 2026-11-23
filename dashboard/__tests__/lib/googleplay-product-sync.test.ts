@@ -164,7 +164,7 @@ test("sanitizes hyphenated SKUs to a Play-legal product id (malformed-id regress
   expect(body.basePlans[0].basePlanId).toBe("pro-quarterly-autorenew")
 })
 
-test("treats IDR/COP as whole-unit (zero-decimal) so Play prices are not ÷100 (below-min regression)", async () => {
+test("IDR/COP are minor units like other 2-decimal currencies: Rp 89,892 (8,989,200) reaches Play as 89892, not 100x", async () => {
   const fetchMock = mockCreatePath()
 
   await syncProductToGooglePlay(
@@ -174,7 +174,7 @@ test("treats IDR/COP as whole-unit (zero-decimal) so Play prices are not ÷100 (
     "Pro Monthly",
     "month",
     [
-      { currency: "IDR", amountCents: 89892 }, // ID → whole rupiah, NOT 898.92
+      { currency: "IDR", amountCents: 8989200 }, // Rp 89,892.00 in minor units
       { currency: "USD", amountCents: 999 }, // 2-decimal → $9.99
     ],
   )
@@ -182,7 +182,7 @@ test("treats IDR/COP as whole-unit (zero-decimal) so Play prices are not ÷100 (
   const body = createBodyFrom(fetchMock)
   const cfgs: any[] = body.basePlans[0].regionalConfigs
   const idr = cfgs.find((c) => c.regionCode === "ID")
-  // Rp 89,892 sent as whole units (>= Play's IDR 1,000 minimum), NOT Rp 898.92.
+  // Rp 89,892 — not Rp 8,989,200 (the 100x bug when IDR sat on the zero-decimal list), not Rp 898.92.
   expect(idr.price.currencyCode).toBe("IDR")
   expect(idr.price.units).toBe("89892")
   expect(idr.price.nanos).toBe(0)

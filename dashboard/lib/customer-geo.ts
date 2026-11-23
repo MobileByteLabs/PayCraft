@@ -137,6 +137,8 @@ const COUNTRY_CURRENCY: Record<string, string> = {
   BD: "BDT",
   TW: "TWD",
   PL: "PLN",
+  ET: "ETB",
+  MN: "MNT",
 }
 
 export function currencyForCountry(country: string | null): string | null {

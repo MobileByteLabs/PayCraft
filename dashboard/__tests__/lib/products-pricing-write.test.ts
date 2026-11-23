@@ -133,6 +133,27 @@ describe("PUT /v1/products/{id}/pricing", () => {
     expect((await res.json()).error).toContain("not_mappable_to_a_store_region")
   })
 
+  it("accepts a real IDR price in minor units (the flat cap refused Rp 895,455)", async () => {
+    const res = await put([{ locale: "ID", currency: "IDR", amount_cents: 89_545_500 }])
+    expect(res.status).toBe(200)
+  })
+
+  it("still refuses an implausible IDR amount — the cap scales with the currency, it is not gone", async () => {
+    // Same ~$100,000 ceiling the flat cap gives USD, in rupiah: Rp 1,000,000,000 is over it.
+    const res = await put([{ locale: "ID", currency: "IDR", amount_cents: 100_000_000_000 }])
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toContain("implausibly_large")
+  })
+
+  it("accepts every currency the Play sync maps, incl. COP / ETB / MNT", async () => {
+    const res = await put([
+      { locale: "CO", currency: "COP", amount_cents: 2_970_000 },
+      { locale: "ET", currency: "ETB", amount_cents: 63_234 },
+      { locale: "MN", currency: "MNT", amount_cents: 1_420_000 },
+    ])
+    expect(res.status).toBe(200)
+  })
+
   it("refuses two rows for the same locale", async () => {
     // UNIQUE(tenant_id, product_id, locale) makes this order-dependent; the loser would vanish.
     const res = await put([

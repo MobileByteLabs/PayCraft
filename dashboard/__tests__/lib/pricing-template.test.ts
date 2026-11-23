@@ -1,7 +1,7 @@
 // Tests for dashboard/lib/pricing-template.ts
 // Covers Phase 3 (country-pricing-template) AC-8/AC-13/AC-14:
 //   - USD reference -> per-country resolved amounts via DEFAULT_BANDS
-//   - Zero-decimal currencies (JPY, KRW, VND, CLP, COP, IDR) round to whole units
+//   - Zero-decimal currencies (JPY, KRW, VND, CLP) round to whole units; IDR/COP are minor units like the rest
 //   - Non-zero-decimal currencies round to .99 ending (roundTo=99) in minor units
 //   - Per-country overrides win over template multiplier
 //   - resolvePriceForCountry() falls back to US when country missing
@@ -187,13 +187,26 @@ describe("resolvePriceForCountry()", () => {
 })
 
 describe("ZERO_DECIMAL_CURRENCIES set", () => {
-  test("includes JPY, KRW, VND, CLP, COP, IDR", () => {
+  test("includes JPY, KRW, VND, CLP", () => {
     expect(ZERO_DECIMAL_CURRENCIES.has("JPY")).toBe(true)
     expect(ZERO_DECIMAL_CURRENCIES.has("KRW")).toBe(true)
     expect(ZERO_DECIMAL_CURRENCIES.has("VND")).toBe(true)
     expect(ZERO_DECIMAL_CURRENCIES.has("CLP")).toBe(true)
-    expect(ZERO_DECIMAL_CURRENCIES.has("COP")).toBe(true)
-    expect(ZERO_DECIMAL_CURRENCIES.has("IDR")).toBe(true)
+  })
+
+  // IDR and COP have cents (ISO 4217 exponent 2). Listing them made Play charge 100x (Rp 4,900,000 for Rp 49,000).
+  test("does NOT include IDR or COP", () => {
+    expect(ZERO_DECIMAL_CURRENCIES.has("IDR")).toBe(false)
+    expect(ZERO_DECIMAL_CURRENCIES.has("COP")).toBe(false)
+  })
+
+  test("template IDR/COP prices are minor units for the same whole-unit money as before", () => {
+    const rows = resolveTemplatePrices(USD_999)
+    const idr = rows.find((r) => r.currency === "IDR")!
+    const cop = rows.find((r) => r.currency === "COP")!
+    expect(idr.amountCents % 9900).toBe(0) // whole rupiah ending in 99
+    expect(cop.amountCents % 99000).toBe(0)
+    expect(idr.amountCents).toBe(Math.round((9.99 * 9000 * 100) / 9900) * 9900)
   })
 
   test("does NOT include USD, EUR, GBP, INR, BRL", () => {

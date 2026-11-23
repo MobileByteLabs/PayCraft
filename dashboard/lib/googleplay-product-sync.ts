@@ -113,7 +113,7 @@ export interface GooglePlaySyncResult {
 export const CURRENCY_REGION: Record<string, string> = {
   USD: "US", INR: "IN", GBP: "GB", EUR: "DE", JPY: "JP", CAD: "CA",
   AUD: "AU", SGD: "SG", BRL: "BR", MXN: "MX", ZAR: "ZA", AED: "AE",
-  IDR: "ID", NGN: "NG", KRW: "KR",
+  IDR: "ID", NGN: "NG", KRW: "KR", COP: "CO", ETB: "ET", MNT: "MN",
 }
 
 /** PayCraft billing interval → ISO-8601 duration for a Play base plan. */
