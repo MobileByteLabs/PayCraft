@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { badProductId, withApiKey } from "@/lib/api-v1-helpers"
 import { auditApiAction } from "@/lib/api-key-auth"
 import { queryFailed } from "@/lib/api-security"
-import { retireGooglePlaySubscription } from "@/lib/googleplay-product-sync"
+import { retireGooglePlayOneTime, retireGooglePlaySubscription } from "@/lib/googleplay-product-sync"
 export const dynamic = "force-dynamic"
 
 /**
@@ -35,7 +35,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (bad) return bad
     const { data: product, error: ownedError } = await ctx.admin
       .from("tenant_products")
-      .select("id, sku, display_name, active, play_product_id, app_store_product_id")
+      .select("id, sku, type, display_name, active, play_product_id, app_store_product_id")
       .eq("tenant_id", ctx.tenantId)
       .eq("id", productId)
       .maybeSingle()
@@ -90,7 +90,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         if (!decrypted?.credential || !packageName) {
           providers.google_play = { skipped: true, reason: "no stored Google Play credential or package_name" }
         } else {
-          providers.google_play = await retireGooglePlaySubscription(
+          // A one-time product is not a subscription: the subscription call 404s and used to be read as
+          // "already retired" while Play kept selling it.
+          const retire = product.type && product.type !== "subscription" ? retireGooglePlayOneTime : retireGooglePlaySubscription
+          providers.google_play = await retire(
             { serviceAccountJson: decrypted.credential, packageName },
             product.play_product_id,
           ).catch((e: unknown) => ({ retired: false, error: e instanceof Error ? e.message : "play retire threw" }))

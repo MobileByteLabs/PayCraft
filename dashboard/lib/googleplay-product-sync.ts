@@ -902,3 +902,62 @@ export async function retireGooglePlaySubscription(
     ...(failures.length > 0 ? { error: `base plan deactivate failed — ${failures.join("; ")}` } : {}),
   }
 }
+
+/**
+ * Stop a ONE-TIME product (lifetime / one_time / consumable) being sold on Play: deactivate every ACTIVE purchase
+ * option. Same result shape as [retireGooglePlaySubscription] (`basePlans` holds purchase-option ids) so the retire
+ * route reports both alike.
+ *
+ * Why it exists: retire used to send every product to the SUBSCRIPTION helper. A one-time product is not a
+ * subscription, so subscriptions.get answered 404, which that helper reads as "never created — already retired",
+ * and the route reported `retired_everywhere: true` while Play kept selling it (Status Saver pro_lifetime,
+ * 2026-11-23). GET is camelCase `oneTimeProducts`, as in googleplay-inapp-sync.ts.
+ */
+export async function retireGooglePlayOneTime(
+  creds: GooglePlayCreds,
+  playProductId: string,
+): Promise<{ retired: boolean; alreadyInactive: boolean; basePlans: string[]; error?: string }> {
+  const token = await playAccessToken(JSON.parse(creds.serviceAccountJson) as PlayServiceAccountJson)
+  const pkg = creds.packageName
+  if (!pkg) throw new Error("googleplay-product-sync: missing package_name in tenant store config")
+
+  const path = `/applications/${pkg}/oneTimeProducts/${encodeURIComponent(playProductId)}`
+  const getRes = await playFetch(token, path)
+  if (getRes.status === 404) return { retired: true, alreadyInactive: true, basePlans: [] }
+  if (!getRes.ok) {
+    return {
+      retired: false,
+      alreadyInactive: false,
+      basePlans: [],
+      error: `oneTimeProducts.get failed (${getRes.status}): ${shortPlayError(await getRes.text())}`,
+    }
+  }
+  const product = await getRes.json().catch(() => null)
+  const options: Array<{ purchaseOptionId?: string; state?: string }> = product?.purchaseOptions ?? []
+  const active = options.filter((o) => o?.purchaseOptionId && o.state === "ACTIVE")
+  if (active.length === 0) {
+    return { retired: true, alreadyInactive: true, basePlans: options.map((o) => o.purchaseOptionId ?? "") }
+  }
+
+  const res = await playFetch(token, `${path}/purchaseOptions:batchUpdateStates`, {
+    method: "POST",
+    body: JSON.stringify({
+      requests: active.map((o) => ({
+        deactivatePurchaseOptionRequest: {
+          packageName: pkg,
+          productId: playProductId,
+          purchaseOptionId: o.purchaseOptionId,
+          latencyTolerance: "PRODUCT_UPDATE_LATENCY_TOLERANCE_LATENCY_SENSITIVE",
+        },
+      })),
+    }),
+  })
+  const ids = active.map((o) => o.purchaseOptionId as string)
+  if (res.ok) return { retired: true, alreadyInactive: false, basePlans: ids }
+  return {
+    retired: false,
+    alreadyInactive: false,
+    basePlans: [],
+    error: `purchase option deactivate failed (${res.status}): ${shortPlayError(await res.text())}`,
+  }
+}

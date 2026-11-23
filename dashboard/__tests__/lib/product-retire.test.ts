@@ -34,6 +34,11 @@ jest.mock("@/lib/googleplay-product-sync", () => ({
     order.push("provider")
     return retireResult
   }),
+  retireGooglePlayOneTime: jest.fn(async (_creds: unknown, playProductId: string) => {
+    retireCalls.push(`one-time:${playProductId}`)
+    order.push("provider")
+    return retireResult
+  }),
 }))
 
 jest.mock("@/lib/api-v1-helpers", () => ({
@@ -121,6 +126,14 @@ describe("POST /v1/products/{id}/retire", () => {
     productRow = { ...(productRow as object), sku: "legacy_sku", play_product_id: "com.x.y.sub.guardian" }
     await retire()
     expect(retireCalls).toEqual(["com.x.y.sub.guardian"])
+  })
+
+  it("retires a ONE-TIME product through the one-time path, not the subscription call", async () => {
+    // The subscription call 404s for a lifetime product and was read as "already retired" while Play kept
+    // selling it (Status Saver pro_lifetime, 2026-11-23).
+    productRow = { ...(productRow as object), type: "one_time", play_product_id: "pro_lifetime" }
+    await retire()
+    expect(retireCalls).toEqual(["one-time:pro_lifetime"])
   })
 
   it("reports retired_everywhere and flips the local row", async () => {
