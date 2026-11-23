@@ -74,6 +74,15 @@ class ExperimentAssignmentTest {
         val (same, assignment) = missingOffering.withExperimentAssigned("d")
         assertSame(missingOffering, same)
         assertNull(assignment)
+        // A variant whose offering sells nothing must not empty the paywall: normal paywall, no variant tag.
+        val emptyOffering = config.copy(offerings = listOf(offering("control", "pro-monthly"), offering("cheaper")))
+        (0 until 20).forEach { d ->
+            val (applied, tag) = emptyOffering.withExperimentAssigned("d$d")
+            if (experiment.assign("d$d")!!.key == "cheaper") {
+                assertSame(emptyOffering, applied)
+                assertNull(tag)
+            }
+        }
         assertNull(ExperimentDto(key = "x", variants = listOf(ExperimentVariantDto("a", 0, "control"))).assign("d"))
         assertNotNull(experiment.assign(""))
     }

@@ -72,7 +72,7 @@ internal fun ExperimentDto.assign(unitId: String): ExperimentVariantDto? {
  * This config as the device's variant sees it: the variant's offering becomes the current one, and products that
  * only OTHER variants sell are dropped, so both the plan list and role lookups show exactly the variant's plans.
  * Products no variant mentions are untouched. Without an experiment, or when the variant's offering is missing from
- * the payload, the config is returned unchanged — a broken experiment must fall back to the normal paywall.
+ * the payload or sells nothing, the config is returned unchanged — a broken experiment must fall back to the normal paywall.
  */
 internal fun SuiteConfig.withExperimentAssigned(unitId: String): Pair<SuiteConfig, ExperimentAssignment?> {
     val exp = experimentOrNull() ?: return this to null
@@ -81,7 +81,8 @@ internal fun SuiteConfig.withExperimentAssigned(unitId: String): Pair<SuiteConfi
     val skusOf = { offeringId: String ->
         offerings.firstOrNull { it.id == offeringId }?.packages?.flatMap { it.productSkus }.orEmpty().toSet()
     }
-    val kept = skusOf(chosen.id)
+    // An offering that sells nothing would leave this device an empty paywall (migration 209 refuses to start one).
+    val kept = skusOf(chosen.id).ifEmpty { return this to null }
     val others = exp.variants.filter { it.offeringId != chosen.id }.flatMap { skusOf(it.offeringId) }.toSet() - kept
     val applied = copy(
         offerings = offerings.map { it.copy(isCurrent = it.id == chosen.id) },

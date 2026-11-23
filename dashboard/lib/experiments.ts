@@ -33,6 +33,7 @@ export const EXPERIMENT_ERROR_CODES = [
   "experiment_not_found",
   "experiment_bad_transition",
   "experiment_already_running",
+  "experiment_offering_empty",
 ] as const
 
 /** Null when [d] can be saved; otherwise the database's error code. [offeringIds]: the tenant's ACTIVE offerings. */
@@ -66,6 +67,7 @@ export function experimentErrorMessage(code: string): string {
     case "experiment_not_found": return "That experiment no longer exists."
     case "experiment_bad_transition": return "An experiment goes draft → running → stopped, once."
     case "experiment_already_running": return "Another experiment is running — stop it first."
+    case "experiment_offering_empty": return "Every variant's offering needs at least one product before the experiment can start."
     default: return "The experiment couldn't be saved."
   }
 }

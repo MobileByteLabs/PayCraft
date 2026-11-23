@@ -59,6 +59,10 @@ T=$(q "insert into tenants (name, owner_email, api_key_test, api_key_live, webho
 [[ -n "$T" ]] || { bad "create tenant"; exit 1; }
 O1=$(q "insert into tenant_offerings (tenant_id, identifier, display_name, is_current) values ('$T','control','Control',true) returning id" | head -1)
 O2=$(q "insert into tenant_offerings (tenant_id, identifier, display_name) values ('$T','cheaper','Cheaper') returning id" | head -1)
+# One product per offering: 209 refuses to start an experiment whose variant offering sells nothing.
+q "with p as (insert into tenant_packages (offering_id, tenant_id, role_identifier, display_name) values ('$O1','$T','\$rc_monthly','Monthly'),('$O2','$T','\$rc_monthly','Monthly') returning id, offering_id)
+   insert into tenant_products (tenant_id, sku, type, display_name, package_id)
+   select '$T', case when offering_id='$O1' then 'pro-monthly' else 'pro-monthly-b' end, 'subscription', 'Pro', id from p" >/dev/null
 q "select paywall_experiment_save('$T','price-test','Price test',jsonb_build_array(jsonb_build_object('key','control','weight',50,'offering_id','$O1'),jsonb_build_object('key','cheaper','weight',50,'offering_id','$O2')))" >/dev/null \
   && q "select paywall_experiment_set_status('$T','price-test','running')" >/dev/null && ok "experiment running" || bad "start experiment"
 

@@ -39,6 +39,19 @@ BEGIN
   PERFORM paywall_experiment_save(t, 'price-test', 'Price test v2', good);
   IF paywall_experiment_public_get(t) IS NOT NULL THEN RAISE EXCEPTION 'FAIL: draft served to the SDK'; END IF;
 
+  -- 2b. (209) An offering with no products can't be started — that variant would get an empty paywall.
+  expect_error := NULL;
+  BEGIN
+    PERFORM paywall_experiment_set_status(t, 'price-test', 'running');
+  EXCEPTION WHEN OTHERS THEN expect_error := SQLERRM;
+  END;
+  IF expect_error IS DISTINCT FROM 'experiment_offering_empty' THEN RAISE EXCEPTION 'FAIL: empty offering started (%)', expect_error; END IF;
+  WITH p AS (
+    INSERT INTO tenant_packages (offering_id, tenant_id, role_identifier, display_name)
+    VALUES (o1, t, '$rc_monthly', 'Monthly'), (o2, t, '$rc_monthly', 'Monthly') RETURNING id, offering_id)
+  INSERT INTO tenant_products (tenant_id, sku, type, display_name, package_id)
+  SELECT t, CASE WHEN p.offering_id = o1 THEN 'pro-monthly' ELSE 'pro-monthly-b' END, 'subscription', 'Pro', p.id FROM p;
+
   -- 3. Running: served to the SDK, frozen, and the only running one.
   PERFORM paywall_experiment_set_status(t, 'price-test', 'running');
   IF paywall_experiment_public_get(t)->>'key' <> 'price-test'
