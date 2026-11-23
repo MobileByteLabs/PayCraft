@@ -72,12 +72,16 @@ export interface StripeSessionInput {
   discount?: { promotionCodeId: string | null; couponId: string | null } | null
   /** Echoed on the session so the webhook can mark the offer redeemed once payment succeeds. */
   winbackOfferId?: string | null
+  /** A one-time product (lifetime / consumable): a `payment` session — stripe-webhook's mode=payment branch grants it. */
+  oneTime?: boolean
 }
 
-/** The form body for POST https://api.stripe.com/v1/checkout/sessions (a subscription for one price). */
+/** The form body for POST https://api.stripe.com/v1/checkout/sessions (one price; subscription unless [oneTime]). */
 export function stripeSessionForm(i: StripeSessionInput): string {
   const f = new URLSearchParams()
-  f.set("mode", "subscription")
+  // subscription_data is refused by Stripe on a payment session, so only a subscription carries it.
+  const sub = i.oneTime ? null : "subscription_data"
+  f.set("mode", i.oneTime ? "payment" : "subscription")
   f.set("line_items[0][price]", i.priceId)
   f.set("line_items[0][quantity]", "1")
   f.set("customer_email", i.email)
@@ -93,14 +97,14 @@ export function stripeSessionForm(i: StripeSessionInput): string {
   for (const [k, v] of Object.entries(meta)) {
     f.set(`metadata[${k}]`, v)
     // Renewals arrive as subscription events: the subscription carries the same keys.
-    f.set(`subscription_data[metadata][${k}]`, v)
+    if (sub) f.set(`${sub}[metadata][${k}]`, v)
   }
-  if (i.trialDays > 0) f.set("subscription_data[trial_period_days]", String(i.trialDays))
+  if (sub && i.trialDays > 0) f.set(`${sub}[trial_period_days]`, String(i.trialDays))
   if (i.discount?.promotionCodeId) f.set("discounts[0][promotion_code]", i.discount.promotionCodeId)
   else if (i.discount?.couponId) f.set("discounts[0][coupon]", i.discount.couponId)
   if (i.winbackOfferId) {
     f.set("metadata[paycraft_winback_offer]", i.winbackOfferId)
-    f.set("subscription_data[metadata][paycraft_winback_offer]", i.winbackOfferId)
+    if (sub) f.set(`${sub}[metadata][paycraft_winback_offer]`, i.winbackOfferId)
   }
   return f.toString()
 }

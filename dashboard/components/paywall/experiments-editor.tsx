@@ -93,7 +93,8 @@ export function ExperimentsEditor({ initial, offerings }: { initial: Experiment[
 
   const offeringIds = offerings.map((o) => o.id)
   const problem = draft ? validateExperiment(draft, offeringIds) : null
-  const shownError = error ?? (draft ? problem : null)
+  // A fresh form starts with an empty key: Save is already disabled, so the message waits for typing.
+  const shownError = error ?? (draft?.key ? problem : null)
 
   const upsert = (e: Experiment) => setList((cur) => (cur.some((x) => x.key === e.key) ? cur.map((x) => (x.key === e.key ? e : x)) : [e, ...cur]))
   const edit = (patch: Partial<ExperimentDraft>) => { setDraft((d) => (d ? { ...d, ...patch } : d)); setError(null) }

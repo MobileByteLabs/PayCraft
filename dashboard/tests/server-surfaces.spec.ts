@@ -39,6 +39,7 @@ const ROUTES = [
   "/settings/api-keys",
   "/settings/provider-accounts",
   "/paywall",
+  "/paywall/experiments",
   "/subscribers",
   "/audit",
   "/webhooks",
@@ -227,3 +228,21 @@ test("the needs-attention surface is reachable from any page, not just Products"
     ).toBeVisible({ timeout: 10_000 })
   }
 })
+
+/**
+ * THE 206–208 SETTINGS CARDS.
+ *
+ * Experiments, App Store refund requests and attribution forwarding each mount a card into a page
+ * that already rendered before them, so "the route renders" does not prove the card is there.
+ */
+for (const [route, marker] of [
+  ["/paywall/experiments", "New experiment"],
+  ["/providers/app-store", "Refund requests"],
+  ["/settings", "Google Analytics 4 / Firebase"],
+  ["/settings", "AppsFlyer"],
+] as const) {
+  test(`${route} mounts "${marker}"`, async ({ page }) => {
+    await page.goto(route, { waitUntil: "domcontentloaded" })
+    await expect(page.locator(`text=${marker}`).first()).toBeVisible({ timeout: 10_000 })
+  })
+}

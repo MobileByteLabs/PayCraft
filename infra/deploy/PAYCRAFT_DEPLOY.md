@@ -23,7 +23,7 @@ End-state delivered:
 - Dashboard built by `next-on-pages` + deployed to Cloudflare Pages project `paycraft`
 - Custom domain `paycraft.mobilebytesensei.com` served via Cloudflare DNS (proxied)
 - TLS provisioned automatically by Cloudflare
-- Health check + smoke confirming end-to-end up
+- Health check + smoke, then `infra/deploy/e2e.sh`: experiments → /config → /events → results, /attribution-ids, /apple-server-notifications against the deployed backend (throwaway tenant, deleted on exit; runnable on its own)
 
 ## Invariants
 
