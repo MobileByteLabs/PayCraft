@@ -16,7 +16,7 @@ jest.mock("@/lib/store-jwt", () => ({
   playAccessToken: jest.fn(async () => "fake-play-token"),
 }))
 
-import { regionalConfigsToAdd, syncProductToGooglePlay } from "@/lib/googleplay-product-sync"
+import { isPlayProductId, regionalConfigsToAdd, syncProductToGooglePlay } from "@/lib/googleplay-product-sync"
 
 // playAccessToken is mocked, so the private_key is only JSON-parsed, never used
 // to sign — a plain placeholder keeps the shape without tripping secret scanners.
@@ -600,4 +600,35 @@ test("re-sync extends an existing plan AND its trial to every converted region, 
   expect(offer.regionalConfigs.map((r: any) => r.regionCode)).toEqual(["US", "FR", "TR", "CO"])
   const offerCall = fetchMock.mock.calls.find(([u, i]) => String(u).includes("/offers/") && (i as any)?.method === "PATCH")!
   expect(String(offerCall[0])).toContain("regionsVersion.version=2025/03")
+})
+
+/**
+ * A RECORDED ID PLAY CAN NEVER ACCEPT (Affirmly, 2026-11-23).
+ *
+ * Onboarding stored the SKU `com.mobilebytesensei.affirmly.sub.semiannual` (44 chars) as the Play id,
+ * and every re-sync re-sent it: "Subscription ID is malformed". Play caps ids at 40.
+ */
+test("isPlayProductId: Play's charset and its 40-character cap", () => {
+  expect(isPlayProductId("com.mobilebytesensei.affirmly.sub.month")).toBe(true) // 39
+  expect(isPlayProductId("com.mobilebytesensei.affirmly.sub.quarter")).toBe(false) // 41
+  expect(isPlayProductId("pro-quarterly")).toBe(false) // hyphen
+  expect(isPlayProductId("_pro")).toBe(false)
+  expect(isPlayProductId(undefined)).toBe(false)
+})
+
+test("a recorded id Play would reject is replaced by the sanitized one, not re-sent", async () => {
+  const fetchMock = mockCreatePath()
+  const result = await syncProductToGooglePlay(
+    { serviceAccountJson: SA_JSON, packageName: "com.example.app" },
+    "prod-4",
+    "com.mobilebytesensei.affirmly.sub.semiannual",
+    "Affirmly Semiannual",
+    "semiannual",
+    [{ currency: "USD", amountCents: 2999 }],
+    "com.mobilebytesensei.affirmly.sub.semiannual", // what onboarding recorded
+  )
+  const body = createBodyFrom(fetchMock)
+  expect(body.productId).toBe("com.mobilebytesensei.affirmly.sub.semian")
+  expect(body.productId.length).toBeLessThanOrEqual(40)
+  expect(result.playProductId).toBe(body.productId) // the caller records the id that exists on Play
 })

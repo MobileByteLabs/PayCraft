@@ -171,6 +171,17 @@ export function playBillingPeriod(interval: string | null | undefined): string {
  * with 400 "Subscription ID is malformed". Anything outside the allowed set
  * (including "-") maps to underscore.
  */
+/**
+ * A product id Play accepts: lowercase letters, digits, `.` and `_`, starting with a letter or digit, at
+ * most 40 characters. Onboarding records the catalogue SKU as the Play id before Play has seen it, so a
+ * SKU like `com.mobilebytesensei.affirmly.sub.semiannual` (44) sat there and every re-sync re-sent it,
+ * failing "Subscription ID is malformed" forever. An id that fails this can never exist on Play, so the
+ * sync falls back to the sanitized one, which the caller then records.
+ */
+export function isPlayProductId(id: string | null | undefined): id is string {
+  return typeof id === "string" && /^[a-z0-9][a-z0-9._]{0,39}$/.test(id)
+}
+
 function sanitizePlayProductId(sku: string): string {
   let id = sku.toLowerCase().replace(/[^a-z0-9._]/g, "_").replace(/^[._]+|[._]+$/g, "")
   if (!id) id = "product"
@@ -673,7 +684,7 @@ export async function syncProductToGooglePlay(
   const pkg = creds.packageName
   if (!pkg) throw new Error("googleplay-product-sync: missing package_name in tenant store config")
 
-  const productId = existingPlayProductId || sanitizePlayProductId(sku)
+  const productId = isPlayProductId(existingPlayProductId) ? existingPlayProductId : sanitizePlayProductId(sku)
   const basePlanId = basePlanIdFor(productId)
   const regions = resolveRegions(prices)
   // Every region Play sells in, so no buyer is outside the product (null → configured currencies only).

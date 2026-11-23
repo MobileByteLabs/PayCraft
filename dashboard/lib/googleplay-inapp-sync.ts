@@ -59,6 +59,7 @@ import {
   type GooglePlayPriceInput,
   CURRENCY_REGION,
   convertAllRegions,
+  isPlayProductId,
   regionalConfigsToAdd,
   REGIONS_VERSION,
   playFetch,
@@ -185,7 +186,7 @@ export async function syncInAppProductToGooglePlay(
   const pkg = creds.packageName
   if (!pkg) throw new Error("googleplay-inapp-sync: missing package_name in tenant store config")
 
-  const productId = existingPlayProductId || sanitizeInAppProductId(sku)
+  const productId = isPlayProductId(existingPlayProductId) ? existingPlayProductId : sanitizeInAppProductId(sku)
   const regionalConfigs = regionalConfigsFor(prices)
   if (regionalConfigs.length === 0) {
     // Not "no prices" — no price whose currency maps to a Play region. Saying which matters: a
