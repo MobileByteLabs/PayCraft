@@ -7,6 +7,7 @@ import { syncProductToGooglePlay } from "@/lib/googleplay-product-sync"
 import { syncProductToAppStore } from "@/lib/appstore-product-sync"
 import { createClient } from "@/lib/supabase-server"
 import { getConnectedStripeClient } from "@/lib/stripe-client"
+import { effectiveTrialDays } from "@/lib/trial-rule"
 
 interface SyncOptions {
   tenantId: string
@@ -76,8 +77,8 @@ function providerSyncMessage(label: string, product: string, entry: ProviderSync
  * Returning 0 signals "no trial on this platform" — the W2 teardown then removes any
  * existing offer for that provider automatically.
  *
- * Legacy fallback: when `trial_per_platform` is absent/empty, use the single
- * `trial_enabled` + `trial_duration_days` pair fanned to every platform.
+ * Legacy fallback: when `trial_per_platform` is absent/empty, the ONE trial rule (`lib/trial-rule.ts`)
+ * fanned to every platform — an unset `trial_duration_days` is 7 days, as the web already serves it.
  *
  *   platformKey ∈ 'android' (Google Play) | 'ios' (App Store) | 'web' | 'desktop'
  */
@@ -86,7 +87,7 @@ export function resolvePlatformTrialDays(body: Record<string, any>, platformKey:
   if (perPlatform && typeof perPlatform === "object" && Object.keys(perPlatform).length > 0) {
     return Number(perPlatform[platformKey] ?? 0)
   }
-  return body.trial_enabled && body.trial_duration_days ? Number(body.trial_duration_days) : 0
+  return effectiveTrialDays(body) // same rule as /config + checkout-initiate: unset length → 7 days
 }
 
 function buildPriceInputs(body: Record<string, any>): PriceInput[] {
