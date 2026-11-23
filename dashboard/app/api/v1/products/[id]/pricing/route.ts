@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { withApiKey } from "@/lib/api-v1-helpers"
+import { badProductId, withApiKey } from "@/lib/api-v1-helpers"
 import { auditApiAction } from "@/lib/api-key-auth"
 import { queryFailed } from "@/lib/api-security"
 import { CURRENCY_REGION } from "@/lib/googleplay-product-sync"
@@ -118,6 +118,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   // sharp instead of teaching it an exception it would then miss a real violation through.
   const productId = params.id
   return withApiKey(req, "products:write", async (ctx) => {
+    const bad = badProductId(productId)
+    if (bad) return bad
     // Ownership first: without the tenant predicate a key could price another tenant's product.
     const { data: owned, error: ownedError } = await ctx.admin
       .from("tenant_products")

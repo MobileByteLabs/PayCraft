@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { withApiKey } from "@/lib/api-v1-helpers"
+import { badProductId, withApiKey } from "@/lib/api-v1-helpers"
 import { auditApiAction } from "@/lib/api-key-auth"
 import { queryFailed } from "@/lib/api-security"
 import { retireGooglePlaySubscription } from "@/lib/googleplay-product-sync"
@@ -31,6 +31,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const productId = params.id
 
   return withApiKey(req, "products:write", async (ctx) => {
+    const bad = badProductId(productId)
+    if (bad) return bad
     const { data: product, error: ownedError } = await ctx.admin
       .from("tenant_products")
       .select("id, sku, display_name, active, play_product_id, app_store_product_id")

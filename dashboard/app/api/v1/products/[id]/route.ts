@@ -1,13 +1,15 @@
 import { auditApiAction } from "@/lib/api-key-auth"
 import { buildProductRow, PRODUCT_LOOKUP_COLUMNS, toRpcRow } from "@/lib/product-write"
 import { NextResponse } from "next/server"
-import { withApiKey } from "@/lib/api-v1-helpers"
+import { badProductId, withApiKey } from "@/lib/api-v1-helpers"
 import { queryFailed } from "@/lib/api-security"
 export const dynamic = "force-dynamic"
 
 /** GET /v1/products/{id} — one product, with its pricing rows. */
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   return withApiKey(req, "products:read", async (ctx) => {
+    const bad = badProductId(params.id)
+    if (bad) return bad
     const { data, error } = await ctx.admin
       .from("tenant_products")
       .select("*")
@@ -63,6 +65,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const productId = params.id
 
   return withApiKey(req, "products:write", async (ctx) => {
+    const bad = badProductId(productId)
+    if (bad) return bad
     let patch: Record<string, unknown>
     try {
       patch = (await req.json()) as Record<string, unknown>

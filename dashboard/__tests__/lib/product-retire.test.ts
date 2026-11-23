@@ -38,6 +38,7 @@ jest.mock("@/lib/googleplay-product-sync", () => ({
 
 jest.mock("@/lib/api-v1-helpers", () => ({
   __esModule: true,
+  badProductId: jest.requireActual("@/lib/api-v1-helpers").badProductId,
   withApiKey: async (req: Request, scope: string, fn: (ctx: unknown) => Promise<unknown>) => {
     scopeAsked = scope
     const admin = {
