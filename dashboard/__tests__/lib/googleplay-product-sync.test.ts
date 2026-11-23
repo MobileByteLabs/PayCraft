@@ -16,7 +16,7 @@ jest.mock("@/lib/store-jwt", () => ({
   playAccessToken: jest.fn(async () => "fake-play-token"),
 }))
 
-import { syncProductToGooglePlay } from "@/lib/googleplay-product-sync"
+import { regionalConfigsToAdd, syncProductToGooglePlay } from "@/lib/googleplay-product-sync"
 
 // playAccessToken is mocked, so the private_key is only JSON-parsed, never used
 // to sign — a plain placeholder keeps the shape without tripping secret scanners.
@@ -25,6 +25,18 @@ const SA_JSON = JSON.stringify({
   private_key: "test-placeholder-signing-key-mocked",
   token_uri: "https://oauth2.googleapis.com/token",
 })
+
+/**
+ * Install [mock] as global fetch, answering Play's region-price conversion OUT OF BAND (404 → the sync
+ * prices only the configured currencies). The queue-based mocks below predate the conversion call;
+ * serving it here keeps their call indices — and every assertion on them — exactly as they were.
+ */
+function installFetch(mock: jest.Mock) {
+  ;(global as unknown as { fetch: unknown }).fetch = (url: unknown, init?: unknown) =>
+    String(url).includes("pricing:convertRegionPrices")
+      ? Promise.resolve({ ok: false, status: 404, text: async () => "", json: async () => ({}) })
+      : mock(url, init)
+}
 
 /**
  * GET probe → 404 (absent), POST create → 200. Returns the fetch mock.
@@ -73,7 +85,7 @@ function mockCreatePath(opts: { activateOk?: boolean; appLive?: boolean } = {}) 
     }
     return queue(url, init)
   })
-  ;(global as unknown as { fetch: unknown }).fetch = fetchMock
+  installFetch(fetchMock)
   return fetchMock
 }
 
@@ -248,7 +260,7 @@ function mockCreatePathWithTrial(opts: { offerActivateOk?: boolean } = {}) {
               JSON.stringify({ error: { code: 400, message: "The app is not published.", status: "FAILED_PRECONDITION" } }),
           },
     ) // activate offer
-  ;(global as unknown as { fetch: unknown }).fetch = fetchMock
+  installFetch(fetchMock)
   return fetchMock
 }
 
@@ -516,4 +528,76 @@ it("does not patch an existing free-trial offer that already matches the catalog
 
   // Idempotent: nothing drifted, so no live-store write.
   expect(offerPatchBody(fetchMock)).toBeNull()
+})
+
+/**
+ * EVERY REGION, NOT ONE PER CURRENCY (Reels Downloader, 2026-11-23).
+ *
+ * One region per configured currency meant 29 currencies reached 14 countries; every other buyer got
+ * an empty queryProductDetails → `product_not_found` (90 of 94 reasoned Play failures that week).
+ * Play's own conversion now prices every remaining region; the operator's price still wins in any
+ * currency they set, so euro-zone countries charge the configured EUR rather than a USD conversion.
+ */
+const CONVERTED = {
+  version: "2025/03",
+  regions: [
+    { regionCode: "US", price: { currencyCode: "USD", units: "9", nanos: 990000000 } },
+    { regionCode: "FR", price: { currencyCode: "EUR", units: "9", nanos: 490000000 } },
+    { regionCode: "TR", price: { currencyCode: "TRY", units: "339", nanos: 990000000 } },
+    { regionCode: "CO", price: { currencyCode: "COP", units: "41900", nanos: 0 } },
+  ],
+}
+
+test("regionalConfigsToAdd: configured currencies first, Play's conversion for every other region", () => {
+  const have = new Set(["US"])
+  const added = regionalConfigsToAdd(
+    have,
+    [{ currency: "USD", amountCents: 999 }, { currency: "EUR", amountCents: 899 }],
+    CONVERTED,
+  )
+  expect(added.map((a) => a.regionCode)).toEqual(["DE", "FR", "TR", "CO"])
+  // FR is in a currency the operator priced → the operator's 8.99 EUR, not the 9.49 conversion.
+  expect(added.find((a) => a.regionCode === "FR")!.price).toEqual({ currencyCode: "EUR", units: "8", nanos: 990000000 })
+  expect(added.find((a) => a.regionCode === "TR")!.price).toEqual(CONVERTED.regions[2].price)
+  expect(added.every((a) => a.newSubscriberAvailability === true)).toBe(true)
+  // Additive only: an already-priced region is never re-sent, and nothing is lost without a conversion.
+  expect(regionalConfigsToAdd(new Set(["US", "DE"]), [{ currency: "EUR", amountCents: 899 }], null)).toEqual([])
+})
+
+test("re-sync extends an existing plan AND its trial to every converted region, at the conversion's version", async () => {
+  const fetchMock = mockExistingOfferPath("P14D", ["US"])
+  const inner = (global as unknown as { fetch: (u: unknown, i?: unknown) => Promise<any> }).fetch
+  ;(global as unknown as { fetch: unknown }).fetch = (url: unknown, init?: unknown) =>
+    String(url).includes("pricing:convertRegionPrices")
+      ? Promise.resolve({
+          ok: true, status: 200, text: async () => "",
+          json: async () => ({
+            regionVersion: { version: CONVERTED.version },
+            convertedRegionPrices: Object.fromEntries(CONVERTED.regions.map((r) => [r.regionCode, r])),
+          }),
+        })
+      : inner(url, init)
+
+  const result = await syncProductToGooglePlay(
+    { serviceAccountJson: SA_JSON, packageName: "com.example.app" },
+    "prod-annual", "pro_annual", "Pro Annual", "year",
+    [{ currency: "USD", amountCents: 999 }],
+    "pro_annual",
+    14,
+    null,
+  )
+
+  const planPatch = fetchMock.mock.calls.find(
+    ([u, i]) => String(u).includes("updateMask=basePlans") && (i as any)?.method === "PATCH",
+  )!
+  expect(String(planPatch[0])).toContain("regionsVersion.version=2025/03")
+  const plan = JSON.parse((planPatch[1] as any).body).basePlans[0]
+  expect(plan.regionalConfigs.map((r: any) => r.regionCode)).toEqual(["US", "FR", "TR", "CO"])
+  expect(result.regionsPriced).toBe(4)
+
+  // The trial follows the plan — otherwise the new countries see a paywall trial Play won't grant.
+  const offer = offerPatchBody(fetchMock)
+  expect(offer.regionalConfigs.map((r: any) => r.regionCode)).toEqual(["US", "FR", "TR", "CO"])
+  const offerCall = fetchMock.mock.calls.find(([u, i]) => String(u).includes("/offers/") && (i as any)?.method === "PATCH")!
+  expect(String(offerCall[0])).toContain("regionsVersion.version=2025/03")
 })

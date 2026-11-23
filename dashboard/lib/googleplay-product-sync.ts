@@ -252,32 +252,21 @@ async function ensureBasePlanRegions(
   productId: string,
   basePlanId: string,
   prices: GooglePlayPriceInput[],
-): Promise<{ added: number; total: number; error?: string }> {
+  converted: ConvertedRegions | null,
+): Promise<{ added: number; total: number; regions: string[]; error?: string }> {
   const getRes = await playFetch(token, `/applications/${pkg}/subscriptions/${encodeURIComponent(productId)}`)
   if (!getRes.ok) {
-    return { added: 0, total: 0, error: `subscriptions.get failed (${getRes.status})` }
+    return { added: 0, total: 0, regions: [], error: `subscriptions.get failed (${getRes.status})` }
   }
   const sub = await getRes.json().catch(() => null)
   const basePlans: any[] = sub?.basePlans ?? []
   const plan = basePlans.find((b) => b?.basePlanId === basePlanId)
-  if (!plan) return { added: 0, total: 0, error: `base plan ${basePlanId} not found` }
+  if (!plan) return { added: 0, total: 0, regions: [], error: `base plan ${basePlanId} not found` }
 
   const existing: any[] = plan.regionalConfigs ?? []
-  const have = new Set<string>(existing.map((r) => r.regionCode))
-
-  // Same currency→region collapse as the create path: many-to-one, first price for a region wins.
-  const additions: Array<Record<string, unknown>> = []
-  for (const { currency, amountCents } of prices) {
-    const region = CURRENCY_REGION[currency.toUpperCase()]
-    if (!region || have.has(region)) continue
-    have.add(region)
-    additions.push({
-      regionCode: region,
-      newSubscriberAvailability: true,
-      price: toPlayMoney(currency, amountCents),
-    })
-  }
-  if (additions.length === 0) return { added: 0, total: existing.length }
+  const had = existing.map((r) => r.regionCode as string)
+  const additions = regionalConfigsToAdd(new Set(had), prices, converted)
+  if (additions.length === 0) return { added: 0, total: existing.length, regions: had }
 
   // Send every base plan back, with only the target's regionalConfigs extended. `state` is
   // output-only and is rejected on write.
@@ -290,15 +279,19 @@ async function ensureBasePlanRegions(
 
   const res = await playFetch(
     token,
-    `/applications/${pkg}/subscriptions/${encodeURIComponent(productId)}?updateMask=basePlans&regionsVersion.version=${REGIONS_VERSION}`,
+    `/applications/${pkg}/subscriptions/${encodeURIComponent(productId)}?updateMask=basePlans&regionsVersion.version=${converted?.version ?? REGIONS_VERSION}`,
     { method: "PATCH", body: JSON.stringify({ packageName: pkg, productId, basePlans: merged }) },
   )
   if (!res.ok) {
     const body = await res.text()
     console.warn(`[googleplay-product-sync] region patch failed for ${productId} (${res.status}): ${body}`)
-    return { added: 0, total: existing.length, error: `${res.status}: ${shortPlayError(body)}` }
+    return { added: 0, total: existing.length, regions: had, error: `${res.status}: ${shortPlayError(body)}` }
   }
-  return { added: additions.length, total: existing.length + additions.length }
+  return {
+    added: additions.length,
+    total: existing.length + additions.length,
+    regions: [...had, ...additions.map((a) => a.regionCode as string)],
+  }
 }
 
 async function activateBasePlan(
@@ -371,6 +364,76 @@ export function resolveRegions(prices: GooglePlayPriceInput[]): string[] {
   return regions
 }
 
+/** Every Play region, priced by Play's own conversion of one anchor price. */
+export interface ConvertedRegions {
+  /** The regions version the conversion was made against — every write that uses these prices must send it. */
+  version: string
+  regions: Array<{ regionCode: string; price: { currencyCode: string; units?: string; nanos?: number } }>
+}
+
+/**
+ * Ask Play to price the anchor (USD when configured) in EVERY region it sells in.
+ *
+ * WHY: CURRENCY_REGION maps one region per currency, so a catalogue in 29 currencies reached 14
+ * countries — the euro alone stood for Germany only. Play has no availability separate from price,
+ * so every other country got NO product: queryProductDetails came back empty and the SDK reported
+ * `product_not_found`. Measured on Reels Downloader 2026-11-23: 90 of 94 reasoned Play failures in
+ * a week were exactly that, across 39 buyers, while the same SKUs sold in the 14 priced countries.
+ *
+ * Null when the call fails: the sync then prices only the configured currencies, as before.
+ */
+async function convertAllRegions(
+  token: string,
+  pkg: string,
+  prices: GooglePlayPriceInput[],
+): Promise<ConvertedRegions | null> {
+  const anchor = prices.find((p) => p.currency.toUpperCase() === "USD") ?? prices[0]
+  if (!anchor) return null
+  const res = await playFetch(token, `/applications/${pkg}/pricing:convertRegionPrices`, {
+    method: "POST",
+    body: JSON.stringify({ price: toPlayMoney(anchor.currency, anchor.amountCents) }),
+  }).catch(() => null)
+  if (!res?.ok) return null
+  const body = await res.json().catch(() => null)
+  const regions = Object.values(body?.convertedRegionPrices ?? {})
+    .map((r: any) => ({ regionCode: r?.regionCode, price: r?.price }))
+    .filter((r) => typeof r.regionCode === "string" && r.price?.currencyCode)
+  return regions.length ? { version: body?.regionVersion?.version ?? REGIONS_VERSION, regions } : null
+}
+
+/**
+ * The regional configs to ADD to a plan that already has [have]: the operator's prices first (one
+ * region per currency, first price wins), then Play's conversion for every region still unpriced.
+ * A converted region in a currency the operator priced charges the OPERATOR's amount, so every
+ * euro-zone country sells at the configured EUR, not at a USD conversion. Mutates [have].
+ */
+export function regionalConfigsToAdd(
+  have: Set<string>,
+  prices: GooglePlayPriceInput[],
+  converted: ConvertedRegions | null,
+): Array<Record<string, unknown>> {
+  const additions: Array<Record<string, unknown>> = []
+  for (const { currency, amountCents } of prices) {
+    const region = CURRENCY_REGION[currency.toUpperCase()]
+    if (!region || have.has(region)) continue
+    have.add(region)
+    additions.push({ regionCode: region, newSubscriberAvailability: true, price: toPlayMoney(currency, amountCents) })
+  }
+  const configured = new Map(prices.map((p) => [p.currency.toUpperCase(), p.amountCents]))
+  for (const { regionCode, price } of converted?.regions ?? []) {
+    if (have.has(regionCode)) continue
+    have.add(regionCode)
+    const ccy = price.currencyCode.toUpperCase()
+    const own = configured.get(ccy)
+    additions.push({
+      regionCode,
+      newSubscriberAvailability: true,
+      price: own === undefined ? price : toPlayMoney(ccy, own),
+    })
+  }
+  return additions
+}
+
 /** Free-trial offer id: lowercase [a-z0-9-], ≤ 63 chars, deterministic per base plan. */
 function freeTrialOfferIdFor(basePlanId: string): string {
   return `${basePlanId}-freetrial`.replace(/[^a-z0-9-]/g, "-").slice(0, 63).replace(/-+$/g, "")
@@ -404,6 +467,8 @@ async function ensureFreeTrialOffer(
   basePlanId: string,
   trialDays: number,
   regions: string[],
+  /** The plan's regions version — regions added from a newer conversion are unknown to the 2022 baseline. */
+  regionsVersion: string = REGIONS_VERSION,
 ): Promise<{ offerId: string; activated: boolean; error?: string }> {
   const offerId = freeTrialOfferIdFor(basePlanId)
   if (regions.length === 0) {
@@ -445,7 +510,7 @@ async function ensureFreeTrialOffer(
     }
     const createRes = await playFetch(
       token,
-      `${offersBase}?offerId=${encodeURIComponent(offerId)}&regionsVersion.version=${REGIONS_VERSION}`,
+      `${offersBase}?offerId=${encodeURIComponent(offerId)}&regionsVersion.version=${regionsVersion}`,
       { method: "POST", body: JSON.stringify(offerBody) },
     )
     if (!createRes.ok) {
@@ -501,7 +566,7 @@ async function ensureFreeTrialOffer(
         }
         const patchRes = await playFetch(
           token,
-          `${offersBase}/${encodeURIComponent(offerId)}?updateMask=regionalConfigs,phases&regionsVersion.version=${REGIONS_VERSION}`,
+          `${offersBase}/${encodeURIComponent(offerId)}?updateMask=regionalConfigs,phases&regionsVersion.version=${regionsVersion}`,
           { method: "PATCH", body: JSON.stringify(patchBody) },
         )
         if (!patchRes.ok) {
@@ -611,13 +676,15 @@ export async function syncProductToGooglePlay(
   const productId = existingPlayProductId || sanitizePlayProductId(sku)
   const basePlanId = basePlanIdFor(productId)
   const regions = resolveRegions(prices)
+  // Every region Play sells in, so no buyer is outside the product (null → configured currencies only).
+  const converted = await convertAllRegions(token, pkg, prices)
   const wantsTrial = typeof trialDays === "number" && trialDays > 0
 
   // After the base plan is ensured (created OR already-present) provision the
   // FREE_TRIAL offer so the Play cart actually grants the trial. Runs in BOTH
   // branches so re-syncing an existing subscription can add a newly-configured
   // trial. No-trial products get an explicit null so the caller can detect it.
-  const withTrial = async (base: GooglePlaySyncResult): Promise<GooglePlaySyncResult> => {
+  const withTrial = async (base: GooglePlaySyncResult, planRegions: string[] = regions): Promise<GooglePlaySyncResult> => {
     if (!wantsTrial) {
       // Trial DISABLED → tear down any stale free-trial offer so the store stops
       // granting a trial the paywall no longer advertises (deactivate, reversible).
@@ -629,7 +696,7 @@ export async function syncProductToGooglePlay(
         trialOfferError: off.error,
       }
     }
-    const t = await ensureFreeTrialOffer(token, pkg, productId, basePlanId, trialDays as number, regions)
+    const t = await ensureFreeTrialOffer(token, pkg, productId, basePlanId, trialDays as number, planRegions, converted?.version)
     return {
       ...base,
       freeTrialOfferId: t.offerId,
@@ -665,7 +732,7 @@ export async function syncProductToGooglePlay(
     }
     // Extend region coverage BEFORE activation/offers: a newly-configured currency must reach the
     // store on a re-sync, and the free-trial offer is attached to the regions the plan actually has.
-    const regionOutcome = await ensureBasePlanRegions(token, pkg, productId, basePlanId, prices)
+    const regionOutcome = await ensureBasePlanRegions(token, pkg, productId, basePlanId, prices, converted)
 
     // Re-sync of an existing subscription: attempt to activate the base plan
     // (a no-op if already active) — this is how a DRAFT plan goes live once the
@@ -684,7 +751,7 @@ export async function syncProductToGooglePlay(
       created: false,
       activated: act.activated,
       activationError: act.error,
-    })
+    }, regionOutcome.regions.length ? regionOutcome.regions : regions)
   }
 
   if (getRes.status !== 404) {
@@ -701,28 +768,9 @@ export async function syncProductToGooglePlay(
   // (e.g. every euro-zone price resolves to DE), so a tenant pricing matrix
   // that carries two prices landing on the same region MUST be collapsed to a
   // single regionalConfig — first price for a region wins, deterministically.
-  const regionalConfigs: Array<Record<string, unknown>> = []
-  const seenRegions = new Set<string>()
-  for (const { currency, amountCents } of prices) {
-    const region = CURRENCY_REGION[currency.toUpperCase()]
-    if (!region) {
-      console.warn(
-        `[googleplay-product-sync] no region mapping for ${currency}; skipping that price for ${productId}`,
-      )
-      continue
-    }
-    if (seenRegions.has(region)) {
-      console.warn(
-        `[googleplay-product-sync] region ${region} already priced (from an earlier currency); skipping duplicate ${currency} price for ${productId}`,
-      )
-      continue
-    }
-    seenRegions.add(region)
-    regionalConfigs.push({
-      regionCode: region,
-      newSubscriberAvailability: true,
-      price: toPlayMoney(currency, amountCents),
-    })
+  const regionalConfigs = regionalConfigsToAdd(new Set<string>(), prices, converted)
+  if (regionalConfigs.length === 0) {
+    console.warn(`[googleplay-product-sync] no Play region for any of ${productId}'s currencies`)
   }
 
   const createBody = {
@@ -743,7 +791,7 @@ export async function syncProductToGooglePlay(
 
   const createRes = await playFetch(
     token,
-    `/applications/${pkg}/subscriptions?productId=${encodeURIComponent(productId)}&regionsVersion.version=${REGIONS_VERSION}`,
+    `/applications/${pkg}/subscriptions?productId=${encodeURIComponent(productId)}&regionsVersion.version=${converted?.version ?? REGIONS_VERSION}`,
     { method: "POST", body: JSON.stringify(createBody) },
   )
   if (!createRes.ok) {
@@ -763,7 +811,7 @@ export async function syncProductToGooglePlay(
     created: true,
     activated: act.activated,
     activationError: act.error,
-  })
+  }, regionalConfigs.map((r) => r.regionCode as string))
 }
 
 /**
