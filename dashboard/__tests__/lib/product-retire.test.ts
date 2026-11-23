@@ -18,6 +18,8 @@ const PRODUCT = "22222222-2222-2222-2222-222222222222"
 
 let productRow: Record<string, unknown> | null
 let subCount: number
+let entCount: number
+let entError: unknown
 let subError: unknown
 let updates: Array<Record<string, unknown>>
 let retireCalls: string[]
@@ -49,7 +51,7 @@ jest.mock("@/lib/api-v1-helpers", () => ({
     const admin = {
       from(table: string) {
         const q: Record<string, unknown> = {}
-        for (const m of ["select", "eq", "in"]) q[m] = () => q
+        for (const m of ["select", "eq", "in", "or"]) q[m] = () => q
         q.maybeSingle = async () => ({ data: productRow, error: null })
         q.update = (vals: Record<string, unknown>) => {
           order.push("local")
@@ -61,7 +63,7 @@ jest.mock("@/lib/api-v1-helpers", () => ({
         }
         // head:true count query resolves off the builder
         ;(q as { then: unknown }).then = (res: (v: unknown) => unknown) =>
-          res({ count: subCount, error: subError })
+          res(table === "entitlement_records" ? { count: entCount, error: entError } : { count: subCount, error: subError })
         return q
       },
       rpc: (name: string) => ({
@@ -97,6 +99,8 @@ beforeEach(() => {
     active: true, play_product_id: "com.x.y.sub.guardian", app_store_product_id: null,
   }
   subCount = 0
+  entCount = 0
+  entError = null
   subError = null
   updates = []
   retireCalls = []
@@ -134,6 +138,26 @@ describe("POST /v1/products/{id}/retire", () => {
     productRow = { ...(productRow as object), type: "one_time", play_product_id: "pro_lifetime" }
     await retire()
     expect(retireCalls).toEqual(["one-time:pro_lifetime"])
+  })
+
+  it("REFUSES when only an entitlement record is live — a store or one-time purchase is a customer too", async () => {
+    // Premium reads subscriptions OR entitlement_records; counting only the first retired a product that still
+    // granted Pro (Status Saver pro-lifetime, 2026-11-23).
+    entCount = 1
+    const res = await retire()
+    const body = await res.json()
+    expect(res.status).toBe(409)
+    expect(body.subscribers).toBe(1)
+    expect(body.entitlements).toBe(1)
+    expect(retireCalls).toEqual([])
+    expect(updates).toEqual([])
+  })
+
+  it("fails CLOSED when entitlements cannot be read", async () => {
+    entError = { message: "boom" }
+    const res = await retire()
+    expect(res.status).toBe(500)
+    expect(retireCalls).toEqual([])
   })
 
   it("reports retired_everywhere and flips the local row", async () => {

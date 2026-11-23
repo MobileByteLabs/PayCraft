@@ -60,11 +60,32 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       .in("status", ["active", "trialing", "past_due"])
     // A countable guard that cannot be counted is not a guard — fail closed rather than retire blind.
     if (subsError) return queryFailed("v1/products/[id]/retire:subscribers", subsError) as NextResponse
-    if ((liveSubs ?? 0) > 0) {
+
+    // Entitlements count too. Premium is `subscriptions` OR `entitlement_records`
+    // (_store_entitlement_premium_in_mode, migration 203), and a store purchase — or a Stripe one-time purchase —
+    // lives only in the second. Counting subscriptions alone let a product be retired while a record still
+    // granted Pro (Status Saver pro-lifetime, 2026-11-23). PSP rows name the product by SKU, store rows by the
+    // store's own id, so all three names are matched. Live = the states premium treats as live plus billing retry
+    // (the store twin of past_due above), and not yet expired.
+    const names = [product.sku, product.play_product_id, product.app_store_product_id].filter(Boolean) as string[]
+    const now = new Date().toISOString()
+    const { count: liveEnts, error: entsError } = await ctx.admin
+      .from("entitlement_records")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", ctx.tenantId)
+      .in("product_id", names)
+      .in("canonical_state", ["trial", "active", "active_non_renewing", "in_grace_period", "on_billing_retry"])
+      .or(`expires_at.is.null,expires_at.gt.${now},in_grace_until.gt.${now}`)
+    if (entsError) return queryFailed("v1/products/[id]/retire:entitlements", entsError) as NextResponse
+
+    const live = (liveSubs ?? 0) + (liveEnts ?? 0)
+    if (live > 0) {
       return NextResponse.json(
         {
           error: "product_retire_has_subscribers",
-          subscribers: liveSubs,
+          subscribers: live,
+          subscriptions: liveSubs ?? 0,
+          entitlements: liveEnts ?? 0,
           detail:
             "Deactivating a plan with a live cohort is an operator decision. Existing subscribers " +
             "keep renewing regardless; this refuses only to make that call automatically.",
