@@ -184,7 +184,12 @@ class PayCraftWeb(
         val cc = runCatching { json.parseToJsonElement(res.body).jsonObject["country"]?.jsonPrimitive?.contentOrNull }
             .getOrNull()
         val normalized = cc?.trim()?.uppercase()
-        if (normalized != null && Regex("^[A-Z]{2}$").matches(normalized) && normalized != "XX") visitorCountry = normalized
+        if (normalized != null &&
+            Regex("^[A-Z]{2}$").matches(normalized) &&
+            normalized != "XX"
+        ) {
+            visitorCountry = normalized
+        }
     }
 
     // ── Paywall events (paycraft-paywall-analytics) ─────────────────────────────────────────────

@@ -353,10 +353,18 @@ class PayCraftContractTest {
         // An A/B experiment's variant (migration 206) rides on the event, and into the app's analytics params.
         val tagged = com.mobilebytelabs.paycraft.analytics.PayCraftEvent(
             name = com.mobilebytelabs.paycraft.analytics.PayCraftEventName.PaywallView,
-            step = com.mobilebytelabs.paycraft.analytics.PayCraftStep.Paywall, platform = "ios", atMs = 1,
-            experiment = "price-test", variant = "cheaper",
+            step = com.mobilebytelabs.paycraft.analytics.PayCraftStep.Paywall,
+            platform = "ios",
+            atMs = 1,
+            experiment = "price-test",
+            variant = "cheaper",
         )
-        val wire = PayCraftContract.eventsBody("pk_x", "dev-1", null, listOf(tagged))["events"]!!.jsonArray[0].jsonObject
+        val wire = PayCraftContract.eventsBody(
+            "pk_x",
+            "dev-1",
+            null,
+            listOf(tagged),
+        )["events"]!!.jsonArray[0].jsonObject
         assertEquals("price-test", wire["experiment"]?.jsonPrimitive?.content)
         assertEquals("cheaper", wire["variant"]?.jsonPrimitive?.content)
         assertEquals("cheaper", tagged.params()["variant"])

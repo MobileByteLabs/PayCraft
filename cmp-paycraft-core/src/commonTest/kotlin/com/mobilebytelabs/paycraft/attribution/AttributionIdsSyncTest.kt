@@ -16,7 +16,10 @@ class AttributionIdsSyncTest {
 
     private val sent = mutableListOf<Triple<String, String?, String?>>()
     private var answer: () -> Boolean = { true }
-    private val sync = AttributionIdsSync { token, fb, af -> sent += Triple(token, fb, af); answer() }
+    private val sync = AttributionIdsSync { token, fb, af ->
+        sent += Triple(token, fb, af)
+        answer()
+    }
 
     @Test fun nothing_to_send_without_ids() = runTest {
         assertTrue(sync.flush("tok"))
@@ -38,7 +41,11 @@ class AttributionIdsSyncTest {
         sync.flush("tok")
         sync.flush("tok-2")
         assertEquals(
-            listOf<Triple<String, String?, String?>>(Triple("tok", "fb-1", null), Triple("tok", "fb-1", "af-1"), Triple("tok-2", "fb-1", "af-1")),
+            listOf<Triple<String, String?, String?>>(
+                Triple("tok", "fb-1", null),
+                Triple("tok", "fb-1", "af-1"),
+                Triple("tok-2", "fb-1", "af-1"),
+            ),
             sent,
         )
     }

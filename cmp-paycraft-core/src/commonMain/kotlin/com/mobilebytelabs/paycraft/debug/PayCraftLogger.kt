@@ -187,12 +187,11 @@ data class PayCraftError(val source: String, val message: String?, val atEpochMi
  * uncaught handler, which on Android kills the process. The handler logs it (and records it on
  * [PayCraftLogger.lastError]) instead, so a billing failure can never crash the app that embeds us.
  */
-internal fun payCraftScope(dispatcher: CoroutineDispatcher = Dispatchers.Default): CoroutineScope =
-    CoroutineScope(
-        SupervisorJob() + dispatcher + CoroutineExceptionHandler { _, e ->
-            PayCraftLogger.onError("uncaught", "${e::class.simpleName}: ${e.message}")
-        },
-    )
+internal fun payCraftScope(dispatcher: CoroutineDispatcher = Dispatchers.Default): CoroutineScope = CoroutineScope(
+    SupervisorJob() + dispatcher + CoroutineExceptionHandler { _, e ->
+        PayCraftLogger.onError("uncaught", "${e::class.simpleName}: ${e.message}")
+    },
+)
 
 // ── Logging shim ─────────────────────────────────────────────────────────────
 // Kermit was removed from PayCraft: it was a published transitive dependency doing nothing this

@@ -50,12 +50,16 @@ internal class AttributionIdsSync(
 
     companion object {
         /** `attribution-ids` body; an absent id leaves the stored one untouched server-side. */
-        fun body(apiKey: String, deviceToken: String, firebaseAppInstanceId: String?, appsFlyerId: String?): JsonObject =
-            buildJsonObject {
-                put("apiKey", apiKey)
-                put("deviceToken", deviceToken)
-                firebaseAppInstanceId?.let { put("firebaseAppInstanceId", it) }
-                appsFlyerId?.let { put("appsFlyerId", it) }
-            }
+        fun body(
+            apiKey: String,
+            deviceToken: String,
+            firebaseAppInstanceId: String?,
+            appsFlyerId: String?,
+        ): JsonObject = buildJsonObject {
+            put("apiKey", apiKey)
+            put("deviceToken", deviceToken)
+            firebaseAppInstanceId?.let { put("firebaseAppInstanceId", it) }
+            appsFlyerId?.let { put("appsFlyerId", it) }
+        }
     }
 }

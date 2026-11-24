@@ -12,16 +12,9 @@ import kotlinx.serialization.json.put
  * The tenant's running paywall A/B experiment, as `/config` serves it (migration 206). A variant is an OFFERING —
  * which plans, at which prices — so applying one is choosing which offering this device sees.
  */
-data class ExperimentDto(
-    val key: String = "",
-    val variants: List<ExperimentVariantDto> = emptyList(),
-)
+data class ExperimentDto(val key: String = "", val variants: List<ExperimentVariantDto> = emptyList())
 
-data class ExperimentVariantDto(
-    val key: String = "",
-    val weight: Int = 0,
-    val offeringId: String = "",
-)
+data class ExperimentVariantDto(val key: String = "", val weight: Int = 0, val offeringId: String = "")
 
 /** The wire form `/config` serves: `{ key, variants: [{ key, weight, offering_id }] }`. */
 fun ExperimentDto.toJson(): JsonObject = buildJsonObject {
@@ -30,7 +23,13 @@ fun ExperimentDto.toJson(): JsonObject = buildJsonObject {
         "variants",
         buildJsonArray {
             variants.forEach { v ->
-                add(buildJsonObject { put("key", v.key); put("weight", v.weight); put("offering_id", v.offeringId) })
+                add(
+                    buildJsonObject {
+                        put("key", v.key)
+                        put("weight", v.weight)
+                        put("offering_id", v.offeringId)
+                    },
+                )
             }
         },
     )

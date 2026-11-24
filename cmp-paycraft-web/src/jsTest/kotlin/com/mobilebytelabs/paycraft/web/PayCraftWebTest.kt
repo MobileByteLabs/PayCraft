@@ -151,13 +151,30 @@ class PayCraftWebTest {
 
     @Test
     fun anExplicitCountryWinsAndAGeoFailureNeverBlocksConfig() = runTest {
-        val explicit = FakeTransport().on("/api/geo") { """{"country":"IN"}""" }.on("/functions/v1/config") { CONFIG_JSON }
-        sdk(explicit).also { it.geoUrl = "https://paycraft.example/api/geo"; it.setCountry("BR") }.loadConfig()
-        assertEquals(0, explicit.calls.count { it.url.endsWith("/api/geo") }, "the site's choice is never second-guessed")
+        val explicit = FakeTransport().on("/api/geo") {
+            """{"country":"IN"}"""
+        }.on("/functions/v1/config") { CONFIG_JSON }
+        sdk(explicit).also {
+            it.geoUrl = "https://paycraft.example/api/geo"
+            it.setCountry("BR")
+        }.loadConfig()
+        assertEquals(
+            0,
+            explicit.calls.count {
+                it.url.endsWith("/api/geo")
+            },
+            "the site's choice is never second-guessed",
+        )
         assertEquals("en-BR", explicit.calls.last().headers["Accept-Language"])
 
-        for (geo in listOf<Pair<Int, String>>(500 to "boom", 200 to """{"country":null}""", 200 to """{"country":"XX"}""")) {
-            val net = FakeTransport().on("/api/geo", geo.first) { geo.second }.on("/functions/v1/config") { CONFIG_JSON }
+        for (geo in listOf<Pair<Int, String>>(
+            500 to "boom",
+            200 to """{"country":null}""",
+            200 to """{"country":"XX"}""",
+        )) {
+            val net = FakeTransport().on("/api/geo", geo.first) {
+                geo.second
+            }.on("/functions/v1/config") { CONFIG_JSON }
             val cfg = sdk(net).also { it.geoUrl = "https://paycraft.example/api/geo" }.loadConfig()
             assertEquals(1, cfg.products.size, "config still loads after geo answered $geo")
             assertEquals(null, net.calls.last().headers["Accept-Language"])

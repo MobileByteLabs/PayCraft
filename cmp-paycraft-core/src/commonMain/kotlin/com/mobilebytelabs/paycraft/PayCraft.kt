@@ -16,8 +16,8 @@ import com.mobilebytelabs.paycraft.config.CouponDto
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
-import com.mobilebytelabs.paycraft.config.withExperimentAssigned
 import com.mobilebytelabs.paycraft.config.readBundledSuiteConfigJsonOrNull
+import com.mobilebytelabs.paycraft.config.withExperimentAssigned
 import com.mobilebytelabs.paycraft.contract.PayCraftContract
 import com.mobilebytelabs.paycraft.core.AdFreeEntitlement
 import com.mobilebytelabs.paycraft.core.BillingManager
@@ -278,7 +278,11 @@ object PayCraft {
         }
     }
 
-    private suspend fun postAttributionIds(token: String, firebaseAppInstanceId: String?, appsFlyerId: String?): Boolean {
+    private suspend fun postAttributionIds(
+        token: String,
+        firebaseAppInstanceId: String?,
+        appsFlyerId: String?,
+    ): Boolean {
         val key = apiKey ?: return false
         if (!isConfigured) return false
         if (backend is PayCraftBackend.Mock) return true // nothing to deliver to

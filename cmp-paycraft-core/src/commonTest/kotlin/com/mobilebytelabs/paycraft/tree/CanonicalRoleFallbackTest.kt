@@ -43,7 +43,17 @@ class CanonicalRoleFallbackTest {
         assertEquals("monthly_v2", legacyTenant.productForRole("\$rc_monthly")?.sku)
         assertEquals("forever", legacyTenant.productForRole("\$rc_lifetime")?.sku)
         // The API's own name for the same product (migration 205) fills the lifetime role too.
-        val oneTime = legacyTenant.copy(products = legacyTenant.products.map { if (it.sku == "forever") it.copy(type = "one_time") else it })
+        val oneTime = legacyTenant.copy(
+            products = legacyTenant.products.map {
+                if (it.sku ==
+                    "forever"
+                ) {
+                    it.copy(type = "one_time")
+                } else {
+                    it
+                }
+            },
+        )
         assertEquals("forever", oneTime.productForRole("\$rc_lifetime")?.sku)
     }
 
