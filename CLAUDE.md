@@ -126,6 +126,42 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
 - **GA4 on the dashboard:** tenants add PayCraft's service account — the org Firebase account
   (`firebase-adminsdk-fbsvc@prod-applications-c7f87.iam.gserviceaccount.com`; alias `paycraft-ga4-service-account` →
   vault `mbs-firebase-service-account`, env `PAYCRAFT_GA4_SA_JSON`, raw or base64 JSON) — as a Viewer on their property; `tenant_ga4_connections` (184) stores only the property id, plus (190) the `stream_ids` that are the tenant's when one property holds several apps — every report (`ga4Overview`) is then filtered by `streamId`.
+- **Attribution forwarding (server → the app's ad platforms):** verified lifecycle events — trial start, purchase,
+  renewal, refund — go from `reconcileEntitlement()` (the one path every Play / App Store / web-PSP event takes) to
+  GA4 (Firebase Measurement Protocol, by `app_instance_id`) and AppsFlyer (S2S events, by `appsflyer_id`) via
+  `_shared/attribution.ts` (pure `detectTransition` + payload builders; best-effort sender that never fails a
+  webhook; sandbox and untenanted events never sent). Migration 208: `tenant_attribution_integrations` (secret
+  pgcrypto-encrypted, write-only — Settings ▸ Ad attribution, `/api/settings/attribution`), `device_attribution_ids`
+  (posted by `PayCraft.setAttributionIds(...)` → `attribution-ids` function, apiKey + device token) and
+  `attribution_forwards` (UNIQUE integration/provider/txn/kind/period = at most once; `no_ids`/`failed` retried on
+  the transaction's next event). `value` = the product's catalogue price, omitted when unknown. Web-PSP refunds are
+  not forwarded (the PSP status vocab has no refund). Tests: `__tests__/attribution.test.ts`, `AttributionIdsSyncTest`.
+
+## Paywall A/B experiments — single source of truth
+
+- **What a variant is:** an OFFERING (088) — which plans, at which prices. Migration 206 `paywall_experiments`
+  (`key`, `status` draft → running → stopped, `variants` `[{key, weight, offering_id}]`); at most ONE running per
+  tenant (partial unique index). Rules live in `paywall_experiment_save` / `paywall_experiment_set_status` (error
+  codes `experiment_*`), mirrored by `dashboard/lib/experiments.ts`; only a draft is editable and a stopped test
+  never restarts. Dashboard ▸ Paywall ▸ Experiments (`/api/experiments`).
+- **Assignment is the SDK's:** `/config` serves the running experiment as `experiment` (`paywall_experiment_public_get`);
+  `config/Experiment.kt` hashes `key:deviceId` (FNV-1a) into the weights and `PayCraft.applySuiteConfig` — the one
+  door every config passes through — makes the variant's offering current and drops products only OTHER variants
+  sell. A missing offering or no experiment leaves the paywall unchanged.
+- **Results:** every paywall event carries `experiment` + `variant` (`PayCraft.activeExperiment` → `PayCraftEvent` →
+  `events` → `paywall_events`); `paywall_experiment_results` counts distinct devices per step, live mode only, inside
+  the run window. Tests: `ExperimentAssignmentTest`, `supabase/tests/206_paywall_experiments_test.sql`.
+
+## App Store refund requests
+
+- Apple's `CONSUMPTION_REQUEST` (a customer asked for a refund) is answered by `_shared/appstore-consumption.ts` from
+  `apple-notification.ts`: Send Consumption Information with only known facts (delivered, subscription period used,
+  tenure from `originalPurchaseDate`, the tenant's refund preference), everything else 0 = undeclared.
+- Sent only when the tenant turned on `tenants.appstore_consumption_consent` (Apple requires customer consent; default
+  off) — Providers ▸ App Store ▸ Refund requests. Every request is logged once per transaction in
+  `appstore_consumption_responses` (migration 207). Test: `supabase/functions/__tests__/appstore-consumption.test.ts`.
+- Renewal failures, price increases, grace and revocations need no special case: every Apple notification re-fetches
+  the status and `appleToCanonical` maps it (`__tests__/store-state-mapping.test.ts` pins each state's access).
 
 ## Monthly allowance — metered actions
 

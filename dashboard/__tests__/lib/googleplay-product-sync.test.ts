@@ -16,7 +16,7 @@ jest.mock("@/lib/store-jwt", () => ({
   playAccessToken: jest.fn(async () => "fake-play-token"),
 }))
 
-import { syncProductToGooglePlay } from "@/lib/googleplay-product-sync"
+import { isPlayProductId, regionalConfigsToAdd, syncProductToGooglePlay } from "@/lib/googleplay-product-sync"
 
 // playAccessToken is mocked, so the private_key is only JSON-parsed, never used
 // to sign — a plain placeholder keeps the shape without tripping secret scanners.
@@ -25,6 +25,18 @@ const SA_JSON = JSON.stringify({
   private_key: "test-placeholder-signing-key-mocked",
   token_uri: "https://oauth2.googleapis.com/token",
 })
+
+/**
+ * Install [mock] as global fetch, answering Play's region-price conversion OUT OF BAND (404 → the sync
+ * prices only the configured currencies). The queue-based mocks below predate the conversion call;
+ * serving it here keeps their call indices — and every assertion on them — exactly as they were.
+ */
+function installFetch(mock: jest.Mock) {
+  ;(global as unknown as { fetch: unknown }).fetch = (url: unknown, init?: unknown) =>
+    String(url).includes("pricing:convertRegionPrices")
+      ? Promise.resolve({ ok: false, status: 404, text: async () => "", json: async () => ({}) })
+      : mock(url, init)
+}
 
 /**
  * GET probe → 404 (absent), POST create → 200. Returns the fetch mock.
@@ -73,7 +85,7 @@ function mockCreatePath(opts: { activateOk?: boolean; appLive?: boolean } = {}) 
     }
     return queue(url, init)
   })
-  ;(global as unknown as { fetch: unknown }).fetch = fetchMock
+  installFetch(fetchMock)
   return fetchMock
 }
 
@@ -152,7 +164,7 @@ test("sanitizes hyphenated SKUs to a Play-legal product id (malformed-id regress
   expect(body.basePlans[0].basePlanId).toBe("pro-quarterly-autorenew")
 })
 
-test("treats IDR/COP as whole-unit (zero-decimal) so Play prices are not ÷100 (below-min regression)", async () => {
+test("IDR/COP are minor units like other 2-decimal currencies: Rp 89,892 (8,989,200) reaches Play as 89892, not 100x", async () => {
   const fetchMock = mockCreatePath()
 
   await syncProductToGooglePlay(
@@ -162,7 +174,7 @@ test("treats IDR/COP as whole-unit (zero-decimal) so Play prices are not ÷100 (
     "Pro Monthly",
     "month",
     [
-      { currency: "IDR", amountCents: 89892 }, // ID → whole rupiah, NOT 898.92
+      { currency: "IDR", amountCents: 8989200 }, // Rp 89,892.00 in minor units
       { currency: "USD", amountCents: 999 }, // 2-decimal → $9.99
     ],
   )
@@ -170,7 +182,7 @@ test("treats IDR/COP as whole-unit (zero-decimal) so Play prices are not ÷100 (
   const body = createBodyFrom(fetchMock)
   const cfgs: any[] = body.basePlans[0].regionalConfigs
   const idr = cfgs.find((c) => c.regionCode === "ID")
-  // Rp 89,892 sent as whole units (>= Play's IDR 1,000 minimum), NOT Rp 898.92.
+  // Rp 89,892 — not Rp 8,989,200 (the 100x bug when IDR sat on the zero-decimal list), not Rp 898.92.
   expect(idr.price.currencyCode).toBe("IDR")
   expect(idr.price.units).toBe("89892")
   expect(idr.price.nanos).toBe(0)
@@ -248,7 +260,7 @@ function mockCreatePathWithTrial(opts: { offerActivateOk?: boolean } = {}) {
               JSON.stringify({ error: { code: 400, message: "The app is not published.", status: "FAILED_PRECONDITION" } }),
           },
     ) // activate offer
-  ;(global as unknown as { fetch: unknown }).fetch = fetchMock
+  installFetch(fetchMock)
   return fetchMock
 }
 
@@ -516,4 +528,107 @@ it("does not patch an existing free-trial offer that already matches the catalog
 
   // Idempotent: nothing drifted, so no live-store write.
   expect(offerPatchBody(fetchMock)).toBeNull()
+})
+
+/**
+ * EVERY REGION, NOT ONE PER CURRENCY (Reels Downloader, 2026-11-23).
+ *
+ * One region per configured currency meant 29 currencies reached 14 countries; every other buyer got
+ * an empty queryProductDetails → `product_not_found` (90 of 94 reasoned Play failures that week).
+ * Play's own conversion now prices every remaining region; the operator's price still wins in any
+ * currency they set, so euro-zone countries charge the configured EUR rather than a USD conversion.
+ */
+const CONVERTED = {
+  version: "2025/03",
+  regions: [
+    { regionCode: "US", price: { currencyCode: "USD", units: "9", nanos: 990000000 } },
+    { regionCode: "FR", price: { currencyCode: "EUR", units: "9", nanos: 490000000 } },
+    { regionCode: "TR", price: { currencyCode: "TRY", units: "339", nanos: 990000000 } },
+    { regionCode: "CO", price: { currencyCode: "COP", units: "41900", nanos: 0 } },
+  ],
+}
+
+test("regionalConfigsToAdd: configured currencies first, Play's conversion for every other region", () => {
+  const have = new Set(["US"])
+  const added = regionalConfigsToAdd(
+    have,
+    [{ currency: "USD", amountCents: 999 }, { currency: "EUR", amountCents: 899 }],
+    CONVERTED,
+  )
+  expect(added.map((a) => a.regionCode)).toEqual(["DE", "FR", "TR", "CO"])
+  // FR is in a currency the operator priced → the operator's 8.99 EUR, not the 9.49 conversion.
+  expect(added.find((a) => a.regionCode === "FR")!.price).toEqual({ currencyCode: "EUR", units: "8", nanos: 990000000 })
+  expect(added.find((a) => a.regionCode === "TR")!.price).toEqual(CONVERTED.regions[2].price)
+  expect(added.every((a) => a.newSubscriberAvailability === true)).toBe(true)
+  // Additive only: an already-priced region is never re-sent, and nothing is lost without a conversion.
+  expect(regionalConfigsToAdd(new Set(["US", "DE"]), [{ currency: "EUR", amountCents: 899 }], null)).toEqual([])
+})
+
+test("re-sync extends an existing plan AND its trial to every converted region, at the conversion's version", async () => {
+  const fetchMock = mockExistingOfferPath("P14D", ["US"])
+  const inner = (global as unknown as { fetch: (u: unknown, i?: unknown) => Promise<any> }).fetch
+  ;(global as unknown as { fetch: unknown }).fetch = (url: unknown, init?: unknown) =>
+    String(url).includes("pricing:convertRegionPrices")
+      ? Promise.resolve({
+          ok: true, status: 200, text: async () => "",
+          json: async () => ({
+            regionVersion: { version: CONVERTED.version },
+            convertedRegionPrices: Object.fromEntries(CONVERTED.regions.map((r) => [r.regionCode, r])),
+          }),
+        })
+      : inner(url, init)
+
+  const result = await syncProductToGooglePlay(
+    { serviceAccountJson: SA_JSON, packageName: "com.example.app" },
+    "prod-annual", "pro_annual", "Pro Annual", "year",
+    [{ currency: "USD", amountCents: 999 }],
+    "pro_annual",
+    14,
+    null,
+  )
+
+  const planPatch = fetchMock.mock.calls.find(
+    ([u, i]) => String(u).includes("updateMask=basePlans") && (i as any)?.method === "PATCH",
+  )!
+  expect(String(planPatch[0])).toContain("regionsVersion.version=2025/03")
+  const plan = JSON.parse((planPatch[1] as any).body).basePlans[0]
+  expect(plan.regionalConfigs.map((r: any) => r.regionCode)).toEqual(["US", "FR", "TR", "CO"])
+  expect(result.regionsPriced).toBe(4)
+
+  // The trial follows the plan — otherwise the new countries see a paywall trial Play won't grant.
+  const offer = offerPatchBody(fetchMock)
+  expect(offer.regionalConfigs.map((r: any) => r.regionCode)).toEqual(["US", "FR", "TR", "CO"])
+  const offerCall = fetchMock.mock.calls.find(([u, i]) => String(u).includes("/offers/") && (i as any)?.method === "PATCH")!
+  expect(String(offerCall[0])).toContain("regionsVersion.version=2025/03")
+})
+
+/**
+ * A RECORDED ID PLAY CAN NEVER ACCEPT (Affirmly, 2026-11-23).
+ *
+ * Onboarding stored the SKU `com.mobilebytesensei.affirmly.sub.semiannual` (44 chars) as the Play id,
+ * and every re-sync re-sent it: "Subscription ID is malformed". Play caps ids at 40.
+ */
+test("isPlayProductId: Play's charset and its 40-character cap", () => {
+  expect(isPlayProductId("com.mobilebytesensei.affirmly.sub.month")).toBe(true) // 39
+  expect(isPlayProductId("com.mobilebytesensei.affirmly.sub.quarter")).toBe(false) // 41
+  expect(isPlayProductId("pro-quarterly")).toBe(false) // hyphen
+  expect(isPlayProductId("_pro")).toBe(false)
+  expect(isPlayProductId(undefined)).toBe(false)
+})
+
+test("a recorded id Play would reject is replaced by the sanitized one, not re-sent", async () => {
+  const fetchMock = mockCreatePath()
+  const result = await syncProductToGooglePlay(
+    { serviceAccountJson: SA_JSON, packageName: "com.example.app" },
+    "prod-4",
+    "com.mobilebytesensei.affirmly.sub.semiannual",
+    "Affirmly Semiannual",
+    "semiannual",
+    [{ currency: "USD", amountCents: 2999 }],
+    "com.mobilebytesensei.affirmly.sub.semiannual", // what onboarding recorded
+  )
+  const body = createBodyFrom(fetchMock)
+  expect(body.productId).toBe("com.mobilebytesensei.affirmly.sub.semian")
+  expect(body.productId.length).toBeLessThanOrEqual(40)
+  expect(result.playProductId).toBe(body.productId) // the caller records the id that exists on Play
 })

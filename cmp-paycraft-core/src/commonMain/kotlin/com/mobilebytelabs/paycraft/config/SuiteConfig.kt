@@ -62,6 +62,12 @@ data class SuiteConfig(
      * Manager's `serverClientId` on Android; the Apple Services ID enables Apple's browser flow off iOS.
      */
     val auth: AuthClientsDto? = null,
+    /**
+     * The running paywall A/B experiment (migration 206), or null — read with [experimentOrNull], applied once in
+     * `PayCraft.applySuiteConfig`. Kept as raw JSON: generated serializers would ship in the web bundle, which has
+     * a byte budget and no use for experiments.
+     */
+    val experiment: kotlinx.serialization.json.JsonObject? = null,
     // Set by the client on receipt; not returned by the server.
     @SerialName("fetched_at_epoch_millis") val fetchedAtEpochMillis: Long = 0L,
 )
@@ -435,7 +441,7 @@ internal fun SuiteConfig.productForCanonicalRole(role: String): ProductDto? {
         "six_month", "semiannual" -> subs("semiannual")
         "three_month", "quarterly", "quarter" -> subs("quarter")
         "weekly", "week" -> subs("week")
-        "lifetime" -> active.firstOrNull { it.type == "lifetime" }
+        "lifetime" -> active.firstOrNull { it.type == "lifetime" || it.type == "one_time" }
         else -> null
     }
 }

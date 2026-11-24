@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { appStoreSubscriptionReadiness } from "@/lib/appstore-readiness"
 import { googlePlaySubscriptionReadiness } from "@/lib/googleplay-readiness"
+import { effectiveTrialDays } from "@/lib/trial-rule"
 
 /**
  * Are the native-store products actually SELLABLE? Asked of the STORES, per store.
@@ -27,8 +28,7 @@ type ProductRow = {
 function trialDaysFor(p: ProductRow, platform: "ios" | "android"): number | null {
   const per = p.trial_per_platform
   if (per && Object.prototype.hasOwnProperty.call(per, platform)) return Number(per[platform]) || 0
-  if (!p.trial_enabled) return 0
-  return p.trial_duration_days ?? 0
+  return effectiveTrialDays(p) // the ONE trial rule, so readiness judges Play by what the web serves
 }
 
 export async function computeStoreReadiness(client: SupabaseClient<any>, tenantId: string) {
@@ -102,6 +102,7 @@ export async function computeStoreReadiness(client: SupabaseClient<any>, tenantI
           id: p.id,
           sku: p.sku,
           playProductId: p.play_product_id,
+          type: p.type,
           androidTrialDays: trialDaysFor(p, "android"),
           configuredCurrencies: Object.keys(p.stripe_price_id_by_currency ?? {}).length,
         })),

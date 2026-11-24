@@ -65,6 +65,9 @@ public class PayCraftEvent(
     /** A survey reason code, a purchase-failure code, or a checkout-return result (`success` / `cancel`). */
     public val reason: String? = null,
     public val atMs: Long,
+    /** The A/B experiment the device was in when this happened (migration 206), with [variant]. */
+    public val experiment: String? = null,
+    public val variant: String? = null,
 ) {
     /** GA4-shaped parameters: only what is set, ≤ 25 keys, values cut to GA4's 100-character limit. */
     public fun params(): Map<String, String> = buildMap {
@@ -76,6 +79,8 @@ public class PayCraftEvent(
         country?.let { put("country", it.take(MAX_VALUE)) }
         provider?.let { put("provider", it.take(MAX_VALUE)) }
         reason?.let { put("reason", it.take(MAX_VALUE)) }
+        experiment?.let { put("experiment", it.take(MAX_VALUE)) }
+        variant?.let { put("variant", it.take(MAX_VALUE)) }
     }
 
     private companion object {

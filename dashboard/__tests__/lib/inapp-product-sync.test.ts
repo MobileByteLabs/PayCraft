@@ -16,7 +16,7 @@
  */
 
 import { ascInAppPurchaseType, sanitizeAscInAppProductId } from "@/lib/appstore-inapp-sync"
-import { oneTimeListings, regionalConfigsFor, sanitizeInAppProductId } from "@/lib/googleplay-inapp-sync"
+import { oneTimeListings, oneTimeRegionsWithEveryRegion, regionalConfigsFor, sanitizeInAppProductId } from "@/lib/googleplay-inapp-sync"
 
 describe("regionalConfigsFor", () => {
   it("maps PayCraft currencies to Play REGIONS, not to currency codes", () => {
@@ -109,5 +109,40 @@ describe("product id sanitisation", () => {
 
   it("falls back rather than emitting a trailing-dot id", () => {
     expect(sanitizeAscInAppProductId("com.example.app", "!!!")).toBe("com.example.app.product")
+  })
+})
+
+describe("oneTimeRegionsWithEveryRegion", () => {
+  const converted = {
+    version: "2025/03",
+    regions: [
+      { regionCode: "US", price: { currencyCode: "USD", units: "4", nanos: 990000000 } },
+      { regionCode: "FR", price: { currencyCode: "EUR", units: "4", nanos: 690000000 } },
+      { regionCode: "TR", price: { currencyCode: "TRY", units: "169", nanos: 990000000 } },
+      { regionCode: "CO", price: { currencyCode: "COP", units: "20900", nanos: 0 } },
+    ],
+  }
+  const prices = [{ currency: "USD", amountCents: 499 }, { currency: "EUR", amountCents: 449 }]
+
+  it("sells everywhere Play does, not one region per currency", () => {
+    const out = oneTimeRegionsWithEveryRegion(prices, [], converted)
+    expect(out.map((r) => r.regionCode)).toEqual(["US", "DE", "FR", "TR", "CO"])
+    // FR is euro → the operator's 4.49 EUR, not the 4.69 conversion.
+    expect(out.find((r) => r.regionCode === "FR")!.price).toEqual({ currencyCode: "EUR", units: "4", nanos: 490000000 })
+    expect(out.every((r) => r.availability === "AVAILABLE")).toBe(true)
+  })
+
+  it("keeps a region's existing price on re-sync instead of re-converting it", () => {
+    const tr = { regionCode: "TR", price: { currencyCode: "TRY", units: "149", nanos: 0 }, availability: "AVAILABLE" }
+    const out = oneTimeRegionsWithEveryRegion(prices, [tr], converted)
+    expect(out.find((r) => r.regionCode === "TR")).toEqual(tr)
+    expect(out.filter((r) => r.regionCode === "TR")).toHaveLength(1)
+  })
+
+  it("re-sends the operator's configured price even when Play holds an older one", () => {
+    const staleUs = { regionCode: "US", price: { currencyCode: "USD", units: "3", nanos: 0 }, availability: "AVAILABLE" }
+    const out = oneTimeRegionsWithEveryRegion(prices, [staleUs], null)
+    expect(out.find((r) => r.regionCode === "US")!.price).toEqual({ currencyCode: "USD", units: "4", nanos: 990000000 })
+    expect(out.map((r) => r.regionCode)).toEqual(["US", "DE"])
   })
 })

@@ -37,7 +37,7 @@
 #                              POST-PUSH VERIFY (0 pending). Aborts the chain on any failure.
 #             3.5 FUNCTIONS DEPLOY  vault-mediated supabase functions deploy (Edge Functions)
 #             5 DEPLOY CLOUDFLARE  build + `npm run pages:deploy` → dashboard on Cloudflare Pages (next-on-pages)
-#             6 SMOKE          curl /api/health + /auth/login + root + Edge Function /config reachability
+#             6 SMOKE          curl /api/health + /auth/login + root + Edge Function /config reachability, then infra/deploy/e2e.sh (SDK paths, throwaway tenant)
 #
 # Dry-run by default — pass --apply --confirm-production for mutating prod phases. Dry-run still
 # runs PRE-FLIGHT (incl. typecheck), the pending-migration list, and the destructive scan.
@@ -648,6 +648,8 @@ phase_5_deploy_cloudflare() {
         printf 'NEXT_PUBLIC_PAYCRAFT_SUPABASE_URL=%s\n' "$(cat "$tmpd/sburl")"
         printf 'NEXT_PUBLIC_SUPABASE_ANON_KEY=%s\n'     "$(cat "$tmpd/sbanon")"
         printf 'NEXT_PUBLIC_PAYCRAFT_DASHBOARD_URL=%s\n' "$public_url"
+        # Inlined at build time; unset, /api/health reports "local" on production.
+        printf 'NEXT_PUBLIC_APP_ENV=%s\n' "$([[ "$MODE" = "staging" ]] && echo staging || echo production)"
     } >> "$ep"
     echo "  ✓ ${label} build-time env materialized → .env.production.local ($TARGET_URL_ALIAS, $TARGET_ANON_ALIAS)"
 
@@ -691,6 +693,9 @@ phase_6_smoke() {
         local status
         status=$(node -e "console.log(JSON.parse(require('fs').readFileSync('/tmp/.health.json','utf-8')).status)" 2>/dev/null)
         if [[ "$status" = "ok" ]]; then echo "  ✓ /api/health → status=ok"; else echo "  ⚠ /api/health → 200 but status=$status (degraded)"; fi
+        local env
+        env=$(node -e "console.log(JSON.parse(require('fs').readFileSync('/tmp/.health.json','utf-8')).env)" 2>/dev/null)
+        if [[ "$env" = "production" ]]; then echo "  ✓ /api/health → env=production"; else echo "  ✗ /api/health → env=$env (build missed NEXT_PUBLIC_APP_ENV)"; fails=$((fails+1)); fi
     else
         echo "  ✗ /api/health → HTTP $result"; fails=$((fails+1))
     fi
@@ -725,6 +730,9 @@ phase_6_smoke() {
         echo "  ✗ Edge Function /config → HTTP $result (404 = not deployed, 000 = unreachable)"; fails=$((fails+1))
     fi
     rm -f /tmp/.health.json /tmp/.login.html
+
+    # The SDK's real paths against what was just deployed (throwaway tenant, deleted on exit).
+    bash "$PAYCRAFT_SRC/infra/deploy/e2e.sh" --ref "$SUPABASE_REF" || fails=$((fails+1))
 
     [[ $fails -eq 0 ]]
 }

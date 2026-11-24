@@ -13,6 +13,7 @@
 // (cmp-paycraft SubscriptionState.kt): grace = active, billing-retry/on-hold = inactive.
 
 import { supabaseAdmin } from "./supabase-admin.ts";
+import { detectTransition, forwardLifecycle, type PrevRow } from "./attribution.ts";
 
 /** The 10 canonical states — 1:1 with cmp-paycraft SubscriptionState (Phase 1). */
 export type CanonicalState =
@@ -64,7 +65,7 @@ export async function reconcileEntitlement(
 
   const { data: existing, error: selErr } = await supabaseAdmin
     .from("entitlement_records")
-    .select("latest_event_ts, app_user_id")
+    .select("latest_event_ts, app_user_id, canonical_state, expires_at")
     .eq("provider", ev.provider)
     .eq("stable_txn_id", ev.stableTxnId)
     .maybeSingle();
@@ -78,6 +79,17 @@ export async function reconcileEntitlement(
     { onConflict: "provider,stable_txn_id" },
   );
   if (error) throw new Error(`reconcile upsert failed: ${error.message}`);
+
+  await forwardAttribution(ev, existing as PrevRow | null, ev.appUserId);
+}
+
+/**
+ * Attribution forwarding (migration 208): the lifecycle event this change represents → the app's GA4 /
+ * AppsFlyer. Only after the write landed; only for a tenant's live (non-sandbox) purchase. Never throws.
+ */
+async function forwardAttribution(ev: CanonicalEvent, prev: PrevRow | null, owner: string): Promise<void> {
+  if (!ev.tenantId || ev.isSandbox) return;
+  await forwardLifecycle(supabaseAdmin, { ...ev, appUserId: owner }, detectTransition(prev, ev));
 }
 
 /** Every column a store event decides — all but the owner (`app_user_id`). */
@@ -108,6 +120,15 @@ function stateColumns(ev: CanonicalEvent) {
  */
 async function reconcileKeepingOwner(ev: CanonicalEvent): Promise<void> {
   const state = stateColumns(ev);
+  // Attribution only: the row as it was, to tell a purchase / renewal / refund from a replay. A race with
+  // the SDK grant can at worst re-detect an event — the forward log's unique key sends it once.
+  const forward = !!ev.tenantId && !ev.isSandbox;
+  const prev = forward
+    ? (await supabaseAdmin.from("entitlement_records")
+      .select("latest_event_ts, app_user_id, canonical_state, expires_at")
+      .eq("provider", ev.provider).eq("stable_txn_id", ev.stableTxnId).maybeSingle()).data
+    : null;
+
   const { error: insErr } = await supabaseAdmin.from("entitlement_records").upsert(
     { app_user_id: ev.appUserId, ...state },
     { onConflict: "provider,stable_txn_id", ignoreDuplicates: true },
@@ -120,6 +141,11 @@ async function reconcileKeepingOwner(ev: CanonicalEvent): Promise<void> {
     .eq("stable_txn_id", ev.stableTxnId)
     .lt("latest_event_ts", ev.latestEventTs);
   if (updErr) throw new Error(`reconcile update failed: ${updErr.message}`);
+
+  // The update applied only when this event was strictly newer than the stored one.
+  if (forward && (!prev || new Date(prev.latest_event_ts) < new Date(ev.latestEventTs))) {
+    await forwardAttribution(ev, prev as PrevRow | null, prev?.app_user_id ?? ev.appUserId);
+  }
 }
 
 // ---------------------------------------------------------------------------

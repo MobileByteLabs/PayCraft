@@ -186,9 +186,11 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
 
   if (productErr) return json({ error: `product lookup failed: ${productErr.message}` }, 500);
   if (!product) return json({ error: "product_not_found" }, 404);
-  if (product.type !== "subscription") {
-    // One-time products DO have reusable payment links; the SDK already opens those directly and
-    // routing them through here would create a second, divergent path to the same checkout.
+  // A one-time product on Stripe gets a `payment` session: the web SDK sends every Stripe buy from a page
+  // through here so the buyer returns to the site (a payment link strands them on Stripe's page), and the
+  // 409 this used to return broke every web lifetime purchase (Status Saver pro-lifetime, 2026-11-23).
+  // Razorpay one-time products keep their payment link — this lane creates Razorpay SUBSCRIPTIONS only.
+  if (product.type !== "subscription" && provider !== "stripe") {
     return json(
       { error: "product is not a subscription — use the payment link from /config for one-time products" },
       409,
@@ -399,6 +401,7 @@ async function stripeCheckout(
       productId: product.id,
       mode,
       trialDays: effectiveTrial(product).days,
+      oneTime: product.type !== "subscription",
       success: back.success,
       cancel: back.cancel,
       discount: winback

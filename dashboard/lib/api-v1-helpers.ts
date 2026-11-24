@@ -109,3 +109,17 @@ export async function withApiKey(
   // Centralised so an endpoint cannot ship without the headers by forgetting to add them.
   return withSecurityHeaders(await fn(ctx)) as NextResponse
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * 400 for a `{id}` path segment that is not a UUID, else null. Without it the id reached Postgres,
+ * which refuses it as `invalid input syntax for type uuid`, and the route answered a generic 500
+ * `query_failed` — so a caller passing a SKU (or an MCP tool call with no `id`, which arrives as the
+ * string "undefined") was told the server broke rather than that the input was wrong.
+ */
+export function badProductId(id: string | undefined): NextResponse | null {
+  return id && UUID.test(id)
+    ? null
+    : NextResponse.json({ error: "invalid_product_id", detail: "id must be the product's UUID (not its sku)" }, { status: 400 })
+}

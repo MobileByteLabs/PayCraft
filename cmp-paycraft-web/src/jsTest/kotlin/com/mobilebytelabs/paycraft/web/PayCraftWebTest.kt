@@ -138,6 +138,56 @@ class PayCraftWebTest {
     }
 
     @Test
+    fun withoutSetCountryTheSdkFindsTheCountryItselfOncePerPage() = runTest {
+        // Region pricing by default: a site that never calls setCountry still gets its visitor's prices.
+        val net = FakeTransport().on("/api/geo") { """{"country":"in"}""" }.on("/functions/v1/config") { CONFIG_JSON }
+        val pc = sdk(net).also { it.geoUrl = "https://paycraft.example/api/geo" }
+        pc.loadConfig()
+        pc.loadConfig()
+        assertEquals(1, net.calls.count { it.url.endsWith("/api/geo") }, "asked once per page")
+        assertEquals("en-IN", net.calls.last().headers["Accept-Language"])
+        assertTrue(net.calls.last().url.contains("country=IN"), net.calls.last().url)
+    }
+
+    @Test
+    fun anExplicitCountryWinsAndAGeoFailureNeverBlocksConfig() = runTest {
+        val explicit = FakeTransport().on("/api/geo") {
+            """{"country":"IN"}"""
+        }.on("/functions/v1/config") { CONFIG_JSON }
+        sdk(explicit).also {
+            it.geoUrl = "https://paycraft.example/api/geo"
+            it.setCountry("BR")
+        }.loadConfig()
+        assertEquals(
+            0,
+            explicit.calls.count {
+                it.url.endsWith("/api/geo")
+            },
+            "the site's choice is never second-guessed",
+        )
+        assertEquals("en-BR", explicit.calls.last().headers["Accept-Language"])
+
+        for (geo in listOf<Pair<Int, String>>(
+            500 to "boom",
+            200 to """{"country":null}""",
+            200 to """{"country":"XX"}""",
+        )) {
+            val net = FakeTransport().on("/api/geo", geo.first) {
+                geo.second
+            }.on("/functions/v1/config") { CONFIG_JSON }
+            val cfg = sdk(net).also { it.geoUrl = "https://paycraft.example/api/geo" }.loadConfig()
+            assertEquals(1, cfg.products.size, "config still loads after geo answered $geo")
+            assertEquals(null, net.calls.last().headers["Accept-Language"])
+        }
+    }
+
+    @Test
+    fun aSelfHostedBackendHasNoGeoLookup() {
+        assertNull(PayCraftWeb("pk_test_abc", null, backend, "anon-key").geoUrl)
+        assertEquals(CLOUD_GEO_URL, PayCraftWeb("pk_test_abc").geoUrl)
+    }
+
+    @Test
     fun theVisitorsCountryPricesConfigLikeTheAppDoes() = runTest {
         // A browser's Accept-Language is a LANGUAGE (most browsers in India say en-US), not where the
         // visitor is. The site knows the real country (its edge's IP geo) and hands it over; /config then
@@ -331,7 +381,9 @@ class PayCraftWebTest {
         // never copies PayCraft's backend URL or anon key into its own config.
         val net = FakeTransport().on("/functions/v1/config") { CONFIG_JSON }
         PayCraftWeb("pk_live_abc").also { it.transport = net }.loadConfig()
-        val call = net.calls.single()
+        // ...and region pricing by default: Cloud asks its own geo endpoint once, before /config.
+        assertEquals(CLOUD_GEO_URL, net.calls.first().url)
+        val call = net.calls.single { it.url.contains("/functions/v1/config") }
         assertTrue(call.url.startsWith("$CLOUD_SUPABASE_URL/functions/v1/config?apiKey=pk_live_abc"))
         assertEquals(CLOUD_SUPABASE_ANON_KEY, call.headers["apikey"])
         assertEquals("live", call.headers["x-paycraft-mode"])

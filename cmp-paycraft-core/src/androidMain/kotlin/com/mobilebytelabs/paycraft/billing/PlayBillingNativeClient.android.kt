@@ -24,6 +24,7 @@ import com.android.billingclient.api.consumePurchase
 import com.android.billingclient.api.queryProductDetails
 import com.android.billingclient.api.queryPurchasesAsync
 import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
+import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.debug.platformLog
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -458,9 +459,12 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
                 delay(CONNECT_BACKOFF_BASE_MS shl (attempt - 1))
             }
         }
-        logW("PlayBillingNativeClient") {
-            "Play billing connect failed after $attempt attempts: ${last.debugMessage}"
-        }
+        // onError, not just a logcat line: "store unavailable" (no Play Store, outdated Play services,
+        // signed-out account) is why a buyer silently cannot purchase — PayCraft.lastError surfaces it.
+        PayCraftLogger.onError(
+            "playBilling",
+            "Play billing connect failed after $attempt attempts (${last.responseCode}): ${last.debugMessage}",
+        )
         last
     }
 

@@ -71,3 +71,16 @@ Deno.test("stripeSessionForm: subscription for one price, email + metadata strip
   }))
   assertEquals(noTrial.has("subscription_data[trial_period_days]"), false)
 })
+
+Deno.test("stripeSessionForm: a one-time product is a payment session with no subscription_data", () => {
+  const p = new URLSearchParams(stripeSessionForm({
+    priceId: "price_inr", email: "e@x.y", sku: "pro-lifetime", tenantId: "t", productId: "p", mode: "test",
+    trialDays: 7, success: "https://s/ok", cancel: "https://s/no", winbackOfferId: "o1", oneTime: true,
+  }))
+  assertEquals(p.get("mode"), "payment")
+  // stripe-webhook's mode=payment branch grants the plan from session.metadata.plan_id
+  assertEquals(p.get("metadata[plan_id]"), "pro-lifetime")
+  assertEquals(p.get("metadata[paycraft_winback_offer]"), "o1")
+  // Stripe rejects subscription_data on a payment session
+  assertEquals([...p.keys()].some((k) => k.startsWith("subscription_data")), false)
+})

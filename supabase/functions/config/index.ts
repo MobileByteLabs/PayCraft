@@ -23,6 +23,7 @@ import {
 import { toAlpha2 } from "../_shared/country-code.ts"
 import { effectiveTrial } from "../_shared/trial.ts"
 import { preflight, withCors } from "../_shared/cors.ts"
+import { normalizeValueProps } from "../_shared/value-props.ts"
 
 /** Map a routing method name (stripe_card, razorpay_upi, direct_upi…) to its provider. */
 function methodToProvider(method: string): string {
@@ -568,6 +569,11 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
           }
       return {
         ...stripRawStoreIds(p),
+        // Every shipped SDK knows a one-time product as "lifetime" (ProductMapper.fromDto errors on any
+        // other name; the $rc_lifetime role matches only "lifetime"). The API and migration 205 call it
+        // "one_time", so serve the name the installed apps understand — a one_time row otherwise broke
+        // the paywall of every app already in users' hands (Status Saver pro-lifetime, 2026-11-22).
+        type: p.type === "one_time" ? "lifetime" : p.type,
         trial_enabled: trialEnabled,
         trial_duration_days: trialDurationDays,
         discount_percent: discountActive ? discountPercent : null,
@@ -719,6 +725,7 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
       }
   const paywallWithLegal = {
     ...basePaywall,
+    value_props: normalizeValueProps((basePaywall as Record<string, unknown>)["value_props"]),
     privacy_url:
       ((basePaywall as Record<string, unknown>)["privacy_url"] as string | undefined) ||
       PAYCRAFT_PRIVACY_URL,
@@ -774,6 +781,10 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
     // The exit survey (migration 181) — shown when a buyer closes the paywall or leaves checkout. Enabled
     // reasons only; an offer carries only its discount, never the coupon's code. `{enabled:false}` = no survey.
     exit_survey: await loadExitSurvey(supabase, tenantId),
+    // The running A/B experiment (migration 206) or null: `{ key, variants: [{ key, weight, offering_id }] }`.
+    // The SDK assigns the device a variant by hashing its device ref, and shows that variant's offering. A failed
+    // read degrades to null — no experiment is a normal paywall, never a broken one.
+    experiment: await loadExperiment(supabase, tenantId),
   }
 
   return new Response(JSON.stringify(body), {
@@ -793,6 +804,11 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
 // binding a port.
 if (!Deno.env.get("CONFIG_SKIP_SERVE")) {
   serve(handleConfigRequest)
+}
+
+async function loadExperiment(supabase: SupabaseClient, tenantId: string): Promise<unknown> {
+  const { data, error } = await supabase.rpc("paywall_experiment_public_get", { p_tenant_id: tenantId })
+  return error ? null : (data ?? null)
 }
 
 async function loadExitSurvey(

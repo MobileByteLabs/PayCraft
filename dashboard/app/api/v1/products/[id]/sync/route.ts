@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { withApiKey } from "@/lib/api-v1-helpers"
+import { badProductId, withApiKey } from "@/lib/api-v1-helpers"
 import { loadProductSyncBody, runProductSync } from "@/lib/stripe-route-helper"
 import { newRunId } from "@/lib/request-log"
 export const dynamic = "force-dynamic"
@@ -13,6 +13,8 @@ export const dynamic = "force-dynamic"
  */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   return withApiKey(req, "products:sync", async (ctx) => {
+    const bad = badProductId(params.id)
+    if (bad) return bad
     const { data: owned } = await ctx.admin
       .from("tenant_products")
       .select("id")

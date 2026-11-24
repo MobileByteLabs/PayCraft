@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
-import { withApiKey } from "@/lib/api-v1-helpers"
+import { badProductId, withApiKey } from "@/lib/api-v1-helpers"
 import { auditApiAction } from "@/lib/api-key-auth"
 import { queryFailed } from "@/lib/api-security"
+import { CURRENCY_REGION } from "@/lib/googleplay-product-sync"
+import { DEFAULT_BANDS } from "@/lib/pricing-template-data"
 export const dynamic = "force-dynamic"
 
 /**
@@ -17,11 +19,16 @@ export const dynamic = "force-dynamic"
  */
 const ZERO_DECIMAL_CURRENCIES = new Set(["JPY", "KRW", "VND", "CLP", "ISK", "XAF", "XOF", "XPF"])
 
-/** The currencies the Play sync can map to a region (`CURRENCY_REGION` in googleplay-product-sync). */
-const KNOWN_CURRENCIES = new Set([
-  "USD", "INR", "GBP", "EUR", "JPY", "CAD", "AUD",
-  "SGD", "BRL", "MXN", "ZAR", "AED", "IDR", "NGN", "KRW",
-])
+/** The currencies the Play sync can map to a region — read from its map, never a hand copy (this list once lagged it). */
+const KNOWN_CURRENCIES = new Set(Object.keys(CURRENCY_REGION))
+
+/**
+ * The "implausibly large" guard, scaled per currency: 10,000,000 minor units is $100,000 but only Rp 100,000
+ * (~$6), which refused real IDR prices. The band multiplier (local units per USD) scales it; unknown → 1.
+ */
+const MAX_USD_MINOR = 100_000_00
+const maxAmount = (currency: string) =>
+  MAX_USD_MINOR * Math.max(1, DEFAULT_BANDS.find((b) => b.currency === currency)?.multiplier ?? 1)
 
 interface PricingRow {
   locale: string
@@ -73,7 +80,7 @@ function parseRows(raw: unknown): { rows: PricingRow[] } | { error: string } {
       return { error: `rows[${i}].amount_cents_must_be_an_integer` }
     }
     if (amount <= 0) return { error: `rows[${i}].amount_cents_must_be_positive` }
-    if (amount > 100_000_00) return { error: `rows[${i}].amount_cents_implausibly_large` }
+    if (amount > maxAmount(currency)) return { error: `rows[${i}].amount_cents_implausibly_large` }
 
     rows.push({ locale, currency, amount_cents: amount })
   }
@@ -111,6 +118,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   // sharp instead of teaching it an exception it would then miss a real violation through.
   const productId = params.id
   return withApiKey(req, "products:write", async (ctx) => {
+    const bad = badProductId(productId)
+    if (bad) return bad
     // Ownership first: without the tenant predicate a key could price another tenant's product.
     const { data: owned, error: ownedError } = await ctx.admin
       .from("tenant_products")

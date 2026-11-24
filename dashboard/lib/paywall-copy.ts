@@ -27,6 +27,17 @@ export const PAYWALL_COPY_FIELDS = [
 
 const KNOWN = new Set<string>(PAYWALL_COPY_FIELDS)
 
+export function normalizeValueProps(raw: unknown): { icon: string; title: string; description?: string }[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((item) => {
+    if (typeof item === "string") return item.trim() ? [{ icon: "check", title: item.trim() }] : []
+    const o = (item ?? {}) as Record<string, unknown>
+    if (typeof o.title !== "string" || !o.title.trim()) return []
+    const icon = typeof o.icon === "string" && o.icon ? o.icon : "check"
+    return [typeof o.description === "string" ? { icon, title: o.title, description: o.description } : { icon, title: o.title }]
+  })
+}
+
 export type MergeResult =
   | { row: Record<string, unknown>; changed: string[] }
   | { error: string; detail: string }
@@ -53,6 +64,9 @@ export function mergePaywallCopy(
     if (current && current[k] !== undefined) row[k] = current[k]
   }
   Object.assign(row, fields)
+  // The SDK decodes value_props as {icon, title, description?}; a list of plain strings made it reject the
+  // whole /config, so every app sat on its cached catalogue (Status Saver, 2026-11-24). Store the shape.
+  if ("value_props" in (fields as Record<string, unknown>)) row.value_props = normalizeValueProps(row.value_props)
   row.tenant_id = tenantId
   return { row, changed }
 }

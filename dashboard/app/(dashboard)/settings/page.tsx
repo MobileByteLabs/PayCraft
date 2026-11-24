@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { ConfigTtlCard } from "@/components/settings/config-ttl-card"
+import { AttributionCard } from "@/components/settings/attribution-card"
 import { Eye, EyeOff, AlertTriangle, Globe, Bell, Webhook, Building2 } from "lucide-react"
 
 // Toggle switch component
@@ -156,6 +157,9 @@ export default function SettingsPage() {
             else here is still local state; this reads and writes tenants.config_cache_ttl_seconds
             through /api/settings/config-ttl. */}
         <ConfigTtlCard />
+
+        {/* Ad attribution — persisted: /api/settings/attribution → tenant_attribution_* (migration 208). */}
+        <AttributionCard />
 
         {/* Webhooks Card */}
         <section className="bg-white rounded-xl border border-ink-200 shadow-sm overflow-hidden">

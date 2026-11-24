@@ -25,11 +25,11 @@ export const DEFAULT_BANDS: CountryBand[] = [
   { country: "MX", currency: "MXN", multiplier: 17.0,    roundTo: 99 },
   { country: "AR", currency: "ARS", multiplier: 350.0,   roundTo: 100 },
   { country: "CL", currency: "CLP", multiplier: 750.0,   roundTo: 990 },
-  { country: "CO", currency: "COP", multiplier: 3000.0,  roundTo: 990 },
+  { country: "CO", currency: "COP", multiplier: 3000.0,  roundTo: 99000 },
   { country: "ZA", currency: "ZAR", multiplier: 5.50,    roundTo: 99 },
   { country: "NG", currency: "NGN", multiplier: 700.0,   roundTo: 99 },
   { country: "EG", currency: "EGP", multiplier: 25.0,    roundTo: 99 },
-  { country: "ID", currency: "IDR", multiplier: 9000.0,  roundTo: 99 },
+  { country: "ID", currency: "IDR", multiplier: 9000.0,  roundTo: 9900 },
   { country: "PH", currency: "PHP", multiplier: 28.0,    roundTo: 99 },
   { country: "VN", currency: "VND", multiplier: 14000.0, roundTo: 990 },
   { country: "TH", currency: "THB", multiplier: 18.0,    roundTo: 99 },
@@ -40,6 +40,11 @@ export const DEFAULT_BANDS: CountryBand[] = [
   { country: "AE", currency: "AED", multiplier: 1.80,    roundTo: 99 },
 ]
 
+// ISO 4217 exponent-0 currencies only: amounts here are WHOLE units, every other currency is minor units.
+// IDR and COP used to be listed and are NOT exponent 0 (both have cents): Play got Rp 4,900,000 for a Rp 49,000
+// price stored in minor units, while Stripe (whose own list is ISO-correct) charged template-made whole-unit
+// rows 100x too little (Rp 898.92). One convention now: minor units; their bands round at 9900 / 99000 (= 99 / 990
+// whole), so template prices are unchanged in real money (2026-11-23).
 export const ZERO_DECIMAL_CURRENCIES = new Set([
-  "JPY", "KRW", "VND", "CLP", "COP", "IDR",
+  "JPY", "KRW", "VND", "CLP",
 ])

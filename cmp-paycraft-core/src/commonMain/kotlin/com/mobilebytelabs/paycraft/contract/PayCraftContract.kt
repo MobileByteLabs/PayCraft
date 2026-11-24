@@ -273,6 +273,8 @@ object PayCraftContract {
                             e.currency?.let { put("currency", it) }
                             e.provider?.let { put("provider", it) }
                             e.reason?.let { put("reason", it) }
+                            e.experiment?.let { put("experiment", it) }
+                            e.variant?.let { put("variant", it) }
                             put("at", e.atMs)
                         }
                     },

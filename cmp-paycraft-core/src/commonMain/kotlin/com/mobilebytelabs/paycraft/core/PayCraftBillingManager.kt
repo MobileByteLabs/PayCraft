@@ -5,6 +5,7 @@ import com.mobilebytelabs.paycraft.billing.NativeBillingClient
 import com.mobilebytelabs.paycraft.billing.NativePurchase
 import com.mobilebytelabs.paycraft.billing.NativePurchaseResult
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
+import com.mobilebytelabs.paycraft.debug.payCraftScope
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
@@ -22,9 +23,7 @@ import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import com.mobilebytelabs.paycraft.provider.StripeProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -111,7 +110,7 @@ class PayCraftBillingManager(
             else -> "test"
         }
 
-    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+    private val scope = payCraftScope(dispatcher)
 
     private val _isPremium = MutableStateFlow(false)
     override val isPremium: StateFlow<Boolean> = _isPremium.asStateFlow()
@@ -848,16 +847,19 @@ class PayCraftBillingManager(
                 "confirmDeviceTransfer",
                 "Race recovery: lastConflict=${lastConflict != null}, storedToken=${token?.take(20)}",
             )
-            if (token != null && lastConflict != null) {
+            // Snapshot once: lastConflict is cleared from other coroutines (logout, resolve), so
+            // re-reading it with `!!` between checks could NPE mid-construction.
+            val conflict = lastConflict
+            if (token != null && conflict != null) {
                 state = BillingState.OwnershipVerified(
-                    email = lastConflict!!.email,
+                    email = conflict.email,
                     pendingToken = token,
-                    conflictingDeviceName = lastConflict!!.conflictingDeviceName,
-                    conflictingLastSeen = lastConflict!!.conflictingLastSeen,
+                    conflictingDeviceName = conflict.conflictingDeviceName,
+                    conflictingLastSeen = conflict.conflictingLastSeen,
                     verifiedVia = VerificationMethod.OAUTH,
-                    supportEmail = lastConflict!!.supportEmail,
-                    activeDevices = lastConflict!!.activeDevices,
-                    maxDevices = lastConflict!!.maxDevices,
+                    supportEmail = conflict.supportEmail,
+                    activeDevices = conflict.activeDevices,
+                    maxDevices = conflict.maxDevices,
                 )
                 PayCraftLogger.onFlow("confirmDeviceTransfer", "→ Recovered OwnershipVerified from lastConflict")
             }

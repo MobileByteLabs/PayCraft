@@ -5,7 +5,8 @@
 // POST /functions/v1/events?apiKey=pk_…
 // { "apiKey": "pk_…", "deviceRef": "<per-app device fingerprint>", "deviceToken": "srv_…"?,
 //   "events": [{ "name": "paycraft_paywall_view", "step": "paywall", "platform": "android",
-//                "trigger"?, "sku"?, "currency"?, "provider"?, "reason"?, "at": <epoch ms> }] }
+//                "trigger"?, "sku"?, "currency"?, "provider"?, "reason"?, "experiment"?, "variant"?,
+//                "at": <epoch ms> }] }
 //
 // 202 { stored: N } · 400 unknown_event / bad_event / bad_body · 401 invalid_apiKey · 413 too_large · 429
 //
@@ -28,12 +29,16 @@ const MAX_EVENTS = 50
 const PLATFORMS = new Set(["android", "ios", "web", "desktop"])
 const STEP = /^[a-z][a-z_]{0,30}$/
 const CURRENCY = /^[A-Z]{3}$/
+// The A/B experiment the device was in (migration 206) — the same patterns the columns CHECK.
+const EXPERIMENT = /^[a-z0-9][a-z0-9-]{1,47}$/
+const VARIANT = /^[a-z0-9][a-z0-9-]{0,31}$/
 // An event dated far from now is a broken clock or a replay, not a funnel step.
 const MAX_SKEW_MS = 7 * 24 * 3600 * 1000
 
 type InEvent = {
   name?: unknown; step?: unknown; platform?: unknown; trigger?: unknown; sku?: unknown
   currency?: unknown; provider?: unknown; reason?: unknown; at?: unknown
+  experiment?: unknown; variant?: unknown
 }
 
 const json = (status: number, body: unknown) =>
@@ -99,10 +104,15 @@ serve(async (req: Request): Promise<Response> => {
       return json(400, { error: "bad_event", name })
     }
     const currency = str(e.currency, 3)
+    const experiment = str(e.experiment, 48)
+    const variant = str(e.variant, 32)
+    const inExperiment = experiment !== null && variant !== null && EXPERIMENT.test(experiment) && VARIANT.test(variant)
     rows.push({
       name, step, platform,
       trigger: str(e.trigger, 100), sku: str(e.sku, 100), provider: str(e.provider, 40), reason: str(e.reason, 100),
       currency: currency && CURRENCY.test(currency) ? currency : null,
+      experiment: inExperiment ? experiment : null,
+      variant: inExperiment ? variant : null,
       occurred_at: new Date(at).toISOString(),
     })
   }

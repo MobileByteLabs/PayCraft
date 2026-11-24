@@ -142,11 +142,13 @@ class PayCraftWeb(
      * and currency — the same signal the app SDK sends (`Accept-Language: en-<country>`).
      *
      * A browser's own Accept-Language is a LANGUAGE preference (most browsers in India say `en-US`), not
-     * where the visitor is, so a site should pass its edge's IP country here (Cloudflare `request.cf.country`
-     * / `CF-IPCountry`). Anything that is not a 2-letter country is ignored (never a made-up region);
-     * null goes back to the browser's own header. Changing it drops the cached config.
+     * where the visitor is. On PayCraft Cloud the SDK therefore finds the country ITSELF before the first
+     * [config] (see [geoUrl]) — a site only calls this to override it. Anything that is not a 2-letter
+     * country is ignored (never a made-up region); null goes back to the browser's own header and turns the
+     * automatic lookup off. Changing it drops the cached config.
      */
     fun setCountry(country: String?) {
+        geoTried = true // the site decided; never second-guess it with the automatic lookup
         if (country == null) {
             visitorCountry = null
             cachedConfig = null
@@ -159,6 +161,36 @@ class PayCraftWeb(
     }
 
     private var visitorCountry: String? = null
+
+    /**
+     * Where the visitor's country comes from when the site never called [setCountry]: PayCraft Cloud's own
+     * edge (`/api/geo` on the dashboard host). Supabase's edge strips the CDN's IP-geo header before `config`
+     * runs, so `config` alone can only see a browser's language. Null for a self-hosted backend, which has no
+     * such endpoint — that site calls [setCountry] instead. A seam: tests point it at the fake network.
+     */
+    internal var geoUrl: String? = if (backendUrl == null) CLOUD_GEO_URL else null
+    private var geoTried = false
+
+    /** One lookup per page; any failure just leaves pricing to the browser's header, never blocks [config]. */
+    private suspend fun detectCountry() {
+        geoTried = true
+        val url = geoUrl ?: return
+        val res = try {
+            transport.send("GET", url, emptyMap(), null)
+        } catch (_: Throwable) {
+            return
+        }
+        if (res.status !in 200..299) return
+        val cc = runCatching { json.parseToJsonElement(res.body).jsonObject["country"]?.jsonPrimitive?.contentOrNull }
+            .getOrNull()
+        val normalized = cc?.trim()?.uppercase()
+        if (normalized != null &&
+            Regex("^[A-Z]{2}$").matches(normalized) &&
+            normalized != "XX"
+        ) {
+            visitorCountry = normalized
+        }
+    }
 
     // ── Paywall events (paycraft-paywall-analytics) ─────────────────────────────────────────────
 
@@ -453,6 +485,7 @@ class PayCraftWeb(
     // ── Implementation (internal; called directly by tests) ─────────────────────────────────
 
     internal suspend fun loadConfig(): WebConfig {
+        if (visitorCountry == null && !geoTried) detectCountry()
         // The country rides in the URL as well as in Accept-Language: /config is browser-cacheable and does not
         // vary on Accept-Language, so only a different URL keeps a cached response priced for another country
         // from being reused. The server reads `?country=` as an explicit override of the same value.
@@ -717,6 +750,9 @@ private fun browserDeviceName(): String {
     }
     return "$browser on $os"
 }
+
+/** PayCraft Cloud's IP-geo endpoint (dashboard/app/api/geo) — the visitor's country for default pricing. */
+internal const val CLOUD_GEO_URL = "https://paycraft.mobilebytesensei.com/api/geo"
 
 private const val MAX_PENDING_EVENTS = 50
 private const val EVENT_FLUSH_MS = 3_000

@@ -202,11 +202,13 @@ fun PayCraftPlanBanner(
     // For free/unknown users on initial load the spinner is just noise.
     val isLoading = billingState is BillingState.Loading && lastStableState is BillingState.Premium
 
-    val benefits = PayCraft.requireConfig().benefits
+    // config, not requireConfig(): a banner composed before PayCraft.initialize (or by a host whose
+    // init failed soft) renders the Free card instead of crashing the screen it sits on.
+    val benefits = PayCraft.config?.benefits.orEmpty()
     // subscriptionPlans, not plans: this picks a TOP TIER by rank, and an unfiltered pick can
     // land on a consumable pack now that the catalogue carries them (PayCraft.subscriptionPlans).
     val plans = PayCraft.subscriptionPlans
-    val supportEmail = PayCraft.requireConfig().supportEmail
+    val supportEmail = PayCraft.config?.supportEmail ?: "support@paycraft.mobilebytesensei.com"
     // Live dashboard config — drives the free card's brand color + copy reactively, so a
     // dashboard edit recolors/recopies the Settings banner without a cold relaunch.
     val paywall = PayCraft.suiteConfigFlow.collectAsState().value?.paywall ?: PaywallDto()

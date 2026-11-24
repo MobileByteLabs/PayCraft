@@ -26,6 +26,7 @@ let storedPricing: unknown[] = []
 
 jest.mock("@/lib/api-v1-helpers", () => ({
   __esModule: true,
+  badProductId: jest.requireActual("@/lib/api-v1-helpers").badProductId,
   withApiKey: async (req: Request, scope: string, fn: (ctx: unknown) => Promise<unknown>) => {
     scopeAsked = scope
     // Chainable stub shaped like the two queries the route makes (ownership, then read-back).
@@ -131,6 +132,44 @@ describe("PUT /v1/products/{id}/pricing", () => {
     const res = await put([{ locale: "CH", currency: "CHF", amount_cents: 500 }])
     expect(res.status).toBe(400)
     expect((await res.json()).error).toContain("not_mappable_to_a_store_region")
+  })
+
+  it("accepts a real IDR price in minor units (the flat cap refused Rp 895,455)", async () => {
+    const res = await put([{ locale: "ID", currency: "IDR", amount_cents: 89_545_500 }])
+    expect(res.status).toBe(200)
+  })
+
+  it("still refuses an implausible IDR amount — the cap scales with the currency, it is not gone", async () => {
+    // Same ~$100,000 ceiling the flat cap gives USD, in rupiah: Rp 1,000,000,000 is over it.
+    const res = await put([{ locale: "ID", currency: "IDR", amount_cents: 100_000_000_000 }])
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toContain("implausibly_large")
+  })
+
+  it("accepts every currency the Play sync maps, incl. COP / ETB / MNT", async () => {
+    const res = await put([
+      { locale: "CO", currency: "COP", amount_cents: 2_970_000 },
+      { locale: "ET", currency: "ETB", amount_cents: 63_234 },
+      { locale: "MN", currency: "MNT", amount_cents: 1_420_000 },
+    ])
+    expect(res.status).toBe(200)
+  })
+
+  it("answers 400 invalid_product_id for a non-UUID id instead of a 500 from Postgres", async () => {
+    // A sku, or the "undefined" an MCP call without `id` produces, used to reach the uuid column
+    // and come back as a generic query_failed 500.
+    for (const id of ["pro-lifetime", "undefined"]) {
+      const res = await PUT(
+        new Request(`https://x.test/api/v1/products/${id}/pricing`, {
+          method: "PUT",
+          body: JSON.stringify({ rows: [{ locale: "IN", currency: "INR", amount_cents: 8999 }] }),
+        }),
+        { params: { id } },
+      )
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toBe("invalid_product_id")
+    }
+    expect(upserted.rows).toBeUndefined() // nothing written
   })
 
   it("refuses two rows for the same locale", async () => {

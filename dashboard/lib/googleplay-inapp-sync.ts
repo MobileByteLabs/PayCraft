@@ -54,9 +54,13 @@
  */
 
 import {
+  type ConvertedRegions,
   type GooglePlayCreds,
   type GooglePlayPriceInput,
   CURRENCY_REGION,
+  convertAllRegions,
+  isPlayProductId,
+  regionalConfigsToAdd,
   REGIONS_VERSION,
   playFetch,
   shortPlayError,
@@ -136,6 +140,33 @@ export function regionalConfigsFor(prices: GooglePlayPriceInput[]) {
   return out
 }
 
+type OneTimeRegion = ReturnType<typeof regionalConfigsFor>[number]
+
+/**
+ * Every Play region for a one-time product. `patch` REPLACES the option's whole region list, so:
+ *   1. the operator's configured prices — always sent, they are the catalogue;
+ *   2. every other region the product [existing]ly has — copied through untouched, so a re-sync never
+ *      re-prices a country just because the exchange rate moved since it was converted;
+ *   3. Play's conversion for any region still missing (see convertAllRegions — one region per currency
+ *      left all but 14 countries without the product).
+ */
+export function oneTimeRegionsWithEveryRegion(
+  prices: GooglePlayPriceInput[],
+  existing: OneTimeRegion[],
+  converted: ConvertedRegions | null,
+): OneTimeRegion[] {
+  const configured = regionalConfigsFor(prices)
+  const have = new Set(configured.map((r) => r.regionCode))
+  const kept = existing.filter((r) => r?.regionCode && !have.has(r.regionCode))
+  kept.forEach((r) => have.add(r.regionCode))
+  const added = regionalConfigsToAdd(have, prices, converted).map((a) => ({
+    regionCode: a.regionCode as string,
+    price: a.price as OneTimeRegion["price"],
+    availability: "AVAILABLE",
+  }))
+  return [...configured, ...kept, ...added]
+}
+
 /**
  * Create or converge the one-time product for [sku]. Idempotent by construction — `patch` with
  * `allowMissing` is both the create and the update.
@@ -155,7 +186,7 @@ export async function syncInAppProductToGooglePlay(
   const pkg = creds.packageName
   if (!pkg) throw new Error("googleplay-inapp-sync: missing package_name in tenant store config")
 
-  const productId = existingPlayProductId || sanitizeInAppProductId(sku)
+  const productId = isPlayProductId(existingPlayProductId) ? existingPlayProductId : sanitizeInAppProductId(sku)
   const regionalConfigs = regionalConfigsFor(prices)
   if (regionalConfigs.length === 0) {
     // Not "no prices" — no price whose currency maps to a Play region. Saying which matters: a
@@ -174,6 +205,13 @@ export async function syncInAppProductToGooglePlay(
   // the result; the patch below is an upsert either way, so a probe failure must not abort it.
   const probe = await playFetch(token, `/applications/${pkg}/oneTimeProducts/${encodeURIComponent(productId)}`)
   const existed = probe.ok
+  const current = existed ? await probe.json().catch(() => null) : null
+  const converted = await convertAllRegions(token, pkg, prices)
+  const everyRegion = oneTimeRegionsWithEveryRegion(
+    prices,
+    current?.purchaseOptions?.find((o: any) => o?.purchaseOptionId === BUY_OPTION_ID)?.regionalPricingAndAvailabilityConfigs ?? [],
+    converted,
+  )
 
   const body = {
     packageName: pkg,
@@ -187,7 +225,7 @@ export async function syncInAppProductToGooglePlay(
       // the pack would exist in Play Console, report synced here, and be invisible in the app.
       // Exactly one option per product may carry it, which is why there is exactly one.
       buyOption: { legacyCompatible: true },
-      regionalPricingAndAvailabilityConfigs: regionalConfigs,
+      regionalPricingAndAvailabilityConfigs: everyRegion,
       // Price for regions Play launches in later. Without it a new market inherits no price and
       // the product silently stops being purchasable there. USD and EUR are both required.
       newRegionsConfig: {
@@ -205,7 +243,7 @@ export async function syncInAppProductToGooglePlay(
   const res = await playFetch(
     token,
     `/applications/${pkg}/onetimeproducts/${encodeURIComponent(productId)}` +
-      `?updateMask=listings,purchaseOptions&allowMissing=true&regionsVersion.version=${REGIONS_VERSION}`,
+      `?updateMask=listings,purchaseOptions&allowMissing=true&regionsVersion.version=${converted?.version ?? REGIONS_VERSION}`,
     { method: "PATCH", body: JSON.stringify(body) },
   )
   if (!res.ok) {

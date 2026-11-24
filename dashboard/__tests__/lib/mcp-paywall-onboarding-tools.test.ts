@@ -166,6 +166,14 @@ describe("paywall copy merge", () => {
     const r = mergePaywallCopy(TENANT, current, { tenant_id: "other" })
     expect(r).toMatchObject({ error: "unknown_fields" })
   })
+
+  it("value_props given as plain strings are stored as SDK triples", () => {
+    const r = mergePaywallCopy(TENANT, current, { value_props: ["No ads", " ", { title: "HD", icon: "hd" }] })
+    expect((r as { row: Record<string, unknown> }).row.value_props).toEqual([
+      { icon: "check", title: "No ads" },
+      { icon: "hd", title: "HD" },
+    ])
+  })
 })
 
 describe("paywall draft/publish", () => {

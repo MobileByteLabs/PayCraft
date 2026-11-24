@@ -1,6 +1,7 @@
 package com.mobilebytelabs.paycraft.core
 
 import com.mobilebytelabs.paycraft.billing.NativeBillingClient
+import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.model.Entitlement
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.persistence.EntitlementCache
@@ -88,10 +89,17 @@ class EntitlementRepository(
             native.manageSubscription(entitlement.product)
             true
         } else {
-            val subscriptionId = requireNotNull(entitlement.subscriptionId) {
-                "PSP cancel for provider=${entitlement.provider} requires a subscriptionId"
+            // false, not a throw: this is a host UI action, and the contract above is "true when dispatched".
+            val subscriptionId = entitlement.subscriptionId
+            if (subscriptionId == null) {
+                PayCraftLogger.onError(
+                    "manageSubscription",
+                    "PSP cancel for provider=${entitlement.provider} has no subscriptionId",
+                )
+                false
+            } else {
+                service.cancelSubscription(entitlement.provider, subscriptionId)
             }
-            service.cancelSubscription(entitlement.provider, subscriptionId)
         }
 
     /** Alias for [manageSubscription] — the D7 "cancel" verb dispatches identically. */
