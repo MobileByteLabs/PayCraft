@@ -23,6 +23,7 @@ import {
 import { toAlpha2 } from "../_shared/country-code.ts"
 import { effectiveTrial } from "../_shared/trial.ts"
 import { preflight, withCors } from "../_shared/cors.ts"
+import { normalizeValueProps } from "../_shared/value-props.ts"
 
 /** Map a routing method name (stripe_card, razorpay_upi, direct_upi…) to its provider. */
 function methodToProvider(method: string): string {
@@ -724,6 +725,7 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
       }
   const paywallWithLegal = {
     ...basePaywall,
+    value_props: normalizeValueProps((basePaywall as Record<string, unknown>)["value_props"]),
     privacy_url:
       ((basePaywall as Record<string, unknown>)["privacy_url"] as string | undefined) ||
       PAYCRAFT_PRIVACY_URL,
