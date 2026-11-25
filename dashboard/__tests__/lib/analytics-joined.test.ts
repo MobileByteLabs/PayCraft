@@ -220,3 +220,24 @@ describe("segmentRows", () => {
     ])
   })
 })
+
+describe("All time (migration 217)", () => {
+  it("asks GA4 for its earliest date instead of a day count it would refuse", async () => {
+    const bodies: Array<{ dateRanges: unknown }> = []
+    const deps = {
+      saEmail: "sa@x", token: async () => "t",
+      fetch: (async (_u: string, init?: RequestInit) => (bodies.push(JSON.parse(String(init?.body))), new Response(JSON.stringify({ rows: [] })))) as typeof fetch,
+    }
+    await ga4Segments("p", [], { days: 36500 }, deps)
+    expect(bodies[0].dateRanges).toEqual([{ startDate: "2015-08-14", endDate: "today" }])
+    await ga4Segments("p", [], { days: 30 }, deps)
+    expect(bodies.at(-1)!.dateRanges).toEqual([{ startDate: "30daysAgo", endDate: "today" }])
+  })
+
+  it("the API takes days=all", async () => {
+    const { client } = fakeSupabase({ tenants: [{ id: "t", plan: "pro" }], tier_definitions: [{ tier_name: "pro", analytics_retention_days: 36500 }] })
+    const sb = Object.assign(Object.create(client), { rpc: async () => ({ data: { viewed: 0, picked: 0, checkout: 0, paid: 0, by_country: [], by_provider: [] }, error: null }) })
+    const body = await (await analyticsResponse(sb, "t", new URL("https://x/api/v1/analytics?days=all"), { account: null })).json()
+    expect(body.window).toMatchObject({ days: 36500, capped: false })
+  })
+})

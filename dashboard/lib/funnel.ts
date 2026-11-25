@@ -141,14 +141,29 @@ export function splitsFromStats(s: FunnelStats): { byCountry: SplitRow[]; byProv
   }
 }
 
-export const RANGE_OPTIONS = [7, 30, 90] as const
+/**
+ * "All time" as a window length: paid plans keep analytics forever (tier_definitions.analytics_retention_days =
+ * 36 500, migration 217), so one numeric window serves every query — and the purge never reaches it.
+ */
+export const ALL_TIME_DAYS = 36_500
 
-/** The range to show: the requested 7 / 30 / 90 days (default 30), capped at the plan's analytics retention. */
+export const RANGE_OPTIONS = [7, 30, 90, ALL_TIME_DAYS] as const
+
+/** The range to show: 7 / 30 / 90 days or `all` (default 30), capped at the plan's analytics retention. */
 export function rangeDays(requested: string | undefined, retentionDays: number): { days: number; capped: boolean } {
-  const n = Number(requested)
+  const n = requested === "all" ? ALL_TIME_DAYS : Number(requested)
   const want = (RANGE_OPTIONS as readonly number[]).includes(n) ? n : 30
   return want > retentionDays ? { days: retentionDays, capped: true } : { days: want, capped: false }
 }
+
+/** "Last 30 days" / "All time". */
+export const rangeLabel = (days: number) => (days >= ALL_TIME_DAYS ? "All time" : `Last ${days} days`)
+
+/** How long a plan keeps analytics: "7 days" / "forever". */
+export const retentionLabel = (days: number) => (days >= ALL_TIME_DAYS ? "forever" : `${days} days`)
+
+/** The `range` URL value for a window. */
+export const rangeParam = (days: number) => (days >= ALL_TIME_DAYS ? "all" : String(days))
 
 export const STAGE_LABEL: Record<FunnelStage, string> = {
   paycraft_paywall_view: "Viewed paywall",

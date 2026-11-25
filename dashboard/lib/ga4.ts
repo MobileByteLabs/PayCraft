@@ -53,6 +53,10 @@ export async function runReport(propertyId: string, req: Ga4ReportRequest, deps:
 
 export type Ga4Account = { email: string; token: () => Promise<string> }
 
+/** GA4 refuses dates before its own start (2015-08-14): an all-time window asks for that instead of a day count. */
+const GA4_EARLIEST = "2015-08-14"
+export const ga4Start = (days: number) => (days >= 3_650 ? GA4_EARLIEST : `${days}daysAgo`)
+
 /**
  * PayCraft's GA4 reader from the environment, or null when this PayCraft server has none set up. Tokens are minted
  * with the read-only Analytics scope and reused until five minutes before they expire.
@@ -102,7 +106,7 @@ const n = (v: string | undefined) => Number(v ?? 0) || 0
  * (e.g. one property for an app and two websites) sees only its own. Empty = the whole property.
  */
 export async function ga4Overview(propertyId: string, rangeDays: number, deps: Ga4Deps, streamIds: string[] = []): Promise<Ga4Overview> {
-  const dateRanges = [{ startDate: `${rangeDays}daysAgo`, endDate: "today" }]
+  const dateRanges = [{ startDate: ga4Start(rangeDays), endDate: "today" }]
   const streams = streamIds.length ? { filter: { fieldName: "streamId", inListFilter: { values: streamIds } } } : undefined
   const paycraftEvents = { filter: { fieldName: "eventName", stringFilter: { matchType: "BEGINS_WITH", value: "paycraft_" } } }
   const paycraftOnly = streams ? { andGroup: { expressions: [paycraftEvents, streams] } } : paycraftEvents
@@ -190,7 +194,7 @@ export async function ga4Segments(
   f: AnalyticsFilters,
   deps: Ga4Deps,
 ): Promise<Ga4Segments> {
-  const dateRanges = [{ startDate: `${f.days}daysAgo`, endDate: "today" }]
+  const dateRanges = [{ startDate: ga4Start(f.days), endDate: "today" }]
   const scope: unknown[] = []
   if (streamIds.length) scope.push({ filter: { fieldName: "streamId", inListFilter: { values: streamIds } } })
   if (f.platform) scope.push(exact("platform", f.platform, false))

@@ -1,5 +1,6 @@
 import React from "react"
 import Link from "next/link"
+import { rangeParam } from "@/lib/funnel"
 
 /**
  * The Analytics filter bar (paycraft-ga4-analytics-audit D3): platform / country / app version / plan, applied to the
@@ -32,7 +33,7 @@ export function AnalyticsFilters({ days, value, options }: {
   )
   return (
     <form method="get" aria-label="Analytics filters" className="flex flex-wrap items-end gap-3 rounded-xl border border-ink-200 bg-white p-4 shadow-sm">
-      <input type="hidden" name="range" value={days} />
+      <input type="hidden" name="range" value={rangeParam(days)} />
       {field("platform", "Platform", value.platform, options.platforms, (v) => v === "ios" ? "iOS" : v.charAt(0).toUpperCase() + v.slice(1))}
       {field("country", "Country", value.country, options.countries)}
       {field("app_version", "App version", value.appVersion, options.appVersions)}
@@ -41,7 +42,7 @@ export function AnalyticsFilters({ days, value, options }: {
         Apply
       </button>
       {any && (
-        <Link href={`?range=${days}`} className="px-2 py-2 text-sm font-medium text-ink-500 hover:text-ink-800">
+        <Link href={`?range=${rangeParam(days)}`} className="px-2 py-2 text-sm font-medium text-ink-500 hover:text-ink-800">
           Clear filters
         </Link>
       )}

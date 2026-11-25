@@ -16,7 +16,7 @@ import { MRRChart } from "@/components/charts/mrr-chart"
 import { ChurnChart } from "@/components/charts/churn-chart"
 import { WebhookDonut } from "@/components/charts/webhook-donut"
 import { RangeMenu, SplitTable } from "@/components/analytics/funnel-chart"
-import { rangeDays, splitsFromStats } from "@/lib/funnel"
+import { rangeDays, rangeLabel, retentionLabel, splitsFromStats } from "@/lib/funnel"
 import { joinedAnalytics, segmentRows, type JoinedAnalytics } from "@/lib/analytics-joined"
 import { PaymentHealthPanel } from "@/components/analytics/payment-health"
 import { AnalyticsFilters, type FilterValue } from "@/components/analytics/analytics-filters"
@@ -261,7 +261,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams?: A
               rate.
             </p>
             <Badge tone="brand">
-              Retention {retentionDays} days ({tenant.plan ?? "free"})
+              Retention {retentionLabel(retentionDays)} ({tenant.plan ?? "free"})
             </Badge>
           </div>
         </div>
@@ -275,7 +275,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams?: A
         <div>
           <h3 id="funnel-h" className="text-lg font-bold tracking-tight text-ink-900">Paywall funnel</h3>
           <p className="mt-0.5 text-xs text-ink-500">
-            Last {range.days} days{range.capped ? ` (your plan keeps ${retentionDays})` : ""} · {getMode()} mode · Paid = purchases the providers confirmed
+            {rangeLabel(range.days)}{range.capped ? ` (your plan keeps ${retentionLabel(retentionDays)})` : ""} · {getMode()} mode · Paid = purchases the providers confirmed
           </p>
         </div>
         {joined ? (

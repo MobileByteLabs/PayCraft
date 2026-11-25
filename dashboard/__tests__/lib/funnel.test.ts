@@ -1,7 +1,17 @@
 // The paywall funnel the dashboard shows (paycraft-paywall-analytics AC-6): stage counts are distinct buyers
 // (a buyer who views the paywall three times is one viewer), drops are relative to the previous stage, and the
 // country / provider splits add up to what was seen. Exact numbers, from PayCraft's own events table.
-import { FUNNEL_STAGES, funnel, rangeDays, splitBy, type FunnelEvent } from "@/lib/funnel"
+import {
+  ALL_TIME_DAYS,
+  FUNNEL_STAGES,
+  RANGE_OPTIONS,
+  funnel,
+  rangeDays,
+  rangeLabel,
+  retentionLabel,
+  splitBy,
+  type FunnelEvent,
+} from "@/lib/funnel"
 
 const ev = (name: string, who: string, extra: Partial<FunnelEvent> = {}): FunnelEvent =>
   ({ name, user_ref: null, device_ref: who, country: null, provider: null, ...extra })
@@ -66,5 +76,17 @@ describe("paywall funnel", () => {
     expect(rangeDays("90", 7)).toEqual({ days: 7, capped: true })
     expect(rangeDays(undefined, 90)).toEqual({ days: 30, capped: false })
     expect(rangeDays("bogus", 90)).toEqual({ days: 30, capped: false })
+  })
+
+  // Paid plans keep analytics forever (migration 217): "All time" is a range like the others, capped like them.
+  it("offers All time to a plan that keeps data forever, and caps it for one that does not", () => {
+    expect(RANGE_OPTIONS).toEqual([7, 30, 90, ALL_TIME_DAYS])
+    expect(rangeDays("all", ALL_TIME_DAYS)).toEqual({ days: ALL_TIME_DAYS, capped: false })
+    expect(rangeDays("all", 7)).toEqual({ days: 7, capped: true })
+    expect(rangeDays("90", ALL_TIME_DAYS)).toEqual({ days: 90, capped: false })
+    expect(retentionLabel(ALL_TIME_DAYS)).toBe("forever")
+    expect(retentionLabel(7)).toBe("7 days")
+    expect(rangeLabel(ALL_TIME_DAYS)).toBe("All time")
+    expect(rangeLabel(30)).toBe("Last 30 days")
   })
 })

@@ -2,6 +2,7 @@ import { clsx } from "clsx"
 import { DollarSign } from "lucide-react"
 import { STAGE_LABEL, type AttemptStage } from "@/lib/attempts"
 import type { AbandonStepKey, HealthBucket, PaymentHealth } from "@/lib/payment-health"
+import { rangeLabel } from "@/lib/funnel"
 
 /**
  * Payment health (paycraft-attempt-observability AC-15 / AC-16) — mounted beside the paywall funnel on Analytics,
@@ -133,7 +134,7 @@ export function PaymentHealthPanel(props: {
           <div>
             <h3 className="text-lg font-bold tracking-tight text-ink-900">Payment health</h3>
             <p className="mt-0.5 text-xs text-ink-500">
-              Every purchase attempt from plan pick to grant, last {props.days} days · {props.mode} mode
+              Every purchase attempt from plan pick to grant, {rangeLabel(props.days).toLowerCase()} · {props.mode} mode
             </p>
           </div>
           {data.paidNotGranted > 0 && (

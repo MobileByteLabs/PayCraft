@@ -28,7 +28,7 @@ import {
   fetchAttemptEvents,
 } from "@/lib/attempts"
 import { paymentHealth } from "@/lib/payment-health"
-import { fetchFunnelStats, funnelFromStats, splitsFromStats } from "@/lib/funnel"
+import { ALL_TIME_DAYS, fetchFunnelStats, funnelFromStats, splitsFromStats } from "@/lib/funnel"
 import { joinedAnalytics } from "@/lib/analytics-joined"
 import type { Ga4Account } from "@/lib/ga4"
 
@@ -216,7 +216,7 @@ export async function paymentHealthResponse(
   }
 }
 
-const ANALYTICS_DAYS = [7, 30, 90] as const
+const ANALYTICS_DAYS = [7, 30, 90, ALL_TIME_DAYS] as const
 const PLATFORMS = ["android", "ios", "web", "desktop", "macos"] as const
 const APP_VERSION = /^[0-9A-Za-z._+-]{1,32}$/
 const PLAN_SKU = /^[a-z0-9][a-z0-9._-]{0,99}$/
@@ -237,8 +237,8 @@ export async function analyticsResponse(
   const mode = parseMode(q)
   if (isResponse(mode)) return mode
   const daysRaw = q.get("days")
-  const days = daysRaw ? Number(daysRaw) : 30
-  if (!(ANALYTICS_DAYS as readonly number[]).includes(days)) return invalid("invalid_days", "days must be 7, 30 or 90")
+  const days = daysRaw === "all" ? ALL_TIME_DAYS : daysRaw ? Number(daysRaw) : 30
+  if (!(ANALYTICS_DAYS as readonly number[]).includes(days)) return invalid("invalid_days", "days must be 7, 30, 90 or all")
   const platform = q.get("platform")?.toLowerCase() || undefined
   if (platform && !(PLATFORMS as readonly string[]).includes(platform)) {
     return invalid("invalid_platform", `platform must be one of ${PLATFORMS.join(", ")}`)
