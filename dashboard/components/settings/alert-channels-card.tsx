@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { clsx } from "clsx"
 import { Bell, Check, CheckCircle2, Inbox, KeyRound, Loader2, Mail, MessageSquare, Send, Webhook, XCircle } from "lucide-react"
 import {
@@ -103,20 +103,20 @@ export function AlertChannelsCard() {
     () => Object.fromEntries(CHANNEL_KINDS.map((c) => [c, { busy: false, result: null }])) as Record<ChannelKind, TestState>,
   )
 
-  function adopt(p: PublicChannels) {
+  const adopt = useCallback((p: PublicChannels) => {
     setSaved(p)
     setEmailEnabled(p.email.enabled)
     setSlackUrl("")
     setWebhookUrl("")
     setWebhookSecret("")
     setKinds(p.kinds)
-  }
+  }, [])
 
   // Every load/save takes a ticket; only the newest one may adopt its answer. Without this a slow
   // initial GET (React dev mounts effects twice) can land after a save and put "Not set" back.
   const ticket = useRef(0)
 
-  async function load() {
+  const load = useCallback(async () => {
     const mine = ++ticket.current
     const res = await fetch("/api/alert-channels").catch(() => null)
     if (mine !== ticket.current) return
@@ -127,13 +127,14 @@ export function AlertChannelsCard() {
     }
     const fresh = (await res.json()) as PublicChannels
     if (mine === ticket.current) adopt(fresh)
-  }
+  }, [adopt])
   useEffect(() => {
+    const tickets = ticket // the ref object itself, so the cleanup voids whichever load is in flight
     void load()
     return () => {
-      ticket.current++
+      tickets.current++
     }
-  }, [])
+  }, [load])
 
   const dirty = useMemo(() => {
     if (!saved || !kinds) return false

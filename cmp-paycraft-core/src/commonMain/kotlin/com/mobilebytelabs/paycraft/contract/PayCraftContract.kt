@@ -263,51 +263,50 @@ object PayCraftContract {
         deviceToken: String?,
         events: List<PayCraftEvent>,
         appVersion: String? = null,
-    ): JsonObject =
-        buildJsonObject {
-            put("apiKey", apiKey)
-            put("deviceRef", deviceRef)
-            if (deviceToken != null) put("deviceToken", deviceToken)
-            appVersion?.takeIf { it.isNotBlank() }?.let { put("appVersion", it.take(32)) }
-            put(
-                "events",
-                JsonArray(
-                    events.map { e ->
-                        buildJsonObject {
-                            put("name", e.name.wire)
-                            put("step", e.step.wire)
-                            put("platform", e.platform)
-                            e.trigger?.let { put("trigger", it) }
-                            e.sku?.let { put("sku", it) }
-                            e.currency?.let { put("currency", it) }
-                            e.provider?.let { put("provider", it) }
-                            // The device's region — the server stores it only when its own geo has none
-                            // (paycraft-ga4-analytics-audit D6), under `country_source = 'device'`.
-                            e.country?.let { put("deviceCountry", it) }
-                            e.reason?.let { put("reason", it) }
-                            e.experiment?.let { put("experiment", it) }
-                            e.variant?.let { put("variant", it) }
-                            e.attemptId?.let { put("attempt_id", it) }
-                            // The server refuses a failure with no attempt to file it under, so one is only sent
-                            // with its attempt id — every SDK emitter that builds a failure also has one.
-                            val failure = e.failure
-                            if (failure != null && e.attemptId != null) {
-                                put(
-                                    "failure",
-                                    buildJsonObject {
-                                        put("stage", failure.stage.wire)
-                                        put("error_class", failure.errorClass)
-                                        put("error_code", failure.code)
-                                        if (failure.message.isNotEmpty()) put("error_message", failure.message)
-                                    },
-                                )
-                            }
-                            put("at", e.atMs)
+    ): JsonObject = buildJsonObject {
+        put("apiKey", apiKey)
+        put("deviceRef", deviceRef)
+        if (deviceToken != null) put("deviceToken", deviceToken)
+        appVersion?.takeIf { it.isNotBlank() }?.let { put("appVersion", it.take(32)) }
+        put(
+            "events",
+            JsonArray(
+                events.map { e ->
+                    buildJsonObject {
+                        put("name", e.name.wire)
+                        put("step", e.step.wire)
+                        put("platform", e.platform)
+                        e.trigger?.let { put("trigger", it) }
+                        e.sku?.let { put("sku", it) }
+                        e.currency?.let { put("currency", it) }
+                        e.provider?.let { put("provider", it) }
+                        // The device's region — the server stores it only when its own geo has none
+                        // (paycraft-ga4-analytics-audit D6), under `country_source = 'device'`.
+                        e.country?.let { put("deviceCountry", it) }
+                        e.reason?.let { put("reason", it) }
+                        e.experiment?.let { put("experiment", it) }
+                        e.variant?.let { put("variant", it) }
+                        e.attemptId?.let { put("attempt_id", it) }
+                        // The server refuses a failure with no attempt to file it under, so one is only sent
+                        // with its attempt id — every SDK emitter that builds a failure also has one.
+                        val failure = e.failure
+                        if (failure != null && e.attemptId != null) {
+                            put(
+                                "failure",
+                                buildJsonObject {
+                                    put("stage", failure.stage.wire)
+                                    put("error_class", failure.errorClass)
+                                    put("error_code", failure.code)
+                                    if (failure.message.isNotEmpty()) put("error_message", failure.message)
+                                },
+                            )
                         }
-                    },
-                ),
-            )
-        }
+                        put("at", e.atMs)
+                    }
+                },
+            ),
+        )
+    }
 
     // ── Purchase attempts (paycraft-attempt-observability D4 / D5) ──────────────────────────────────────────
 

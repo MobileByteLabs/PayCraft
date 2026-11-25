@@ -18,7 +18,10 @@ class CheckoutProviderEventTest {
     private val stripe = ProviderDto(provider = "stripe")
 
     @Test fun the_play_lane_is_google_play() {
-        assertEquals("google_play", checkoutProviderFor(CheckoutLane.NativePlay("pro_monthly"), listOf(razorpay, stripe)))
+        assertEquals(
+            "google_play",
+            checkoutProviderFor(CheckoutLane.NativePlay("pro_monthly"), listOf(razorpay, stripe)),
+        )
     }
 
     @Test fun the_storekit_lane_is_the_app_store() {

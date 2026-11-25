@@ -131,6 +131,5 @@ export function fakeSupabase(tables: Record<string, Row[]>, opts: { maxRows?: nu
     return builder
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { client: { from } as any, calls }
 }

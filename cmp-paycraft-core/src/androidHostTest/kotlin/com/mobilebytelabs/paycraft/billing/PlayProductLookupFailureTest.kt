@@ -18,7 +18,10 @@ class PlayProductLookupFailureTest {
     }
 
     @Test fun ok_without_the_product_is_product_not_found() {
-        assertEquals("product_not_found", productLookupFailure("pro_quarterly", BillingResponseCode.OK, "", found = false)?.code)
+        assertEquals(
+            "product_not_found",
+            productLookupFailure("pro_quarterly", BillingResponseCode.OK, "", found = false)?.code,
+        )
     }
 
     @Test fun an_install_that_did_not_come_from_play_cannot_see_play_products_and_says_so() {
@@ -26,16 +29,34 @@ class PlayProductLookupFailureTest {
         // dashboard showed "Store had no such product" for products Play lists as ACTIVE in 174 regions.
         val f = productLookupFailure("pro_quarterly", BillingResponseCode.OK, "", found = false, fromPlay = false)
         assertEquals("not_from_play", f?.code)
-        assertEquals("product_not_found", productLookupFailure("p", BillingResponseCode.OK, "", found = false, fromPlay = true)?.code)
-        assertEquals("product_not_found", productLookupFailure("p", BillingResponseCode.OK, "", found = false, fromPlay = null)?.code)
+        assertEquals(
+            "product_not_found",
+            productLookupFailure("p", BillingResponseCode.OK, "", found = false, fromPlay = true)?.code,
+        )
+        assertEquals(
+            "product_not_found",
+            productLookupFailure("p", BillingResponseCode.OK, "", found = false, fromPlay = null)?.code,
+        )
         assertNull(productLookupFailure("p", BillingResponseCode.OK, "", found = true, fromPlay = false))
     }
 
     @Test fun a_failed_lookup_reports_plays_response_code_not_a_missing_product() {
-        val f = productLookupFailure("pro_quarterly", BillingResponseCode.SERVICE_UNAVAILABLE, "Service unavailable", found = false)
+        val f =
+            productLookupFailure(
+                "pro_quarterly",
+                BillingResponseCode.SERVICE_UNAVAILABLE,
+                "Service unavailable",
+                found = false,
+            )
         assertEquals("query_${BillingResponseCode.SERVICE_UNAVAILABLE}", f?.code)
         assertEquals("Play product lookup failed for pro_quarterly: Service unavailable", f?.message)
-        assertEquals("query_${BillingResponseCode.BILLING_UNAVAILABLE}", productLookupFailure("p", BillingResponseCode.BILLING_UNAVAILABLE, "", found = false)?.code)
-        assertEquals("query_${BillingResponseCode.NETWORK_ERROR}", productLookupFailure("p", BillingResponseCode.NETWORK_ERROR, "", found = false)?.code)
+        assertEquals(
+            "query_${BillingResponseCode.BILLING_UNAVAILABLE}",
+            productLookupFailure("p", BillingResponseCode.BILLING_UNAVAILABLE, "", found = false)?.code,
+        )
+        assertEquals(
+            "query_${BillingResponseCode.NETWORK_ERROR}",
+            productLookupFailure("p", BillingResponseCode.NETWORK_ERROR, "", found = false)?.code,
+        )
     }
 }

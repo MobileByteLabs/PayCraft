@@ -404,7 +404,9 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
     }
 
     private suspend fun queryProductDetails(productId: String, productType: NativeProductType): ProductDetails? =
-        billingClient.queryProductDetails(productDetailsParams(productId, productType)).productDetailsList?.firstOrNull()
+        billingClient.queryProductDetails(
+            productDetailsParams(productId, productType),
+        ).productDetailsList?.firstOrNull()
 
     private fun productDetailsParams(productId: String, productType: NativeProductType): QueryProductDetailsParams =
         QueryProductDetailsParams.newBuilder()

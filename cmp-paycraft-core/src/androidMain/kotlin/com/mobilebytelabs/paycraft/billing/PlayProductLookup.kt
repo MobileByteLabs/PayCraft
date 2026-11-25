@@ -37,7 +37,10 @@ internal fun productLookupFailure(
     // Play sells only to apps it installed: an APK from anywhere else gets OK with no product. That is not a
     // catalogue problem, so it gets its own code (paycraft-ga4-analytics-audit AC-3). Unknown installer → unchanged.
     responseCode == BillingResponseCode.OK && fromPlay == false ->
-        NativePurchaseResult.Failed("App not installed from Google Play — Play cannot sell $productId to it", "not_from_play")
+        NativePurchaseResult.Failed(
+            "App not installed from Google Play — Play cannot sell $productId to it",
+            "not_from_play",
+        )
     responseCode == BillingResponseCode.OK ->
         NativePurchaseResult.Failed("Product not found on Play: $productId", "product_not_found")
     else -> NativePurchaseResult.Failed(
