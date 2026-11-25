@@ -83,6 +83,12 @@ jobs:
           fi
           echo "browser env inlined (ref found in ${hits} chunk(s))"
 
+          # GA4 renders nothing when NEXT_PUBLIC_GA_ID was unset at build — the site goes on working and
+          # silently stops reporting (prod ran without it until 2026-11-25). The loader's URL is in the HTML.
+          printf '%s' "$BODY" | grep -q 'googletagmanager.com/gtag/js?id=G-546MLX2N39' || {
+            echo "::error::GA4 (G-546MLX2N39) is not on /auth/login — NEXT_PUBLIC_GA_ID was not set at build time"; exit 1; }
+          echo "GA4 loader present (G-546MLX2N39)"
+
       # The live security properties, re-checked after every deploy.
       #
       # These are the checks that found the two real issues they now guard: an unauthenticated 500

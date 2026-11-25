@@ -126,6 +126,10 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
 - **GA4 on the dashboard:** tenants add PayCraft's service account — the org Firebase account
   (`firebase-adminsdk-fbsvc@prod-applications-c7f87.iam.gserviceaccount.com`; alias `paycraft-ga4-service-account` →
   vault `mbs-firebase-service-account`, env `PAYCRAFT_GA4_SA_JSON`, raw or base64 JSON) — as a Viewer on their property; `tenant_ga4_connections` (184) stores only the property id, plus (190) the `stream_ids` that are the tenant's when one property holds several apps — every report (`ga4Overview`) is then filtered by `streamId`.
+- **PayCraft's own site analytics:** paycraft.mobilebytesensei.com reports to GA4 stream "PayCraft Production"
+  (`G-546MLX2N39`, stream 15137829546) — separate from tenants' properties above. The id is public and lives in
+  `deploy-cloud.yml` (`env.PAYCRAFT_GA_ID` → `NEXT_PUBLIC_GA_ID`, inlined at build; the build refuses a missing one) and
+  `components/google-analytics.tsx` renders nothing without it. `cloud-smoke.yml` fails if the loader leaves the page.
 - **Attribution forwarding (server → the app's ad platforms):** verified lifecycle events — trial start, purchase,
   renewal, refund — go from `reconcileEntitlement()` (the one path every Play / App Store / web-PSP event takes) to
   GA4 (Firebase Measurement Protocol, by `app_instance_id`) and AppsFlyer (S2S events, by `appsflyer_id`) via

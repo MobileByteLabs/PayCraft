@@ -47,6 +47,12 @@ concurrency:
   group: deploy-cloud
   cancel-in-progress: false
 
+env:
+  # GA4 web stream "PayCraft Production" (paycraft.mobilebytesensei.com, stream 15137829546). A measurement id is
+  # public by design — it ships in every page — so it lives here, not in the vault. Read by the dashboard's
+  # components/google-analytics.tsx through NEXT_PUBLIC_GA_ID, which `next build` inlines.
+  PAYCRAFT_GA_ID: G-546MLX2N39
+
 jobs:
   # Schema FIRST — apply any pending migrations to the prod DB BEFORE the dashboard
   # / edge functions deploy, so new code never lands against an un-migrated schema
@@ -156,11 +162,15 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ steps.sb.outputs.url }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_GA_ID: ${{ env.PAYCRAFT_GA_ID }}
         run: |
           for v in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY; do
             [ -n "${!v}" ] || { echo "::error::$v is empty — the browser bundle would ship undefined and every page would throw at createBrowserClient"; exit 1; }
           done
-          echo "browser env present: URL + ANON_KEY"
+          # GA4 renders nothing without it — the build succeeds and the site silently stops reporting.
+          printf '%s' "$NEXT_PUBLIC_GA_ID" | grep -qE '^G-[A-Z0-9]+$' || {
+            echo "::error::NEXT_PUBLIC_GA_ID '$NEXT_PUBLIC_GA_ID' is not a GA4 measurement id"; exit 1; }
+          echo "browser env present: URL + ANON_KEY + GA4 $NEXT_PUBLIC_GA_ID"
 
       - name: Build + deploy to Cloudflare Pages
         run: npm run pages:deploy
@@ -176,6 +186,7 @@ jobs:
           # which locked the dashboard entirely.
           NEXT_PUBLIC_SUPABASE_URL: ${{ steps.sb.outputs.url }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_GA_ID: ${{ env.PAYCRAFT_GA_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # The org token materializes as CLOUDFLARE_PAGES_API_TOKEN (alias
           # mbs-cloudflare-pages-api-token); wrangler reads CLOUDFLARE_API_TOKEN.
