@@ -18,8 +18,8 @@ import com.mobilebytelabs.paycraft.notify.ResumeNudgeIds
  *
  * ```
  * ┌─ Notification ─────────────────────────────────────────┐
- * │ [reminder icon]  Still thinking it over?               │  ← /config.nudge.title (or this default)
- * │ Pick up where you left off.                            │  ← /config.nudge.body  (or this default)
+ * │ [reminder icon]  Your Premium is waiting 👑            │  ← /config.nudge.title (or this default)
+ * │ Your Pro Monthly plan is saved — tap to finish …       │  ← /config.nudge.body  (or this default; {plan} filled)
  * └────────────────────────────────────────────────────────┘
  * ```
  * Channel `paycraft_resume` ("Payment reminders", default importance). Tapping it opens [PayCraftNudgeActivity],

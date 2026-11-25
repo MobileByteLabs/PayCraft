@@ -240,7 +240,8 @@ object PayCraft {
         val attemptId = attemptTracker.current ?: return
         val sku = attemptTracker.currentSku
         if (!isConfigured || backend is PayCraftBackend.Mock || !nudgeScheduler.isSupported) return
-        val config = nudgeConfig
+        // The reminder names the subscription the buyer picked ("Your Pro Monthly plan is saved …").
+        val config = nudgeConfig.personalized(plans.firstOrNull { it.sku == sku }?.name)
         applicationScope.launch {
             nudgeLock.withLock {
                 if (!nudgeEligibility.shouldSchedule(trigger, attemptId, config, sku)) return@withLock

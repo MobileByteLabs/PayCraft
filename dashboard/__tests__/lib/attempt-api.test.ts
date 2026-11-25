@@ -168,11 +168,26 @@ describe("GET /v1/payment-health", () => {
 })
 
 describe("GET /v1/funnel", () => {
-  it("counts the tenant's distinct buyers per stage with country / provider splits", async () => {
+  // The aggregation itself (distinct buyers, provider-confirmed Paid, splits) is SQL — migration 213, asserted by
+  // supabase/tests/213_analytics_provider_truth_test.sql. Here: the route asks the RPC for the tenant's clamped
+  // window and maps its answer, and no buyer identifier leaves the response.
+  it("asks paywall_funnel_stats for the tenant's window and maps stages + splits", async () => {
     const { client } = await seed()
-    const body = await (await funnelResponse(client, A, url("/api/v1/funnel", { since: "2026-11-24", until: "2026-11-25" }), NOW)).json()
-    expect(body.stages.map((s: { users: number }) => s.users)).toEqual([2, 0, 1, 0])
-    expect(body.by_country.find((r: { key: string }) => r.key === "IN")).toEqual({ key: "IN", viewers: 1, checkouts: 1, payers: 0 })
+    const calls: Array<[string, Record<string, unknown>]> = []
+    const stats = {
+      viewed: 2, picked: 1, checkout: 1, paid: 1,
+      by_country: [{ key: "IN", viewers: 1, checkouts: 1, paid: 1 }],
+      by_provider: [{ key: "google_play", checkouts: 1, paid: 1 }],
+    }
+    const withRpc = Object.assign(Object.create(client), {
+      rpc: async (fn: string, args: Record<string, unknown>) => (calls.push([fn, args]), { data: stats, error: null }),
+    })
+    const body = await (await funnelResponse(withRpc, A, url("/api/v1/funnel", { since: "2026-11-24", until: "2026-11-25" }), NOW)).json()
+    expect(calls[0][0]).toBe("paywall_funnel_stats")
+    expect(calls[0][1]).toMatchObject({ p_tenant_id: A, p_mode: "live" })
+    expect(String(calls[0][1].p_since) < String(calls[0][1].p_until)).toBe(true)
+    expect(body.stages.map((s: { users: number }) => s.users)).toEqual([2, 1, 1, 1])
+    expect(body.by_country).toEqual([{ key: "IN", viewers: 1, checkouts: 1, payers: 1 }])
     expect(JSON.stringify(body)).not.toMatch(/"u1"|"d1"/)
   })
 })

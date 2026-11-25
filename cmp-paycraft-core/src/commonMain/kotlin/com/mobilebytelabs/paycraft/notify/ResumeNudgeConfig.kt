@@ -12,12 +12,22 @@ import com.russhwolf.settings.Settings
 /**
  * The tenant's resume reminder, from `/config.nudge` (migration 210; paycraft-attempt-observability D10 / D12).
  * Delay and copy are the tenant's; a null title or body on the server means [DEFAULT_TITLE] / [DEFAULT_BODY].
+ * Either may contain [PLAN_PLACEHOLDER], filled by [personalized] with the plan the buyer picked.
  */
 @PayCraftInternalApi
 data class NudgeConfig(val enabled: Boolean, val delayMs: Long, val title: String, val body: String) {
+
+    /** This copy with [PLAN_PLACEHOLDER] replaced by [planName], or by "Premium" when the plan is unknown. */
+    fun personalized(planName: String?): NudgeConfig {
+        val name = planName?.trim()?.takeIf { it.isNotEmpty() } ?: FALLBACK_PLAN_NAME
+        return copy(title = title.replace(PLAN_PLACEHOLDER, name), body = body.replace(PLAN_PLACEHOLDER, name))
+    }
+
     companion object {
-        const val DEFAULT_TITLE: String = "Still thinking it over?"
-        const val DEFAULT_BODY: String = "Pick up where you left off."
+        const val PLAN_PLACEHOLDER: String = "{plan}"
+        private const val FALLBACK_PLAN_NAME: String = "Premium"
+        const val DEFAULT_TITLE: String = "Your Premium is waiting 👑"
+        const val DEFAULT_BODY: String = "Your {plan} plan is saved — tap to finish upgrading in seconds."
         const val DEFAULT_DELAY_SECONDS: Long = 7_200L
 
         /** The server's accepted range for `delay_seconds` (one minute to one week). */

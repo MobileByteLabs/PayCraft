@@ -274,6 +274,7 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
           await handleSubscriptionEvent({
             email,
             provider: "stripe",
+            country: (session as any).customer_details?.address?.country ?? null,
             customerId: session.customer as string,
             subscriptionId: session.subscription as string,
             plan:

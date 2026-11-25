@@ -28,7 +28,7 @@ import {
   fetchAttemptEvents,
 } from "@/lib/attempts"
 import { paymentHealth } from "@/lib/payment-health"
-import { FUNNEL_STAGES, funnel, splitBy, type FunnelEvent } from "@/lib/funnel"
+import { fetchFunnelStats, funnelFromStats, splitsFromStats } from "@/lib/funnel"
 
 /** The view migration 212 adds over payment_attempts (210): every column the list returns plus `country`. */
 export const ATTEMPTS_VIEW = "payment_attempts_geo"
@@ -37,7 +37,6 @@ export const ATTEMPT_LIST_COLUMNS = `${ATTEMPT_COLUMNS}, country`
 export const DEFAULT_WINDOW_DAYS = 30
 /** The tier when the tenant's plan names none — the same fallback the Analytics page uses. */
 const FALLBACK_RETENTION_DAYS = 7
-const FUNNEL_ROW_CAP = 50_000
 const DAY_MS = 86_400_000
 const ATTEMPT_ID = /^[A-Za-z0-9_.:-]{1,160}$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -223,24 +222,16 @@ export async function funnelResponse(sb: SupabaseClient, tenantId: string, url: 
   if (isResponse(asked)) return asked
   try {
     const window = clampWindow(asked, await retentionDays(sb, tenantId), now)
-    const { data, error } = await sb
-      .from("paywall_events")
-      .select("name,user_ref,device_ref,country,provider")
-      .eq("tenant_id", tenantId)
-      .eq("mode", mode)
-      .gte("occurred_at", window.since)
-      .lt("occurred_at", window.until)
-      .in("name", [...FUNNEL_STAGES])
-      .limit(FUNNEL_ROW_CAP)
-    if (error) return queryFailed("v1/funnel", error)
-    const events = (data ?? []) as FunnelEvent[]
-    // Buyers are counted inside this process; the hashes that identify them never leave it.
+    // Aggregated in SQL (migration 213): no API row cap; Paid = provider-confirmed purchases. Buyer hashes
+    // never leave the database.
+    const stats = await fetchFunnelStats(sb, tenantId, mode, window.since, window.until)
+    const { byCountry, byProvider } = splitsFromStats(stats)
     return NextResponse.json({
       mode,
       window,
-      stages: funnel(events),
-      by_country: splitBy(events, "country"),
-      by_provider: splitBy(events, "provider"),
+      stages: funnelFromStats(stats),
+      by_country: byCountry,
+      by_provider: byProvider,
     })
   } catch (e) {
     return queryFailed("v1/funnel", { message: (e as Error).message })

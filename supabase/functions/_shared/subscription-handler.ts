@@ -61,6 +61,8 @@ export interface SubscriptionEvent {
    * granted; a handler failure closes it as failed at stage `webhook`.
    */
   attemptId?: string | null;
+  /** The buyer's country as the PROVIDER reported it (alpha-2), e.g. Stripe's checkout customer address. */
+  country?: string | null;
 }
 
 export async function handleSubscriptionEvent(data: SubscriptionEvent) {
@@ -125,6 +127,8 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
         updated_at: new Date().toISOString(),
       };
       if (data.tenantId) row.tenant_id = data.tenantId;
+      // Only when the provider said: a later event without it must not erase the recorded country.
+      if (data.country) row.country = data.country.toUpperCase();
 
       // Find-then-write, not upsert: the per-tenant key is an EXPRESSION index
       // (COALESCE(tenant_id, …), email) that ON CONFLICT cannot name, and naming the index made every

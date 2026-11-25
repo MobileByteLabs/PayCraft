@@ -17,7 +17,7 @@ import { MRRChart } from "@/components/charts/mrr-chart"
 import { ChurnChart } from "@/components/charts/churn-chart"
 import { WebhookDonut } from "@/components/charts/webhook-donut"
 import { FunnelChart, RangeMenu, SplitTable } from "@/components/analytics/funnel-chart"
-import { funnel, rangeDays, splitBy, type FunnelEvent } from "@/lib/funnel"
+import { fetchFunnelStats, funnelFromStats, rangeDays, splitsFromStats, type FunnelStats } from "@/lib/funnel"
 import { paymentHealth } from "@/lib/payment-health"
 import { PaymentHealthPanel } from "@/components/analytics/payment-health"
 import { getMode } from "@/lib/mode"
@@ -49,24 +49,22 @@ export default async function AnalyticsPage({ searchParams }: { searchParams?: {
   const ga4 = ga4Account && ga4Connection?.verified_at
     ? await ga4Overview(ga4Connection.property_id, range.days, { token: ga4Account.token, saEmail: ga4Account.email }, ga4Connection.stream_ids ?? [])
     : null
-  const eventsRes = await supabase
-    .from("paywall_events")
-    .select("name,user_ref,device_ref,country,provider")
-    .eq("tenant_id", tenant.id)
-    .eq("mode", getMode())
-    .gte("occurred_at", since)
-    .in("name", ["paycraft_paywall_view", "paycraft_plan_select", "paycraft_checkout_start", "paycraft_purchase_success"])
-    .limit(50_000)
-  const funnelEvents = (eventsRes.data ?? []) as FunnelEvent[]
+  // Funnel + splits aggregated in SQL (migration 213): no API row cap, and "Paid" is what the providers
+  // confirmed. A read failure is shown as such, never as an empty funnel.
+  const funnelStatsRes = await fetchFunnelStats(supabase, tenant.id, getMode(), since).then(
+    (data) => ({ data, error: null as string | null }),
+    (e: Error) => ({ data: null as FunnelStats | null, error: e.message }),
+  )
   // Payment health (migration 210): same window and retention cap as the funnel, from payment_attempts +
   // attempt_events. A read failure is shown in place of the panel, never as an empty (healthy-looking) one.
   const healthRes = await paymentHealth(supabase, tenant.id, getMode(), since).then(
     (data) => ({ data, error: null as string | null }),
     (e: Error) => ({ data: null, error: e.message }),
   )
-  const funnelRows = funnel(funnelEvents)
-  const byCountry = splitBy(funnelEvents, "country")
-  const byProvider = splitBy(funnelEvents, "provider")
+  const funnelRows = funnelStatsRes.data ? funnelFromStats(funnelStatsRes.data) : []
+  const { byCountry, byProvider } = funnelStatsRes.data
+    ? splitsFromStats(funnelStatsRes.data)
+    : { byCountry: [], byProvider: [] }
   const regionName = (() => {
     try {
       const names = new Intl.DisplayNames(["en"], { type: "region" })
@@ -234,11 +232,17 @@ export default async function AnalyticsPage({ searchParams }: { searchParams?: {
             <div>
               <h3 id="funnel-h" className="text-lg font-bold tracking-tight text-ink-900">Paywall funnel</h3>
               <p className="mt-0.5 text-xs text-ink-500">
-                Distinct buyers at each step, last {range.days} days{range.capped ? ` (your plan keeps ${retentionDays})` : ""} · {getMode()} mode
+                Distinct buyers at each step, last {range.days} days{range.capped ? ` (your plan keeps ${retentionDays})` : ""} · {getMode()} mode · Paid = purchases the providers confirmed
               </p>
             </div>
           </div>
-          <FunnelChart rows={funnelRows} />
+          {funnelStatsRes.error ? (
+            <p role="alert" className="rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700">
+              Couldn&apos;t load the funnel: {funnelStatsRes.error}
+            </p>
+          ) : (
+            <FunnelChart rows={funnelRows} />
+          )}
         </div>
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <SplitTable title="By country" rows={byCountry} label={regionName} />

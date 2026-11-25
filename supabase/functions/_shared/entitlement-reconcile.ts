@@ -15,6 +15,7 @@
 import { supabaseAdmin } from "./supabase-admin.ts";
 import { detectTransition, forwardLifecycle, type PrevRow } from "./attribution.ts";
 import { attemptBestEffort, closeAsFailed, closeAsGranted } from "./payment-attempts.ts";
+import { toAlpha2 } from "./country-code.ts";
 
 /** The 10 canonical states — 1:1 with cmp-paycraft SubscriptionState (Phase 1). */
 export type CanonicalState =
@@ -44,6 +45,8 @@ export interface CanonicalEvent {
   latestEventTs: string;
   /** Optional raw store-API snapshot persisted for audit/debug (never trusted for gating). */
   rawStoreState?: Record<string, unknown> | null;
+  /** The country the PROVIDER reports for this purchase (alpha-2) — what Analytics attributes it to. */
+  country?: string | null;
 }
 
 /**
@@ -79,6 +82,15 @@ export async function reconcileEntitlement(
         }));
     }
     throw e;
+  }
+  // The provider's country fills a row that has none even when the event is not newer than the stored one
+  // (a store-sync replay of an old App Store notification), so purchases made before migration 213 get one.
+  if (ev.country) {
+    await attemptBestEffort(`country ${ev.stableTxnId}`, async () => {
+      const { error } = await supabaseAdmin.from("entitlement_records").update({ country: ev.country })
+        .eq("provider", ev.provider).eq("stable_txn_id", ev.stableTxnId).is("country", null);
+      if (error) throw new Error(error.message);
+    });
   }
   if (attemptId) await attemptBestEffort(`grant ${attemptId}`, () => closeAttemptIfEntitled(ev, attemptId));
 }
@@ -154,6 +166,8 @@ function stateColumns(ev: CanonicalEvent) {
     is_sandbox: ev.isSandbox,
     latest_event_ts: ev.latestEventTs,
     raw_store_state: ev.rawStoreState ?? null,
+    // Only when the provider said: an event without a country must not erase one an earlier event recorded.
+    ...(ev.country ? { country: ev.country } : {}),
     updated_at: new Date().toISOString(),
   };
 }
@@ -296,6 +310,7 @@ export function appleToCanonical(
     isSandbox,
     latestEventTs,
     rawStoreState: { status, productId: txInfo.productId, environment: txInfo.environment },
+    country: toAlpha2(txInfo.storefront),
   };
 }
 
@@ -369,5 +384,6 @@ export function googleToCanonical(
     isSandbox,
     latestEventTs,
     rawStoreState: { subscriptionState: sub?.subscriptionState, productId: line.productId },
+    country: toAlpha2(sub?.regionCode),
   };
 }
