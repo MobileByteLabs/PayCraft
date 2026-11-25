@@ -48,6 +48,31 @@ const CLEANUP = `
 
 test.describe.configure({ mode: "serial" })
 
+/**
+ * "Send test" goes through the local edge runtime (attempt-alerts). Docker kills that container under memory
+ * pressure (exit 137) and the rest of the stack keeps running, so the suite used to fail as "The test could not be
+ * sent" — read as flakiness. Start it when it is down; fail here, by name, if it will not come up.
+ */
+async function ensureEdgeRuntime(): Promise<void> {
+  const url = "http://127.0.0.1:54321/functions/v1/attempt-alerts?mode=test"
+  const up = async () => {
+    const r = await fetch(url, { method: "POST", signal: AbortSignal.timeout(5_000) }).catch(() => null)
+    return r !== null && r.status !== 502 && r.status !== 503
+  }
+  if (await up()) return
+  execSync("docker start supabase_edge_runtime_PayCraft", { stdio: "ignore" })
+  for (let i = 0; i < 90; i++) {
+    if (await up()) return
+    await new Promise((r) => setTimeout(r, 1_000))
+  }
+  throw new Error("local edge runtime (supabase_edge_runtime_PayCraft) is down and did not start — run `supabase start`")
+}
+
+test.beforeAll(async () => {
+  test.setTimeout(120_000) // a cold edge runtime takes longer than the default 30 s hook budget
+  await ensureEdgeRuntime()
+})
+
 test.beforeAll(() => {
   originalPassphrase = psql("SELECT passphrase FROM public.paycraft_secrets_config WHERE id = TRUE;").replace(/\n$/, "")
   psql(`${CLEANUP}
