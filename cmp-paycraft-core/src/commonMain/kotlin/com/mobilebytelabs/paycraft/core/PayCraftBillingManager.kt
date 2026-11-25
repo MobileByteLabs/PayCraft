@@ -604,6 +604,7 @@ class PayCraftBillingManager(
         code.startsWith("connect_") -> "store_connect"
         code.startsWith("purchase_") -> "store_purchase"
         code.startsWith("launch_") -> "store_launch"
+        code.startsWith("query_") -> "store_query"
         code == "timeout" -> "timeout"
         code == "product_not_found" || code == "no_offer" -> "catalog"
         code == "no_activity" -> "sdk_state"

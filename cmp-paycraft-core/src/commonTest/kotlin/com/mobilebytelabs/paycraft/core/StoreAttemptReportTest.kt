@@ -139,6 +139,8 @@ class StoreAttemptReportTest {
         assertEquals("store_launch", m.classifyStoreCode("launch_3"))
         assertEquals("catalog", m.classifyStoreCode("product_not_found"))
         assertEquals("catalog", m.classifyStoreCode("no_offer"))
+        // The product lookup itself failed (Play down, network, billing unavailable) — not a catalogue problem.
+        assertEquals("store_query", m.classifyStoreCode("query_2"))
         assertEquals("timeout", m.classifyStoreCode("timeout"))
         assertEquals("store_other", m.classifyStoreCode(null))
     }

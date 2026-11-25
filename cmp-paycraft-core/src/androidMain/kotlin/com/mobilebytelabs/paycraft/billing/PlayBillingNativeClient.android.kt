@@ -131,8 +131,11 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
                 "connect_${connect.responseCode}",
             )
         }
-        val productDetails = queryProductDetails(productId, productType)
-            ?: return NativePurchaseResult.Failed("Product not found on Play: $productId", "product_not_found")
+        val lookup = billingClient.queryProductDetails(productDetailsParams(productId, productType))
+        val found = lookup.productDetailsList?.firstOrNull()
+        productLookupFailure(productId, lookup.billingResult.responseCode, lookup.billingResult.debugMessage, found != null)
+            ?.let { return it }
+        val productDetails = requireNotNull(found)
         val activity = activityProvider()
             ?: return NativePurchaseResult.Failed("No foreground Activity to launch the billing flow", "no_activity")
 
@@ -395,21 +398,20 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
         )
     }
 
-    private suspend fun queryProductDetails(productId: String, productType: NativeProductType): ProductDetails? {
-        val playType = productType.toPlayType()
-        val params = QueryProductDetailsParams.newBuilder()
+    private suspend fun queryProductDetails(productId: String, productType: NativeProductType): ProductDetails? =
+        billingClient.queryProductDetails(productDetailsParams(productId, productType)).productDetailsList?.firstOrNull()
+
+    private fun productDetailsParams(productId: String, productType: NativeProductType): QueryProductDetailsParams =
+        QueryProductDetailsParams.newBuilder()
             .setProductList(
                 listOf(
                     QueryProductDetailsParams.Product.newBuilder()
                         .setProductId(productId)
-                        .setProductType(playType)
+                        .setProductType(productType.toPlayType())
                         .build(),
                 ),
             )
             .build()
-        val result = billingClient.queryProductDetails(params)
-        return result.productDetailsList?.firstOrNull()
-    }
 
     /** Play `ProductDetails` → the device-free offer shape [selectBestOffer] ranks. */
     private fun ProductDetails.toNativeOffers(): List<NativeOffer> = subscriptionOfferDetails.orEmpty().map { offer ->

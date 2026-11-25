@@ -100,7 +100,8 @@ sealed interface NativePurchaseResult {
 
     /**
      * [code] is a short, PII-free reason the merchant sees on the attempt (record_store_attempt, migration 201):
-     * `connect_<n>`, `product_not_found`, `no_offer`, `no_activity`, `launch_<n>`, `purchase_<n>` where `<n>` is the
+     * `connect_<n>`, `query_<n>` (the product lookup itself failed), `product_not_found` (the store answered with no
+     * such product), `no_offer`, `no_activity`, `launch_<n>`, `purchase_<n>` where `<n>` is the
      * store's response code. Without it every Play failure looked the same (2026-11-17: 41 failures, no cause).
      */
     data class Failed(val message: String, val code: String? = null) : NativePurchaseResult

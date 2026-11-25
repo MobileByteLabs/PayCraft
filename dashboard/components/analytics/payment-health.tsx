@@ -96,6 +96,25 @@ function RateTable(props: {
   )
 }
 
+/** A failure code in words, the code kept beside it so it can be searched and shared. */
+const REASON_WORDS: Record<string, string> = {
+  product_not_found: "Store had no such product",
+  no_offer: "No offer this buyer can take",
+  no_activity: "App was in the background",
+  timeout: "Timed out",
+  unknown: "Not reported (older SDK)",
+}
+const REASON_PREFIX_WORDS: Array<[string, string]> = [
+  ["query_", "Store product lookup failed"],
+  ["connect_", "Couldn't connect to the store"],
+  ["launch_", "Store checkout didn't open"],
+  ["purchase_", "Store declined the purchase"],
+]
+export function reasonLabel(code: string): string {
+  const words = REASON_WORDS[code] ?? REASON_PREFIX_WORDS.find(([p]) => code.startsWith(p))?.[1]
+  return code === "unknown" ? words! : words ? `${words} (${code})` : code
+}
+
 export function PaymentHealthPanel(props: {
   data: PaymentHealth
   days: number
@@ -141,6 +160,7 @@ export function PaymentHealthPanel(props: {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <RateTable title="Failure rate by stage" sub="Failures that ended at each stage, as a share of all attempts" rows={data.byStage} label={stageLabel} totalHeader="Of attempts" />
+        <RateTable title="Why payments failed" sub="The reason the app or provider reported, as a share of all attempts" rows={data.byReason} label={reasonLabel} totalHeader="Of attempts" />
         <RateTable title="Failure rate by provider" sub="Failed or paid-not-granted, per provider's attempts" rows={data.byProvider} label={props.providerLabel} totalHeader="Attempts" />
         <RateTable title="Failure rate by country" sub="Country recorded server-side from the buyer's paywall events" rows={data.byCountry} label={props.countryLabel} totalHeader="Attempts" />
         <Panel title="Abandon rate by step" sub="Buyers who left with this as the furthest step, of those who reached it">

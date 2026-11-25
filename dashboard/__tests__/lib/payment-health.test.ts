@@ -45,8 +45,8 @@ function seed() {
       att("g1", "granted", null, "stripe"),
       att("g2", "granted", null, "razorpay"),
       att("g3", "granted", null, "google_play"),
-      att("f1", "failed", "provider", "stripe"),
-      att("f2", "failed", "provider", "stripe"),
+      att("f1", "failed", "provider", "stripe", { error_code: "product_not_found" }),
+      att("f2", "failed", "provider", "stripe", { error_code: "product_not_found" }),
       att("p1", "paid_not_granted", "entitlement", "stripe"),
       att("a1", "abandoned", "sdk", "razorpay"),
       att("a2", "abandoned", "sdk", "razorpay"),
@@ -91,6 +91,14 @@ describe("paymentHealth", () => {
     expect(h.byStage).toEqual([
       { key: "provider", total: 10, failed: 2, rate: 0.2 },
       { key: "entitlement", total: 10, failed: 1, rate: 0.1 },
+    ])
+  })
+
+  it("says why payments failed: failures by reason (error code), unknown when none was reported", async () => {
+    const h = await run()
+    expect(h.byReason).toEqual([
+      { key: "product_not_found", total: 10, failed: 2, rate: 0.2 },
+      { key: "unknown", total: 10, failed: 1, rate: 0.1 },
     ])
   })
 

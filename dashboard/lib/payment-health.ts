@@ -31,6 +31,8 @@ export type PaymentHealth = {
     abandoned: number; open: number; grantRate: number
   }
   byStage: HealthBucket[]
+  /** Failures by the reason the SDK or provider reported (error_code, e.g. product_not_found), as a share of all attempts. */
+  byReason: HealthBucket[]
   byProvider: HealthBucket[]
   byCountry: HealthBucket[]
   abandonByStep: AbandonStep[]
@@ -61,7 +63,13 @@ const OPEN_STATES = new Set<AttemptState>(["started", "checkout_opened", "provid
 const rate = (n: number, d: number) => (d === 0 ? 0 : n / d)
 const isFailed = (s: AttemptState) => s === "failed" || s === "paid_not_granted"
 
-type AttemptLite = { attempt_id: string | null; state: AttemptState; stage: string | null; provider: string | null }
+type AttemptLite = {
+  attempt_id: string | null
+  state: AttemptState
+  stage: string | null
+  error_code: string | null
+  provider: string | null
+}
 
 function bucketBy(rows: AttemptLite[], key: (r: AttemptLite) => string | null | undefined): HealthBucket[] {
   const by = new Map<string, { total: number; failed: number }>()
@@ -90,7 +98,7 @@ export async function paymentHealth(
   // started at 23:59 and returned at 00:01 is still that day's attempt), so only the attempts take the upper
   // bound — the events are keyed back to the attempts in the window below.
   let attemptsQuery = sb.from("payment_attempts")
-    .select("attempt_id, state, stage, provider")
+    .select("attempt_id, state, stage, error_code, provider")
     .eq("tenant_id", tenantId)
     .eq("mode", mode)
     .gte("started_at", sinceIso)
@@ -158,8 +166,13 @@ export async function paymentHealth(
 
   const count = (s: AttemptState) => rows.filter((r) => r.state === s).length
   const failedRows = rows.filter((r) => isFailed(r.state))
-  const stageCounts = new Map<string, number>()
-  for (const r of failedRows) stageCounts.set(r.stage ?? "unknown", (stageCounts.get(r.stage ?? "unknown") ?? 0) + 1)
+  const failureShare = (keyOf: (r: AttemptLite) => string | null): HealthBucket[] => {
+    const counts = new Map<string, number>()
+    for (const r of failedRows) counts.set(keyOf(r) ?? "unknown", (counts.get(keyOf(r) ?? "unknown") ?? 0) + 1)
+    return [...counts.entries()]
+      .map(([key, failed]) => ({ key, total: rows.length, failed, rate: rate(failed, rows.length) }))
+      .sort((a, b) => b.failed - a.failed || a.key.localeCompare(b.key))
+  }
 
   const paidNotGranted = count("paid_not_granted")
   return {
@@ -172,9 +185,8 @@ export async function paymentHealth(
       open: rows.filter((r) => OPEN_STATES.has(r.state)).length,
       grantRate: rate(count("granted"), rows.length),
     },
-    byStage: [...stageCounts.entries()]
-      .map(([key, failed]) => ({ key, total: rows.length, failed, rate: rate(failed, rows.length) }))
-      .sort((a, b) => b.failed - a.failed || a.key.localeCompare(b.key)),
+    byStage: failureShare((r) => r.stage),
+    byReason: failureShare((r) => r.error_code),
     byProvider: bucketBy(rows, (r) => r.provider),
     byCountry: bucketBy(rows, (r) => (r.attempt_id ? country.get(r.attempt_id) : null)),
     abandonByStep: ABANDON_STEPS.map((step) => {
