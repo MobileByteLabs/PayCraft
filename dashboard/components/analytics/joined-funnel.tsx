@@ -24,11 +24,13 @@ const GA4_ABSENT: Record<Exclude<Ga4Status, "ok">, string> = {
   error: "GA4 could not be read — see the Google Analytics section below.",
 }
 
-export function JoinedFunnel({ ga4, ga4Status, paycraft, notApplied }: {
+export function JoinedFunnel({ ga4, ga4Status, paycraft, notApplied, filtered = false }: {
   ga4: { event: string; users: number; events: number }[] | null
   ga4Status: Ga4Status
   paycraft: FunnelStats
   notApplied: { ga4: string[]; paid: string[] }
+  /** A filter is on. With no matching events the empty state must not read as "this app sends nothing". */
+  filtered?: boolean
 }) {
   const top = ga4?.[0]?.users ?? 0
   return (
@@ -42,7 +44,7 @@ export function JoinedFunnel({ ga4, ga4Status, paycraft, notApplied }: {
               <li key={s.event} className="flex items-center gap-3">
                 <span className="w-40 shrink-0 text-sm font-medium text-ink-700">{GA4_STEPS[s.event] ?? s.event}</span>
                 <span className="relative h-6 flex-1 overflow-hidden rounded bg-ink-50">
-                  <span className="absolute inset-y-0 left-0 rounded bg-info-400" style={{ width: `${top ? Math.max(1, (s.users / top) * 100) : 0}%` }} />
+                  <span className="absolute inset-y-0 left-0 rounded bg-info-500" style={{ width: `${top ? Math.max(1, (s.users / top) * 100) : 0}%` }} />
                 </span>
                 <span className="w-16 text-right text-sm font-bold tabular-nums text-ink-900">{s.users.toLocaleString()}</span>
               </li>
@@ -61,7 +63,21 @@ export function JoinedFunnel({ ga4, ga4Status, paycraft, notApplied }: {
         <h4 className="text-base font-bold text-ink-900">Buyers and revenue — PayCraft</h4>
         <p className="mt-0.5 text-[11px] text-ink-500">Distinct buyers at each step · Paid = purchases the providers confirmed</p>
         <div className="mt-5">
-          <FunnelChart rows={funnelFromStats(paycraft)} />
+          {filtered && paycraft.viewed === 0 ? (
+            // Events stored before the SDK sent a country / app version cannot match those filters; the provider
+            // records can — so Paid is still shown, and the gap is named rather than read as "no events at all".
+            <div className="rounded-lg border border-dashed border-ink-200 px-4 py-6 text-sm text-ink-600">
+              <p className="font-semibold text-ink-800">No PayCraft paywall events match these filters.</p>
+              <p className="mt-1 text-xs text-ink-500">
+                Events recorded before the app sent its country and version can&apos;t match a country or version filter.
+              </p>
+              <p className="mt-3 text-sm">
+                Paid — confirmed by the providers: <span className="font-bold tabular-nums text-success-700">{paycraft.paid.toLocaleString()}</span>
+              </p>
+            </div>
+          ) : (
+            <FunnelChart rows={funnelFromStats(paycraft)} />
+          )}
         </div>
         {notApplied.paid.length > 0 && (
           <p className="mt-4 text-xs text-warning-700">

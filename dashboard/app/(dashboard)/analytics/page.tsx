@@ -285,6 +285,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams?: A
               ga4Status={joined.ga4Status}
               paycraft={joined.paycraft}
               notApplied={{ ga4: joined.ga4?.notApplied ?? [], paid: joined.paycraft.paid_not_applied ?? [] }}
+              filtered={!!filterQuery}
             />
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
               <SegmentTable title="By platform" rows={segmentRows(joined.ga4?.byPlatform ?? null, joined.paycraft.by_platform ?? [])} label={platformName} />

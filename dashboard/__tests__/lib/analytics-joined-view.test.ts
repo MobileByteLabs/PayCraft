@@ -68,6 +68,29 @@ describe("JoinedFunnel", () => {
     expect(out).toContain("Paid is not filtered by app version")
   })
 
+  it("under filters with no matching events, says why and still shows provider-confirmed Paid (not 'update your app')", () => {
+    // Prod 2026-11-25: IN + Android showed "No paywall events yet — update your app" beside Paid = 1, because events
+    // stored before the SDK sent a country cannot match a country filter.
+    const out = html(React.createElement(JoinedFunnel, {
+      ga4: null,
+      ga4Status: "not_connected",
+      paycraft: { ...paycraft, viewed: 0, picked: 0, checkout: 0, paid: 1, paid_not_applied: [] },
+      notApplied: { ga4: [], paid: [] },
+      filtered: true,
+    }))
+    expect(out).not.toContain("Update your app")
+    expect(out).toContain("No PayCraft paywall events match these filters")
+    expect(out).toMatch(/Paid — confirmed by the providers: <span[^>]*>1<\/span>/)
+  })
+
+  it("draws the GA4 bars with a colour the theme defines", () => {
+    const out = html(React.createElement(JoinedFunnel, {
+      ga4: [{ event: "paycraft_paywall_view", users: 10, events: 10 }], ga4Status: "ok", paycraft, notApplied: { ga4: [], paid: [] },
+    }))
+    expect(out).toContain("bg-info-500")
+    expect(out).not.toContain("bg-info-400")
+  })
+
   it("says why the GA4 column is empty", () => {
     const out = html(React.createElement(JoinedFunnel, { ga4: null, ga4Status: "not_connected", paycraft, notApplied: { ga4: [], paid: [] } }))
     expect(out).toContain("Connect GA4 below")
