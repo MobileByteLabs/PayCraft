@@ -65,6 +65,8 @@ const GROUPS: { title: string; detail: string; write?: boolean; scopes: { id: st
       { id: "paywall:write", detail: "Edit paywall configuration" },
       { id: "providers:write", detail: "Edit provider connections" },
       { id: "onboarding:write", detail: "Record onboarding steps (passed / failed / blocked)" },
+      { id: "analytics:write", detail: "Record and resolve analytics audit findings (/idea-paycraft-analytics)" },
+      { id: "allowance:refund", detail: "Give back a user's metered free use or credits when your server failed" },
     ],
   },
   {
