@@ -73,6 +73,7 @@ class FakeInsightsDb {
   insights = new Map<string, Row>()
   alerts: Row[] = []
   deliveries: Row[] = []
+  findings: Row[] = []
   constructor(public tenants: TenantSeed[]) {}
 
   rpc(fn: string, args: Row): Promise<{ data: unknown; error: { message: string } | null }> {
@@ -108,6 +109,9 @@ class FakeInsightsDb {
         })
         return ok(true)
       }
+      case "analytics_finding_upsert":
+        this.findings.push(args)
+        return ok(crypto.randomUUID())
       case "attempt_insights_release":
         return ok(this.insights.delete(String(args.p_id)))
       case "attempt_insights_link_alert": {
@@ -381,4 +385,63 @@ Deno.test("a service-role run returns the outcome counts", async () => {
   const body = await res.json()
   assertEquals(body.week, "2026-W47")
   assertEquals(body.stored, 1)
+})
+
+// ── paycraft-ga4-analytics-audit sub-plan 04: GA4 in the prompt, findings to analytics_findings ─────────────
+
+const GA4_WEEK = {
+  funnel: { paycraft_paywall_view: 1088, paycraft_plan_select: 74, paycraft_checkout_start: 108, paycraft_purchase_success: 2 },
+  byPlatform: [{ key: "android", viewers: 1080, checkouts: 107 }],
+  byCountry: [{ key: "ID", viewers: 133, checkouts: 9 }, { key: "<script>", viewers: 1, checkouts: 0 }],
+  byAppVersion: [{ key: "2.4.1", viewers: 900, checkouts: 80 }],
+}
+
+Deno.test("the app's GA4 week rides in the prompt as typed lines; a malformed key is dropped", async () => {
+  const db = new FakeInsightsDb([seed()])
+  const llm = new FakeLlm()
+  const asked: string[] = []
+  await runInsights(db, llm, {
+    now: NOW,
+    channelDeps: channelDeps().deps,
+    ga4: (tenantId, week) => (asked.push(`${tenantId}:${week.weekStart}`), Promise.resolve(GA4_WEEK)),
+  })
+  assertEquals(asked, [`${T1}:2026-11-16`])
+  const p = llm.requests[0].prompt
+  assertStringIncludes(p, "GA4 users this week: paywall_view 1088, plan_select 74, checkout_start 108, purchase_success 2")
+  assertStringIncludes(p, "ID 133 viewers / 9 checkouts")
+  assertStringIncludes(p, "2.4.1 900 viewers / 80 checkouts")
+  assertEquals(p.includes("<script>"), false)
+})
+
+Deno.test("the answer's issues become analytics_findings rows for the week (source digest)", async () => {
+  const db = new FakeInsightsDb([seed()])
+  const llm = new FakeLlm({
+    text: JSON.stringify({
+      headline: "Most Play purchases failed before checkout.",
+      findings: ["69 of 89 failures were product_not_found."],
+      recommendations: ["Check where the failing installs came from."],
+      issues: [
+        { kind: "Product Not Found!", severity: "critical", title: "40 buyers could not buy", evidence: "69 of 89 failures", proposed_fix: "Check install source" },
+        { kind: "x", severity: "nonsense", title: "", evidence: "", proposed_fix: "" },
+      ],
+    }),
+  })
+  await runInsights(db, llm, { now: NOW, channelDeps: channelDeps().deps })
+  assertEquals(db.findings.length, 1)
+  const f = db.findings[0]
+  assertEquals(f.p_tenant_id, T1)
+  assertEquals(f.p_kind, "product_not_found")
+  assertEquals(f.p_severity, "critical")
+  assertEquals(f.p_source, "digest")
+  assertEquals(f.p_window_start, "2026-11-16")
+  assertEquals(f.p_window_end, "2026-11-22")
+  assertEquals(f.p_proposed_fix, "Check install source")
+})
+
+Deno.test("without GA4 the digest runs as before", async () => {
+  const db = new FakeInsightsDb([seed()])
+  const llm = new FakeLlm()
+  const out = await runInsights(db, llm, { now: NOW, channelDeps: channelDeps().deps, ga4: () => Promise.resolve(null) })
+  assertEquals(out.stored, 1)
+  assertEquals(llm.requests[0].prompt.includes("GA4"), false)
 })

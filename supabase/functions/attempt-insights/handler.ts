@@ -15,7 +15,8 @@
 // 503 anthropic_key_missing.
 
 import type { ChannelDeps } from "../_shared/alert-channels.ts"
-import { type LlmClient, runInsights } from "./engine.ts"
+import { type LlmClient, type RunDeps, runInsights } from "./engine.ts"
+import { ga4WeekForTenant } from "../_shared/ga4-report.ts"
 
 // deno-lint-ignore no-explicit-any
 type Any = any
@@ -27,6 +28,24 @@ export interface HandlerDeps {
   /** The model client for this API key. */
   llm: (apiKey: string) => LlmClient
   channelDeps?: ChannelDeps
+  /** The tenant's GA4 week, read with PAYCRAFT_GA4_SA_JSON (paycraft-ga4-analytics-audit); default: the real reader. */
+  ga4?: RunDeps["ga4"]
+}
+
+/**
+ * The real GA4 reader for the digest: the tenant's verified connection (tenant_ga4_connections, its own streams)
+ * and PayCraft's org service account. No account, no connection or a GA4 error → null, and the note goes on.
+ */
+export function ga4FromConnections(db: Any, env: (name: string) => string | undefined): NonNullable<RunDeps["ga4"]> {
+  return async (tenantId, week) => {
+    const sa = env("PAYCRAFT_GA4_SA_JSON") ?? ""
+    if (!sa) return null
+    const { data } = await db.from("tenant_ga4_connections")
+      .select("property_id,stream_ids,verified_at").eq("tenant_id", tenantId).maybeSingle()
+    if (!data?.verified_at) return null
+    const end = new Date(Date.parse(week.until) - 86_400_000).toISOString().slice(0, 10)
+    return ga4WeekForTenant(data, week.weekStart, end, sa)
+  }
 }
 
 const json = (status: number, body: unknown) =>
@@ -68,7 +87,10 @@ export async function handleAttemptInsights(req: Request, deps: HandlerDeps): Pr
   }
 
   try {
-    const result = await runInsights(deps.db(), deps.llm(apiKey), { now, tenantId, channelDeps: deps.channelDeps })
+    const db = deps.db()
+    const result = await runInsights(db, deps.llm(apiKey), {
+      now, tenantId, channelDeps: deps.channelDeps, ga4: deps.ga4 ?? ga4FromConnections(db, deps.env),
+    })
     console.log(`[attempt-insights] ${JSON.stringify(result)}`)
     return json(result.errors.length ? 500 : 200, { ok: result.errors.length === 0, ...result })
   } catch (e) {

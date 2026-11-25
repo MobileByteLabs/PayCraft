@@ -20,6 +20,7 @@
 // (handler.ts) passes the real ones, tests pass fakes.
 
 import { type AlertDraft, type ChannelDeps, deliverAlert } from "../_shared/alert-channels.ts"
+import type { Ga4Segment, Ga4Week } from "../_shared/ga4-report.ts"
 
 // deno-lint-ignore no-explicit-any
 type Any = any
@@ -149,6 +150,31 @@ function bucketLines(buckets: Record<string, Bucket> | null | undefined, keyShap
     .map((b) => `  ${b.k}: ${b.failed} of ${b.total} failed (${pct(b.failed, b.total)})`)
 }
 
+const PLATFORM_KEY = /^(?:[a-z]{2,12}|unknown)$/
+const VERSION_KEY = /^(?:[0-9A-Za-z._+-]{1,32})$/
+
+function ga4Lines(label: string, rows: Ga4Segment[], keyShape: RegExp): string[] {
+  const kept = rows.filter((r) => keyShape.test(r.key) && (r.viewers > 0 || r.checkouts > 0)).slice(0, 8)
+  return kept.length ? [`${label}:`, ...kept.map((r) => `  ${r.key} ${count(r.viewers)} viewers / ${count(r.checkouts)} checkouts`)] : []
+}
+
+/**
+ * The app's GA4 week (paycraft-ga4-analytics-audit sub-plan 04): users per paywall step and the top segments, from
+ * the tenant's own streams. Same privacy rule as the aggregates: keys must look like a platform, an ISO country or
+ * a version string, counts are numbers — nothing else reaches the model.
+ */
+function ga4Block(g: Ga4Week): string[] {
+  const f = g.funnel
+  return [
+    "",
+    "GA4 (the app's own analytics, users not buyers):",
+    `GA4 users this week: paywall_view ${count(f.paycraft_paywall_view)}, plan_select ${count(f.paycraft_plan_select)}, checkout_start ${count(f.paycraft_checkout_start)}, purchase_success ${count(f.paycraft_purchase_success)}`,
+    ...ga4Lines("GA4 by platform", g.byPlatform, PLATFORM_KEY),
+    ...ga4Lines("GA4 by country", g.byCountry, COUNTRY_KEY),
+    ...ga4Lines("GA4 by app version", g.byAppVersion, VERSION_KEY),
+  ]
+}
+
 function weekBlock(a: Aggregate): string[] {
   const reachDen = count(a.nudge_scheduled) + count(a.nudge_skipped_no_permission)
   const stages = Object.entries(a.failures_by_stage ?? {})
@@ -183,11 +209,14 @@ export const SYSTEM_PROMPT = [
   "do about it. Be concrete (provider, country, stage, error code) and do not speculate beyond the numbers; if",
   "the week was healthy, say so plainly. paid_not_granted means a buyer was charged but did not get access —",
   "always call it out when it is above zero. Answer in the JSON shape you are given: a one-sentence headline, up",
-  "to 4 findings and up to 3 recommendations, each one sentence, plain text, no markdown.",
+  "to 4 findings and up to 3 recommendations, each one sentence, plain text, no markdown. When GA4 lines are given,",
+  "use them to say where users leave (platform, country, app version) — GA4 counts users, not purchases; Paid is",
+  "only what the providers confirmed. List every problem worth fixing in `issues` (at most 5): a snake_case kind,",
+  "a severity (critical | high | medium | low), a one-sentence title, the numbers that show it, and one concrete fix.",
 ].join(" ")
 
 /** The prompt: the week and the week before, from typed aggregate fields only. */
-export function buildPrompt(cur: Aggregate, prev: Aggregate | null, week: IsoWeek): { system: string; user: string } {
+export function buildPrompt(cur: Aggregate, prev: Aggregate | null, week: IsoWeek, ga4: Ga4Week | null = null): { system: string; user: string } {
   const prevLine = prev && count(prev.total) > 0
     ? `previous week: ${count(prev.total)} attempts, ${count(prev.granted)} granted, ${count(prev.failed)} failed, ${count(prev.paid_not_granted)} paid_not_granted, ${count(prev.abandoned)} abandoned`
     : "previous week: no data"
@@ -195,6 +224,7 @@ export function buildPrompt(cur: Aggregate, prev: Aggregate | null, week: IsoWee
     `Week ${week.label} (${week.since.slice(0, 10)} to ${week.until.slice(0, 10)}, UTC, live mode):`,
     ...weekBlock(cur),
     prevLine,
+    ...(ga4 ? ga4Block(ga4) : []),
     "",
     "Summarise this week for the owner.",
   ].join("\n")
@@ -208,15 +238,41 @@ export const INSIGHT_SCHEMA = {
     headline: { type: "string", description: "One sentence: the single most important change this week, with its numbers." },
     findings: { type: "array", items: { type: "string" }, description: "Up to 4 one-sentence findings." },
     recommendations: { type: "array", items: { type: "string" }, description: "Up to 3 one-sentence actions." },
+    issues: {
+      type: "array",
+      description: "Up to 5 problems worth fixing — written to the owner's AI audit (analytics_findings).",
+      items: {
+        type: "object",
+        properties: {
+          kind: { type: "string", description: "snake_case, e.g. product_not_found or abandon_at_plan_pick_id." },
+          severity: { type: "string", enum: ["critical", "high", "medium", "low"] },
+          title: { type: "string" },
+          evidence: { type: "string", description: "The numbers that show it." },
+          proposed_fix: { type: "string" },
+        },
+        required: ["kind", "severity", "title", "evidence", "proposed_fix"],
+        additionalProperties: false,
+      },
+    },
   },
   required: ["headline", "findings", "recommendations"],
   additionalProperties: false,
 } as const
 
+export interface InsightIssue {
+  kind: string
+  severity: "critical" | "high" | "medium" | "low"
+  title: string
+  evidence: string
+  proposed_fix: string
+}
+
 export interface Insight {
   headline: string
   findings: string[]
   recommendations: string[]
+  /** Problems worth fixing, validated (bad severity / empty title dropped, kind folded to snake_case). */
+  issues: InsightIssue[]
   /** headline + findings as stored and sent (≤ 4000 chars). */
   summary: string
 }
@@ -238,7 +294,17 @@ export function parseInsight(text: string): Insight | null {
   const recommendations = (Array.isArray(raw.recommendations) ? raw.recommendations : [])
     .map((r: unknown) => sentence(r, 400)).filter(Boolean).slice(0, 3)
   const summary = [headline, ...findings.map((f: string) => `- ${f}`)].join("\n").slice(0, 4000)
-  return { headline, findings, recommendations, summary }
+  const issues = (Array.isArray(raw.issues) ? raw.issues : [])
+    .map((i: Any) => ({
+      kind: sentence(i?.kind, 64).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 64),
+      severity: i?.severity,
+      title: sentence(i?.title, 200),
+      evidence: sentence(i?.evidence, 1000),
+      proposed_fix: sentence(i?.proposed_fix, 1000),
+    }))
+    .filter((i: InsightIssue) => i.kind && i.title && ["critical", "high", "medium", "low"].includes(i.severity))
+    .slice(0, 5)
+  return { headline, findings, recommendations, summary, issues }
 }
 
 const priceOf = (model: string | undefined) => (model && PRICES[model]) || FALLBACK_CEILING
@@ -289,6 +355,8 @@ export interface RunDeps {
   channelDeps?: ChannelDeps
   /** Limit the run to one tenant (an operator re-run); every due tenant when absent. */
   tenantId?: string | null
+  /** The tenant's GA4 week (paycraft-ga4-analytics-audit); null / absent = the digest runs on PayCraft data alone. */
+  ga4?: (tenantId: string, week: IsoWeek) => Promise<Ga4Week | null>
 }
 
 export type SkipReason = "idle_week" | "budget_exhausted" | "already_recorded" | "model_refused" | "unparseable_answer" | "tenant_not_found"
@@ -349,7 +417,8 @@ async function runTenant(
   if (!cur || count(cur.total) === 0) return "idle_week"
   const prev = await rpc<Aggregate>(db, "attempt_insights_aggregate", { p_tenant_id: tenantId, p_since: week.prevSince, p_until: week.since })
 
-  const { system, user } = buildPrompt(cur, prev, week)
+  const ga4 = deps.ga4 ? await deps.ga4(tenantId, week).catch(() => null) : null
+  const { system, user } = buildPrompt(cur, prev, week, ga4)
   const worst = estimateWorstCaseUsd(tenant.model, system + user)
   const budget = Number(tenant.budget_usd)
   const spent = Number(await rpc<number | string>(db, "attempt_insights_month_spend_usd", { p_tenant_id: tenantId, p_at: deps.now.toISOString() }))
@@ -394,6 +463,16 @@ async function runTenant(
   if (!insight) return answer.stopReason === "refusal" ? "model_refused" : "unparseable_answer"
 
   result.stored++
+  // Each issue becomes a finding on the owner's AI audit (migration 216) — refreshed if this week's is already
+  // there, never reopened once fixed. /idea-paycraft-analytics drains the open ones.
+  const weekEnd = new Date(Date.parse(week.until) - 86_400_000).toISOString().slice(0, 10)
+  for (const issue of insight.issues) {
+    await rpc<string>(db, "analytics_finding_upsert", {
+      p_tenant_id: tenantId, p_kind: issue.kind, p_severity: issue.severity, p_title: issue.title, p_summary: issue.evidence,
+      p_evidence: { week: week.label }, p_proposed_fix: issue.proposed_fix, p_source: "digest",
+      p_window_start: week.weekStart, p_window_end: weekEnd,
+    }).catch((e: Error) => result.errors.push(`${tenantId}: finding ${issue.kind}: ${e.message}`))
+  }
   const delivered = await deliverAlert(db, alertDraft(tenantId, week, insight, answer.model, cost, cur, deps.now), deps.channelDeps ?? {})
   if (delivered.alertId) {
     result.delivered++
