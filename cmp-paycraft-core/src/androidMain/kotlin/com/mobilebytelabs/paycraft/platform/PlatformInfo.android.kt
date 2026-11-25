@@ -13,6 +13,10 @@ actual object PlatformInfo {
 
     actual val platform: String = "android"
     actual val appId: String get() = DeviceTokenStore.applicationContext?.packageName.orEmpty()
+    actual val appVersion: String?
+        get() = DeviceTokenStore.applicationContext?.let { ctx ->
+            runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull()
+        }
     actual val deviceName: String
         get() = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}"
     actual val deviceId: String

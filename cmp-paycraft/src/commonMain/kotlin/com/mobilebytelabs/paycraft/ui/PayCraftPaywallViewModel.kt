@@ -8,6 +8,7 @@ import com.mobilebytelabs.paycraft.analytics.PayCraftFailure
 import com.mobilebytelabs.paycraft.analytics.PayCraftFailureStage
 import com.mobilebytelabs.paycraft.billing.CheckoutLane
 import com.mobilebytelabs.paycraft.billing.resolveCheckoutLane
+import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
 import com.mobilebytelabs.paycraft.debug.platformLog
@@ -370,7 +371,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
         _state.update { it.copy(isSubmitting = true, emailError = null) }
         if (email.isNotBlank()) billingManager.logIn(email)
-        funnel.checkoutStarted(plan, providerId = null)
+        funnel.checkoutStarted(plan, checkoutProviderFor(resolveCheckoutLane(PlatformInfo.platform, plan), providers))
 
         // SERVER-MINTED CHECKOUT.
         //
@@ -708,4 +709,14 @@ internal sealed interface ExitSurveyUi {
         ExitSurveyUi
 
     data class MessageShown(val text: String) : ExitSurveyUi
+}
+
+/**
+ * The provider a checkout goes through, as far as the paywall knows it when checkout starts: the store for a native
+ * lane, else the only configured provider. Null when the buyer still has a choice to make (several web providers).
+ */
+internal fun checkoutProviderFor(lane: CheckoutLane, providers: List<ProviderDto>): String? = when (lane) {
+    is CheckoutLane.NativePlay -> "google_play"
+    is CheckoutLane.NativeStoreKit -> "app_store"
+    else -> providers.singleOrNull()?.provider
 }

@@ -37,11 +37,14 @@ for f in "$EVENT" "$CONTRACT" "$INGEST" "$TABLE" "$ATTEMPTS"; do [[ -s "$f" ]] |
 # error_message that PayCraftFailure scrubs (emails, phone / card numbers, keys, JWTs) and cuts to 200 characters on
 # the device, which the server's sanitiseMessage repeats. The message travels to PayCraft's own ingest only — it is
 # deliberately NOT in params(), so it never reaches an app's GA4.
+# appVersion / app_version (migration 215): the app's public version string, once per batch. deviceCountry /
+# country_source: the device's ISO alpha-2 region, stored only when the edge has no geo, labelled 'server' | 'device'
+# — the same coarse country the `country` column already holds, never finer.
 ALLOW_EVENT="name step platform trigger sku currency country provider reason atMs experiment variant attemptId failure"
 ALLOW_PARAMS="step platform trigger sku currency country provider reason experiment variant attempt_id stage error_class code"
-ALLOW_WIRE="apiKey deviceRef deviceToken events name step platform trigger sku currency provider reason experiment variant attempt_id failure stage error_class error_code error_message at"
-ALLOW_ROWS="name step platform trigger sku currency provider reason experiment variant attempt_id occurred_at tenant_id user_ref device_ref country mode"
-ALLOW_TABLE="id tenant_id user_ref device_ref name step platform trigger sku currency provider reason country mode occurred_at received_at experiment variant attempt_id"
+ALLOW_WIRE="apiKey deviceRef deviceToken appVersion deviceCountry events name step platform trigger sku currency provider reason experiment variant attempt_id failure stage error_class error_code error_message at"
+ALLOW_ROWS="name step platform trigger sku currency provider reason experiment variant attempt_id occurred_at tenant_id user_ref device_ref country mode app_version country_source"
+ALLOW_TABLE="id tenant_id user_ref device_ref name step platform trigger sku currency provider reason country mode occurred_at received_at experiment variant attempt_id app_version country_source"
 ALLOW_TIMELINE="id attempt_id tenant_id stage event error_class error_code error_message occurred_at"
 
 event_fields="$(perl -0ne 'if (/public class PayCraftEvent\((.*?)\n\)/s) { my $b = $1; print "$1\n" while $b =~ /public val (\w+)\s*:/g }' "$EVENT")"

@@ -16,7 +16,9 @@
 //   · Only catalog names (EVENT_CATALOG, generated from PayCraftEvent.kt) — one bad event refuses the batch.
 //   · No personal data: the buyer is stored as sha256(tenant_id || email), resolved here from the device
 //     token; the email itself never leaves `registered_devices`.
-//   · The country is the SERVER's (edge geo / Accept-Language) — a client-sent country is ignored.
+//   · The country is the edge's IP-geo when there is one (`country_source = 'server'`); else the region the device
+//     reported for the event, or its Accept-Language region (`'device'`) — migration 215. Supabase's edge sends no
+//     geo header, so without the device fallback every row's country was null.
 //   · One device cannot flood the table (token bucket per tenant + device).
 //   · Attempts (migration 210): an event's `attempt_id` (the SDK's purchase-attempt id) is stamped on its
 //     paywall_events row and the event is appended to that attempt's timeline (`attempt_events`, stage
@@ -27,7 +29,7 @@ import { serve } from "https://deno.land/std@0.208.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1"
 import { preflight, withCors } from "../_shared/cors.ts"
 import { EVENT_CATALOG } from "../_shared/event-catalog.ts"
-import { recordedCountry } from "../_shared/geo.ts"
+import { eventCountry } from "../_shared/geo.ts"
 import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/rate-limit.ts"
 import {
   appendEvents,
@@ -56,6 +58,8 @@ type InEvent = {
   currency?: unknown; provider?: unknown; reason?: unknown; at?: unknown
   experiment?: unknown; variant?: unknown
   attempt_id?: unknown; failure?: unknown
+  /** The device's region (alpha-2) — stored only when the edge has no geo (migration 215). */
+  deviceCountry?: unknown
 }
 
 /** The failure an SDK event reports, validated: a known stage and a class are required (D6). */
@@ -155,7 +159,10 @@ serve(async (req: Request): Promise<Response> => {
     const experiment = str(e.experiment, 48)
     const variant = str(e.variant, 32)
     const inExperiment = experiment !== null && variant !== null && EXPERIMENT.test(experiment) && VARIANT.test(variant)
+    // The edge's geo wins; else the region this device reported for the event (migration 215, `country_source`).
+    const { country, source: country_source } = eventCountry(req, str(e.deviceCountry, 8))
     rows.push({
+      country, country_source,
       name, step, platform,
       trigger: str(e.trigger, 100), sku: str(e.sku, 100), provider: str(e.provider, 40), reason: str(e.reason, 100),
       currency: currency && CURRENCY.test(currency) ? currency : null,
@@ -181,9 +188,10 @@ serve(async (req: Request): Promise<Response> => {
   const mode = (req.headers.get("x-paycraft-mode") ?? (body as { mode?: string }).mode ?? "").toLowerCase() === "test"
     ? "test"
     : "live"
-  const country = recordedCountry(req)
+  // The app's version, once per batch (migration 215) — what PayCraft's analytics segment by beside GA4's appVersion.
+  const appVersion = str((body as { appVersion?: unknown }).appVersion, 32)
   const { error } = await supabase.from("paywall_events").insert(
-    rows.map((r) => ({ ...r, tenant_id: tenantId, user_ref: userRef, device_ref: deviceRef, country, mode })),
+    rows.map((r) => ({ ...r, tenant_id: tenantId, user_ref: userRef, device_ref: deviceRef, app_version: appVersion, mode })),
   )
   if (error) return json(500, { error: "store_failed" })
 

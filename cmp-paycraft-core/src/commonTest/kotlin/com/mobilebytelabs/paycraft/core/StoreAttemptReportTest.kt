@@ -141,6 +141,8 @@ class StoreAttemptReportTest {
         assertEquals("catalog", m.classifyStoreCode("no_offer"))
         // The product lookup itself failed (Play down, network, billing unavailable) — not a catalogue problem.
         assertEquals("store_query", m.classifyStoreCode("query_2"))
+        // The app was not installed by Google Play, which then cannot sell it anything (paycraft-ga4-analytics-audit AC-3).
+        assertEquals("store_install", m.classifyStoreCode("not_from_play"))
         assertEquals("timeout", m.classifyStoreCode("timeout"))
         assertEquals("store_other", m.classifyStoreCode(null))
     }

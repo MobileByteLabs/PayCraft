@@ -6,6 +6,7 @@ describe("reasonLabel", () => {
   it("names the known codes", () => {
     expect(reasonLabel("product_not_found")).toBe("Store had no such product (product_not_found)")
     expect(reasonLabel("query_2")).toBe("Store product lookup failed (query_2)")
+    expect(reasonLabel("not_from_play")).toBe("App not installed from Google Play (not_from_play)")
     expect(reasonLabel("purchase_3")).toBe("Store declined the purchase (purchase_3)")
     expect(reasonLabel("unknown")).toBe("Not reported (older SDK)")
   })

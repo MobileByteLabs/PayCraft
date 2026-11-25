@@ -445,7 +445,15 @@ object PayCraft {
                 mode = if (mode == Mode.Test) "test" else "live",
                 json = true,
             ).forEach { (name, value) -> header(name, value) }
-            setBody(PayCraftContract.eventsBody(key, deviceId, DeviceTokenStore.getToken(), batch).toString())
+            setBody(
+                PayCraftContract.eventsBody(
+                    key,
+                    deviceId,
+                    DeviceTokenStore.getToken(),
+                    batch,
+                    appVersion = runCatching { PlatformInfo.appVersion }.getOrNull(),
+                ).toString(),
+            )
         }
         val status = response.status.value
         if (response.status.isSuccess()) return

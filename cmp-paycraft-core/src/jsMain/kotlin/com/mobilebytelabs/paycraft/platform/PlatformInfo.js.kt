@@ -3,6 +3,7 @@ package com.mobilebytelabs.paycraft.platform
 actual object PlatformInfo {
     actual val platform: String = "web"
     actual val appId: String = ""
+    actual val appVersion: String? = null
     actual val deviceName: String
         get() = detectBrowserName()
     actual val deviceId: String

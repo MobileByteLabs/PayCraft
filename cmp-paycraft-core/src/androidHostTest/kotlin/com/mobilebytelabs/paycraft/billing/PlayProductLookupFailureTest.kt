@@ -21,6 +21,16 @@ class PlayProductLookupFailureTest {
         assertEquals("product_not_found", productLookupFailure("pro_quarterly", BillingResponseCode.OK, "", found = false)?.code)
     }
 
+    @Test fun an_install_that_did_not_come_from_play_cannot_see_play_products_and_says_so() {
+        // paycraft-ga4-analytics-audit AC-3: Play answers OK with no product for an app it did not install, so the
+        // dashboard showed "Store had no such product" for products Play lists as ACTIVE in 174 regions.
+        val f = productLookupFailure("pro_quarterly", BillingResponseCode.OK, "", found = false, fromPlay = false)
+        assertEquals("not_from_play", f?.code)
+        assertEquals("product_not_found", productLookupFailure("p", BillingResponseCode.OK, "", found = false, fromPlay = true)?.code)
+        assertEquals("product_not_found", productLookupFailure("p", BillingResponseCode.OK, "", found = false, fromPlay = null)?.code)
+        assertNull(productLookupFailure("p", BillingResponseCode.OK, "", found = true, fromPlay = false))
+    }
+
     @Test fun a_failed_lookup_reports_plays_response_code_not_a_missing_product() {
         val f = productLookupFailure("pro_quarterly", BillingResponseCode.SERVICE_UNAVAILABLE, "Service unavailable", found = false)
         assertEquals("query_${BillingResponseCode.SERVICE_UNAVAILABLE}", f?.code)

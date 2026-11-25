@@ -99,6 +99,7 @@ function RateTable(props: {
 /** A failure code in words, the code kept beside it so it can be searched and shared. */
 const REASON_WORDS: Record<string, string> = {
   product_not_found: "Store had no such product",
+  not_from_play: "App not installed from Google Play",
   no_offer: "No offer this buyer can take",
   no_activity: "App was in the background",
   timeout: "Timed out",

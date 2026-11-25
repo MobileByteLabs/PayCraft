@@ -257,11 +257,18 @@ object PayCraftContract {
      * buyer is resolved server-side from [deviceToken] to a hashed reference, and the visitor's country is
      * stamped by the server from the request, not trusted from [PayCraftEvent.country].
      */
-    fun eventsBody(apiKey: String, deviceRef: String, deviceToken: String?, events: List<PayCraftEvent>): JsonObject =
+    fun eventsBody(
+        apiKey: String,
+        deviceRef: String,
+        deviceToken: String?,
+        events: List<PayCraftEvent>,
+        appVersion: String? = null,
+    ): JsonObject =
         buildJsonObject {
             put("apiKey", apiKey)
             put("deviceRef", deviceRef)
             if (deviceToken != null) put("deviceToken", deviceToken)
+            appVersion?.takeIf { it.isNotBlank() }?.let { put("appVersion", it.take(32)) }
             put(
                 "events",
                 JsonArray(
@@ -274,6 +281,9 @@ object PayCraftContract {
                             e.sku?.let { put("sku", it) }
                             e.currency?.let { put("currency", it) }
                             e.provider?.let { put("provider", it) }
+                            // The device's region — the server stores it only when its own geo has none
+                            // (paycraft-ga4-analytics-audit D6), under `country_source = 'device'`.
+                            e.country?.let { put("deviceCountry", it) }
                             e.reason?.let { put("reason", it) }
                             e.experiment?.let { put("experiment", it) }
                             e.variant?.let { put("variant", it) }

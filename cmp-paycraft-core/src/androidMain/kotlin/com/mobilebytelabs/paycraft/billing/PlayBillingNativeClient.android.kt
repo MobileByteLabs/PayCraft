@@ -133,8 +133,13 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
         }
         val lookup = billingClient.queryProductDetails(productDetailsParams(productId, productType))
         val found = lookup.productDetailsList?.firstOrNull()
-        productLookupFailure(productId, lookup.billingResult.responseCode, lookup.billingResult.debugMessage, found != null)
-            ?.let { return it }
+        productLookupFailure(
+            productId,
+            lookup.billingResult.responseCode,
+            lookup.billingResult.debugMessage,
+            found != null,
+            fromPlay = if (found == null) installedFromPlay(appContext) else null,
+        )?.let { return it }
         val productDetails = requireNotNull(found)
         val activity = activityProvider()
             ?: return NativePurchaseResult.Failed("No foreground Activity to launch the billing flow", "no_activity")

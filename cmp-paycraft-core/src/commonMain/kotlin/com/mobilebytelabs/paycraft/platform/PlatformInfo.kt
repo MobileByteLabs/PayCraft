@@ -34,6 +34,13 @@ expect object PlatformInfo {
      */
     val appId: String
 
+    /**
+     * The host app's user-facing version — Android `versionName`, iOS `CFBundleShortVersionString`; null where the
+     * platform has none (desktop, web). Sent once per events batch so PayCraft's own analytics segment by app version
+     * like GA4 does (paycraft-ga4-analytics-audit D6).
+     */
+    val appVersion: String?
+
     /** Human-readable name shown in conflict dialog, e.g. "Rajan's Pixel 8", "iPhone 15 Pro" */
     val deviceName: String
 
