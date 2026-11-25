@@ -44,7 +44,7 @@ export const OPENAPI_SPEC = {
       "| `products:sync` | `POST /v1/sync` (bulk-writes to live providers) |",
       "| `providers:read` | `GET /v1/providers` |",
       "| `tenant:read` | `GET /v1/tenant` |",
-      "| `subscribers:read` | `GET /v1/subscribers`, `GET /v1/entitlements` |",
+      "| `subscribers:read` | `GET /v1/subscribers`, `GET /v1/entitlements`, `GET /v1/attempts`, `GET /v1/attempts/{id}`, `GET /v1/payment-health`, `GET /v1/funnel` |",
       "| `coupons:read` | `GET /v1/coupons` |",
       "| `paywall:read` | `GET /v1/paywall` |",
       "| `paywall:write` | `PATCH /v1/paywall`, `POST /v1/paywall/templates`, `PUT`/`POST /v1/paywall/workflow` |",
@@ -83,6 +83,7 @@ export const OPENAPI_SPEC = {
     { name: "Catalogue", description: "Products, pricing and coupons." },
     { name: "Sync", description: "Reconcile products and payment artifacts with each provider." },
     { name: "Customers", description: "Subscriptions and entitlement state." },
+    { name: "Payment attempts", description: "Every purchase attempt, its timeline, and the failure / funnel aggregates over them. No buyer identity is returned." },
     { name: "Operations", description: "Webhook deliveries and the audit trail." },
   ],
   security: [{ bearerAuth: [] }],
@@ -647,6 +648,147 @@ export const OPENAPI_SPEC = {
           "200": { description: "OK.", content: { "application/json": { schema: { type: "object" } } } },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/attempts": {
+      get: {
+        tags: ["Payment attempts"],
+        operationId: "listAttempts",
+        summary: "Purchase attempts",
+        description: "Every purchase attempt with its state, failure stage / class / code, provider and country, newest first. Filter state=failed&provider=stripe&country=IN to answer which attempts failed where.",
+        security: [{ bearerAuth: ["subscribers:read"] }],
+        parameters: [
+          { $ref: "#/components/parameters/limit" },
+          { $ref: "#/components/parameters/offset" },
+          {
+            name: "state", in: "query", required: false, schema: { type: "string", enum: ["started", "checkout_opened", "provider_result", "granted", "failed", "abandoned", "paid_not_granted"] },
+            description: "started, checkout_opened, provider_result, granted, failed, abandoned or paid_not_granted.",
+          },
+          {
+            name: "stage", in: "query", required: false, schema: { type: "string", enum: ["sdk", "server", "provider", "webhook", "entitlement"] },
+            description: "The stage the attempt failed at: sdk, server, provider, webhook or entitlement.",
+          },
+          {
+            name: "provider", in: "query", required: false, schema: { type: "string" },
+            description: "Filter by provider.",
+          },
+          {
+            name: "country", in: "query", required: false, schema: { type: "string" },
+            description: "ISO 3166-1 alpha-2 country the attempt was made from.",
+          },
+          {
+            name: "mode", in: "query", required: false, schema: { type: "string", enum: ["live", "test"] },
+            description: "live or test.",
+          },
+          {
+            name: "correlation", in: "query", required: false, schema: { type: "string", enum: ["exact", "inferred"] },
+            description: "exact (the SDK named the attempt) or inferred (stitched from a provider key).",
+          },
+          {
+            name: "since", in: "query", required: false, schema: { type: "string", format: "date-time" },
+            description: "Inclusive lower bound on started_at.",
+          },
+          {
+            name: "until", in: "query", required: false, schema: { type: "string", format: "date-time" },
+            description: "Exclusive upper bound on started_at.",
+          },
+          {
+            name: "user", in: "query", required: false, schema: { type: "string" },
+            description: "The buyer's email. Matched on the attempt's hash; never stored or returned.",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "A page of results.",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/PagedResponse" } } },
+          },
+          "400": { description: "A filter or window that does not parse; the body names it.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "429": { $ref: "#/components/responses/RateLimited" },
+          "500": { $ref: "#/components/responses/ServerError" },
+        },
+      },
+    },
+    "/attempts/{id}": {
+      get: {
+        tags: ["Payment attempts"],
+        operationId: "getAttempt",
+        summary: "One attempt and its timeline",
+        description: "By the attempt's row id or its attempt_id, with every attempt_events row oldest first: each stage transition and each failure's stage, class, code and message (at most 200 characters).",
+        security: [{ bearerAuth: ["subscribers:read"] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": { description: "The attempt with `events`.", content: { "application/json": { schema: { type: "object" } } } },
+          "404": { description: "No such attempt on this tenant.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "400": { description: "A filter or window that does not parse; the body names it.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "429": { $ref: "#/components/responses/RateLimited" },
+          "500": { $ref: "#/components/responses/ServerError" },
+        },
+      },
+    },
+    "/payment-health": {
+      get: {
+        tags: ["Payment attempts"],
+        operationId: "getPaymentHealth",
+        summary: "Payment health aggregates",
+        description: "Failure rate by stage, provider and country; abandon rate by step; paid-not-granted count; resume-reminder reach (scheduled / (scheduled + skipped for lack of notification permission)).",
+        security: [{ bearerAuth: ["subscribers:read"] }],
+        parameters: [
+          {
+            name: "since", in: "query", required: false, schema: { type: "string", format: "date-time" },
+            description: "Inclusive lower bound (date or ISO-8601 instant). Default: 30 days before `until`.",
+          },
+          {
+            name: "until", in: "query", required: false, schema: { type: "string", format: "date-time" },
+            description: "Exclusive upper bound (date or ISO-8601 instant). Default: now.",
+          },
+          {
+            name: "mode", in: "query", required: false, schema: { type: "string", enum: ["live", "test"] },
+            description: "live (default) or test.",
+          },
+        ],
+        responses: {
+          "200": { description: "The aggregates plus the window actually used (`window.capped` when the plan's retention shortened it).", content: { "application/json": { schema: { type: "object" } } } },
+          "400": { description: "A filter or window that does not parse; the body names it.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "429": { $ref: "#/components/responses/RateLimited" },
+          "500": { $ref: "#/components/responses/ServerError" },
+        },
+      },
+    },
+    "/funnel": {
+      get: {
+        tags: ["Payment attempts"],
+        operationId: "getFunnel",
+        summary: "Paywall funnel",
+        description: "Distinct buyers at paywall_view, plan_select, checkout_start and purchase_success, with per-country and per-provider splits.",
+        security: [{ bearerAuth: ["subscribers:read"] }],
+        parameters: [
+          {
+            name: "since", in: "query", required: false, schema: { type: "string", format: "date-time" },
+            description: "Inclusive lower bound (date or ISO-8601 instant). Default: 30 days before `until`.",
+          },
+          {
+            name: "until", in: "query", required: false, schema: { type: "string", format: "date-time" },
+            description: "Exclusive upper bound (date or ISO-8601 instant). Default: now.",
+          },
+          {
+            name: "mode", in: "query", required: false, schema: { type: "string", enum: ["live", "test"] },
+            description: "live (default) or test.",
+          },
+        ],
+        responses: {
+          "200": { description: "The aggregates plus the window actually used (`window.capped` when the plan's retention shortened it).", content: { "application/json": { schema: { type: "object" } } } },
+          "400": { description: "A filter or window that does not parse; the body names it.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "429": { $ref: "#/components/responses/RateLimited" },
+          "500": { $ref: "#/components/responses/ServerError" },
         },
       },
     },

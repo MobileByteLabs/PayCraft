@@ -39,7 +39,7 @@ test("the paywall funnel shows the seeded buyers per stage, country and provider
   const counts = await funnel.locator("li span.font-bold").allTextContents()
   expect(counts).toEqual(["5", "4", "2", "1"])
   await expect(funnel).toContainText("20.0% overall")
-  await expect(page.getByRole("heading", { name: "By country" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "By country", exact: true })).toBeVisible()
   await expect(page.getByText("India (IN)")).toBeVisible()
   await expect(page.getByText("Razorpay")).toBeVisible()
   await expect(page.getByText("Not chosen")).toHaveCount(0) // views carry no provider; the provider table starts at checkout

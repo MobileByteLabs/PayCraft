@@ -8,6 +8,14 @@ import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 import { razorpayAttempt, recordAttempt } from "../_shared/checkout-attempts.ts";
 import { supabaseAdmin } from "../_shared/supabase-admin.ts";
+import {
+  attemptBestEffort,
+  closeAsFailed,
+  closeAsGranted,
+  noteWebhookSignatureFailure,
+  resolveAttemptIdFromRazorpayEvent,
+  transitionAttempt,
+} from "../_shared/payment-attempts.ts";
 
 /**
  * Multi-tenant Razorpay Webhook Handler.
@@ -46,6 +54,15 @@ import { supabaseAdmin } from "../_shared/supabase-admin.ts";
  *
  * For unhandled events: ack with 200 + ignored:true so Razorpay stops
  * retrying. The behavior matches the post-rewrite Stripe webhook.
+ *
+ * Attempts (migration 210): checkout-initiate puts the SDK's attempt id in
+ * `notes.attempt_id`, which Razorpay echoes on the subscription, payment and
+ * payment-link entities. An authenticated / activated / charged subscription
+ * or a captured payment moves that attempt to `provider_result` (paid_at = the
+ * event's time) and the entitlement write closes it as granted; payment.failed
+ * and expired / cancelled links close it failed / abandoned with Razorpay's
+ * error code; a processing error closes it failed at stage `webhook`; a
+ * signature failure is noted on its timeline. Best-effort throughout.
  */
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "http://kong:8000";
@@ -225,12 +242,21 @@ serve(withWebhookRateLimit({ bucket: "webhook:razorpay" }, async (req) => {
     console.error(
       `[razorpay-webhook] signature verification failed (tenant=${tenantId ?? "self-hosted"})`,
     );
+    // Untrusted payload: nothing changes, but a real attempt it names records the refusal.
+    const claimed = resolveAttemptIdFromRazorpayEvent(parsed.payload);
+    if (claimed) {
+      await attemptBestEffort(`razorpay signature ${claimed}`, () =>
+        noteWebhookSignatureFailure(supabaseAdmin, claimed, "razorpay", "signature verification failed"));
+    }
     return new Response("Invalid signature", { status: 401 });
   }
 
   const mode = resolvedMode;
   const eventType = parsed.event;
   const sub = parsed.payload?.subscription?.entity;
+  // The SDK's purchase attempt this event answers, when checkout-initiate created the object with one.
+  const attemptId = resolveAttemptIdFromRazorpayEvent(parsed.payload);
+  const eventAt = new Date((parsed.created_at || Date.now() / 1000) * 1000).toISOString();
 
   console.log(
     `[razorpay-webhook] event=${eventType} mode=${mode} tenant=${tenantId ?? "self-hosted"}`,
@@ -246,7 +272,7 @@ serve(withWebhookRateLimit({ bucket: "webhook:razorpay" }, async (req) => {
     // The link is created with notes.paycraft_product_id (a UUID, not the sku) — see
     // razorpay-product-sync.ts — so the product id is what gets threaded through.
     const payment = parsed.payload?.payment?.entity as
-      | { id?: string; email?: string; notes?: Record<string, string> }
+      | { id?: string; email?: string; notes?: Record<string, string>; error_code?: string; error_description?: string }
       | undefined;
     const notes = payment?.notes ?? {};
     if (eventType === "payment.captured" && payment) {
@@ -263,6 +289,13 @@ serve(withWebhookRateLimit({ bucket: "webhook:razorpay" }, async (req) => {
         console.log(
           `[razorpay-webhook] granted ${grant.quantity} to ${payment.email ?? "unknown"} (balance ${grant.balance})`,
         );
+        // A pack credits a balance, not an entitlement record — the credit IS the grant.
+        if (attemptId) {
+          await attemptBestEffort(`razorpay consumable grant ${attemptId}`, async () => {
+            await transitionAttempt(supabaseAdmin, attemptId, "provider_result", { paid_at: eventAt });
+            return closeAsGranted(supabaseAdmin, attemptId);
+          });
+        }
         return new Response(
           JSON.stringify({ received: true, granted: grant.quantity, balance: grant.balance }),
           { status: 200, headers: { "Content-Type": "application/json" } },
@@ -285,7 +318,11 @@ serve(withWebhookRateLimit({ bucket: "webhook:razorpay" }, async (req) => {
     const attempt = razorpayAttempt(eventType, parsed.payload, tenantId, mode);
     if (attempt) {
       try {
-        await recordAttempt(supabaseAdmin, attempt);
+        await recordAttempt(supabaseAdmin, attempt, {
+          attemptId,
+          errorCode: payment?.error_code ?? null,
+          errorMessage: payment?.error_description ?? null,
+        });
       } catch (e) {
         console.error(`[razorpay-webhook] ${(e as Error).message}`);
         return new Response(`Error: ${(e as Error).message}`, { status: 500 });
@@ -313,6 +350,14 @@ serve(withWebhookRateLimit({ bucket: "webhook:razorpay" }, async (req) => {
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
+    // The mandate was authorised (a trial) or charged: the provider's answer for this attempt.
+    if (attemptId && (state.status === "active" || state.status === "trialing")) {
+      await attemptBestEffort(`razorpay provider_result ${attemptId}`, () =>
+        transitionAttempt(supabaseAdmin, attemptId, "provider_result", {
+          paid_at: eventAt,
+          provider_subscription_id: sub.id,
+        }));
+    }
     await handleSubscriptionEvent({
       email: state.email,
       provider: "razorpay",
@@ -327,10 +372,20 @@ serve(withWebhookRateLimit({ bucket: "webhook:razorpay" }, async (req) => {
       ...(state.trialEnd ? { trialStart: state.trialStart, trialEnd: state.trialEnd } : {}),
       tenantId,
       eventType,
+      attemptId,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[razorpay-webhook] processing error:", message);
+    if (attemptId) {
+      await attemptBestEffort(`razorpay webhook failure ${attemptId}`, () =>
+        closeAsFailed(supabaseAdmin, attemptId, {
+          stage: "webhook",
+          error_class: "razorpay_webhook",
+          error_code: "processing_error",
+          error_message: message,
+        }));
+    }
     return new Response(`Error: ${message}`, { status: 500 });
   }
 

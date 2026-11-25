@@ -14,6 +14,7 @@
 
 import { supabaseAdmin } from "./supabase-admin.ts";
 import { detectTransition, forwardLifecycle, type PrevRow } from "./attribution.ts";
+import { attemptBestEffort, closeAsFailed, closeAsGranted } from "./payment-attempts.ts";
 
 /** The 10 canonical states — 1:1 with cmp-paycraft SubscriptionState (Phase 1). */
 export type CanonicalState =
@@ -59,10 +60,57 @@ export interface CanonicalEvent {
  */
 export async function reconcileEntitlement(
   ev: CanonicalEvent,
-  opts: { preserveOwner?: boolean } = {},
+  opts: { preserveOwner?: boolean; attemptId?: string | null } = {},
 ): Promise<void> {
-  if (opts.preserveOwner) return reconcileKeepingOwner(ev);
+  const attemptId = opts.attemptId ?? null;
+  try {
+    if (opts.preserveOwner) await reconcileKeepingOwner(ev);
+    else await reconcileOwned(ev);
+  } catch (e) {
+    // The entitlement could not be written: the attempt fails at stage `entitlement`, then the caller sees
+    // the original error exactly as before (a webhook still answers 500 so the provider retries).
+    if (attemptId) {
+      await attemptBestEffort(`reconcile failure ${attemptId}`, () =>
+        closeAsFailed(supabaseAdmin, attemptId, {
+          stage: "entitlement",
+          error_class: "reconcile_failed",
+          error_code: ev.provider,
+          error_message: (e as Error).message,
+        }));
+    }
+    throw e;
+  }
+  if (attemptId) await attemptBestEffort(`grant ${attemptId}`, () => closeAttemptIfEntitled(ev, attemptId));
+}
 
+/** What the app unlocks for (migration 203): trial, active, active_non_renewing, in_grace_period. */
+const ENTITLED = new Set<CanonicalState>(["trial", "active", "active_non_renewing", "in_grace_period"]);
+
+/** Whether [state] unlocks the app — the provider's answer to a purchase attempt was "yes". */
+export function isEntitledState(state: CanonicalState): boolean {
+  return ENTITLED.has(state);
+}
+
+/**
+ * The attempt this event answers closes as GRANTED once the stored record grants access — read back after
+ * the write, so a replay the monotonic guard dropped, or a record another lane (RTDN before the SDK's
+ * register call) already made, still closes the attempt it belongs to. One write here covers every lane:
+ * every Play / App Store / web-PSP success passes through this function. A refund or an expiry never closes
+ * an attempt as granted.
+ */
+async function closeAttemptIfEntitled(ev: CanonicalEvent, attemptId: string): Promise<void> {
+  const { data, error } = await supabaseAdmin
+    .from("entitlement_records")
+    .select("canonical_state")
+    .eq("provider", ev.provider)
+    .eq("stable_txn_id", ev.stableTxnId)
+    .maybeSingle();
+  if (error) throw new Error(`entitlement read-back failed: ${error.message}`);
+  if (data && ENTITLED.has(data.canonical_state as CanonicalState)) await closeAsGranted(supabaseAdmin, attemptId);
+}
+
+/** The client-grant path: this event decides the owner too. */
+async function reconcileOwned(ev: CanonicalEvent): Promise<void> {
   const { data: existing, error: selErr } = await supabaseAdmin
     .from("entitlement_records")
     .select("latest_event_ts, app_user_id, canonical_state, expires_at")

@@ -21,6 +21,13 @@ import { POST as paywallTemplatePOST } from "@/app/api/v1/paywall/templates/rout
 import { PUT as paywallWorkflowPUT, POST as paywallPublishPOST } from "@/app/api/v1/paywall/workflow/route"
 import { GET as onboardingGET, PATCH as onboardingPATCH } from "@/app/api/v1/onboarding/state/route"
 import { GET as storeReadinessGET } from "@/app/api/v1/products/store-readiness/route"
+import { GET as attemptsGET } from "@/app/api/v1/attempts/route"
+import { GET as attemptGET } from "@/app/api/v1/attempts/[id]/route"
+import { GET as paymentHealthGET } from "@/app/api/v1/payment-health/route"
+import { GET as funnelGET } from "@/app/api/v1/funnel/route"
+import type { SupabaseClient } from "@supabase/supabase-js"
+import { attemptResponse, funnelResponse, listAttemptsResponse, paymentHealthResponse } from "@/lib/attempt-api"
+import { ATTEMPT_STAGES, ATTEMPT_STATES } from "@/lib/attempts"
 import { BLOCKED_REASONS, STATUSES } from "@/lib/onboarding-state"
 
 /**
@@ -47,6 +54,13 @@ export interface McpTool {
   /** Marks a tool that writes to live payment providers, for clients that surface the distinction. */
   destructive?: boolean
   invoke: (args: Record<string, any>, auth: string, origin: string) => Promise<Response>
+  /**
+   * Read tools whose route body is a shared lib function also expose it for a caller ALREADY authenticated
+   * another way — the dashboard AI, a signed-in member whose tenant requireTenant() resolved (lib/ai/tools-bridge.ts).
+   * It runs the identical body on the identical request URL `invoke` would send, with the caller's own client
+   * (RLS applies) in place of the API key's service client, so the chat and an MCP agent cannot disagree.
+   */
+  session?: (sb: SupabaseClient, tenantId: string, args: Record<string, any>) => Promise<Response>
 }
 
 /** Build a Request that looks to the handler exactly like the equivalent REST call. */
@@ -102,6 +116,50 @@ const TENANT = {
 const PAGING = {
   limit: { type: "integer", minimum: 1, maximum: 200, description: "Page size (default 50)." },
   offset: { type: "integer", minimum: 0, description: "Rows to skip." },
+}
+
+/**
+ * The query an attempt tool sends: its own arguments WITHOUT `tenant_id`. The dispatcher already put the
+ * tenant on the origin; dropping the argument here means a tool call can never name a second app beside it —
+ * the route's requireApiKey sees exactly one tenant request, the one the dispatcher resolved.
+ */
+function ownArgs(a: Record<string, any>): Record<string, unknown> {
+  const { tenant_id: _tenant, id: _id, ...rest } = a
+  return rest
+}
+
+/** The request URL `call()` would build, for the in-process `session` path (tenant on it, as the API sees it). */
+function sessionUrl(path: string, tenantId: string, query: Record<string, unknown>): URL {
+  const url = new URL(path, "https://dashboard.paycraft.internal")
+  url.searchParams.set("tenant_id", tenantId)
+  for (const [k, v] of Object.entries(query)) {
+    if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v))
+  }
+  return url
+}
+
+const attemptPath = (id: unknown) => `/api/v1/attempts/${encodeURIComponent(String(id ?? ""))}`
+
+const WINDOW = {
+  since: { type: "string", description: "Inclusive lower bound: a date or ISO-8601 instant. Default 30 days before until." },
+  until: { type: "string", description: "Exclusive upper bound: a date or ISO-8601 instant. Default now." },
+  mode: { type: "string", enum: ["live", "test"], description: "live (default) or test." },
+}
+
+const ATTEMPT_FILTER = {
+  state: { type: "string", enum: [...ATTEMPT_STATES] },
+  stage: { type: "string", enum: [...ATTEMPT_STAGES], description: "The stage the attempt failed at." },
+  provider: { type: "string", description: "stripe | razorpay | google_play | app_store | paddle | … as stored." },
+  country: { type: "string", description: "ISO 3166-1 alpha-2 country the attempt was made from." },
+  correlation: {
+    type: "string",
+    enum: ["exact", "inferred"],
+    description: "exact = the SDK named the attempt; inferred = stitched from the provider's own key.",
+  },
+  user: { type: "string", description: "The buyer's email; matched on the attempt's hash, never returned." },
+  since: { type: "string", description: "Inclusive lower bound on started_at (date or ISO-8601)." },
+  until: { type: "string", description: "Exclusive upper bound on started_at (date or ISO-8601)." },
+  mode: { type: "string", enum: ["live", "test"] },
 }
 
 const obj = (props: Record<string, unknown>, required: string[] = []) => ({
@@ -672,6 +730,54 @@ export const MCP_TOOLS: McpTool[] = [
       "Who changed what, including this API's own actions (actor_type=api_key). Requires audit:read.",
     inputSchema: obj({ ...TENANT, action: { type: "string" }, actor_type: { type: "string" }, ...PAGING }),
     invoke: (a, auth, origin) => call(auditGET, "GET", "/api/v1/audit", auth, origin, a),
+  },
+  {
+    name: "paycraft_attempts",
+    title: "Payment attempts (list)",
+    description:
+      "Every purchase attempt with its current state, the stage / class / code it failed at, provider and " +
+      "country, newest first. Filter state=failed provider=stripe country=IN since=… to answer which Stripe " +
+      "attempts from India failed yesterday; pagination.total is the count. No buyer identity is returned. " +
+      "Requires subscribers:read.",
+    inputSchema: obj({ ...TENANT, ...ATTEMPT_FILTER, ...PAGING }),
+    invoke: (a, auth, origin) => call(attemptsGET, "GET", "/api/v1/attempts", auth, origin, ownArgs(a)),
+    session: (sb, tenantId, a) => listAttemptsResponse(sb, tenantId, sessionUrl("/api/v1/attempts", tenantId, ownArgs(a))),
+  },
+  {
+    name: "paycraft_attempt",
+    title: "One attempt and its timeline",
+    description:
+      "One attempt, by its id or attempt_id, with its full attempt_events timeline: every stage transition and " +
+      "each failure's stage, class, code and message (at most 200 characters). Use it to explain why a single " +
+      "purchase failed. Requires subscribers:read.",
+    inputSchema: obj({ ...TENANT, id: { type: "string", description: "The attempt's id or attempt_id." } }, ["id"]),
+    invoke: (a, auth, origin) =>
+      call(attemptGET, "GET", attemptPath(a.id), auth, origin, undefined, undefined, { id: String(a.id ?? "") }),
+    session: (sb, tenantId, a) => attemptResponse(sb, tenantId, a.id === undefined ? undefined : String(a.id)),
+  },
+  {
+    name: "paycraft_payment_health",
+    title: "Payment health aggregates",
+    description:
+      "Where purchase attempts fail and where buyers give up, over a window: failure rate by stage, provider " +
+      "and country; abandon rate by step; paid-not-granted count; resume-reminder reach (scheduled / " +
+      "(scheduled + skipped for lack of notification permission)). The same numbers as the dashboard's " +
+      "Payment health panel. Start here for 'why did revenue drop yesterday'. Requires subscribers:read.",
+    inputSchema: obj({ ...TENANT, ...WINDOW }),
+    invoke: (a, auth, origin) => call(paymentHealthGET, "GET", "/api/v1/payment-health", auth, origin, ownArgs(a)),
+    session: (sb, tenantId, a) =>
+      paymentHealthResponse(sb, tenantId, sessionUrl("/api/v1/payment-health", tenantId, ownArgs(a))),
+  },
+  {
+    name: "paycraft_funnel",
+    title: "Paywall funnel",
+    description:
+      "Distinct buyers at each paywall step (paywall_view → plan_select → checkout_start → purchase_success) " +
+      "with the drop between steps and per-country / per-provider splits — the Analytics page's funnel. " +
+      "Requires subscribers:read.",
+    inputSchema: obj({ ...TENANT, ...WINDOW }),
+    invoke: (a, auth, origin) => call(funnelGET, "GET", "/api/v1/funnel", auth, origin, ownArgs(a)),
+    session: (sb, tenantId, a) => funnelResponse(sb, tenantId, sessionUrl("/api/v1/funnel", tenantId, ownArgs(a))),
   },
 ]
 

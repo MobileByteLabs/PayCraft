@@ -47,6 +47,9 @@ class FakePayCraftService(
     /** Every store-sheet attempt reported, as (provider, productId, appUserId, outcome). */
     val storeAttempts = mutableListOf<List<String>>()
 
+    /** The purchase-attempt id each store-sheet report carried. */
+    val storeAttemptIds = mutableListOf<String>()
+
     override suspend fun recordStoreAttempt(
         provider: String,
         productId: String,
@@ -57,6 +60,7 @@ class FakePayCraftService(
     ): Boolean {
         storeAttempts += listOf(provider, productId, appUserId, outcome)
         storeAttemptReasons += reason
+        storeAttemptIds += attemptId
         return true
     }
 

@@ -11,13 +11,10 @@ import {
   Laptop,
   Monitor,
   Ban,
-  CreditCard,
-  RefreshCw,
-  ArrowUpCircle,
-  CheckCircle2,
-  PlusCircle,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { buyerRef, fetchAttemptTimeline, type AttemptRow } from "@/lib/attempts"
+import { AttemptTimeline } from "@/components/subscribers/attempt-timeline"
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -81,16 +78,6 @@ function DeviceIcon({ platform }: { platform: string }) {
   return <Monitor className="w-5 h-5" strokeWidth={1.5} />
 }
 
-// ── transaction mock type ─────────────────────────────────────────────────
-
-type TxEvent = {
-  id: string
-  type: "upgrade" | "renewal" | "initial" | "refund"
-  label: string
-  amount: number
-  date: string
-}
-
 // ── page ──────────────────────────────────────────────────────────────────
 
 export default async function SubscriberDetailPage({
@@ -118,8 +105,15 @@ export default async function SubscriberDetailPage({
     .ilike("email", sub.email)
     .order("last_seen_at", { ascending: false })
 
-  // TODO: wire Supabase — fetch subscription_events / payment_events table
-  const txEvents: TxEvent[] = []
+  // Every purchase attempt this buyer made (migration 210), joined on the same buyer hash the funnel uses —
+  // the email itself is never queried in the attempt tables.
+  let attempts: AttemptRow[] = []
+  let attemptsError: string | null = null
+  try {
+    attempts = await fetchAttemptTimeline(supabase, tenant.id, await buyerRef(tenant.id, sub.email))
+  } catch (e) {
+    attemptsError = (e as Error).message
+  }
 
   const mrr =
     sub.plan === "enterprise"
@@ -241,84 +235,20 @@ export default async function SubscriberDetailPage({
             </div>
           </div>
 
-          {/* Transaction History */}
-          <div className="bg-white rounded-xl border border-ink-200 overflow-hidden shadow-sm">
+          {/* Payment attempts — every attempt's steps, the failing stage, and how it was correlated. */}
+          <section className="bg-white rounded-xl border border-ink-200 overflow-hidden shadow-sm" aria-labelledby="attempts-h">
             <div className="px-6 py-4 border-b border-ink-100 flex items-center justify-between">
-              <h3 className="text-xs font-bold text-ink-400 uppercase tracking-widest">
-                Transfer history
+              <h3 id="attempts-h" className="text-xs font-bold text-ink-400 uppercase tracking-widest">
+                Payment attempts
               </h3>
-              <button className="text-[11px] font-bold text-brand-600 hover:underline uppercase tracking-tight">
-                Export CSV
-              </button>
+              <span className="text-[11px] bg-ink-100 px-2 py-0.5 rounded text-ink-500 font-bold tabular-nums">
+                {attempts.length} {attempts.length === 1 ? "attempt" : "attempts"}
+              </span>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-ink-50/50">
-                    <th className="px-6 py-3 text-[11px] font-bold text-ink-400 uppercase tracking-wider">
-                      Event
-                    </th>
-                    <th className="px-6 py-3 text-[11px] font-bold text-ink-400 uppercase tracking-wider text-right">
-                      Amount
-                    </th>
-                    <th className="px-6 py-3 text-[11px] font-bold text-ink-400 uppercase tracking-wider text-right">
-                      Date
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-ink-100">
-                  {/* TODO: wire Supabase — replace with real txEvents */}
-                  {txEvents.length === 0 && (
-                    <>
-                      <TransactionRow
-                        icon={
-                          <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center text-brand-600">
-                            <ArrowUpCircle className="w-4 h-4" strokeWidth={2} />
-                          </div>
-                        }
-                        label="Subscription upgrade"
-                        amount={mrr}
-                        date="Just now"
-                      />
-                      <TransactionRow
-                        icon={
-                          <div className="w-8 h-8 rounded-lg bg-success-50 flex items-center justify-center text-success-600">
-                            <CheckCircle2 className="w-4 h-4" strokeWidth={2} />
-                          </div>
-                        }
-                        label="Renewal payment"
-                        amount={mrr}
-                        date={fmt(sub.current_period_end)}
-                      />
-                      <TransactionRow
-                        icon={
-                          <div className="w-8 h-8 rounded-lg bg-ink-100 flex items-center justify-center text-ink-500">
-                            <PlusCircle className="w-4 h-4" strokeWidth={2} />
-                          </div>
-                        }
-                        label="Initial charge"
-                        amount={mrr}
-                        date={fmt(sub.created_at)}
-                      />
-                    </>
-                  )}
-                  {txEvents.map((tx) => (
-                    <TransactionRow
-                      key={tx.id}
-                      icon={
-                        <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center text-brand-600">
-                          <CreditCard className="w-4 h-4" strokeWidth={2} />
-                        </div>
-                      }
-                      label={tx.label}
-                      amount={tx.amount}
-                      date={tx.date}
-                    />
-                  ))}
-                </tbody>
-              </table>
+            <div className="p-4 bg-ink-50/40">
+              <AttemptTimeline attempts={attempts} error={attemptsError} />
             </div>
-          </div>
+          </section>
         </div>
 
         {/* Right Column — 40% */}
@@ -445,37 +375,6 @@ export default async function SubscriberDetailPage({
 }
 
 // ── sub-components ────────────────────────────────────────────────────────
-
-function TransactionRow({
-  icon,
-  label,
-  amount,
-  date,
-}: {
-  icon: React.ReactNode
-  label: string
-  amount: number
-  date: string
-}) {
-  return (
-    <tr className="hover:bg-ink-50 transition-colors group">
-      <td className="px-6 py-4">
-        <div className="flex items-center gap-3">
-          {icon}
-          <span className="text-[13px] font-medium text-ink-900">{label}</span>
-        </div>
-      </td>
-      <td className="px-6 py-4 text-right">
-        <span className="text-[13px] font-bold text-ink-900 tabular-nums">
-          ${amount.toFixed(2)}
-        </span>
-      </td>
-      <td className="px-6 py-4 text-right">
-        <span className="text-[13px] text-ink-500">{date}</span>
-      </td>
-    </tr>
-  )
-}
 
 function AppDetailRow({
   label,

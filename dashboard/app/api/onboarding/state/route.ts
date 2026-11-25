@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
-import { resolveTenantForUser } from "@/lib/tenant"
+import { MembershipLookupError, resolveTenantForUser } from "@/lib/tenant"
 import { readState, validateStepWrite, writeStep, type StepWriteInput } from "@/lib/onboarding-state"
 
 /**
@@ -42,7 +42,17 @@ export async function GET(req: Request) {
   if (!auth?.user) return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
 
   const requested = new URL(req.url).searchParams.get("tenant_id")
-  const resolved = await resolveTenantForUser(supabase, requested)
+  let resolved
+  try {
+    resolved = await resolveTenantForUser(supabase, requested)
+  } catch (e) {
+    // A failed membership lookup is not "no app yet" — answering with an empty state would restart
+    // onboarding for an owner who already has one.
+    if (e instanceof MembershipLookupError) {
+      return NextResponse.json({ error: "membership_lookup_failed" }, { status: 503 })
+    }
+    throw e
+  }
   if (resolved.resolvedFrom === "not_a_member") {
     return NextResponse.json({ error: "tenant_not_reachable" }, { status: 403 })
   }

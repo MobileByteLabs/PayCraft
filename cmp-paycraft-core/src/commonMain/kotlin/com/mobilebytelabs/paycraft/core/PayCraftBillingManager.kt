@@ -1,6 +1,11 @@
 package com.mobilebytelabs.paycraft.core
 
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
+import com.mobilebytelabs.paycraft.analytics.PayCraftEventName
+import com.mobilebytelabs.paycraft.analytics.PayCraftFailure
+import com.mobilebytelabs.paycraft.analytics.PayCraftFailureStage
+import com.mobilebytelabs.paycraft.analytics.PayCraftStep
 import com.mobilebytelabs.paycraft.billing.NativeBillingClient
 import com.mobilebytelabs.paycraft.billing.NativePurchase
 import com.mobilebytelabs.paycraft.billing.NativePurchaseResult
@@ -16,6 +21,7 @@ import com.mobilebytelabs.paycraft.model.toSubscriptionStatus
 import com.mobilebytelabs.paycraft.network.ActiveDevice
 import com.mobilebytelabs.paycraft.network.EntitlementDto
 import com.mobilebytelabs.paycraft.network.PayCraftService
+import com.mobilebytelabs.paycraft.notify.ResumeNudgeTrigger
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
 import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
@@ -34,7 +40,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.mobilenativefoundation.store.store5.StoreReadResponse
-import kotlin.random.Random
 
 /**
  * @param repo Optional Store5-backed [EntitlementRepository] (Phase 4). When wired (Android/iOS
@@ -337,12 +342,13 @@ class PayCraftBillingManager(
         misconfiguredError = "Google Play product not configured",
         // Google Play has a client-facing grant endpoint: register the purchaseToken server-side and
         // reflect the reconciled entitlement immediately.
-        register = { purchase, resolvedProductId, appUserId ->
+        register = { purchase, resolvedProductId, appUserId, attemptId ->
             service.registerPlayPurchase(
                 purchaseToken = purchase.purchaseToken,
                 productId = resolvedProductId,
                 appUserId = appUserId,
                 packageName = purchase.packageName.orEmpty(),
+                attemptId = attemptId,
             )
         },
     )
@@ -362,11 +368,12 @@ class PayCraftBillingManager(
         // Apple's ASSN-V2 webhook and the paywall reappeared straight after a successful payment.
         // ASSN-V2 keeps running as the async channel for renewals/refunds; both converge on the
         // same canonical record.
-        register = { purchase, resolvedProductId, appUserId ->
+        register = { purchase, resolvedProductId, appUserId, attemptId ->
             service.registerAppStorePurchase(
                 signedTransaction = purchase.purchaseToken, // StoreKit JWS rides in purchaseToken
                 appUserId = appUserId,
                 productId = resolvedProductId,
+                attemptId = attemptId,
             )
         },
     )
@@ -390,7 +397,14 @@ class PayCraftBillingManager(
         storeLabel: String,
         notWiredError: String,
         misconfiguredError: String,
-        register: (suspend (purchase: NativePurchase, productId: String, appUserId: String) -> EntitlementDto?)?,
+        register: (
+            suspend (
+                purchase: NativePurchase,
+                productId: String,
+                appUserId: String,
+                attemptId: String,
+            ) -> EntitlementDto?
+        )?,
     ) {
         // A lifetime plan is a ONE_TIME product on Play; everything else is a subscription. Without
         // this the store lookup asked for a SUBS product that does not exist and the purchase
@@ -422,17 +436,20 @@ class PayCraftBillingManager(
             ?: _userEmail.value
             ?: PayCraft.deviceId
         if (!email.isNullOrBlank()) _userEmail.value = email.trim().lowercase()
+        // The purchase attempt (paycraft-attempt-observability D4/D5): the paywall's plan pick opened it; a headless
+        // checkout opens it here. It rides on the store receipt (Play profile id) and the server registration.
+        val attemptId = PayCraft.attemptTracker.ensure(plan.sku)
 
         _billingState.value = BillingState.Loading
         scope.launch {
-            when (val result = native.purchase(productId, appUserId, productType)) {
+            when (val result = native.purchase(productId, appUserId, productType, attemptId)) {
                 is NativePurchaseResult.Success -> {
                     val purchase = result.purchase
                     PayCraftLogger.onFlow(tag, "$storeLabel purchase OK (product=$productId)")
 
                     val entitlement = if (register != null) {
                         try {
-                            register(purchase, productId, appUserId)
+                            register(purchase, productId, appUserId, attemptId)
                         } catch (e: Exception) {
                             PayCraftLogger.onError(tag, "server register failed: ${e.message}")
                             null
@@ -460,6 +477,7 @@ class PayCraftBillingManager(
                         store.cacheSubscriptionStatus(status)
                         if (!lastObservedPremium) {
                             _subscriptionActivated.emit(SubscriptionActivated(sku = status.plan, isTrial = false))
+                            PayCraft.onAttemptGranted()
                         }
                         lastObservedPremium = true
                         // ONLY NOW is it safe to tell the store we are done with this purchase.
@@ -508,7 +526,8 @@ class PayCraftBillingManager(
 
                 NativePurchaseResult.Cancelled -> {
                     PayCraftLogger.onFlow(tag, "$storeLabel purchase cancelled by user")
-                    reportStoreAttempt(provider, productId, appUserId, "abandoned")
+                    reportStoreAttempt(provider, productId, appUserId, "abandoned", attemptId, plan.sku)
+                    PayCraft.onAttemptEnded(ResumeNudgeTrigger.CheckoutAbandon)
                     // Return to the pre-purchase resting state rather than an error.
                     _billingState.value = if (_isPremium.value) {
                         BillingState.Premium(_subscriptionStatus.value)
@@ -519,7 +538,14 @@ class PayCraftBillingManager(
 
                 is NativePurchaseResult.Failed -> {
                     PayCraftLogger.onError(tag, "$storeLabel purchase failed: ${result.message}")
-                    reportStoreAttempt(provider, productId, appUserId, "payment_failed", result.code)
+                    val failure = PayCraftFailure(
+                        stage = PayCraftFailureStage.Provider,
+                        errorClass = classifyStoreCode(result.code),
+                        code = result.code ?: "store_error",
+                        rawMessage = result.message,
+                    )
+                    reportStoreAttempt(provider, productId, appUserId, "payment_failed", attemptId, plan.sku, failure)
+                    PayCraft.onAttemptEnded(ResumeNudgeTrigger.PaymentFail)
                     _billingState.value = BillingState.Error(result.message)
                 }
             }
@@ -528,23 +554,60 @@ class PayCraftBillingManager(
 
     /**
      * The store sheet ended without a purchase. Fire-and-forget: the report only feeds the merchant's
-     * customer list, so it must never delay, fail or alter the buyer's flow.
+     * customer list and the attempt timeline, so it must never delay, fail or alter the buyer's flow.
+     *
+     * Two records, one attempt id: `record_store_attempt` (the customer list — neither store tells any server
+     * about a purchase that never happened) and a paywall event (GOAL D10) so the failure reaches
+     * `paywall_events` and the attempt's timeline where alert rules and the dashboard read it — a store
+     * `connect_6` used to exist only in `checkout_attempts`. A cancel is a [PayCraftEventName.StepAbandon] at
+     * checkout, not a failure: the buyer chose it.
      */
     private fun reportStoreAttempt(
         provider: String,
         productId: String,
         appUserId: String,
         outcome: String,
-        reason: String? = null,
+        attemptId: String,
+        sku: String?,
+        failure: PayCraftFailure? = null,
     ) {
-        val attemptId = "${currentTimeMillis()}-${Random.nextLong().toULong().toString(16)}"
+        runCatching {
+            PayCraft.analytics.emit(
+                PayCraftEvent(
+                    name = if (failure == null) PayCraftEventName.StepAbandon else PayCraftEventName.PurchaseFail,
+                    step = PayCraftStep.Checkout,
+                    platform = platform().ifEmpty { "android" },
+                    sku = sku ?: productId,
+                    provider = provider,
+                    reason = failure?.code ?: "store_cancelled",
+                    atMs = currentTimeMillis(),
+                    country = runCatching { PayCraft.activeCountry }.getOrNull(),
+                    experiment = PayCraft.activeExperiment?.experiment,
+                    variant = PayCraft.activeExperiment?.variant,
+                    attemptId = attemptId,
+                    failure = failure,
+                ),
+            )
+        }.onFailure { PayCraftLogger.onError("reportStoreAttempt", "event: ${it.message}") }
         scope.launch {
             try {
-                service.recordStoreAttempt(provider, productId, appUserId, outcome, attemptId, reason)
+                service.recordStoreAttempt(provider, productId, appUserId, outcome, attemptId, failure?.code)
             } catch (e: Exception) {
                 PayCraftLogger.onError("reportStoreAttempt", e.message)
             }
         }
+    }
+
+    /** A store's result code → the failure class it groups under (`connect_6` → `store_connect`). */
+    internal fun classifyStoreCode(code: String?): String = when {
+        code == null -> "store_other"
+        code.startsWith("connect_") -> "store_connect"
+        code.startsWith("purchase_") -> "store_purchase"
+        code.startsWith("launch_") -> "store_launch"
+        code == "timeout" -> "timeout"
+        code == "product_not_found" || code == "no_offer" -> "catalog"
+        code == "no_activity" -> "sdk_state"
+        else -> "store_other"
     }
 
     /**
@@ -1091,6 +1154,7 @@ class PayCraftBillingManager(
         store.cacheSubscriptionStatus(status)
         if (!lastObservedPremium) {
             scope.launch { _subscriptionActivated.emit(SubscriptionActivated(sku = status.plan, isTrial = false)) }
+            PayCraft.onAttemptGranted()
         }
         lastObservedPremium = true
     }
@@ -1333,6 +1397,7 @@ class PayCraftBillingManager(
                         SubscriptionActivated(sku = sub?.plan, isTrial = trial != null),
                     )
                 }
+                PayCraft.onAttemptGranted()
             }
 
             lastObservedPremium = true

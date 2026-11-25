@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
 import { answer } from "@/lib/ai/engine"
+import { getMode } from "@/lib/mode"
 
 export const runtime = "edge"
 
@@ -9,7 +10,9 @@ export const runtime = "edge"
  * PayCraft AI / Growth Copilot — tenant-facing answering endpoint.
  *
  * 100% deterministic: it answers FROM the PayCraft Brain (curated knowledge + lever rules)
- * plus the tenant's live analytics views. NO external/paid AI calls.
+ * plus the tenant's live analytics views. NO external/paid AI calls. Attempt questions read the
+ * same paycraft_* MCP tools an external agent calls (lib/ai/tools-bridge.ts), as this member, in
+ * the dashboard's current test / live mode.
  *
  * POST { messages: [{ role, content }] }  (the last user message is answered)
  * → { text, proposals[] }   (proposals are confirm-gated — never auto-applied)
@@ -27,7 +30,7 @@ export async function POST(req: NextRequest) {
 
   let result
   try {
-    result = await answer(lastUser, supabase, tenant.id)
+    result = await answer(lastUser, supabase, tenant.id, { mode: getMode() })
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Could not answer right now." },

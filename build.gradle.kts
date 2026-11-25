@@ -85,7 +85,15 @@ spotless {
         target("**/*.md", "**/.gitignore", "**/*.yaml", "**/*.yml")
         // Never lint generated / vendored trees — node_modules + JS dist contain
         // markdown/yaml we don't own (and dangling symlinks that break the scan).
-        targetExclude("**/build/**", "**/.gradle/**", "**/node_modules/**", "**/dist/**")
+        // test-results / playwright-report: git-ignored Playwright output (error-context.md is generated per failure).
+        targetExclude(
+            "**/build/**",
+            "**/.gradle/**",
+            "**/node_modules/**",
+            "**/dist/**",
+            "**/test-results/**",
+            "**/playwright-report/**",
+        )
         trimTrailingWhitespace()
         indentWithSpaces(4)
         endWithNewline()

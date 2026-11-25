@@ -10,6 +10,7 @@ import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.network.ActiveDevice
 import com.mobilebytelabs.paycraft.network.PremiumCheckResult
 import com.mobilebytelabs.paycraft.network.RegisterDeviceResult
+import com.mobilebytelabs.paycraft.notify.NudgeConfig
 import com.mobilebytelabs.paycraft.winback.AppStorePromotionalOffer
 import com.mobilebytelabs.paycraft.winback.ExitSurveyConfig
 import com.mobilebytelabs.paycraft.winback.WinbackOffer
@@ -26,6 +27,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /**
@@ -275,12 +277,116 @@ object PayCraftContract {
                             e.reason?.let { put("reason", it) }
                             e.experiment?.let { put("experiment", it) }
                             e.variant?.let { put("variant", it) }
+                            e.attemptId?.let { put("attempt_id", it) }
+                            // The server refuses a failure with no attempt to file it under, so one is only sent
+                            // with its attempt id — every SDK emitter that builds a failure also has one.
+                            val failure = e.failure
+                            if (failure != null && e.attemptId != null) {
+                                put(
+                                    "failure",
+                                    buildJsonObject {
+                                        put("stage", failure.stage.wire)
+                                        put("error_class", failure.errorClass)
+                                        put("error_code", failure.code)
+                                        if (failure.message.isNotEmpty()) put("error_message", failure.message)
+                                    },
+                                )
+                            }
                             put("at", e.atMs)
                         }
                     },
                 ),
             )
         }
+
+    // ── Purchase attempts (paycraft-attempt-observability D4 / D5) ──────────────────────────────────────────
+
+    /**
+     * `checkout-initiate` body — the per-customer checkout lane, from the app ([com.mobilebytelabs.paycraft.network.
+     * CheckoutInitiateClient]) and the browser (`PayCraftWeb`) alike. [attemptId] opens the server's attempt record,
+     * so the PSP's later webhook (Stripe `client_reference_id`, Razorpay `notes`) lands on the same timeline.
+     */
+    // No default arguments: each would add a `$default` dispatcher to the web bundle (D16).
+    fun checkoutInitiateBody(
+        sku: String,
+        email: String,
+        attemptId: String?,
+        name: String?,
+        phone: String?,
+        currency: String?,
+        provider: String?,
+        returnUrl: String?,
+        offerId: String?,
+        deviceRef: String?,
+    ): JsonObject = buildJsonObject {
+        put("sku", sku)
+        put(
+            "customer",
+            buildJsonObject {
+                put("email", email)
+                name?.let { put("name", it) }
+                phone?.let { put("phone", it) }
+            },
+        )
+        currency?.let { put("currency", it) }
+        provider?.let { put("provider", it) }
+        returnUrl?.let { put("return_url", it) }
+        offerId?.let { put("offerId", it) }
+        deviceRef?.let { put("deviceRef", it) }
+        attemptId?.let { put("attempt_id", it) }
+    }
+
+    /** `register-play-purchase` body. [attemptId] maps the purchase token to the attempt on the server. */
+    fun registerPlayPurchaseBody(
+        purchaseToken: String,
+        productId: String,
+        appUserId: String,
+        packageName: String,
+        apiKey: String?,
+        attemptId: String?,
+    ): JsonObject = buildJsonObject {
+        put("purchase_token", purchaseToken)
+        put("product_id", productId)
+        put("app_user_id", appUserId)
+        put("package_name", packageName)
+        apiKey?.let { put("api_key", it) }
+        attemptId?.let { put("attempt_id", it) }
+    }
+
+    /**
+     * `register-appstore` body. The App Store has no spare receipt field (`appAccountToken` is already the user), so
+     * [attemptId] travels here and the server maps `original_transaction_id → attempt` (GOAL D5).
+     */
+    fun registerAppStoreBody(
+        signedTransaction: String,
+        appUserId: String,
+        productId: String,
+        apiKey: String?,
+        attemptId: String?,
+    ): JsonObject = buildJsonObject {
+        put("signed_transaction", signedTransaction)
+        put("app_user_id", appUserId)
+        put("product_id", productId)
+        apiKey?.let { put("api_key", it) }
+        attemptId?.let { put("attempt_id", it) }
+    }
+
+    /**
+     * The `nudge` section of a `/config` response (migration 210): the tenant's resume reminder. Read by hand like
+     * [decodeExitSurvey] (no generated serializer in the web bundle). No block — a server before 210 — or a malformed
+     * one is [NudgeConfig.Default]; a delay outside the server's 60 s … 7 days is clamped into it; a null or blank
+     * title / body is the SDK's default copy.
+     */
+    fun decodeNudgeConfig(raw: String): NudgeConfig = runCatching {
+        val n = configJson.parseToJsonElement(raw).jsonObject["nudge"] as? JsonObject ?: return NudgeConfig.Default
+        val seconds = (n["delay_seconds"] as? JsonPrimitive)?.longOrNull ?: NudgeConfig.DEFAULT_DELAY_SECONDS
+        NudgeConfig(
+            enabled = (n["enabled"] as? JsonPrimitive)?.booleanOrNull ?: true,
+            delayMs = seconds.coerceIn(NudgeConfig.MIN_DELAY_SECONDS, NudgeConfig.MAX_DELAY_SECONDS) * 1_000L,
+            title = n.string("title")?.takeIf { it.isNotBlank() } ?: NudgeConfig.DEFAULT_TITLE,
+            body = n.string("body")?.takeIf { it.isNotBlank() } ?: NudgeConfig.DEFAULT_BODY,
+        )
+    }.getOrDefault(NudgeConfig.Default)
 
     /** The verified email from a `verify` response, or null when the provider gave none. */
     fun parseVerifiedEmail(o: JsonObject): String? = o.string("email")?.takeIf { it.isNotBlank() }

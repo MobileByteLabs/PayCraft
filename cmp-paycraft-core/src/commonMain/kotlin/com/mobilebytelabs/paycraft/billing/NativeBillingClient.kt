@@ -154,6 +154,20 @@ interface NativeBillingClient {
     ): NativePurchaseResult
 
     /**
+     * [purchase] for a known purchase attempt (paycraft-attempt-observability D5). A store that has a receipt field
+     * free for it carries [attemptId] on the receipt — Google Play's `obfuscatedProfileId` — so its server
+     * notification names the attempt; `obfuscatedAccountId` / `appAccountToken` stay the USER. A store with no such
+     * field (StoreKit: the App Store's attempt travels in the `register-appstore` body instead) keeps this default,
+     * which ignores the id — so existing implementations of this interface are unaffected.
+     */
+    suspend fun purchase(
+        productId: String,
+        appUserId: String?,
+        productType: NativeProductType,
+        attemptId: String?,
+    ): NativePurchaseResult = purchase(productId, appUserId, productType)
+
+    /**
      * Durably record [purchase] with the store — Play `acknowledgePurchase` / `consumeAsync`,
      * StoreKit `Transaction.finish()`.
      *

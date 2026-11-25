@@ -34,6 +34,9 @@ kotlin {
             paycraftLibs.versions.android.minSdk
                 .get()
                 .toInt()
+        // JVM unit tests for androidMain-only code (PlayAttemptProfileIdTest — the Play receipt identifiers).
+        // Scoped to src/androidHostTest by the testAndroidHostTest filter at the end of this file.
+        withHostTest {}
     }
 
     iosArm64()
@@ -214,6 +217,9 @@ kotlin {
             implementation(paycraftLibs.googleid)
             // In-app browser sign-in (Chrome Custom Tab) — D2b.
             implementation(paycraftLibs.androidx.browser)
+            // Resume reminder (notify/ResumeNudgeScheduler.android.kt) — one-time unique WorkManager work posts the
+            // notification after the tenant's delay, surviving process death (paycraft-attempt-observability D12).
+            implementation(paycraftLibs.androidx.work.runtime.ktx)
         }
 
         iosMain.dependencies {
@@ -346,5 +352,16 @@ abstract class CompileStoreKitShim : DefaultTask() {
             compilerOpts = -I${dir.absolutePath}
             """.trimIndent() + "\n",
         )
+    }
+}
+
+// The Android host test task compiles commonTest too, but that suite already runs on jvm/js/ios and leans on an
+// initialised Context / Build fields the android.jar stubs don't provide. On this target run only the tests
+// written for androidMain code (src/androidHostTest).
+val androidHostOnlyTests: List<String> =
+    fileTree("src/androidHostTest/kotlin") { include("**/*Test.kt") }.files.map { it.nameWithoutExtension }.sorted()
+tasks.withType<Test>().matching { it.name == "testAndroidHostTest" }.configureEach {
+    filter {
+        androidHostOnlyTests.forEach { includeTestsMatching("*.$it") }
     }
 }

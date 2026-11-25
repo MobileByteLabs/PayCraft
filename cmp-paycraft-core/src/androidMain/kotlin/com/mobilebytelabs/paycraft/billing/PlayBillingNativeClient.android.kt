@@ -116,6 +116,13 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
         productId: String,
         appUserId: String?,
         productType: NativeProductType,
+    ): NativePurchaseResult = purchase(productId, appUserId, productType, attemptId = null)
+
+    override suspend fun purchase(
+        productId: String,
+        appUserId: String?,
+        productType: NativeProductType,
+        attemptId: String?,
     ): NativePurchaseResult {
         val connect = ensureConnected()
         if (connect.responseCode != BillingResponseCode.OK) {
@@ -178,9 +185,14 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
         val flowParams = BillingFlowParams.newBuilder()
             .setProductDetailsParamsList(listOf(detailsParams.build()))
             .apply {
-                // Bind the receipt to the app user so the server can attribute it. Play requires
-                // this to be non-identifying, so a hash — never the raw email — goes on the wire.
-                appUserId?.let { setObfuscatedAccountId(obfuscate(it)) }
+                // Bind the receipt to the app user (account id, hashed — never the raw email) and to
+                // this purchase attempt (profile id) so google-rtdn joins it to the attempt's timeline.
+                applyReceiptIdentifiers(
+                    appUserId = appUserId,
+                    attemptId = attemptId,
+                    setAccountId = this::setObfuscatedAccountId,
+                    setProfileId = this::setObfuscatedProfileId,
+                )
             }
             .build()
 
@@ -519,23 +531,6 @@ class PlayBillingNativeClient(context: Context, private val activityProvider: ()
         /** Connect attempts before giving up, with a doubling delay between each. */
         const val MAX_CONNECT_ATTEMPTS = 3
         const val CONNECT_BACKOFF_BASE_MS = 500L
-
-        /**
-         * Play requires `obfuscatedAccountId` to be non-identifying and caps it at 64 chars, so the
-         * app-user id is hashed rather than sent raw. Stable for a given id, which is all the
-         * server needs to correlate.
-         */
-        fun obfuscate(appUserId: String): String {
-            var h1 = -0x340d631b_00000000L
-            for (c in appUserId) {
-                h1 = (h1 xor c.code.toLong()) * 0x100000001b3L
-            }
-            var h2 = 0x84222325cbf29ce4uL.toLong()
-            for (c in appUserId.reversed()) {
-                h2 = (h2 xor c.code.toLong()) * 0x100000001b3L
-            }
-            return (h1.toULong().toString(16) + h2.toULong().toString(16)).take(64)
-        }
     }
 }
 

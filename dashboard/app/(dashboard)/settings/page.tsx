@@ -3,28 +3,8 @@
 import { useState } from "react"
 import { ConfigTtlCard } from "@/components/settings/config-ttl-card"
 import { AttributionCard } from "@/components/settings/attribution-card"
-import { Eye, EyeOff, AlertTriangle, Globe, Bell, Webhook, Building2 } from "lucide-react"
-
-// Toggle switch component
-function Toggle({
-  checked,
-  onChange,
-}: {
-  checked: boolean
-  onChange: (v: boolean) => void
-}) {
-  return (
-    <label className="relative inline-flex items-center cursor-pointer">
-      <input
-        type="checkbox"
-        className="sr-only peer"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <div className="w-11 h-6 bg-ink-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-ink-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600" />
-    </label>
-  )
-}
+import { AlertChannelsCard } from "@/components/settings/alert-channels-card"
+import { Eye, EyeOff, AlertTriangle, Globe, Webhook, Building2 } from "lucide-react"
 
 // Password field with visibility toggle
 function PasswordField({
@@ -66,12 +46,6 @@ export default function SettingsPage() {
   const [globalSecret, setGlobalSecret] = useState("sk_test_51MzR4VSDv8K0r")
   const [retryPolicy, setRetryPolicy] = useState("5")
   const [timeout, setTimeout] = useState("3000")
-
-  // Alerts state
-  const [emailAlerts, setEmailAlerts] = useState(true)
-  const [slackUrl, setSlackUrl] = useState("")
-  const [churnThreshold, setChurnThreshold] = useState("5")
-  const [failedWebhooksThreshold, setFailedWebhooksThreshold] = useState("2")
 
   // Region state
   const [dataResidency, setDataResidency] = useState("us-east")
@@ -211,64 +185,8 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Alerts Card */}
-        <section className="bg-white rounded-xl border border-ink-200 shadow-sm overflow-hidden">
-          <div className={sectionHeaderClass}>
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-md bg-ink-100 text-ink-600 flex items-center justify-center flex-shrink-0">
-                <Bell className="w-4 h-4" strokeWidth={2} />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-ink-900">Alerts</h3>
-                <p className="text-sm text-ink-500 mt-0.5">Notifications for system events and thresholds.</p>
-              </div>
-            </div>
-          </div>
-          <div className="p-6 space-y-6">
-            <div className="flex items-center justify-between p-4 bg-ink-50 rounded-xl border border-ink-100">
-              <div>
-                <p className="text-sm font-bold text-ink-900">Email alerts</p>
-                <p className="text-xs text-ink-500 mt-0.5">Receive summaries of system health via email.</p>
-              </div>
-              <Toggle checked={emailAlerts} onChange={setEmailAlerts} />
-            </div>
-            <div>
-              <label className={labelClass}>Slack Webhook URL</label>
-              <input
-                type="text"
-                value={slackUrl}
-                onChange={(e) => setSlackUrl(e.target.value)}
-                placeholder="https://hooks.slack.com/services/..."
-                className={inputClass}
-              />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className={labelClass}>Churn rate threshold %</label>
-                <input
-                  type="number"
-                  value={churnThreshold}
-                  onChange={(e) => setChurnThreshold(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label className={labelClass}>Failed webhooks threshold %</label>
-                <input
-                  type="number"
-                  value={failedWebhooksThreshold}
-                  onChange={(e) => setFailedWebhooksThreshold(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-            </div>
-            <div className="pt-2 flex justify-end">
-              <button className="bg-brand-600 text-white text-sm font-semibold px-6 py-2 rounded-lg hover:bg-brand-700 transition-all active:scale-95 shadow-sm">
-                Save
-              </button>
-            </div>
-          </div>
-        </section>
+        {/* Alert channels — persisted: /api/alert-channels → tenant_alert_channels + tenant_alert_prefs (migration 211). */}
+        <AlertChannelsCard />
 
         {/* Region & Privacy Card */}
         <section className="bg-white rounded-xl border border-ink-200 shadow-sm overflow-hidden">

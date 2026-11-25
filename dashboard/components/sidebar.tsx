@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { clsx } from "clsx"
 import {
   BarChart3,
+  Bell,
   CreditCard,
   History,
   Home,
@@ -26,11 +27,14 @@ import {
   Link2,
   Webhook,
 } from "lucide-react"
+import { UnreadBadge } from "@/components/alerts/unread-badge"
 
 interface NavItem {
   href: string
   label: string
   icon: React.ComponentType<any>
+  /** Renders the unread-alerts pill after the label. */
+  badge?: "unread-alerts"
 }
 
 interface NavGroup {
@@ -64,6 +68,7 @@ const groups: NavGroup[] = [
       { href: "/subscribers", label: "Subscribers", icon: Users },
       { href: "/analytics", label: "Analytics", icon: BarChart3 },
       { href: "/webhooks", label: "Webhooks", icon: Webhook },
+      { href: "/alerts", label: "Alerts", icon: Bell, badge: "unread-alerts" },
       { href: "/audit", label: "Audit log", icon: History },
     ],
   },
@@ -95,6 +100,8 @@ interface SidebarProps {
   ownerEmail: string
   appSwitcher?: React.ReactNode
   isPlatformOwner?: boolean
+  /** Unread owner alerts of the active app (read server-side in the layout). */
+  alertsUnread?: { count: number; critical: number }
 }
 
 export function Sidebar({
@@ -103,6 +110,7 @@ export function Sidebar({
   ownerEmail,
   appSwitcher,
   isPlatformOwner,
+  alertsUnread,
 }: SidebarProps) {
   const pathname = usePathname()
   const navGroups = isPlatformOwner ? [...groups, adminGroup] : groups
@@ -197,6 +205,9 @@ export function Sidebar({
                         strokeWidth={2}
                       />
                       {item.label}
+                      {item.badge === "unread-alerts" && alertsUnread && (
+                        <UnreadBadge count={alertsUnread.count} critical={alertsUnread.critical} />
+                      )}
                     </Link>
                   </li>
                 )

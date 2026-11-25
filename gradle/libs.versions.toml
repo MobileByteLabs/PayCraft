@@ -89,6 +89,9 @@ androidx-credentials = "1.6.0"
 googleid = "1.2.0"
 # In-app sign-in browser (Chrome Custom Tabs) — PLAN-paycraft-verified-identity D2b.
 androidx-browser = "1.8.0"
+# Resume reminder (cmp-paycraft-core androidMain notify/) — one-time unique work survives process death and reboot.
+# 2.11.2 = what the consumers (reels-downloader, worker-kmp) already resolve, so PayCraft never moves their version.
+androidx-work = "2.11.2"
 ktor = "3.5.2"
 koin = "4.2.2"
 kotlinxSerialization = "1.11.0"
@@ -155,6 +158,7 @@ supabase-realtime  = { module = "io.github.jan-tennert.supabase:realtime-kt",  v
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "androidx-credentials" }
 androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "androidx-credentials" }
 androidx-browser = { module = "androidx.browser:browser", version.ref = "androidx-browser" }
+androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "androidx-work" }
 googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleid" }
 
 # Ktor (required by Supabase)

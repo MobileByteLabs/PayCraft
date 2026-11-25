@@ -281,3 +281,80 @@ export async function requireLocalStack(): Promise<void> {
   }
   await res.body?.cancel();
 }
+
+// ── Service-role RPC client + injected clock (owner alerts, paycraft-attempt-observability phase 3) ─────
+
+export interface RpcResult {
+  // deno-lint-ignore no-explicit-any
+  data: any;
+  error: { message: string } | null;
+}
+
+function rpcLiteral(v: unknown): string {
+  if (v === null || v === undefined) return "NULL";
+  if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) throw new Error(`rpc literal: non-finite number ${v}`);
+    return String(v);
+  }
+  if (typeof v === "string") return sqlLit(v);
+  if (v instanceof Date) return sqlLit(v.toISOString());
+  return `${sqlLit(JSON.stringify(v))}::jsonb`;
+}
+
+/**
+ * A supabase-js-shaped `{ rpc(fn, args) }` that runs the function in Postgres AS THE SERVICE ROLE
+ * (`request.jwt.claims` set for the one transaction) — through `docker exec psql`, so the suite still never
+ * holds the service-role key. The edge-function modules that take an injected client (the owner-alert engine
+ * and its sender) run against REAL SQL this way: the same RPCs, triggers and RLS-bypassing definer functions
+ * the deployed function calls. Set-returning functions come back as row arrays, scalar functions as the value
+ * — what supabase-js returns. A database error comes back as `{ error: { message } }`, never thrown.
+ */
+export function serviceRpcClient(): { rpc(fn: string, args?: Record<string, unknown>): Promise<RpcResult> } {
+  return {
+    async rpc(fn: string, args: Record<string, unknown> = {}): Promise<RpcResult> {
+      if (!/^[a-z_][a-z0-9_]*$/.test(fn)) throw new Error(`rpc: bad function name ${fn}`);
+      const named = Object.entries(args).map(([k, v]) => {
+        if (!/^[a-z_][a-z0-9_]*$/.test(k)) throw new Error(`rpc: bad argument name ${k}`);
+        return `${k} => ${rpcLiteral(v)}`;
+      }).join(", ");
+      try {
+        // supabase-js returns a set-returning function as rows and any other function as its value.
+        const isSetOf = (await psql(
+          `SELECT proretset FROM pg_proc WHERE proname = ${sqlLit(fn)} AND pronamespace = 'public'::regnamespace LIMIT 1`,
+        )) === "t";
+        const select = isSetOf
+          ? `SELECT coalesce(jsonb_agg(to_jsonb(r)), '[]'::jsonb) FROM public.${fn}(${named}) AS r`
+          : `SELECT jsonb_build_array(to_jsonb(public.${fn}(${named})))`;
+        const out = JSON.parse(await psql(`BEGIN;
+          SET LOCAL request.jwt.claims = '{"role":"service_role"}';
+          ${select};
+          COMMIT;`));
+        return { data: isSetOf ? out : out[0], error: null };
+      } catch (e) {
+        const msg = String((e as Error).message);
+        const m = msg.match(/ERROR:\s+(.+)/);
+        return { data: null, error: { message: m ? m[1].trim() : msg } };
+      }
+    },
+  };
+}
+
+/** A fixed clock a test moves explicitly — the alert rules and the ledger take `now` as a parameter. */
+export interface TestClock {
+  now(): Date;
+  /** The clock moved by [ms]. */
+  plus(ms: number): Date;
+  iso(): string;
+}
+
+export async function withClock<T>(startIso: string, fn: (clock: TestClock) => Promise<T>): Promise<T> {
+  const start = new Date(startIso);
+  if (Number.isNaN(start.getTime())) throw new Error(`withClock: bad instant ${startIso}`);
+  const clock: TestClock = {
+    now: () => new Date(start),
+    plus: (ms) => new Date(start.getTime() + ms),
+    iso: () => start.toISOString(),
+  };
+  return await fn(clock);
+}

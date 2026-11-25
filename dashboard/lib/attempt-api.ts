@@ -1,0 +1,248 @@
+// The attempt-observability read API (paycraft-attempt-observability GOAL D13 / AC-17): one body per endpoint,
+// shared by every caller that must see the same answer.
+//
+//   GET /api/v1/attempts          listAttemptsResponse      attempts, filterable, paged
+//   GET /api/v1/attempts/{id}     attemptResponse           one attempt + its attempt_events timeline
+//   GET /api/v1/payment-health    paymentHealthResponse     failure / abandon / nudge-reach aggregates
+//   GET /api/v1/funnel            funnelResponse            the 4-stage paywall funnel by distinct buyers
+//
+// Callers: the /api/v1 routes (an API key, authenticated by withApiKey — what the `paycraft` MCP tools invoke)
+// and the dashboard AI (a signed-in member, through the same MCP tool rows — lib/ai/tools-bridge.ts). Each body
+// takes the tenant ALREADY RESOLVED by its caller's authentication plus the request URL as an API caller would
+// send it; the URL's own `tenant_id` is never read here, so no parameter can widen a caller's reach.
+//
+// The numbers come from Phase 5's libraries — lib/attempts.ts, lib/payment-health.ts, lib/funnel.ts — so the
+// API, the MCP tools, the dashboard AI and the Analytics / subscriber pages cannot disagree about a definition.
+// No body selects `user_ref`, an email or a provider id: an agent gets attempt facts, never who the buyer was.
+
+import { NextResponse } from "next/server"
+import type { SupabaseClient } from "@supabase/supabase-js"
+import { queryFailed } from "@/lib/api-security"
+import { pageFrom } from "@/lib/api-v1-helpers"
+import {
+  ATTEMPT_COLUMNS,
+  ATTEMPT_STAGES,
+  ATTEMPT_STATES,
+  type AttemptEventRow,
+  buyerRef,
+  fetchAttemptEvents,
+} from "@/lib/attempts"
+import { paymentHealth } from "@/lib/payment-health"
+import { FUNNEL_STAGES, funnel, splitBy, type FunnelEvent } from "@/lib/funnel"
+
+/** The view migration 212 adds over payment_attempts (210): every column the list returns plus `country`. */
+export const ATTEMPTS_VIEW = "payment_attempts_geo"
+export const ATTEMPT_LIST_COLUMNS = `${ATTEMPT_COLUMNS}, country`
+
+export const DEFAULT_WINDOW_DAYS = 30
+/** The tier when the tenant's plan names none — the same fallback the Analytics page uses. */
+const FALLBACK_RETENTION_DAYS = 7
+const FUNNEL_ROW_CAP = 50_000
+const DAY_MS = 86_400_000
+const ATTEMPT_ID = /^[A-Za-z0-9_.:-]{1,160}$/
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const COUNTRY = /^[A-Za-z]{2}$/
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+export type Mode = "live" | "test"
+
+export type Window = { since: string; until: string }
+export type ClampedWindow = Window & { capped: boolean; retention_days: number }
+
+const invalid = (error: string, detail: string) => NextResponse.json({ error, detail }, { status: 400 })
+
+/** `mode` (default live) or a 400. A test-mode row answers a different question convincingly, so it is explicit. */
+export function parseMode(q: URLSearchParams): Mode | NextResponse {
+  const raw = q.get("mode")
+  if (raw === null || raw === "") return "live"
+  return raw === "live" || raw === "test" ? raw : invalid("invalid_mode", "mode must be live or test")
+}
+
+/**
+ * `since` (inclusive) / `until` (exclusive), each a date or an ISO-8601 instant. Absent `until` = now; absent
+ * `since` = `defaultDays` before `until`. A bound that does not parse, or an empty window, is a 400 — never
+ * silently replaced, because a caller who asked about "yesterday" must not be answered about the last month.
+ */
+export function parseWindow(q: URLSearchParams, now: Date, defaultDays = DEFAULT_WINDOW_DAYS): Window | NextResponse {
+  const at = (name: "since" | "until"): Date | null | NextResponse => {
+    const raw = q.get(name)
+    if (raw === null || raw === "") return null
+    const ms = Date.parse(raw)
+    return Number.isNaN(ms) ? invalid("invalid_window", `${name} must be an ISO-8601 date or instant`) : new Date(ms)
+  }
+  const until = at("until")
+  if (until instanceof NextResponse) return until
+  const since = at("since")
+  if (since instanceof NextResponse) return since
+  const u = until ?? now
+  const s = since ?? new Date(u.getTime() - defaultDays * DAY_MS)
+  if (s.getTime() >= u.getTime()) return invalid("invalid_window", "since must be before until")
+  return { since: s.toISOString(), until: u.toISOString() }
+}
+
+/** The plan's analytics retention, in days — the cap every aggregate window honours (D15). */
+export async function retentionDays(sb: SupabaseClient, tenantId: string): Promise<number> {
+  const { data: tenant, error } = await sb.from("tenants").select("plan").eq("id", tenantId).maybeSingle()
+  if (error) throw new Error(`tenants: ${error.message}`)
+  const { data: tier, error: tierError } = await sb
+    .from("tier_definitions")
+    .select("analytics_retention_days")
+    .eq("tier_name", (tenant as { plan?: string | null } | null)?.plan ?? "free")
+    .maybeSingle()
+  if (tierError) throw new Error(`tier_definitions: ${tierError.message}`)
+  return (tier as { analytics_retention_days?: number | null } | null)?.analytics_retention_days ?? FALLBACK_RETENTION_DAYS
+}
+
+/** Pull `since` forward to the retention horizon; the response says so rather than pretending the data exists. */
+export function clampWindow(w: Window, retention: number, now: Date): ClampedWindow {
+  const horizon = new Date(now.getTime() - retention * DAY_MS).toISOString()
+  const capped = w.since < horizon
+  const since = capped ? horizon : w.since
+  return { since, until: w.until > since ? w.until : since, capped, retention_days: retention }
+}
+
+function oneOf<T extends string>(q: URLSearchParams, name: string, allowed: readonly T[]): T | null | NextResponse {
+  const raw = q.get(name)
+  if (raw === null || raw === "") return null
+  return (allowed as readonly string[]).includes(raw)
+    ? (raw as T)
+    : invalid(`invalid_${name}`, `${name} must be one of ${allowed.join(", ")}`)
+}
+
+const isResponse = (v: unknown): v is NextResponse => v instanceof NextResponse
+
+/** GET /api/v1/attempts — newest first, `{ data, pagination }` like every v1 list. */
+export async function listAttemptsResponse(sb: SupabaseClient, tenantId: string, url: URL): Promise<Response> {
+  const q = url.searchParams
+  const state = oneOf(q, "state", ATTEMPT_STATES)
+  if (isResponse(state)) return state
+  const stage = oneOf(q, "stage", ATTEMPT_STAGES)
+  if (isResponse(stage)) return stage
+  const correlation = oneOf(q, "correlation", ["exact", "inferred"] as const)
+  if (isResponse(correlation)) return correlation
+  const mode = q.get("mode") ? parseMode(q) : null
+  if (isResponse(mode)) return mode
+  const country = q.get("country")
+  if (country && !COUNTRY.test(country)) return invalid("invalid_country", "country must be an ISO 3166-1 alpha-2 code")
+  const user = q.get("user")
+  if (user && !EMAIL.test(user)) return invalid("invalid_user", "user must be the buyer's email address")
+  const bound = (name: "since" | "until"): string | null | NextResponse => {
+    const raw = q.get(name)
+    if (!raw) return null
+    const ms = Date.parse(raw)
+    return Number.isNaN(ms) ? invalid("invalid_window", `${name} must be an ISO-8601 date or instant`) : new Date(ms).toISOString()
+  }
+  const since = bound("since")
+  if (isResponse(since)) return since
+  const until = bound("until")
+  if (isResponse(until)) return until
+  const { limit, offset } = pageFrom(q)
+
+  let query = sb
+    .from(ATTEMPTS_VIEW)
+    .select(ATTEMPT_LIST_COLUMNS, { count: "exact" })
+    // The tenant comes from the caller's authentication, never from the URL.
+    .eq("tenant_id", tenantId)
+  if (state) query = query.eq("state", state)
+  if (stage) query = query.eq("stage", stage)
+  if (correlation) query = query.eq("correlation", correlation)
+  if (mode) query = query.eq("mode", mode)
+  const provider = q.get("provider")
+  if (provider) query = query.eq("provider", provider)
+  if (country) query = query.eq("country", country.toUpperCase())
+  // The buyer is matched on the same hash the attempts carry; the email itself never reaches the query.
+  if (user) query = query.eq("user_ref", await buyerRef(tenantId, user))
+  if (since) query = query.gte("started_at", since)
+  if (until) query = query.lt("started_at", until)
+
+  const { data, error, count } = await query.order("started_at", { ascending: false }).range(offset, offset + limit - 1)
+  if (error) return queryFailed("v1/attempts", error)
+  const rows = data ?? []
+  return NextResponse.json({
+    data: rows,
+    pagination: {
+      limit,
+      offset,
+      total: count ?? null,
+      has_more: count !== null ? offset + rows.length < count : rows.length === limit,
+    },
+  })
+}
+
+/** GET /api/v1/attempts/{id} — by the row id (UUID) or by the attempt_id the SDK / stitcher assigned. */
+export async function attemptResponse(sb: SupabaseClient, tenantId: string, id: string | undefined): Promise<Response> {
+  if (!id || !ATTEMPT_ID.test(id)) {
+    return invalid("invalid_attempt_id", "id must be the attempt's id or attempt_id (1-160 of A-Z a-z 0-9 _ . : -)")
+  }
+  const find = (column: "id" | "attempt_id") =>
+    sb.from(ATTEMPTS_VIEW).select(ATTEMPT_LIST_COLUMNS).eq("tenant_id", tenantId).eq(column, id).maybeSingle()
+
+  let found = UUID.test(id) ? await find("id") : { data: null, error: null }
+  if (found.error) return queryFailed("v1/attempts/[id]", found.error)
+  if (!found.data) found = await find("attempt_id")
+  if (found.error) return queryFailed("v1/attempts/[id]", found.error)
+  if (!found.data) return NextResponse.json({ error: "not_found" }, { status: 404 })
+
+  const row = found.data as unknown as Record<string, unknown> & { attempt_id: string | null }
+  let events: AttemptEventRow[] = []
+  if (row.attempt_id) {
+    try {
+      events = (await fetchAttemptEvents(sb, tenantId, [row.attempt_id])).get(row.attempt_id) ?? []
+    } catch (e) {
+      return queryFailed("v1/attempts/[id]:events", { message: (e as Error).message })
+    }
+  }
+  return NextResponse.json({ ...row, events })
+}
+
+/** GET /api/v1/payment-health — over `since`..`until` (default the last 30 days), capped at the plan's retention. */
+export async function paymentHealthResponse(
+  sb: SupabaseClient,
+  tenantId: string,
+  url: URL,
+  now: Date = new Date(),
+): Promise<Response> {
+  const mode = parseMode(url.searchParams)
+  if (isResponse(mode)) return mode
+  const asked = parseWindow(url.searchParams, now)
+  if (isResponse(asked)) return asked
+  try {
+    const window = clampWindow(asked, await retentionDays(sb, tenantId), now)
+    const health = await paymentHealth(sb, tenantId, mode, window.since, window.until)
+    return NextResponse.json({ mode, window, ...health })
+  } catch (e) {
+    return queryFailed("v1/payment-health", { message: (e as Error).message })
+  }
+}
+
+/** GET /api/v1/funnel — distinct buyers per stage, plus the per-country and per-provider splits. */
+export async function funnelResponse(sb: SupabaseClient, tenantId: string, url: URL, now: Date = new Date()): Promise<Response> {
+  const mode = parseMode(url.searchParams)
+  if (isResponse(mode)) return mode
+  const asked = parseWindow(url.searchParams, now)
+  if (isResponse(asked)) return asked
+  try {
+    const window = clampWindow(asked, await retentionDays(sb, tenantId), now)
+    const { data, error } = await sb
+      .from("paywall_events")
+      .select("name,user_ref,device_ref,country,provider")
+      .eq("tenant_id", tenantId)
+      .eq("mode", mode)
+      .gte("occurred_at", window.since)
+      .lt("occurred_at", window.until)
+      .in("name", [...FUNNEL_STAGES])
+      .limit(FUNNEL_ROW_CAP)
+    if (error) return queryFailed("v1/funnel", error)
+    const events = (data ?? []) as FunnelEvent[]
+    // Buyers are counted inside this process; the hashes that identify them never leave it.
+    return NextResponse.json({
+      mode,
+      window,
+      stages: funnel(events),
+      by_country: splitBy(events, "country"),
+      by_provider: splitBy(events, "provider"),
+    })
+  } catch (e) {
+    return queryFailed("v1/funnel", { message: (e as Error).message })
+  }
+}

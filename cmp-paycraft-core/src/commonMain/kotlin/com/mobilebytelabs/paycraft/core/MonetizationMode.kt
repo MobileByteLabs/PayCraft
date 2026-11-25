@@ -207,6 +207,9 @@ sealed interface PaywallPresentation {
 
             /** TrialManaged mode auto-fired on app-open with an active-or-just-ended trial. */
             TrialManagedAppOpen,
+
+            /** The buyer tapped PayCraft's resume reminder (paycraft-attempt-observability D12). */
+            ResumeNudge,
         }
     }
 }

@@ -20,7 +20,11 @@ export interface Page {
 }
 
 export function parsePage(req: Request): Page {
-  const q = new URL(req.url).searchParams
+  return pageFrom(new URL(req.url).searchParams)
+}
+
+/** The page a query string asks for, clamped — parsePage for callers that already hold the parameters. */
+export function pageFrom(q: URLSearchParams): Page {
   const rawLimit = Number(q.get("limit") ?? DEFAULT_LIMIT)
   const rawOffset = Number(q.get("offset") ?? 0)
   return {

@@ -11,6 +11,7 @@ import { getMode } from "@/lib/mode"
 import { createClient } from "@/lib/supabase-server"
 import { RealtimeRefresh } from "@/components/realtime-refresh"
 import { NeedsAttention } from "@/components/sync/needs-attention"
+import { unreadCounts } from "@/lib/alerts"
 
 export default async function DashboardLayout({
   children,
@@ -35,6 +36,11 @@ export default async function DashboardLayout({
   } catch {
     isPlatformOwner = false
   }
+  // The Alerts nav pill. A failed count hides the pill rather than breaking every page.
+  const alertsUnread = await unreadCounts(supabase, tenant.id).then(
+    (c) => ({ count: c.total, critical: c.critical }),
+    () => ({ count: 0, critical: 0 }),
+  )
 
   return (
     <div className="min-h-screen bg-ink-50 antialiased">
@@ -50,6 +56,7 @@ export default async function DashboardLayout({
         tenantPlan={tenant.plan}
         ownerEmail={tenant.owner_email}
         isPlatformOwner={isPlatformOwner}
+        alertsUnread={alertsUnread}
         appSwitcher={
           <AppSwitcher apps={apps} activeId={activeTenantId} />
         }

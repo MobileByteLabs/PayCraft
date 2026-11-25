@@ -405,7 +405,9 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
       .eq("is_active", true),
     supabase
       .from("tenants")
-      .select("plan,entitlements,config_cache_ttl_seconds,auth_google_web_client_id,auth_apple_services_id")
+      .select(
+        "plan,entitlements,config_cache_ttl_seconds,auth_google_web_client_id,auth_apple_services_id,nudge_enabled,nudge_delay_seconds,nudge_title,nudge_body",
+      )
       .eq("id", tenantId)
       .single(),
     // D8/AC-11 — offerings→packages→skus. 088 created these tables and nothing ever surfaced them,
@@ -785,6 +787,16 @@ async function handleConfigRequestInner(req: Request): Promise<Response> {
     // The SDK assigns the device a variant by hashing its device ref, and shows that variant's offering. A failed
     // read degrades to null — no experiment is a normal paywall, never a broken one.
     experiment: await loadExperiment(supabase, tenantId),
+    // The resume nudge (migration 210, paycraft-attempt-observability D10 / D12): ONE local notification after
+    // a checkout abandon / payment failure, scheduled by the SDK only when notification permission is already
+    // granted. Delay and copy are the tenant's — null title/body = the SDK's default strings. The `??`
+    // fallbacks mirror the column DEFAULTs, for a row read before 210 reached this database.
+    nudge: {
+      enabled: tenantRes.data?.nudge_enabled ?? true,
+      delay_seconds: tenantRes.data?.nudge_delay_seconds ?? 7200,
+      title: tenantRes.data?.nudge_title ?? null,
+      body: tenantRes.data?.nudge_body ?? null,
+    },
   }
 
   return new Response(JSON.stringify(body), {

@@ -3,6 +3,8 @@ package com.mobilebytelabs.paycraft.web
 import com.mobilebytelabs.paycraft.PayCraftBackend
 import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
 import com.mobilebytelabs.paycraft.analytics.PayCraftEventName
+import com.mobilebytelabs.paycraft.analytics.PayCraftFailure
+import com.mobilebytelabs.paycraft.analytics.PayCraftFailureStage
 import com.mobilebytelabs.paycraft.analytics.PayCraftStep
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.contract.PayCraftContract
@@ -22,13 +24,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
 import kotlin.js.Promise
 
 /**
@@ -181,8 +180,11 @@ class PayCraftWeb(
             return
         }
         if (res.status !in 200..299) return
-        val cc = runCatching { json.parseToJsonElement(res.body).jsonObject["country"]?.jsonPrimitive?.contentOrNull }
-            .getOrNull()
+        val cc = try {
+            json.parseToJsonElement(res.body).jsonObject["country"]?.jsonPrimitive?.contentOrNull
+        } catch (_: Throwable) {
+            null
+        }
         val normalized = cc?.trim()?.uppercase()
         if (normalized != null &&
             Regex("^[A-Z]{2}$").matches(normalized) &&
@@ -209,23 +211,51 @@ class PayCraftWeb(
         eventListener = listener
     }
 
+    /**
+     * The purchase attempt in progress (paycraft-attempt-observability D4): opened when the checkout page shows a
+     * plan's payment methods (or a checkout starts), carried by every following event and by the checkout-initiate
+     * request, so the server joins them — and the provider's webhook — into one timeline. A checkout page sells one
+     * plan; another plan gets a new attempt, and the server's attempt-stitch closes the one left behind on its
+     * abandon timeout (the app SDK's AttemptTracker is not shipped to every web page, D16).
+     */
+    private var attemptId: String? = null
+    private var attemptSku: String? = null
+
+    /** Mints a browser attempt id (a v4 UUID). Replaced in tests. */
+    internal var newAttemptId: () -> String = randomAttemptId
+
+    /** The open attempt for [sku], opening one when there is none or it is for another plan. */
+    internal fun attemptFor(sku: String): String {
+        val open = attemptId
+        if (open != null && attemptSku == sku) return open
+        attemptSku = sku
+        return newAttemptId().also { attemptId = it }
+    }
+
+    // Every argument explicit (no defaults) and try/catch rather than runCatching: each default adds a dispatcher and
+    // each runCatching a Result box to the bundle every page loads (D16).
     internal fun track(
         name: PayCraftEventName,
         step: PayCraftStep,
-        sku: String? = null,
-        currency: String? = null,
-        provider: String? = null,
-        reason: String? = null,
+        sku: String?,
+        currency: String?,
+        provider: String?,
+        reason: String?,
+        failure: PayCraftFailure?,
     ) {
         val e = PayCraftEvent(
             name, step, platform = "web", sku = sku, currency = currency, country = visitorCountry,
             provider = provider, reason = reason, atMs = now().toLong(),
+            attemptId = attemptId, failure = failure,
         )
-        eventListener?.let { l ->
-            runCatching {
+        val listener = eventListener
+        if (listener != null) {
+            try {
                 val o: dynamic = js("({})")
                 e.params().forEach { (k, v) -> o[k] = v }
-                l(name.wire, o)
+                listener(name.wire, o)
+            } catch (_: Throwable) {
+                // A throwing site listener never breaks tracking.
             }
         }
         if (pendingEvents.size >= MAX_PENDING_EVENTS) pendingEvents.removeAt(0)
@@ -252,13 +282,21 @@ class PayCraftWeb(
     internal suspend fun flushEvents() {
         flushScheduled = false
         val body = drainEvents() ?: return
-        runCatching { call("POST", PayCraftContract.eventsUrl(base, apiKey), body) }
+        try {
+            call("POST", PayCraftContract.eventsUrl(base, apiKey), body)
+        } catch (_: Throwable) {
+            // Best-effort: an offline page loses its funnel events, never its checkout.
+        }
     }
 
     /** The page is being left: what is queued goes out by beacon, which survives the navigation. */
     internal fun flushEventsOnLeave() {
         val body = drainEvents() ?: return
-        runCatching { beacon(PayCraftContract.eventsUrl(base, apiKey), body) }
+        try {
+            beacon(PayCraftContract.eventsUrl(base, apiKey), body)
+        } catch (_: Throwable) {
+            // The page is going away; nothing is left to report to.
+        }
     }
 
     /**
@@ -347,9 +385,19 @@ class PayCraftWeb(
             "leave" -> null
             else -> return
         }
+        if (kind == "view" || kind == "select" || kind == "start") attemptFor(sku)
         if (name != null) {
             val step = if (kind == "start" || kind == "fail") PayCraftStep.Checkout else PayCraftStep.Provider
-            track(name, step, sku, currency, provider, reason)
+            // `fail` carries the PayCraftWebError code the checkout call threw: a request that never got an answer or
+            // got an HTTP error is `sdk / transport / transport_<status>` on the attempt (D6), anything else the page's.
+            val failure = if (kind != "fail") {
+                null
+            } else if (reason == "network_error" || reason?.startsWith("http_") == true) {
+                PayCraftFailure(PayCraftFailureStage.Sdk, "transport", "transport_" + reason.removePrefix("http_"))
+            } else {
+                PayCraftFailure(PayCraftFailureStage.Sdk, "checkout_page", reason ?: "unknown")
+            }
+            track(name, step, sku, currency, provider, failure?.code ?: reason, failure)
         }
         if (kind == "abandon" || kind == "leave") flushEventsOnLeave()
     }
@@ -387,7 +435,7 @@ class PayCraftWeb(
     /** The survey is on screen, asked at [step] (`provider`, `checkout`, `paywall`…): starts its cap, records the view. */
     fun surveyShown(step: String, sku: String?) {
         store.saveSurveyShownAt(now())
-        track(PayCraftEventName.SurveyView, stepOf(step), sku, sku?.let { productCurrency(it) })
+        track(PayCraftEventName.SurveyView, stepOf(step), sku, sku?.let { productCurrency(it) }, null, null, null)
     }
 
     /**
@@ -396,7 +444,7 @@ class PayCraftWeb(
      * Never rejects — a failed call is `none`, and the buyer simply leaves.
      */
     fun answerSurvey(reasonCode: String, step: String, sku: String?, freeText: String?): Promise<WebWinback> {
-        track(PayCraftEventName.SurveyAnswer, PayCraftStep.Survey, sku, reason = reasonCode)
+        track(PayCraftEventName.SurveyAnswer, PayCraftStep.Survey, sku, null, null, reasonCode, null)
         val deviceRef = myDeviceId()
         val body = PayCraftContract.winbackBody(
             apiKey,
@@ -423,7 +471,7 @@ class PayCraftWeb(
                 val web =
                     WebOffer(o.id, o.percentOff, o.duration, o.durationInMonths, o.expiresAtIso, o.stripe, o.razorpay)
                 offered = web
-                track(PayCraftEventName.OfferView, PayCraftStep.Offer, sku, reason = "${o.percentOff}pct")
+                track(PayCraftEventName.OfferView, PayCraftStep.Offer, sku, null, null, "${o.percentOff}pct", null)
                 WebWinback("offer", null, web)
             }
             WinbackResult.None -> WebWinback("none", null, null)
@@ -437,7 +485,7 @@ class PayCraftWeb(
     fun claimOffer(offerId: String): Boolean {
         val o = offered?.takeIf { it.id == offerId } ?: return false
         claimedOffer = o
-        track(PayCraftEventName.OfferAccept, PayCraftStep.Offer)
+        track(PayCraftEventName.OfferAccept, PayCraftStep.Offer, null, null, null, null, null)
         return true
     }
 
@@ -600,6 +648,7 @@ class PayCraftWeb(
     /** Where the buyer pays: [PayCraftContract.routeWebCheckout] — the app's web-lane routing. */
     internal suspend fun resolveCheckoutUrl(sku: String, currency: String?, provider: String? = null): String {
         val email = store.email() ?: throw PayCraftWebError("sign_in_required", "Sign in before checkout")
+        attemptFor(sku)
         val cfg = cachedConfig ?: run {
             loadConfig()
             cachedConfig!!
@@ -655,17 +704,19 @@ class PayCraftWeb(
         email: String,
         offer: WebOffer?,
     ): String {
-        val body = buildJsonObject {
-            put("sku", sku)
-            currency?.let { put("currency", it) }
-            put("provider", provider)
-            currentPage()?.let { put("return_url", it) }
-            putJsonObject("customer") { put("email", email) }
-            if (offer != null) {
-                put("offerId", offer.id)
-                store.deviceId()?.let { put("deviceRef", it) }
-            }
-        }.toString()
+        // The one checkout-initiate body the app SDK sends too; the attempt id opens the server's attempt record.
+        val body = PayCraftContract.checkoutInitiateBody(
+            sku = sku,
+            email = email,
+            attemptId = attemptFor(sku),
+            name = null,
+            phone = null,
+            currency = currency,
+            provider = provider,
+            returnUrl = currentPage(),
+            offerId = offer?.id,
+            deviceRef = if (offer != null) store.deviceId() else null,
+        ).toString()
         val res = try {
             call("POST", PayCraftContract.checkoutInitiateUrl(base, apiKey), body)
         } catch (e: PayCraftWebError) {
@@ -695,7 +746,11 @@ class PayCraftWeb(
             throw PayCraftWebError("network_error", e.message ?: "Network request failed")
         }
         if (!res.ok) {
-            val err = runCatching { json.decodeFromString(ErrorWire.serializer(), res.body) }.getOrNull()
+            val err = try {
+                json.decodeFromString(ErrorWire.serializer(), res.body)
+            } catch (_: Throwable) {
+                null
+            }
             throw PayCraftWebError("http_${res.status}", err?.error ?: err?.message ?: "Request failed (${res.status})")
         }
         return res
@@ -724,6 +779,12 @@ private fun WebCheckoutFailure.code(): String = when (this) {
 /** A step's wire name (`provider`, `checkout`…) → the catalog step; anything else is the checkout. */
 private fun stepOf(wire: String): PayCraftStep =
     PayCraftStep.entries.firstOrNull { it.wire == wire } ?: PayCraftStep.Checkout
+
+/** A browser attempt id: a v4 UUID (hex + `-`, 36 characters — inside the server's attempt-id pattern). */
+private val randomAttemptId: () -> String = js(
+    "(function () { return (globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : " +
+        "('w' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2)); })",
+)
 
 private fun randomDeviceId(): String = js(
     "(globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : " +

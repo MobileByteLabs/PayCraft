@@ -1,5 +1,9 @@
 // PayCraft Brain — deterministic answering engine. No AI/LLM, no external calls.
 // match (keyword/synonym scoring) → read tenant metrics → evaluate lever rules → render.
+//
+// Attempt-level questions ("why did Stripe fail in India yesterday", "explain attempt …") are matched first and
+// answered from the SAME paycraft_* MCP tools an external agent calls, through ./tools-bridge — so the chat and
+// Claude-over-MCP read one handler and cannot disagree. Those answers are facts only; they propose nothing.
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { loadMetrics, type Metrics } from "./metrics"
@@ -11,6 +15,8 @@ import {
   type Lever,
   type Proposal,
 } from "./brain"
+import { answerAttemptIntent, matchAttemptIntent, type Mode } from "./attempt-intents"
+import { sessionToolReader, type ToolReader } from "./tools-bridge"
 
 export interface Answer {
   text: string
@@ -94,16 +100,34 @@ const FALLBACK = `I'm your PayCraft Growth Copilot. I answer from PayCraft's kno
 • "How do I reduce churn?"
 • "Is my pricing right?"
 • "Automate everything — what should I fix?"
+• "Why did Stripe payments fail in India yesterday?"
+• "Explain attempt <attempt id>"
 Or ask what something means: MRR, ARPU, churn, dunning, regional pricing, annual plans, coupons, webhooks, the paywall.`
+
+export interface AnswerOptions {
+  /** The dashboard's test / live toggle; attempt facts are read in this mode. Default live. */
+  mode?: Mode
+  /** The clock "yesterday" / "last 7 days" are measured on. Default now. */
+  now?: Date
+  /** How attempt facts are read. Default: the paycraft_* MCP tools, in-process, as this member. */
+  tools?: ToolReader
+}
 
 /** Answer a single question deterministically. */
 export async function answer(
   question: string,
   supabase: SupabaseClient,
   tenantId: string,
+  opts: AnswerOptions = {},
 ): Promise<Answer> {
   const qNorm = norm(question)
   if (!qNorm) return { text: FALLBACK, proposals: [] }
+
+  const attempt = matchAttemptIntent(question, opts.now ?? new Date())
+  if (attempt) {
+    const tools = opts.tools ?? sessionToolReader(supabase, tenantId)
+    return { text: await answerAttemptIntent(attempt, tools, opts.mode ?? "live"), proposals: [] }
+  }
   const qTokens = qNorm.split(" ")
 
   // Score diagnose intents and concepts; highest wins.

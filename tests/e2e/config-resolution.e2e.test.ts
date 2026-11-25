@@ -360,3 +360,54 @@ Deno.test("config: serves the tenant's exit survey as edited, with the offer's d
     await dropTenant(t.id);
   }
 });
+
+/**
+ * THE RESUME NUDGE IS SERVER CONFIG (paycraft-attempt-observability D10 / D12, migration 210).
+ *
+ * A buyer who abandons or fails checkout gets ONE local "resume" notification; its delay and copy are the
+ * tenant's, served here as `nudge` — never an SDK constant, which is what lets the device test shorten the
+ * delay to 60 s through the tenant row alone. Keys match the SDK's decoder: enabled / delay_seconds /
+ * title / body (null copy = the SDK's default strings).
+ */
+Deno.test("config: serves the resume nudge — 2 h default, the operator's delay and copy verbatim", async () => {
+  const t = await seedTenant({
+    name: "nudge_config",
+    products: [{ sku: "plus-monthly", stripeProductId: "prod_E2E", stripePriceIds: { USD: "price_E2E" } }],
+    providers: [{ provider: "stripe", liveKeyId: "pk_live_e2e", livePaymentLinks: { "plus-monthly": { USD: "https://buy.stripe.com/e2e" } } }],
+  });
+  try {
+    const a = await getConfig(t.apiKeyLive, { platform: "android", locale: "en-US" });
+    assertEquals(a.status, 200, JSON.stringify(a.body));
+    assertEquals(a.body.nudge, { enabled: true, delay_seconds: 7200, title: null, body: null });
+
+    await psql(`UPDATE tenants SET nudge_delay_seconds = 60, nudge_title = 'Still thinking it over?',
+                nudge_body = 'Your plan is one tap away.' WHERE id = ${sqlLit(t.id)}::uuid`);
+    const b = await getConfig(t.apiKeyLive, { platform: "android", locale: "en-US" });
+    assertEquals(b.body.nudge, {
+      enabled: true, delay_seconds: 60, title: "Still thinking it over?", body: "Your plan is one tap away.",
+    });
+
+    await psql(`UPDATE tenants SET nudge_enabled = false WHERE id = ${sqlLit(t.id)}::uuid`);
+    const c = await getConfig(t.apiKeyLive, { platform: "android", locale: "en-US" });
+    assertEquals(c.body.nudge.enabled, false, "an operator can turn the nudge off");
+  } finally {
+    await dropTenant(t.id);
+  }
+});
+
+Deno.test("config: a nudge delay outside 60 s .. 7 days, or copy past its cap, cannot be stored", async () => {
+  const t = await seedTenant({ name: "nudge_bounds" });
+  try {
+    for (const set of ["nudge_delay_seconds = 30", "nudge_delay_seconds = 604801", `nudge_title = '${"x".repeat(81)}'`, `nudge_body = '${"y".repeat(241)}'`]) {
+      let rejected = false;
+      try {
+        await psql(`UPDATE tenants SET ${set} WHERE id = ${sqlLit(t.id)}::uuid`);
+      } catch (e) {
+        rejected = /tenants_nudge_(delay_bounds|copy_length)/.test(String(e));
+      }
+      assert(rejected, `${set.slice(0, 40)} must be refused by CHECK`);
+    }
+  } finally {
+    await dropTenant(t.id);
+  }
+});

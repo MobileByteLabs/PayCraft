@@ -95,6 +95,10 @@ never initiates messages, so it declines to hold open a stream that would only e
 | `paycraft_store_readiness` | Are the store products sellable (asked of the stores) | `products:read` |
 | `paycraft_webhooks` | Inbound webhook deliveries | `webhooks:read` |
 | `paycraft_audit` | Audit trail | `audit:read` |
+| `paycraft_attempts` | Purchase attempts, filterable by state / stage / provider / country / mode / window / correlation / buyer email | `subscribers:read` |
+| `paycraft_attempt` | One attempt and its `attempt_events` timeline (each failure's stage, class, code, message) | `subscribers:read` |
+| `paycraft_payment_health` | Failure rate by stage / provider / country, abandon rate by step, paid-not-granted, resume-reminder reach | `subscribers:read` |
+| `paycraft_funnel` | 4-stage paywall funnel by distinct buyers, with country / provider splits | `subscribers:read` |
 
 The two write tools are annotated `destructiveHint: true`, so clients that surface the distinction
 will flag them before running.
@@ -158,6 +162,37 @@ agent cannot bulk-write to live providers on a set nobody looked at.
 **Everything is attributable.** Actions land in the audit trail as `actor_type=api_key` with the key
 id — readable through `paycraft_audit`.
 
+## Payment attempts — asking why money did not arrive
+
+Every purchase is a **payment attempt** with one id from the SDK through checkout, the provider, the webhook
+and the entitlement grant. Four read tools expose them; each calls the `/v1` route of the same name
+(`/v1/attempts`, `/v1/attempts/{id}`, `/v1/payment-health`, `/v1/funnel`), so an agent sees exactly what the
+dashboard's Analytics ▸ Payment health and subscriber timeline show — and the dashboard AI answers attempt
+questions through these same tool rows.
+
+- No tool returns who a buyer is: attempts carry no email, hash or provider id. `paycraft_attempts user=<email>`
+  finds one buyer's attempts by matching the hash server-side; the email is never stored or echoed.
+- `paycraft_payment_health` and `paycraft_funnel` take `since` / `until` (default the last 30 days) and `mode`
+  (`live` by default). A window older than the plan's analytics retention is shortened, and the response's
+  `window.capped` says so rather than returning a quiet zero.
+- An attempt is `exact` when the SDK named it and `inferred` when PayCraft stitched an older writer's row to it
+  by the provider's own key; `correlation` filters on that.
+
+**Worked example — "why did yesterday's revenue drop?"**
+
+1. `paycraft_payment_health since=2026-11-24 until=2026-11-25` → `byProvider` shows stripe failing 41% (it was
+   ~6% the week before, `since=2026-11-17 until=2026-11-24`), `byStage` puts nearly all of it at `provider`,
+   and `byCountry` concentrates it in `IN`.
+2. `paycraft_attempts state=failed provider=stripe country=IN since=2026-11-24 until=2026-11-25` →
+   `pagination.total` is the count; the rows carry `error_class` / `error_code` (e.g. `authentication_required`).
+3. `paycraft_attempt id=<one of them>` → the timeline shows checkout opened, the provider replied, and the
+   failure's code and message — enough to tell a 3-D Secure / RBI mandate problem from a card decline.
+4. `paycraft_funnel` over the same two windows confirms whether fewer buyers even reached checkout (a paywall or
+   traffic problem) or the same number reached it and failed there (a payment problem).
+
+Every week PayCraft also writes one AI summary of these aggregates (never per-buyer rows) to the owner's alert
+channels — see the `attempt-insights` function and `tenants.ai_insights_budget_usd`.
+
 ## What an assistant cannot do
 
 **Google Play and App Store test mode cannot be enabled by any tool.** Neither store exposes an API
@@ -175,6 +210,7 @@ Once connected, these exercise the tools naturally:
 - *"Show me what a product sync would change before we run it."*
 - *"Did any webhooks fail in the last day, and why?"*
 - *"Is a.customer@example.com's subscription active, and does their entitlement agree?"*
+- *"Why did Stripe payments from India fail yesterday?"* (`paycraft_payment_health` → `paycraft_attempts`)
 
 The last one is worth understanding: a subscription is what a provider bills, an entitlement is what
 PayCraft grants. They disagree during grace periods and refunds, and the entitlement is the one your

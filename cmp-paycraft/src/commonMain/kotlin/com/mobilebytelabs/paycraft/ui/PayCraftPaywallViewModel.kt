@@ -4,6 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.PayCraftPlatform
+import com.mobilebytelabs.paycraft.analytics.PayCraftFailure
+import com.mobilebytelabs.paycraft.analytics.PayCraftFailureStage
+import com.mobilebytelabs.paycraft.billing.CheckoutLane
+import com.mobilebytelabs.paycraft.billing.resolveCheckoutLane
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
 import com.mobilebytelabs.paycraft.debug.platformLog
@@ -112,7 +116,30 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
         loadConfig()
         observeBillingState()
         fetchTrialEligibility()
+        observeCheckoutReturns()
     }
+
+    /**
+     * The buyer back from a hosted checkout page (the app returned to the foreground after one was opened):
+     * `paycraft_checkout_return`, `success` when premium already arrived, else `unconfirmed`.
+     */
+    private fun observeCheckoutReturns() {
+        viewModelScope.launch {
+            PayCraft.appForegrounds.collect {
+                if (funnel.awaitingCheckoutReturn) {
+                    funnel.checkoutReturned(if (_state.value.isPremium) "success" else "unconfirmed")
+                }
+            }
+        }
+    }
+
+    /** A checkout that never reached the provider, as the structured failure the attempt timeline groups. */
+    private fun checkoutFailure(code: String, message: String?) = PayCraftFailure(
+        PayCraftFailureStage.Sdk,
+        errorClass = "paywall_vm",
+        code = code,
+        rawMessage = message.orEmpty(),
+    )
 
     /**
      * Server-derived trial eligibility (TR-006). Result flows into
@@ -377,6 +404,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
                 when (val r = PayCraft.serverCheckoutUrl(plan, checkoutEmail)) {
                     is CheckoutInitiateClient.Result.Ok -> {
                         PayCraftPlatform.openUrl(r.url)
+                        funnel.hostedCheckoutLaunched()
                         _state.update { it.copy(isSubmitting = false) }
                         _events.send(PayCraftPaywallEvent.CheckoutLaunched(url = r.url))
                     }
@@ -385,12 +413,12 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
                     // of being flattened into "please try again".
                     is CheckoutInitiateClient.Result.Rejected -> {
                         logE(TAG) { "checkout rejected for ${plan.sku}: ${r.message}" }
-                        funnel.purchaseFailed("checkout_rejected")
+                        funnel.purchaseFailed(checkoutFailure("checkout_rejected", r.message))
                         _state.update { it.copy(isSubmitting = false, errorMessage = r.message) }
                     }
                     is CheckoutInitiateClient.Result.Error -> {
                         logE(TAG) { "checkout error for ${plan.sku}: ${r.message}" }
-                        funnel.purchaseFailed("checkout_error")
+                        funnel.purchaseFailed(checkoutFailure("checkout_error", r.message))
                         _state.update {
                             it.copy(
                                 isSubmitting = false,
@@ -409,7 +437,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
             PayCraft.checkout(plan, email.ifBlank { null })
         } catch (t: Throwable) {
             logE(TAG) { "checkout failed for plan ${plan.id}: ${t.message}" }
-            funnel.purchaseFailed("checkout_error")
+            funnel.purchaseFailed(checkoutFailure("checkout_error", t.message))
             _state.update {
                 it.copy(
                     isSubmitting = false,
@@ -418,6 +446,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
             }
             return
         }
+        if (resolveCheckoutLane(PlatformInfo.platform, plan) is CheckoutLane.Web) funnel.hostedCheckoutLaunched()
         // Browser launches asynchronously — reset isSubmitting immediately so the
         // Continue button is interactive again when the user returns to the app.
         // (PayCraftPlatform.openUrl returns immediately after firing the Intent;
@@ -448,7 +477,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
             PayCraft.checkoutWithProvider(action.plan, action.provider, email.ifBlank { null })
         } catch (t: Throwable) {
             logE(TAG) { "checkoutWithProvider failed for ${action.plan.id}: ${t.message}" }
-            funnel.purchaseFailed("checkout_error")
+            funnel.purchaseFailed(checkoutFailure("checkout_error", t.message))
             _state.update {
                 it.copy(
                     isSubmitting = false,
@@ -457,6 +486,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
             }
             return
         }
+        if (resolveCheckoutLane(PlatformInfo.platform, action.plan) is CheckoutLane.Web) funnel.hostedCheckoutLaunched()
         // Reset isSubmitting after the browser intent fires — see [onSubscribe].
         _state.update { it.copy(isSubmitting = false) }
         viewModelScope.launch {

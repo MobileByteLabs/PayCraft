@@ -18,6 +18,8 @@ import { ChurnChart } from "@/components/charts/churn-chart"
 import { WebhookDonut } from "@/components/charts/webhook-donut"
 import { FunnelChart, RangeMenu, SplitTable } from "@/components/analytics/funnel-chart"
 import { funnel, rangeDays, splitBy, type FunnelEvent } from "@/lib/funnel"
+import { paymentHealth } from "@/lib/payment-health"
+import { PaymentHealthPanel } from "@/components/analytics/payment-health"
 import { getMode } from "@/lib/mode"
 import { ga4ErrorMessage, ga4Overview, paycraftGa4Account } from "@/lib/ga4"
 import { Ga4ConnectCard, type Ga4ConnectionRow } from "@/components/analytics/ga4-connect-card"
@@ -56,6 +58,12 @@ export default async function AnalyticsPage({ searchParams }: { searchParams?: {
     .in("name", ["paycraft_paywall_view", "paycraft_plan_select", "paycraft_checkout_start", "paycraft_purchase_success"])
     .limit(50_000)
   const funnelEvents = (eventsRes.data ?? []) as FunnelEvent[]
+  // Payment health (migration 210): same window and retention cap as the funnel, from payment_attempts +
+  // attempt_events. A read failure is shown in place of the panel, never as an empty (healthy-looking) one.
+  const healthRes = await paymentHealth(supabase, tenant.id, getMode(), since).then(
+    (data) => ({ data, error: null as string | null }),
+    (e: Error) => ({ data: null, error: e.message }),
+  )
   const funnelRows = funnel(funnelEvents)
   const byCountry = splitBy(funnelEvents, "country")
   const byProvider = splitBy(funnelEvents, "provider")
@@ -237,6 +245,15 @@ export default async function AnalyticsPage({ searchParams }: { searchParams?: {
           <SplitTable title="By payment provider" rows={byProvider} label={providerName} base="checkouts" />
         </div>
       </section>
+
+      {/* Payment health — where attempts fail and where buyers give up, beside the funnel (same window). */}
+      {healthRes.data ? (
+        <PaymentHealthPanel data={healthRes.data} days={range.days} mode={getMode()} countryLabel={regionName} providerLabel={providerName} />
+      ) : (
+        <section aria-label="Payment health" role="alert" className="rounded-xl border border-danger-100 bg-danger-50 p-6 text-sm text-danger-700">
+          Payment health could not be loaded: {healthRes.error}
+        </section>
+      )}
 
       {/* Google Analytics — the app's own GA4 property next to PayCraft's exact funnel. */}
       <section className="rounded-xl border border-ink-200 bg-white p-6 shadow-sm" aria-labelledby="ga4-h">
