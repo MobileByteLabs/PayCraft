@@ -52,6 +52,8 @@ export const OPENAPI_SPEC = {
       "| `onboarding:write` | `PATCH /v1/onboarding/state` |",
       "| `products:write` (also) | `PUT /v1/allowance` (monthly free allowance of a metered action) |",
       "| `allowance:refund` | `POST /v1/allowance/refund` (server-to-server: give back a use your server failed to deliver) |",
+      "| `subscribers:read` (also) | `GET /v1/analytics` (joined GA4 + provider-truth report), `GET /v1/analytics/findings` |",
+      "| `analytics:write` | `POST`/`PATCH /v1/analytics/findings` (record / resolve AI-audit findings) |",
       "| `webhooks:read` | `GET /v1/webhooks` |",
       "| `audit:read` | `GET /v1/audit` |",
       "",

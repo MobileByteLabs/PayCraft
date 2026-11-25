@@ -269,6 +269,70 @@ export async function analyticsResponse(
   }
 }
 
+const FINDING_KIND = /^[a-z0-9_]{1,64}$/
+const FINDING_SEVERITY = ["critical", "high", "medium", "low"] as const
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+export const FINDING_COLUMNS =
+  "id,kind,severity,title,summary,proposed_fix,status,fixed_note,fixed_at,source,window_start,window_end,evidence,created_at,updated_at"
+
+/**
+ * GET /api/v1/analytics/findings — the AI audit's findings (migration 216): open ones by default, `status=all` for
+ * every one. What /idea-paycraft-analytics drains: each open finding is fixed at its source and resolved.
+ */
+export async function findingsListResponse(sb: SupabaseClient, tenantId: string, url: URL): Promise<Response> {
+  const status = url.searchParams.get("status") ?? "open"
+  if (!["open", "fixed", "dismissed", "all"].includes(status)) return invalid("invalid_status", "status must be open, fixed, dismissed or all")
+  let q = sb.from("analytics_findings").select(FINDING_COLUMNS).eq("tenant_id", tenantId)
+  if (status !== "all") q = q.eq("status", status)
+  const { data, error } = await q.order("created_at", { ascending: false }).limit(200)
+  if (error) return queryFailed("v1/analytics/findings", error)
+  return NextResponse.json({ data: data ?? [] })
+}
+
+/** POST /api/v1/analytics/findings — record (or refresh) a finding /idea-paycraft-analytics found. analytics:write. */
+export async function findingsUpsertResponse(sb: SupabaseClient, tenantId: string, req: Request): Promise<Response> {
+  const b = (await req.json().catch(() => null)) as Record<string, unknown> | null
+  if (!b) return invalid("invalid_body", "a JSON finding is required")
+  const kind = String(b.kind ?? "")
+  const severity = String(b.severity ?? "")
+  const title = String(b.title ?? "").trim()
+  if (!FINDING_KIND.test(kind)) return invalid("invalid_kind", "kind is snake_case, 1-64 characters")
+  if (!(FINDING_SEVERITY as readonly string[]).includes(severity)) return invalid("invalid_severity", "severity is critical, high, medium or low")
+  if (!title || title.length > 200) return invalid("invalid_title", "title is 1-200 characters")
+  if (!DATE_ONLY.test(String(b.window_start)) || !DATE_ONLY.test(String(b.window_end))) {
+    return invalid("invalid_window", "window_start and window_end are YYYY-MM-DD dates")
+  }
+  const { data, error } = await sb.rpc("analytics_finding_upsert", {
+    p_tenant_id: tenantId,
+    p_kind: kind,
+    p_severity: severity,
+    p_title: title,
+    p_summary: typeof b.summary === "string" ? b.summary.slice(0, 2000) : null,
+    p_evidence: b.evidence && typeof b.evidence === "object" ? b.evidence : {},
+    p_proposed_fix: typeof b.proposed_fix === "string" ? b.proposed_fix.slice(0, 2000) : null,
+    p_source: "command",
+    p_window_start: b.window_start,
+    p_window_end: b.window_end,
+  })
+  if (error) return queryFailed("v1/analytics/findings:upsert", error)
+  return NextResponse.json({ id: data }, { status: 201 })
+}
+
+/** PATCH /api/v1/analytics/findings — resolve one of the caller's findings with what was done. analytics:write. */
+export async function findingsResolveResponse(sb: SupabaseClient, tenantId: string, req: Request): Promise<Response> {
+  const b = (await req.json().catch(() => null)) as Record<string, unknown> | null
+  const id = String(b?.id ?? "")
+  const status = String(b?.status ?? "")
+  const note = String(b?.note ?? "").trim()
+  if (!UUID.test(id)) return invalid("invalid_id", "id is the finding's UUID")
+  if (!["fixed", "dismissed", "open"].includes(status)) return invalid("invalid_status", "status is fixed, dismissed or open")
+  if (status !== "open" && !note) return invalid("note_required", "say what was done (or why it was dismissed)")
+  const { data, error } = await sb.rpc("analytics_finding_resolve", { p_tenant_id: tenantId, p_id: id, p_status: status, p_note: note })
+  if (error) return queryFailed("v1/analytics/findings:resolve", error)
+  if (data !== true) return NextResponse.json({ error: "not_found" }, { status: 404 })
+  return NextResponse.json({ id, status })
+}
+
 /** GET /api/v1/funnel — distinct buyers per stage, plus the per-country and per-provider splits. */
 export async function funnelResponse(sb: SupabaseClient, tenantId: string, url: URL, now: Date = new Date()): Promise<Response> {
   const mode = parseMode(url.searchParams)

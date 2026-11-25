@@ -36,7 +36,7 @@ BEGIN
   RAISE NOTICE 'ok 1 - one finding per tenant/kind/window, refreshed on re-run';
 
   -- 2. resolving records what was done, and a resolved finding is not reopened by the next upsert
-  PERFORM public.analytics_finding_resolve(f1, 'fixed', 'SDK reports not_from_play (source 063638c)');
+  PERFORM public.analytics_finding_resolve(t, f1, 'fixed', 'SDK reports not_from_play (source 063638c)');
   PERFORM public.analytics_finding_upsert(t, 'product_not_found', 'critical', 'again', 's', '{}'::jsonb, 'x', 'digest',
           date '2026-11-18', date '2026-11-25');
   SELECT status, fixed_note, fixed_at IS NOT NULL AS stamped INTO r FROM analytics_findings WHERE id = f1;
@@ -45,7 +45,7 @@ BEGIN
 
   -- 3. only open | fixed | dismissed, and severity is a closed set
   BEGIN
-    PERFORM public.analytics_finding_resolve(f1, 'done', 'x');
+    PERFORM public.analytics_finding_resolve(t, f1, 'done', 'x');
     RAISE EXCEPTION 'FAIL 3: accepted status done';
   EXCEPTION WHEN check_violation OR invalid_parameter_value THEN
     RAISE NOTICE 'ok 3 - status is a closed set';
@@ -70,6 +70,20 @@ BEGIN
   END;
   RAISE NOTICE 'ok 4 - RLS: members see their tenant only, anon refused';
 
-  RAISE NOTICE 'PASS 216_analytics_findings: 4/4 groups ok';
+  -- 5. a finding resolves only under its own tenant — another tenant's id changes nothing and says so
+  IF public.analytics_finding_resolve(other, f1, 'dismissed', 'not mine') THEN
+    RAISE EXCEPTION 'FAIL 5: another tenant resolved the finding';
+  END IF;
+  SELECT status INTO r FROM analytics_findings WHERE id = f1;
+  IF r.status <> 'fixed' THEN RAISE EXCEPTION 'FAIL 5b: status changed to %', r.status; END IF;
+  RAISE NOTICE 'ok 5 - resolve is tenant-scoped';
+
+  -- 6. API keys may carry the analytics:write scope the command uses to record and resolve findings
+  SELECT count(*) INTO n FROM pg_constraint WHERE conname = 'tenant_api_keys_scopes_known'
+     AND pg_get_constraintdef(oid) LIKE '%analytics:write%';
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 6: analytics:write not an allowed scope'; END IF;
+  RAISE NOTICE 'ok 6 - analytics:write is a known API scope';
+
+  RAISE NOTICE 'PASS 216_analytics_findings: 6/6 groups ok';
 END $$;
 ROLLBACK;

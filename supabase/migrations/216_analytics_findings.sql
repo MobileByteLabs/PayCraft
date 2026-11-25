@@ -64,9 +64,10 @@ BEGIN
   RETURN v_id;
 END; $$;
 
--- Mark a finding fixed or dismissed, with what was done.
-CREATE OR REPLACE FUNCTION public.analytics_finding_resolve(p_id UUID, p_status TEXT, p_note TEXT)
-RETURNS VOID
+-- Mark one of [p_tenant_id]'s findings fixed or dismissed, with what was done. Returns whether it was that tenant's
+-- finding: the service role runs this for an API caller, and a caller's key must never reach another app's findings.
+CREATE OR REPLACE FUNCTION public.analytics_finding_resolve(p_tenant_id UUID, p_id UUID, p_status TEXT, p_note TEXT)
+RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF p_status NOT IN ('fixed', 'dismissed', 'open') THEN
@@ -75,10 +76,31 @@ BEGIN
   UPDATE analytics_findings
      SET status = p_status, fixed_note = left(p_note, 2000),
          fixed_at = CASE WHEN p_status = 'open' THEN NULL ELSE now() END, updated_at = now()
-   WHERE id = p_id;
+   WHERE id = p_id AND tenant_id = p_tenant_id;
+  RETURN FOUND;
 END; $$;
 
 REVOKE ALL ON FUNCTION public.analytics_finding_upsert(UUID, TEXT, TEXT, TEXT, TEXT, JSONB, TEXT, TEXT, DATE, DATE) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.analytics_finding_resolve(UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.analytics_finding_resolve(UUID, UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.analytics_finding_upsert(UUID, TEXT, TEXT, TEXT, TEXT, JSONB, TEXT, TEXT, DATE, DATE) TO service_role;
-GRANT EXECUTE ON FUNCTION public.analytics_finding_resolve(UUID, TEXT, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION public.analytics_finding_resolve(UUID, UUID, TEXT, TEXT) TO service_role;
+
+-- The API scope /idea-paycraft-analytics uses to record and resolve findings (/v1/analytics/findings). Reading them
+-- stays under subscribers:read with the rest of /v1/analytics.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tenant_api_keys_scopes_known') THEN
+    ALTER TABLE tenant_api_keys DROP CONSTRAINT tenant_api_keys_scopes_known;
+  END IF;
+  ALTER TABLE tenant_api_keys ADD CONSTRAINT tenant_api_keys_scopes_known CHECK (
+    scopes <@ ARRAY[
+      'providers:read', 'products:read', 'products:sync', 'readiness:read', 'tenant:read',
+      'subscribers:read', 'coupons:read', 'paywall:read', 'audit:read', 'webhooks:read',
+      'products:write', 'paywall:write', 'providers:write', 'apps:read', 'apps:provision',
+      'keys:rotate', 'apps:write', 'onboarding:read', 'onboarding:write',
+      'allowance:refund',
+      -- added by 216
+      'analytics:write'
+    ]::TEXT[]
+  );
+END $$;

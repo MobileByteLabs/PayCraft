@@ -90,6 +90,9 @@ export type ApiScope =
   // Added by migration 189 — server-to-server refund of a metered use (/v1/allowance/refund). Its own
   // scope so only the consumer's backend, never a client, can claim "our delivery failed".
   | "allowance:refund"
+  // Added by migration 216 — record and resolve AI-audit findings (/v1/analytics/findings), what
+  // /idea-paycraft-analytics does after fixing what it found.
+  | "analytics:write"
 
 export interface ApiKeyContext {
   /**

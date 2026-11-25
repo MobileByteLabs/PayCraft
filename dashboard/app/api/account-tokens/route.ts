@@ -51,6 +51,7 @@ const SCOPES = [
   "onboarding:read",
   "onboarding:write",
   "allowance:refund",
+  "analytics:write",
 ] as const
 
 /** Expiry is mandatory for this tier; the DB enforces it too (tenant_api_keys_account_expires). */
