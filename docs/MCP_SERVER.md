@@ -190,6 +190,16 @@ questions through these same tool rows.
 4. `paycraft_funnel` over the same two windows confirms whether fewer buyers even reached checkout (a paywall or
    traffic problem) or the same number reached it and failed there (a payment problem).
 
+**`paycraft_analytics` — the whole picture in one call** (`/v1/analytics`). The Analytics page's joined report
+under one filter set: the paywall funnel with Paid = purchases the providers confirmed, Payment health (failures by
+stage and by reason — `product_not_found`, `not_from_play`, `query_<n>`, …), and the app's GA4 behaviour for its own
+data streams (funnel by users, by platform / country / app version, users per day). Takes `days` (7 / 30 / 90),
+`platform`, `country` (ISO alpha-2), `app_version`, `plan` (SKU) and `mode`. GA4 is reported with a status —
+`ok`, `not_connected` (connect it on Analytics), `not_set_up` (this server has no GA4 reader) or `error` with the
+fix — never as zeros; filters a source cannot apply are listed (`ga4.notApplied`, `paycraft.paid_not_applied`,
+`healthNotApplied`) so a number is never read as filtered when it is not. `/idea-paycraft-analytics` audits a
+project from this report.
+
 Every week PayCraft also writes one AI summary of these aggregates (never per-buyer rows) to the owner's alert
 channels — see the `attempt-insights` function and `tenants.ai_insights_budget_usd`.
 

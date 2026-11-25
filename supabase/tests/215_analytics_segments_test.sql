@@ -10,6 +10,7 @@ DO $$
 DECLARE
   t UUID;
   n INT;
+  r JSONB;
 BEGIN
   INSERT INTO tenants (name, owner_email, api_key_test, api_key_live, webhook_secret_test, webhook_secret_live)
   VALUES ('t215', 'o215@x.test', 'pk_test_215a', 'pk_live_215a', 'whsec_t215a', 'whsec_l215a') RETURNING id INTO t;
@@ -37,6 +38,49 @@ BEGIN
   END IF;
   RAISE NOTICE 'ok 3 - not_from_play is store_install in the SQL mirror';
 
-  RAISE NOTICE 'PASS 215_analytics_segments: 3/3 groups ok';
+  -- Funnel seed (live): b1 android IN v2 picks pro-monthly + checks out; b2 ios US v1 views; b3 android ID v2 views.
+  -- Provider truth: a Play purchase (IN, pro_monthly ↔ sku pro-monthly) and a Stripe one (US, pro-annual).
+  INSERT INTO tenant_products (tenant_id, sku, type, play_product_id, display_name)
+  VALUES (t, 'pro-monthly', 'subscription', 'pro_monthly', 'Pro Monthly');
+  INSERT INTO paywall_events (tenant_id, user_ref, device_ref, name, step, platform, sku, country, app_version, mode, occurred_at)
+  VALUES
+    (t, 'b1', 'd1', 'paycraft_paywall_view',   'paywall',  'android', NULL,          'IN', '2.0', 'live', now() - interval '1 day'),
+    (t, 'b1', 'd1', 'paycraft_plan_select',    'plan',     'android', 'pro-monthly', 'IN', '2.0', 'live', now() - interval '1 day'),
+    (t, 'b1', 'd1', 'paycraft_checkout_start', 'checkout', 'android', 'pro-monthly', 'IN', '2.0', 'live', now() - interval '1 day'),
+    (t, 'b2', 'd2', 'paycraft_paywall_view',   'paywall',  'ios',     NULL,          'US', '1.0', 'live', now() - interval '1 day'),
+    (t, 'b3', 'd3', 'paycraft_paywall_view',   'paywall',  'android', NULL,          'ID', '2.0', 'live', now() - interval '1 day');
+  INSERT INTO entitlement_records (app_user_id, tenant_id, provider, product_id, stable_txn_id, canonical_state,
+                                   is_sandbox, latest_event_ts, country, created_at)
+  VALUES ('u1', t, 'google_play', 'pro_monthly', 'gp-215-1', 'active', false, now(), 'IN', now() - interval '1 day');
+  INSERT INTO subscriptions (email, provider, plan, status, mode, tenant_id, country, created_at)
+  VALUES ('s215@x.test', 'stripe', 'pro-annual', 'active', 'live', t, 'US', now() - interval '1 day');
+  PERFORM set_config('request.jwt.claims', '{"role":"service_role"}', true);
+
+  -- 4. unfiltered: 3 viewers, 1 checkout, 2 paid
+  r := public.paywall_funnel_stats(t, 'live', now() - interval '7 days');
+  IF (r->>'viewed')::int <> 3 OR (r->>'checkout')::int <> 1 OR (r->>'paid')::int <> 2 THEN RAISE EXCEPTION 'FAIL 4: %', r; END IF;
+  RAISE NOTICE 'ok 4 - unfiltered 3 / 1 / 2';
+
+  -- 5. platform android: viewers b1 + b3, paid = the Play purchase only
+  r := public.paywall_funnel_stats(t, 'live', now() - interval '7 days', p_platform => 'android');
+  IF (r->>'viewed')::int <> 2 OR (r->>'paid')::int <> 1 THEN RAISE EXCEPTION 'FAIL 5: %', r; END IF;
+  RAISE NOTICE 'ok 5 - platform filter narrows events and provider truth (Play = android)';
+
+  -- 6. country US: viewer b2, paid = the Stripe purchase
+  r := public.paywall_funnel_stats(t, 'live', now() - interval '7 days', p_country => 'us');
+  IF (r->>'viewed')::int <> 1 OR (r->>'paid')::int <> 1 THEN RAISE EXCEPTION 'FAIL 6: %', r; END IF;
+  RAISE NOTICE 'ok 6 - country filter (case-insensitive) on events and provider country';
+
+  -- 7. plan pro-monthly: picked/checkout by b1, paid = the Play purchase via the catalogue product id
+  r := public.paywall_funnel_stats(t, 'live', now() - interval '7 days', p_plan => 'pro-monthly');
+  IF (r->>'checkout')::int <> 1 OR (r->>'paid')::int <> 1 THEN RAISE EXCEPTION 'FAIL 7: %', r; END IF;
+  RAISE NOTICE 'ok 7 - plan filter maps store product ids back to the SKU';
+
+  -- 8. app version: events narrow; provider truth carries no version and says so instead of pretending
+  r := public.paywall_funnel_stats(t, 'live', now() - interval '7 days', p_app_version => '2.0');
+  IF (r->>'viewed')::int <> 2 OR NOT (r->'paid_not_applied') ? 'app_version' THEN RAISE EXCEPTION 'FAIL 8: %', r; END IF;
+  RAISE NOTICE 'ok 8 - app version narrows events; paid_not_applied names it';
+
+  RAISE NOTICE 'PASS 215_analytics_segments: 8/8 groups ok';
 END $$;
 ROLLBACK;

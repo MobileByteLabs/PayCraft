@@ -29,6 +29,8 @@ import {
 } from "@/lib/attempts"
 import { paymentHealth } from "@/lib/payment-health"
 import { fetchFunnelStats, funnelFromStats, splitsFromStats } from "@/lib/funnel"
+import { joinedAnalytics } from "@/lib/analytics-joined"
+import type { Ga4Account } from "@/lib/ga4"
 
 /** The view migration 212 adds over payment_attempts (210): every column the list returns plus `country`. */
 export const ATTEMPTS_VIEW = "payment_attempts_geo"
@@ -211,6 +213,59 @@ export async function paymentHealthResponse(
     return NextResponse.json({ mode, window, ...health })
   } catch (e) {
     return queryFailed("v1/payment-health", { message: (e as Error).message })
+  }
+}
+
+const ANALYTICS_DAYS = [7, 30, 90] as const
+const PLATFORMS = ["android", "ios", "web", "desktop", "macos"] as const
+const APP_VERSION = /^[0-9A-Za-z._+-]{1,32}$/
+const PLAN_SKU = /^[a-z0-9][a-z0-9._-]{0,99}$/
+
+/**
+ * GET /api/v1/analytics — the joined Analytics report (paycraft-ga4-analytics-audit): PayCraft's provider-truth
+ * funnel, Payment health and the tenant's GA4 segments under ONE filter set — the shape the dashboard, the MCP and
+ * /idea-paycraft-analytics read. `days` 7 / 30 / 90 (default 30, capped at the plan's retention); filters `platform`,
+ * `country` (ISO alpha-2), `app_version`, `plan` (a SKU). No buyer identifier is ever in the body.
+ */
+export async function analyticsResponse(
+  sb: SupabaseClient,
+  tenantId: string,
+  url: URL,
+  deps: { account: Ga4Account | null; segments?: Parameters<typeof joinedAnalytics>[4]["segments"] },
+): Promise<Response> {
+  const q = url.searchParams
+  const mode = parseMode(q)
+  if (isResponse(mode)) return mode
+  const daysRaw = q.get("days")
+  const days = daysRaw ? Number(daysRaw) : 30
+  if (!(ANALYTICS_DAYS as readonly number[]).includes(days)) return invalid("invalid_days", "days must be 7, 30 or 90")
+  const platform = q.get("platform")?.toLowerCase() || undefined
+  if (platform && !(PLATFORMS as readonly string[]).includes(platform)) {
+    return invalid("invalid_platform", `platform must be one of ${PLATFORMS.join(", ")}`)
+  }
+  const country = q.get("country") || undefined
+  if (country && !COUNTRY.test(country)) return invalid("invalid_country", "country must be an ISO 3166-1 alpha-2 code")
+  const appVersion = q.get("app_version") || undefined
+  if (appVersion && !APP_VERSION.test(appVersion)) return invalid("invalid_app_version", "app_version is the app's version string")
+  const plan = q.get("plan") || undefined
+  if (plan && !PLAN_SKU.test(plan)) return invalid("invalid_plan", "plan must be a catalogue SKU")
+  try {
+    const retention = await retentionDays(sb, tenantId)
+    const effective = Math.min(days, retention)
+    const report = await joinedAnalytics(
+      sb,
+      tenantId,
+      mode,
+      { days: effective, platform, country: country?.toUpperCase(), appVersion, plan },
+      deps,
+    )
+    return NextResponse.json({
+      mode,
+      ...report,
+      window: { ...report.window, capped: effective < days, retention_days: retention },
+    })
+  } catch (e) {
+    return queryFailed("v1/analytics", { message: (e as Error).message })
   }
 }
 

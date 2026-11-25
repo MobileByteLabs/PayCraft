@@ -58,6 +58,29 @@ export const NUDGE_SKIPPED = "paycraft_nudge_skipped"
 export const NUDGE_NO_PERMISSION = "skipped_no_permission"
 
 const ROW_CAP = 50_000
+
+type Page<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+
+/**
+ * Every row a query matches, read page by page. The API returns at most `max_rows` (1 000 on Supabase) whatever a
+ * `.limit` asks for, so one read silently dropped the rest; [page] builds the query for rows `from..to` over a stable
+ * order, and the next page starts after however many rows actually came back — correct for any server cap.
+ */
+export async function readAll<T>(page: (from: number, to: number) => Page<T>, cap = ROW_CAP, size = 1000): Promise<T[]> {
+  const out: T[] = []
+  while (out.length < cap) {
+    const { data, error } = await page(out.length, out.length + size - 1)
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+    out.push(...data)
+  }
+  return out.slice(0, cap)
+}
+
+/** The platform a provider sells on — the same mapping paywall_funnel_stats uses (migration 215). */
+export function providerPlatform(provider: string | null): string {
+  return provider === "google_play" ? "android" : provider === "app_store" ? "ios" : "web"
+}
 const OPEN_STATES = new Set<AttemptState>(["started", "checkout_opened", "provider_result"])
 
 const rate = (n: number, d: number) => (d === 0 ? 0 : n / d)
@@ -92,45 +115,56 @@ export async function paymentHealth(
   sinceIso: string,
   /** Exclusive upper bound on when the attempt started; absent = up to now (the Analytics page). */
   untilIso?: string,
+  /** The Analytics filters Payment health can apply. Plan and app version are not on an attempt reliably. */
+  filters: { platform?: string; country?: string } = {},
 ): Promise<PaymentHealth> {
   const stepEvents = Object.values(STEP_EVENTS).flat()
   // Attempts are windowed on started_at; their events and country rows may land after `until` (a checkout that
   // started at 23:59 and returned at 00:01 is still that day's attempt), so only the attempts take the upper
   // bound — the events are keyed back to the attempts in the window below.
-  let attemptsQuery = sb.from("payment_attempts")
-    .select("attempt_id, state, stage, error_code, provider")
-    .eq("tenant_id", tenantId)
-    .eq("mode", mode)
-    .gte("started_at", sinceIso)
-  if (untilIso) attemptsQuery = attemptsQuery.lt("started_at", untilIso)
-  const [attemptsRes, eventsRes, countryRes] = await Promise.all([
-    attemptsQuery.limit(ROW_CAP),
-    sb.from("attempt_events")
-      .select("attempt_id, event, error_code")
-      .eq("tenant_id", tenantId)
-      .gte("occurred_at", sinceIso)
-      .in("event", [...stepEvents, NUDGE_SCHEDULED, NUDGE_SKIPPED])
-      .limit(ROW_CAP * 4),
-    sb.from("paywall_events")
-      .select("attempt_id, country")
+  const attemptsPage = (from: number, to: number) => {
+    let q = sb.from("payment_attempts")
+      .select("attempt_id, state, stage, error_code, provider")
       .eq("tenant_id", tenantId)
       .eq("mode", mode)
-      .gte("occurred_at", sinceIso)
-      .not("attempt_id", "is", null)
-      .limit(ROW_CAP),
+      .gte("started_at", sinceIso)
+    if (untilIso) q = q.lt("started_at", untilIso)
+    return q.order("id").range(from, to)
+  }
+  const named = <T>(table: string, p: Promise<T[]>) => p.catch((e: Error) => { throw new Error(`${table}: ${e.message}`) })
+  const [attemptRows, eventRows, countryRows] = await Promise.all([
+    named("payment_attempts", readAll<AttemptLite>(attemptsPage)),
+    named("attempt_events", readAll<{ attempt_id: string; event: string; error_code: string | null }>((from, to) =>
+      sb.from("attempt_events")
+        .select("attempt_id, event, error_code")
+        .eq("tenant_id", tenantId)
+        .gte("occurred_at", sinceIso)
+        .in("event", [...stepEvents, NUDGE_SCHEDULED, NUDGE_SKIPPED])
+        .order("id").range(from, to), ROW_CAP * 4)),
+    named("paywall_events", readAll<{ attempt_id: string; country: string | null }>((from, to) =>
+      sb.from("paywall_events")
+        .select("attempt_id, country")
+        .eq("tenant_id", tenantId)
+        .eq("mode", mode)
+        .gte("occurred_at", sinceIso)
+        .not("attempt_id", "is", null)
+        .order("id").range(from, to))),
   ])
-  if (attemptsRes.error) throw new Error(`payment_attempts: ${attemptsRes.error.message}`)
-  if (eventsRes.error) throw new Error(`attempt_events: ${eventsRes.error.message}`)
-  if (countryRes.error) throw new Error(`paywall_events: ${countryRes.error.message}`)
-
-  const rows = (attemptsRes.data ?? []) as AttemptLite[]
-  // Only this mode's attempts in the window: events carry no mode, so they are keyed back to these ids.
-  const inWindow = new Set(rows.map((r) => r.attempt_id).filter((id): id is string => !!id))
 
   const country = new Map<string, string>()
-  for (const p of (countryRes.data ?? []) as { attempt_id: string; country: string | null }[]) {
+  for (const p of countryRows) {
     if (p.country && !country.has(p.attempt_id)) country.set(p.attempt_id, p.country)
   }
+
+  // The Analytics filters (paycraft-ga4-analytics-audit): platform follows the provider, country the attempt's events.
+  const wantPlatform = filters.platform?.toLowerCase()
+  const wantCountry = filters.country?.toUpperCase()
+  const rows = attemptRows.filter((r) =>
+    (!wantPlatform || providerPlatform(r.provider) === wantPlatform) &&
+    (!wantCountry || (r.attempt_id != null && country.get(r.attempt_id)?.toUpperCase() === wantCountry)),
+  )
+  // Only this mode's attempts in the window: events carry no mode, so they are keyed back to these ids.
+  const inWindow = new Set(rows.map((r) => r.attempt_id).filter((id): id is string => !!id))
 
   const reached = new Map<string, Set<AbandonStepKey>>()
   const mark = (id: string, s: AbandonStepKey) => {
@@ -140,7 +174,7 @@ export async function paymentHealth(
   }
   let scheduled = 0
   let skippedNoPermission = 0
-  for (const e of (eventsRes.data ?? []) as { attempt_id: string; event: string; error_code: string | null }[]) {
+  for (const e of eventRows) {
     if (!inWindow.has(e.attempt_id)) continue
     if (e.event === NUDGE_SCHEDULED) { scheduled++; continue }
     if (e.event === NUDGE_SKIPPED) { if (e.error_code === NUDGE_NO_PERMISSION) skippedNoPermission++; continue }

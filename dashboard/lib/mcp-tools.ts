@@ -25,8 +25,16 @@ import { GET as attemptsGET } from "@/app/api/v1/attempts/route"
 import { GET as attemptGET } from "@/app/api/v1/attempts/[id]/route"
 import { GET as paymentHealthGET } from "@/app/api/v1/payment-health/route"
 import { GET as funnelGET } from "@/app/api/v1/funnel/route"
+import { GET as analyticsGET } from "@/app/api/v1/analytics/route"
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { attemptResponse, funnelResponse, listAttemptsResponse, paymentHealthResponse } from "@/lib/attempt-api"
+import {
+  analyticsResponse,
+  attemptResponse,
+  funnelResponse,
+  listAttemptsResponse,
+  paymentHealthResponse,
+} from "@/lib/attempt-api"
+import { paycraftGa4Account } from "@/lib/ga4"
 import { ATTEMPT_STAGES, ATTEMPT_STATES } from "@/lib/attempts"
 import { BLOCKED_REASONS, STATUSES } from "@/lib/onboarding-state"
 
@@ -778,6 +786,28 @@ export const MCP_TOOLS: McpTool[] = [
     inputSchema: obj({ ...TENANT, ...WINDOW }),
     invoke: (a, auth, origin) => call(funnelGET, "GET", "/api/v1/funnel", auth, origin, ownArgs(a)),
     session: (sb, tenantId, a) => funnelResponse(sb, tenantId, sessionUrl("/api/v1/funnel", tenantId, ownArgs(a))),
+  },
+  {
+    name: "paycraft_analytics",
+    title: "Joined analytics (GA4 + provider truth)",
+    description:
+      "The Analytics page's joined report under one filter set: the paywall funnel with Paid = purchases the " +
+      "providers confirmed, Payment health (failures by stage and reason, abandons), and the app's GA4 behaviour for " +
+      "its own streams (funnel by users, by platform / country / app version, users per day). Filters: days (7 / 30 / " +
+      "90), platform, country (ISO alpha-2), app_version, plan (SKU). Use it to say what happened with users and where " +
+      "they leave. Requires subscribers:read.",
+    inputSchema: obj({
+      ...TENANT,
+      days: { type: "integer", enum: [7, 30, 90], description: "The window in days (default 30, capped at the plan's retention)." },
+      platform: { type: "string", enum: ["android", "ios", "web", "desktop", "macos"] },
+      country: { type: "string", description: "ISO 3166-1 alpha-2, e.g. IN." },
+      app_version: { type: "string", description: "The app's version string, e.g. 2.4.1." },
+      plan: { type: "string", description: "A catalogue SKU, e.g. pro-annual." },
+      mode: WINDOW.mode,
+    }),
+    invoke: (a, auth, origin) => call(analyticsGET, "GET", "/api/v1/analytics", auth, origin, ownArgs(a)),
+    session: (sb, tenantId, a) =>
+      analyticsResponse(sb, tenantId, sessionUrl("/api/v1/analytics", tenantId, ownArgs(a)), { account: paycraftGa4Account() }),
   },
 ]
 

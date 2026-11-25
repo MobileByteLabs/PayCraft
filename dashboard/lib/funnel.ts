@@ -89,7 +89,14 @@ export type FunnelStats = {
   paid: number
   by_country: Array<{ key: string; viewers: number; checkouts: number; paid: number }>
   by_provider: Array<{ key: string; checkouts: number; paid: number }>
+  /** Migration 215: the same funnel split by platform and app version, and the filters Paid could not apply. */
+  by_platform?: Array<{ key: string; viewers: number; checkouts: number; paid: number }>
+  by_app_version?: Array<{ key: string; viewers: number; checkouts: number }>
+  paid_not_applied?: string[]
 }
+
+/** The Analytics filters PayCraft's own funnel applies (migration 215). */
+export type FunnelFilters = { platform?: string; country?: string; appVersion?: string; plan?: string }
 
 type RpcClient = { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string } | null }> }
 
@@ -99,9 +106,14 @@ export async function fetchFunnelStats(
   mode: string,
   sinceIso: string,
   untilIso?: string,
+  filters: FunnelFilters = {},
 ): Promise<FunnelStats> {
   const args: Record<string, unknown> = { p_tenant_id: tenantId, p_mode: mode, p_since: sinceIso }
   if (untilIso) args.p_until = untilIso
+  if (filters.platform) args.p_platform = filters.platform
+  if (filters.country) args.p_country = filters.country
+  if (filters.appVersion) args.p_app_version = filters.appVersion
+  if (filters.plan) args.p_plan = filters.plan
   const { data, error } = await sb.rpc("paywall_funnel_stats", args)
   if (error) throw new Error(`paywall_funnel_stats: ${error.message}`)
   return data as FunnelStats

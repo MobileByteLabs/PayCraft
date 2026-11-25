@@ -27,6 +27,7 @@ jest.mock("@/app/api/v1/attempts/route", () => ({ GET: (r: Request, c?: any) => 
 jest.mock("@/app/api/v1/attempts/[id]/route", () => ({ GET: (r: Request, c?: any) => capture(r, c) }))
 jest.mock("@/app/api/v1/payment-health/route", () => ({ GET: (r: Request, c?: any) => capture(r, c) }))
 jest.mock("@/app/api/v1/funnel/route", () => ({ GET: (r: Request, c?: any) => capture(r, c) }))
+jest.mock("@/app/api/v1/analytics/route", () => ({ GET: (r: Request, c?: any) => capture(r, c) }))
 
 import { MCP_TOOLS } from "@/lib/mcp-tools"
 
@@ -34,7 +35,7 @@ const TENANT = "11111111-1111-1111-1111-111111111111"
 const OTHER = "22222222-2222-2222-2222-222222222222"
 const AUTH = "Bearer pcsk_" + "a".repeat(64)
 const ORIGIN = `https://paycraft.test/?tenant_id=${TENANT}`
-const NAMES = ["paycraft_attempts", "paycraft_attempt", "paycraft_payment_health", "paycraft_funnel"] as const
+const NAMES = ["paycraft_attempts", "paycraft_attempt", "paycraft_payment_health", "paycraft_funnel", "paycraft_analytics"] as const
 
 const tool = (name: string) => {
   const t = MCP_TOOLS.find((x) => x.name === name)
@@ -137,5 +138,21 @@ describe("tenant isolation — the origin's tenant wins over any tenant_id argum
   it("an app-scoped caller (no tenant on the origin) sends no tenant at all", async () => {
     await tool("paycraft_payment_health").invoke({ tenant_id: OTHER }, AUTH, "https://paycraft.test")
     expect(new URL(seen.url!).searchParams.get("tenant_id")).toBeNull()
+  })
+})
+
+describe("paycraft_analytics (paycraft-ga4-analytics-audit)", () => {
+  it("forwards its days + filters to /api/v1/analytics under the origin's tenant only", async () => {
+    await tool("paycraft_analytics").invoke(
+      { tenant_id: OTHER, days: 7, platform: "android", country: "ID", app_version: "2.4.1", plan: "pro-annual", mode: "live" },
+      AUTH,
+      ORIGIN,
+    )
+    const u = new URL(seen.url!)
+    expect(u.pathname).toBe("/api/v1/analytics")
+    expect(u.searchParams.getAll("tenant_id")).toEqual([TENANT])
+    expect(Object.fromEntries([...u.searchParams].filter(([k]) => k !== "tenant_id"))).toEqual({
+      days: "7", platform: "android", country: "ID", app_version: "2.4.1", plan: "pro-annual", mode: "live",
+    })
   })
 })

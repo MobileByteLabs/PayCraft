@@ -14,7 +14,11 @@ type Order = { col: string; ascending: boolean; nullsFirst: boolean }
 
 export type FakeCall = { table: string; filters: string[] }
 
-export function fakeSupabase(tables: Record<string, Row[]>) {
+/**
+ * [opts.maxRows] mimics PostgREST's `max_rows` (1 000 on Supabase): every response is cut to that many rows whatever
+ * `limit` asked for — the cap that once made the Analytics funnel read "Picked a plan: 0" beside 147 real picks.
+ */
+export function fakeSupabase(tables: Record<string, Row[]>, opts: { maxRows?: number } = {}) {
   const calls: FakeCall[] = []
 
   function from(table: string) {
@@ -109,6 +113,7 @@ export function fakeSupabase(tables: Record<string, Row[]>) {
             })
           }
           rows = rows.slice(skip, max !== null ? skip + max : undefined)
+          if (opts.maxRows !== undefined) rows = rows.slice(0, opts.maxRows)
           const projected = columns ? rows.map((r) => Object.fromEntries(columns!.map((c) => [c, r[c] ?? null]))) : rows
           if (single) {
             // PostgREST's maybeSingle: one row or null, and an error (not an arbitrary pick) when several match.

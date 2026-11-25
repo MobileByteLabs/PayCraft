@@ -145,4 +145,106 @@ export async function ga4Overview(propertyId: string, rangeDays: number, deps: G
   }
 }
 
+/** What the Analytics filters narrow. `plan` has no GA4 dimension (PayCraft params are not registered there). */
+export type AnalyticsFilters = { days: number; platform?: string; country?: string; appVersion?: string; plan?: string }
+
+export type SegmentRow = { key: string; viewers: number; checkouts: number }
+
+export type Ga4Segments =
+  | {
+    ok: true
+    /** Users and events per paywall step, in funnel order. */
+    funnel: { event: string; users: number; events: number }[]
+    byPlatform: SegmentRow[]
+    byCountry: SegmentRow[]
+    byAppVersion: SegmentRow[]
+    daily: { date: string; users: number }[]
+    withheld: boolean
+    /** Filters GA4 cannot apply (shown beside the GA4 numbers so nobody reads them as filtered). */
+    notApplied: string[]
+  }
+  | { ok: false; error: string; fix?: string }
+
+const FUNNEL_EVENTS = [
+  "paycraft_paywall_view",
+  "paycraft_plan_select",
+  "paycraft_checkout_start",
+  "paycraft_purchase_success",
+] as const
+const VIEW = "paycraft_paywall_view"
+const CHECKOUT = "paycraft_checkout_start"
+
+const exact = (fieldName: string, value: string, caseSensitive = true) => ({
+  filter: { fieldName, stringFilter: caseSensitive ? { matchType: "EXACT", value } : { matchType: "EXACT", value, caseSensitive: false } },
+})
+
+/**
+ * Everything the joined Analytics view reads from GA4 for one tenant (paycraft-ga4-analytics-audit D2/D3/D5): the
+ * paywall funnel by users, viewers and checkouts by platform / country (`countryId`, ISO alpha-2 like PayCraft's) /
+ * app version, and users per day. EVERY report is restricted to [streamIds] — a property can hold other apps — and to
+ * the filters GA4 has a dimension for.
+ */
+export async function ga4Segments(
+  propertyId: string,
+  streamIds: string[],
+  f: AnalyticsFilters,
+  deps: Ga4Deps,
+): Promise<Ga4Segments> {
+  const dateRanges = [{ startDate: `${f.days}daysAgo`, endDate: "today" }]
+  const scope: unknown[] = []
+  if (streamIds.length) scope.push({ filter: { fieldName: "streamId", inListFilter: { values: streamIds } } })
+  if (f.platform) scope.push(exact("platform", f.platform, false))
+  if (f.country) scope.push(exact("countryId", f.country.toUpperCase()))
+  if (f.appVersion) scope.push(exact("appVersion", f.appVersion))
+  const within = (extra: unknown[] = []) => {
+    const all = [...scope, ...extra]
+    return all.length === 0 ? undefined : all.length === 1 ? all[0] : { andGroup: { expressions: all } }
+  }
+  const steps = { filter: { fieldName: "eventName", inListFilter: { values: [...FUNNEL_EVENTS] } } }
+  const viewOrCheckout = { filter: { fieldName: "eventName", inListFilter: { values: [VIEW, CHECKOUT] } } }
+  const users = [{ name: "totalUsers" }, { name: "eventCount" }]
+  const bySegment = (dim: string) =>
+    runReport(propertyId, { dateRanges, dimensions: [{ name: dim }, { name: "eventName" }], metrics: users, dimensionFilter: within([viewOrCheckout]), limit: 250 }, deps)
+
+  const [funnel, platform, country, version, daily] = await Promise.all([
+    runReport(propertyId, { dateRanges, dimensions: [{ name: "eventName" }], metrics: users, dimensionFilter: within([steps]) }, deps),
+    bySegment("platform"),
+    bySegment("countryId"),
+    bySegment("appVersion"),
+    runReport(propertyId, { dateRanges, dimensions: [{ name: "date" }], metrics: [{ name: "activeUsers" }], dimensionFilter: within() }, deps),
+  ])
+  for (const r of [funnel, platform, country, version, daily]) if (!r.ok) return r
+  if (!funnel.ok || !platform.ok || !country.ok || !version.ok || !daily.ok) return { ok: false, error: "ga4_unknown" }
+
+  const counts = new Map(funnel.rows.map((r) => [r.dimensionValues?.[0]?.value ?? "", r.metricValues ?? []]))
+  const segments = (rows: Ga4Row[], normalise: (k: string) => string): SegmentRow[] => {
+    const acc = new Map<string, SegmentRow>()
+    for (const r of rows) {
+      const key = normalise(r.dimensionValues?.[0]?.value ?? "")
+      const event = r.dimensionValues?.[1]?.value
+      const row = acc.get(key) ?? { key, viewers: 0, checkouts: 0 }
+      if (event === VIEW) row.viewers += n(r.metricValues?.[0]?.value)
+      if (event === CHECKOUT) row.checkouts += n(r.metricValues?.[0]?.value)
+      acc.set(key, row)
+    }
+    return [...acc.values()].sort((a, b) => b.viewers - a.viewers || b.checkouts - a.checkouts || a.key.localeCompare(b.key))
+  }
+  const keep = (k: string) => k || "unknown"
+  return {
+    ok: true,
+    funnel: FUNNEL_EVENTS.map((event) => ({ event, users: n(counts.get(event)?.[0]?.value), events: n(counts.get(event)?.[1]?.value) })),
+    byPlatform: segments(platform.rows, (k) => keep(k.toLowerCase())),
+    byCountry: segments(country.rows, (k) => keep(k.toUpperCase())),
+    byAppVersion: segments(version.rows, keep),
+    daily: daily.rows
+      .map((r) => {
+        const d = r.dimensionValues?.[0]?.value ?? ""
+        return { date: `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`, users: n(r.metricValues?.[0]?.value) }
+      })
+      .sort((a, b) => a.date.localeCompare(b.date)),
+    withheld: [funnel, platform, country, version, daily].some((r) => r.ok && r.withheld),
+    notApplied: f.plan ? ["plan"] : [],
+  }
+}
+
 export { ga4ErrorMessage } from "@/lib/ga4-messages"

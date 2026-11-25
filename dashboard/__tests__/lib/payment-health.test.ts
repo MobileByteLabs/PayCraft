@@ -28,6 +28,10 @@ const pe = (attempt_id: string, country: string, o: Record<string, unknown> = {}
   ({ attempt_id, tenant_id: A, mode: "live", country, occurred_at: T, ...o })
 
 function seed() {
+  return fakeSupabase(seedTables())
+}
+
+function seedTables() {
   const timeline: Record<string, string[]> = {
     g1: ["started", "checkout_opened", "provider_result", "granted"],
     g2: ["started", "checkout_opened", "provider_result", "granted"],
@@ -40,7 +44,7 @@ function seed() {
     a3: ["started", "paycraft_checkout_start", "checkout_opened", "abandoned"],
     a4: ["started", "paycraft_checkout_start", "abandoned"],
   }
-  return fakeSupabase({
+  return {
     payment_attempts: [
       att("g1", "granted", null, "stripe"),
       att("g2", "granted", null, "razorpay"),
@@ -74,7 +78,7 @@ function seed() {
       pe("f1", "BR", { tenant_id: B }),
       pe("g1", "DE", { mode: "test" }),
     ],
-  })
+  }
 }
 
 const run = () => paymentHealth(seed().client, A, "live", SINCE)
@@ -100,6 +104,29 @@ describe("paymentHealth", () => {
       { key: "product_not_found", total: 10, failed: 2, rate: 0.2 },
       { key: "unknown", total: 10, failed: 1, rate: 0.1 },
     ])
+  })
+
+  // The API returns at most max_rows (1 000) per request; a page-less read silently dropped the rest. With a cap of
+  // 3 rows per response, every number must still come out as if nothing were capped.
+  it("reads every row, not just the first page the API returns", async () => {
+    const capped = await paymentHealth(fakeSupabase(seedTables(), { maxRows: 3 }).client, A, "live", SINCE)
+    const full = await run()
+    expect(capped).toEqual(full)
+  })
+
+  // paycraft-ga4-analytics-audit sub-plan 03: the Analytics filters narrow Payment health too. Platform follows the
+  // provider (google_play → android, app_store → ios, web PSPs → web); country follows the attempt's events.
+  it("platform filter keeps only that platform's attempts", async () => {
+    const h = await paymentHealth(seed().client, A, "live", SINCE, undefined, { platform: "android" })
+    expect(h.totals.attempts).toBe(1) // g3, the only google_play attempt
+    const web = await paymentHealth(seed().client, A, "live", SINCE, undefined, { platform: "web" })
+    expect(web.totals.attempts).toBe(9)
+  })
+
+  it("country filter keeps only attempts whose events carry that country", async () => {
+    const h = await paymentHealth(seed().client, A, "live", SINCE, undefined, { country: "us" })
+    expect(h.totals.attempts).toBe(4) // g3, f1, f2, a4
+    expect(h.byCountry.map((b) => b.key)).toEqual(["US"])
   })
 
   it("failure rate by provider counts failed + paid_not_granted over that provider's attempts", async () => {
@@ -138,7 +165,8 @@ describe("paymentHealth", () => {
   it("every query is tenant-scoped and the window's start is applied", async () => {
     const { client, calls } = seed()
     await paymentHealth(client, A, "live", SINCE)
-    expect(calls.map((c) => c.table).sort()).toEqual(["attempt_events", "payment_attempts", "paywall_events"])
+    // Reads are paged (readAll), so a table may be read more than once — every page must carry the same scope.
+    expect([...new Set(calls.map((c) => c.table))].sort()).toEqual(["attempt_events", "payment_attempts", "paywall_events"])
     for (const c of calls) {
       expect(c.filters).toContain(`eq:tenant_id=${A}`)
       expect(c.filters.some((f) => f.startsWith("gte:"))).toBe(true)
