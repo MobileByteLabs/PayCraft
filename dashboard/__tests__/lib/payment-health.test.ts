@@ -152,7 +152,28 @@ describe("paymentHealth", () => {
     expect(h.abandonByStep).toEqual([
       { step: "plan_select", reached: 10, abandoned: 2, rate: 0.2 },
       { step: "checkout_open", reached: 7, abandoned: 2, rate: 2 / 7 },
-      { step: "provider_result", reached: 4, abandoned: 0, rate: 0 },
+      { step: "provider_result", reached: 6, abandoned: 0, rate: 0 }, // g1 g2 g3 p1 + f1 f2: a store refusal IS the provider replying
+    ])
+  })
+
+  // /idea-paycraft-analytics 2026-11-26: Reels Downloader showed "Provider replied 0 / 0" beside 98 attempts Google Play
+  // refused. A failure at provider / webhook / entitlement proves the provider answered; one at sdk / server does not —
+  // and a store lane never proves checkout_open (no checkout page).
+  it("a failure the provider reported proves the attempt reached the provider", async () => {
+    const tables = {
+      payment_attempts: [
+        att("s1", "failed", "provider", "google_play", { error_code: "product_not_found" }),
+        att("s2", "failed", "entitlement", "google_play"),
+        att("s3", "failed", "sdk", "google_play", { error_code: "timeout" }),
+      ],
+      attempt_events: [ev("s1", "started"), ev("s2", "started"), ev("s3", "started")],
+      paywall_events: [],
+    }
+    const h = await paymentHealth(fakeSupabase(tables).client, A, "live", SINCE)
+    expect(h.abandonByStep).toEqual([
+      { step: "plan_select", reached: 3, abandoned: 0, rate: 0 },
+      { step: "checkout_open", reached: 0, abandoned: 0, rate: 0 },
+      { step: "provider_result", reached: 2, abandoned: 0, rate: 0 },
     ])
   })
 

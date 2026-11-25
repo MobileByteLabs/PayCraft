@@ -85,6 +85,8 @@ const OPEN_STATES = new Set<AttemptState>(["started", "checkout_opened", "provid
 
 const rate = (n: number, d: number) => (d === 0 ? 0 : n / d)
 const isFailed = (s: AttemptState) => s === "failed" || s === "paid_not_granted"
+/** Failure stages that sit at or after the provider's reply. */
+const PROVIDER_STAGES = new Set(["provider", "webhook", "entitlement"])
 
 type AttemptLite = {
   attempt_id: string | null
@@ -191,6 +193,9 @@ export async function paymentHealth(
     proved.add("plan_select")
     const implied = STATE_STEP[r.state]
     if (implied) proved.add(implied)
+    // A failure the provider (or its webhook / the grant after it) reported proves the provider answered — Play's
+    // "no such product" is Play replying. sdk / server failures never reached it.
+    if (isFailed(r.state) && r.stage !== null && PROVIDER_STAGES.has(r.stage)) proved.add("provider_result")
     for (const s of proved) reachCount.set(s, reachCount.get(s)! + 1)
     if (r.state === "abandoned") {
       const furthest = [...ABANDON_STEPS].reverse().find((s) => proved.has(s))!
