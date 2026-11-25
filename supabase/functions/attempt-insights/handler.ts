@@ -5,8 +5,8 @@
 // (migration 212), or by an operator holding the service-role key: `now` moves the clock the "last ISO week" is
 // measured on, `tenant_id` limits the run to one app.
 //
-// The model key is the vault alias `paycraft-anthropic-api-key`, materialised as the function secret
-// ANTHROPIC_API_KEY (`/secrets sync-to-supabase`). Without it the run refuses with 503 `anthropic_key_missing`
+// The model key is the org-level vault alias `mbs-claude-api-key-1`, set as the function secret
+// ANTHROPIC_API_KEY (`supabase secrets set`). Without it the run refuses with 503 `anthropic_key_missing`
 // BEFORE touching the database: nothing is reserved, nothing is spent, and the next weekly tick simply asks again
 // — a missing key is an onboarding step, never a crash loop.
 //
@@ -62,8 +62,8 @@ export async function handleAttemptInsights(req: Request, deps: HandlerDeps): Pr
     return json(503, {
       ok: false,
       error: "anthropic_key_missing",
-      detail: "Set the vault alias paycraft-anthropic-api-key (/secrets handoff paycraft-anthropic-api-key, then " +
-        "/secrets sync-to-supabase) so the function receives ANTHROPIC_API_KEY. No insight was attempted.",
+      detail: "Set the function secret ANTHROPIC_API_KEY from the org vault alias mbs-claude-api-key-1 " +
+        "(supabase secrets set). No insight was attempted.",
     })
   }
 

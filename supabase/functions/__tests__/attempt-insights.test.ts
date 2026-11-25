@@ -358,7 +358,7 @@ Deno.test("without ANTHROPIC_API_KEY the function refuses cleanly (503), touches
   assertEquals(res.status, 503)
   const body = await res.json()
   assertEquals(body.error, "anthropic_key_missing")
-  assertStringIncludes(body.detail, "paycraft-anthropic-api-key")
+  assertStringIncludes(body.detail, "mbs-claude-api-key-1")
   assertEquals(dbBuilt, 0)
 })
 
