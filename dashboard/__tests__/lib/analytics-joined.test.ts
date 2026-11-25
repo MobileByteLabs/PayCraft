@@ -77,6 +77,22 @@ describe("ga4Segments", () => {
     expect(res.daily.map((d) => d.date)).toEqual(["2026-11-23", "2026-11-24"])
   })
 
+  it("folds GA4's placeholder values ((not set), (other)) into unknown instead of passing them on as keys", async () => {
+    // A "(NOT SET)" country reached Intl.DisplayNames and crashed the whole Analytics page (RangeError).
+    const { deps } = fakeGa4((b) => {
+      const dims = (b.dimensions ?? []).map((d) => d.name).join(",")
+      if (dims === "countryId,eventName") return [r(["(not set)", "paycraft_paywall_view"], [5, 0]), r(["IN", "paycraft_paywall_view"], [9, 0])]
+      if (dims === "appVersion,eventName") return [r(["(other)", "paycraft_paywall_view"], [2, 0])]
+      if (dims === "platform,eventName") return [r(["(not set)", "paycraft_paywall_view"], [1, 0])]
+      return []
+    })
+    const res = await ga4Segments("p", STREAMS, { days: 7 }, deps)
+    if (!res.ok) throw new Error(res.error)
+    expect(res.byCountry.map((x) => x.key)).toEqual(["IN", "unknown"])
+    expect(res.byAppVersion.map((x) => x.key)).toEqual(["unknown"])
+    expect(res.byPlatform.map((x) => x.key)).toEqual(["unknown"])
+  })
+
   it("passes a 403 through as the Viewer fix, never an empty report", async () => {
     const deps: Ga4Deps = { saEmail: "sa@x", token: async () => "t", fetch: (async () => new Response("", { status: 403 })) as typeof fetch }
     const res = await ga4Segments("p", STREAMS, { days: 7 }, deps)
@@ -180,5 +196,27 @@ describe("GET /api/v1/analytics", () => {
     const sb = Object.assign(Object.create(client), { rpc: async () => ({ data: stats, error: null }) })
     const body = await (await analyticsResponse(sb, T, url("days=90"), { account: null })).json()
     expect(body.window).toMatchObject({ days: 7, capped: true })
+  })
+})
+
+import { segmentRows } from "@/lib/analytics-joined"
+
+describe("segmentRows", () => {
+  it("lines GA4 and PayCraft up per key, provider-confirmed paid beside GA4 behaviour", () => {
+    const rows = segmentRows(
+      [{ key: "android", viewers: 1080, checkouts: 107 }, { key: "ios", viewers: 8, checkouts: 0 }],
+      [{ key: "android", viewers: 900, checkouts: 95, paid: 1 }, { key: "web", viewers: 0, checkouts: 0, paid: 2 }],
+    )
+    expect(rows).toEqual([
+      { key: "android", ga4Viewers: 1080, ga4Checkouts: 107, viewers: 900, checkouts: 95, paid: 1 },
+      { key: "ios", ga4Viewers: 8, ga4Checkouts: 0, viewers: 0, checkouts: 0, paid: 0 },
+      { key: "web", ga4Viewers: null, ga4Checkouts: null, viewers: 0, checkouts: 0, paid: 2 },
+    ])
+  })
+
+  it("without GA4 the GA4 columns are null, never zero", () => {
+    expect(segmentRows(null, [{ key: "IN", viewers: 3, checkouts: 1, paid: 0 }])).toEqual([
+      { key: "IN", ga4Viewers: null, ga4Checkouts: null, viewers: 3, checkouts: 1, paid: 0 },
+    ])
   })
 })

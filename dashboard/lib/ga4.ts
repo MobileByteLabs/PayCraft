@@ -229,12 +229,14 @@ export async function ga4Segments(
     }
     return [...acc.values()].sort((a, b) => b.viewers - a.viewers || b.checkouts - a.checkouts || a.key.localeCompare(b.key))
   }
-  const keep = (k: string) => k || "unknown"
+  // GA4 fills a dimension it could not determine with "(not set)" / "(other)": those are not keys — one reached
+  // Intl.DisplayNames as a "country" and crashed the Analytics page.
+  const keep = (k: string) => (!k || /^\(.*\)$/.test(k.trim()) ? "unknown" : k)
   return {
     ok: true,
     funnel: FUNNEL_EVENTS.map((event) => ({ event, users: n(counts.get(event)?.[0]?.value), events: n(counts.get(event)?.[1]?.value) })),
-    byPlatform: segments(platform.rows, (k) => keep(k.toLowerCase())),
-    byCountry: segments(country.rows, (k) => keep(k.toUpperCase())),
+    byPlatform: segments(platform.rows, (k) => keep(k).toLowerCase()),
+    byCountry: segments(country.rows, (k) => { const v = keep(k); return v === "unknown" ? v : v.toUpperCase() }),
     byAppVersion: segments(version.rows, keep),
     daily: daily.rows
       .map((r) => {

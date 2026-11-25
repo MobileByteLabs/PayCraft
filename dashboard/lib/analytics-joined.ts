@@ -12,6 +12,38 @@ import { type PaymentHealth, paymentHealth } from "@/lib/payment-health"
 
 export type Ga4Status = "ok" | "not_set_up" | "not_connected" | "error"
 
+/** One segment row of the joined tables: GA4 behaviour beside PayCraft's buyers and provider-confirmed paid. */
+export type JoinedSegmentRow = {
+  key: string
+  /** Null when GA4 is not connected / has no row for this key — shown as "—", never as 0. */
+  ga4Viewers: number | null
+  ga4Checkouts: number | null
+  viewers: number
+  checkouts: number
+  paid: number
+}
+
+/**
+ * Line GA4's and PayCraft's segments up per key, GA4's order first (it sees every user, PayCraft only paywall
+ * openers), then keys only PayCraft knows (e.g. `web` purchases with no app event).
+ */
+export function segmentRows(
+  ga4: { key: string; viewers: number; checkouts: number }[] | null,
+  paycraft: { key: string; viewers: number; checkouts: number; paid?: number }[],
+): JoinedSegmentRow[] {
+  const pc = new Map(paycraft.map((r) => [r.key, r]))
+  const rows: JoinedSegmentRow[] = []
+  for (const g of ga4 ?? []) {
+    const p = pc.get(g.key)
+    pc.delete(g.key)
+    rows.push({ key: g.key, ga4Viewers: g.viewers, ga4Checkouts: g.checkouts, viewers: p?.viewers ?? 0, checkouts: p?.checkouts ?? 0, paid: p?.paid ?? 0 })
+  }
+  for (const p of pc.values()) {
+    rows.push({ key: p.key, ga4Viewers: null, ga4Checkouts: null, viewers: p.viewers, checkouts: p.checkouts, paid: p.paid ?? 0 })
+  }
+  return rows
+}
+
 export type JoinedAnalytics = {
   filters: AnalyticsFilters
   window: { days: number; since: string }
