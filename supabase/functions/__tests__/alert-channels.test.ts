@@ -22,6 +22,7 @@ const SECRET = "pcwh_unit_secret_0123456789"
 
 interface Targets {
   owner_email: string | null
+  app_name?: string | null
   email_enabled: boolean
   inbox_enabled: boolean
   slack_url: string | null
@@ -121,7 +122,7 @@ function fakes(routes: Record<string, number | "throw">, emailOk = true) {
 }
 
 const allOn = (over: Partial<Targets> = {}): Targets => ({
-  owner_email: "owner@app.test", email_enabled: true, inbox_enabled: true,
+  owner_email: "owner@app.test", app_name: "Reels Downloader", email_enabled: true, inbox_enabled: true,
   slack_url: "https://hooks.slack.test/T0/B0/x", webhook_url: "https://hooks.owner.test/paycraft", webhook_secret: SECRET,
   ...over,
 })
@@ -302,4 +303,25 @@ Deno.test("Slack text escapes &, < and > and the email body escapes HTML from th
   assertStringIncludes(slack.text, "a &lt; b")
   assertStringIncludes(emails[0].html, "&lt;b&gt;x&lt;/b&gt; &amp; y")
   assertEquals(emails[0].html.includes("<b>x</b>"), false)
+})
+
+// Owner request 2026-11-26: an owner with several apps must see WHICH app an alert is about (migration 218).
+Deno.test("email subject, heading and Slack name the app the alert is about", async () => {
+  const db = new FakeAlertDb(allOn())
+  const { deps, requests, emails } = fakes({})
+  const a = alert()
+  await dispatchAlert(db, a, deps)
+  assertEquals(emails[0].subject, `PayCraft · Reels Downloader: ${a.title}`)
+  assertStringIncludes(emails[0].html, "Reels Downloader")
+  assertStringIncludes(emails[0].html, "alerts are on for Reels Downloader")
+  const slack = requests.find((r) => r.url.includes("hooks.slack.test"))!
+  assertStringIncludes(JSON.parse(slack.body).text, "Reels Downloader")
+})
+
+Deno.test("an app without a name keeps the plain subject", async () => {
+  const db = new FakeAlertDb(allOn({ app_name: null }))
+  const { deps, emails } = fakes({})
+  const a = alert()
+  await dispatchAlert(db, a, deps)
+  assertEquals(emails[0].subject, `PayCraft: ${a.title}`)
 })

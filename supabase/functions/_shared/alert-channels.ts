@@ -97,6 +97,8 @@ export interface ChannelDeps {
 
 interface Targets {
   owner_email: string | null
+  /** tenants.name (migration 218) — which app the alert is about; an owner may run several. */
+  app_name?: string | null
   email_enabled: boolean
   inbox_enabled: boolean
   slack_url: string | null
@@ -164,22 +166,30 @@ function slackEscape(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 }
 
-export function slackText(alert: StoredAlert): string {
+export function slackText(alert: StoredAlert, appName?: string | null): string {
   const icon = alert.severity === "critical" ? ":rotating_light:" : ":bar_chart:"
-  return `${icon} *${slackEscape(alert.title)}*\n${slackEscape(alert.body)}\n<${DASHBOARD_URL}/alerts|Open PayCraft alerts>`
+  const app = appName ? `${slackEscape(appName)} · ` : ""
+  return `${icon} *${app}${slackEscape(alert.title)}*\n${slackEscape(alert.body)}\n<${DASHBOARD_URL}/alerts|Open PayCraft alerts>`
 }
 
-export function emailHtml(alert: StoredAlert): string {
+/** "PayCraft · Reels Downloader: …" — the app named, so an owner with several apps knows which one. */
+export function emailSubject(alert: StoredAlert, appName?: string | null): string {
+  return appName ? `PayCraft · ${appName}: ${alert.title}` : `PayCraft: ${alert.title}`
+}
+
+export function emailHtml(alert: StoredAlert, appName?: string | null): string {
   if (alert.body_html) return alert.body_html
+  const app = appName ? escapeHtml(appName) : null
   const accent = alert.severity === "critical" ? "#dc2626" : "#4f46e5"
   const paragraphs = alert.body.split("\n").filter((l) => l.trim() !== "")
     .map((l) => `<p style="margin: 0 0 8px; color: #334155;">${escapeHtml(l)}</p>`).join("")
   return `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
+        ${app ? `<p style="margin: 0 0 4px; color: #64748b; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;">${app}</p>` : ""}
         <h2 style="color: ${accent}; margin: 0 0 16px;">${escapeHtml(alert.title)}</h2>
         ${paragraphs}
         <p style="margin-top: 24px;"><a href="${DASHBOARD_URL}/alerts" style="color: #4f46e5;">Open PayCraft alerts</a></p>
-        <p style="color: #94a3b8; font-size: 12px;">You receive this because alerts are on for your PayCraft app. Change channels and alert kinds in Settings.</p>
+        <p style="color: #94a3b8; font-size: 12px;">You receive this because alerts are on for ${app ?? "your PayCraft app"}. Change channels and alert kinds in Settings.</p>
       </div>`
 }
 
@@ -218,9 +228,9 @@ async function postJson(deps: ChannelDeps, url: string, body: string, headers: R
   }
 }
 
-async function sendEmailChannel(deps: ChannelDeps, to: string, alert: StoredAlert): Promise<SendAttempt> {
+async function sendEmailChannel(deps: ChannelDeps, to: string, alert: StoredAlert, appName: string | null): Promise<SendAttempt> {
   try {
-    const r = await (deps.sendEmail ?? resendSendEmail)({ to, subject: `PayCraft: ${alert.title}`, html: emailHtml(alert) })
+    const r = await (deps.sendEmail ?? resendSendEmail)({ to, subject: emailSubject(alert, appName), html: emailHtml(alert, appName) })
     return { ok: r.ok, httpStatus: null, error: r.ok ? null : (r.error ?? "email not sent") }
   } catch (e) {
     return { ok: false, httpStatus: null, error: (e as Error).message || String(e) }
@@ -302,13 +312,13 @@ export async function dispatchAlert(
   }
 
   if (wants("email") && targets.email_enabled && targets.owner_email) {
-    add("email", sendEmailChannel(deps, targets.owner_email, alert).then((r) => recordDelivery(db, alert.id, "email", r, now)))
+    add("email", sendEmailChannel(deps, targets.owner_email, alert, targets.app_name ?? null).then((r) => recordDelivery(db, alert.id, "email", r, now)))
   }
   if (wants("slack") && targets.slack_url) {
     const url = targets.slack_url
     add(
       "slack",
-      postJson(deps, url, JSON.stringify({ text: slackText(alert) }), {}).then((r) => recordDelivery(db, alert.id, "slack", r, now)),
+      postJson(deps, url, JSON.stringify({ text: slackText(alert, targets.app_name) }), {}).then((r) => recordDelivery(db, alert.id, "slack", r, now)),
     )
   }
   if (wants("webhook") && targets.webhook_url) {
