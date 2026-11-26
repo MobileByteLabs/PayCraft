@@ -249,7 +249,15 @@ class PayCraftBillingManager(
                         applyStorePremium(storeStatus)
                     } else {
                         PayCraftLogger.onFlow("init", "No saved email → Free")
-                        if (verdict is StoreVerdict.Lapsed) applyLapsed() else _billingState.value = BillingState.Free
+                        // compareAndSet, not check-then-write: this coroutine runs on its own thread, so a
+                        // caller's Error can land between the Loading check above and a plain assignment
+                        // (CI saw exactly that — purchaseViaStoreKit_blankAppStoreProductId_isBlocked
+                        // read Free). The CAS writes Free only if the state is STILL Loading.
+                        if (verdict is StoreVerdict.Lapsed) {
+                            applyLapsed()
+                        } else {
+                            _billingState.compareAndSet(BillingState.Loading, BillingState.Free)
+                        }
                     }
                 } else {
                     PayCraftLogger.onFlow(
