@@ -68,7 +68,7 @@ spotless {
                 ),
             )
         trimTrailingWhitespace()
-        indentWithSpaces(4)
+        leadingTabsToSpaces(4)
         endWithNewline()
     }
 
@@ -77,7 +77,7 @@ spotless {
         targetExclude("**/build/**/*.gradle.kts")
         ktlint(libs.versions.ktlint.get())
         trimTrailingWhitespace()
-        indentWithSpaces(4)
+        leadingTabsToSpaces(4)
         endWithNewline()
     }
 
@@ -95,7 +95,7 @@ spotless {
             "**/playwright-report/**",
         )
         trimTrailingWhitespace()
-        indentWithSpaces(4)
+        leadingTabsToSpaces(4)
         endWithNewline()
     }
 }

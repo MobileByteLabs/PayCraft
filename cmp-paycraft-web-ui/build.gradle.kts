@@ -80,45 +80,48 @@ tasks.matching { it.name.endsWith("ProductionLibraryDistribution") }.configureEa
 
 // GOAL D5: this entry has its own budget (20 KB min+gzip — the checkout page and the survey for buyers only);
 // infra/web-bundle-size.sh checks it, as it checks cmp-paycraft-web's 150 KB.
-val webUiBundleSize by tasks.registering(Exec::class) {
-    group = "verification"
-    description = "Fails when the minified+gzip paycraft-web-ui library exceeds 20 KB (paycraft-paywall-analytics D5)."
-    dependsOn("jsBrowserProductionLibraryDistribution")
-    workingDir = rootDir
-    commandLine(
-        "bash",
-        "infra/web-bundle-size.sh",
-        "--entry",
-        layout.buildDirectory
-            .dir("dist/js/productionLibrary")
-            .get()
-            .asFile.path + ":20480",
-    )
-}
+val webUiBundleSize =
+    tasks.register<Exec>("webUiBundleSize") {
+        group = "verification"
+        description = "Fails when minified+gzip paycraft-web-ui exceeds 20 KB (paycraft-paywall-analytics D5)."
+        dependsOn("jsBrowserProductionLibraryDistribution")
+        workingDir = rootDir
+        commandLine(
+            "bash",
+            "infra/web-bundle-size.sh",
+            "--entry",
+            layout.buildDirectory
+                .dir("dist/js/productionLibrary")
+                .get()
+                .asFile.path + ":20480",
+        )
+    }
 
 tasks.named("check") { dependsOn(webUiBundleSize) }
 
 // This module calls PayCraftWeb through PayCraftWebApi.kt, not a compile dependency — so a member renamed in the
 // SDK is caught here, against the SDK's built .d.mts, instead of in a buyer's browser (infra/web-ui-api-check.sh).
-val webUiApiCheck by tasks.registering(Exec::class) {
-    group = "verification"
-    description = "Fails when PayCraftWebApi declares a member paycraft-web.d.mts no longer exports."
-    dependsOn(":cmp-paycraft-web:jsBrowserProductionLibraryDistribution")
-    workingDir = rootDir
-    commandLine("bash", "infra/web-ui-api-check.sh")
-}
+val webUiApiCheck =
+    tasks.register<Exec>("webUiApiCheck") {
+        group = "verification"
+        description = "Fails when PayCraftWebApi declares a member paycraft-web.d.mts no longer exports."
+        dependsOn(":cmp-paycraft-web:jsBrowserProductionLibraryDistribution")
+        workingDir = rootDir
+        commandLine("bash", "infra/web-ui-api-check.sh")
+    }
 
 tasks.named("check") { dependsOn(webUiApiCheck) }
 
 // The CheckoutPageOptions written above is a copy of the Kotlin `external interface` — an option added there and not
 // here works at runtime but breaks every TypeScript site's typecheck (2026-11-14: successUrl). Keep them identical.
-val webUiOptionsDtsCheck by tasks.registering(Exec::class) {
-    group = "verification"
-    description =
-        "Fails when the hand-written CheckoutPageOptions in paycraft-web-ui.d.mts drifts from CheckoutPage.kt."
-    dependsOn("jsBrowserProductionLibraryDistribution")
-    workingDir = rootDir
-    commandLine("bash", "infra/web-ui-options-dts-check.sh")
-}
+val webUiOptionsDtsCheck =
+    tasks.register<Exec>("webUiOptionsDtsCheck") {
+        group = "verification"
+        description =
+            "Fails when the hand-written CheckoutPageOptions in paycraft-web-ui.d.mts drifts from CheckoutPage.kt."
+        dependsOn("jsBrowserProductionLibraryDistribution")
+        workingDir = rootDir
+        commandLine("bash", "infra/web-ui-options-dts-check.sh")
+    }
 
 tasks.named("check") { dependsOn(webUiOptionsDtsCheck) }

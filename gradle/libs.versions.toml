@@ -19,7 +19,11 @@ agp = "9.4.0"
 kotlin = "2.4.20"
 # 1.12.0 — matches mbs/kmp-toolkit (and cappy). It pulls androidx.compose 1.12, whose AAR metadata
 # demands compileSdk 37 — hence android-compileSdk below. AGP 9.4.0 satisfies its 9.1+ floor.
-compose-multiplatform = "1.12.0"
+compose-multiplatform = "1.12.1"
+# Material 3 for Compose Multiplatform versions separately from Compose (1.12.0 ships material3 1.9.0).
+compose-material3 = "1.9.0"
+# material-icons-extended stopped at 1.7.3 — JetBrains pins it there and publishes no newer build.
+compose-material-icons-extended = "1.7.3"
 # JetBrains' KMP port of Navigation Compose. Used ONLY by :cmp-paycraft-navigation, never by
 # :cmp-paycraft — the core artifact must not force a navigation library on consumers who use
 # Voyager, Decompose, or their own. Held at the version cappy and the template already resolve,
@@ -43,7 +47,7 @@ junit = "4.13.2"
 coroutines = "1.11.0"
 # Compottie — Lottie renderer for Compose Multiplatform (alexzhirkevich/compottie).
 # Renders the SDK's config-failure / offline states so a dead end still looks like a product.
-compottie = "2.2.4"
+compottie = "2.3.3"
 
 # AndroidX
 androidx-activityCompose = "1.12.2"
@@ -177,6 +181,15 @@ koin-test-junit4 = { module = "io.insert-koin:koin-test-junit4", version.ref = "
 
 # Compose Testing (version aligned with CMP 1.7.3 → AndroidX Compose 1.7.6)
 # Held at 1.7.6 with compose-multiplatform — 1.12.0 requires AGP 9.1.0+.
+# Compose Multiplatform artifacts, named directly — the plugin's `compose.runtime` / `compose.ui` … aliases are deprecated.
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose-multiplatform" }
+compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose-multiplatform" }
+compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose-multiplatform" }
+compose-ui-test = { module = "org.jetbrains.compose.ui:ui-test", version.ref = "compose-multiplatform" }
+compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "compose-material3" }
+compose-material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "compose-material-icons-extended" }
+compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "compose-multiplatform" }
+compose-components-uiToolingPreview = { module = "org.jetbrains.compose.components:components-ui-tooling-preview", version.ref = "compose-multiplatform" }
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4", version = "1.7.6" }
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest", version = "1.7.6" }
 

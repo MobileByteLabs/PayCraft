@@ -38,11 +38,8 @@ kotlin {
                 outputFileName = "sampleApp.js"
                 devServer =
                     (devServer ?: KotlinWebpackConfig.DevServer()).apply {
-                        static =
-                            (static ?: mutableListOf()).apply {
-                                add(rootDirPath)
-                                add(projectDirPath)
-                            }
+                        static(rootDirPath)
+                        static(projectDirPath)
                     }
             }
         }
@@ -50,14 +47,12 @@ kotlin {
     }
 
     sourceSets {
-        val desktopMain by getting
-
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)
             implementation(libs.koin.android)
         }
 
-        val androidInstrumentedTest by getting {
+        getByName("androidInstrumentedTest") {
             dependencies {
                 implementation(libs.compose.ui.test.junit4)
                 implementation(libs.koin.test)
@@ -68,12 +63,12 @@ kotlin {
         }
 
         commonMain.dependencies {
-            implementation(compose.runtime)
-            implementation(compose.foundation)
-            implementation(compose.material3)
-            implementation(compose.ui)
-            implementation(compose.components.resources)
-            implementation(compose.components.uiToolingPreview)
+            implementation(libs.compose.runtime)
+            implementation(libs.compose.foundation)
+            implementation(libs.compose.material3)
+            implementation(libs.compose.ui)
+            implementation(libs.compose.components.resources)
+            implementation(libs.compose.components.uiToolingPreview)
 
             // Include the library
             implementation(project(":cmp-paycraft"))
@@ -83,13 +78,13 @@ kotlin {
             implementation(libs.koin.compose)
         }
 
-        desktopMain.dependencies {
+        getByName("desktopMain").dependencies {
             implementation(compose.desktop.currentOs)
         }
     }
 }
 
-android {
+extensions.configure<com.android.build.api.dsl.ApplicationExtension> {
     namespace = "com.mobilebytelabs.paycraft.sample"
     compileSdk =
         libs.versions.android.compileSdk

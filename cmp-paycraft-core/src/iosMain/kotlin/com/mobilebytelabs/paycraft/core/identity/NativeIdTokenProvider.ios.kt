@@ -1,6 +1,7 @@
 package com.mobilebytelabs.paycraft.core.identity
 
 import com.mobilebytelabs.paycraft.model.OAuthProvider
+import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
@@ -67,6 +68,8 @@ private class AppleDelegate(private val done: (NativeTokenResult) -> Unit) :
     ASAuthorizationControllerDelegateProtocol,
     ASAuthorizationControllerPresentationContextProvidingProtocol {
 
+    // NSString.create(data:encoding:) — the Foundation initializer cinterop marks BetaInteropApi.
+    @OptIn(BetaInteropApi::class)
     override fun authorizationController(
         controller: ASAuthorizationController,
         didCompleteWithAuthorization: ASAuthorization,

@@ -5,7 +5,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.v2.runComposeUiTest
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
@@ -14,6 +14,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.koin.compose.KoinApplication
+import org.koin.dsl.koinConfiguration
 import org.koin.dsl.module
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -56,14 +57,16 @@ class PostPurchaseLinkGateTest {
 
     private fun gate(billing: FakeBillingManager, store: MemoryStore, onFinished: () -> Unit) =
         @androidx.compose.runtime.Composable {
-            KoinApplication(application = {
-                modules(
-                    module {
-                        single<BillingManager> { billing }
-                        single<PayCraftStore> { store }
-                    },
-                )
-            }) { PostPurchaseLinkGate(onFinished = onFinished) { Text("PAYWALL") } }
+            KoinApplication(
+                koinConfiguration {
+                    modules(
+                        module {
+                            single<BillingManager> { billing }
+                            single<PayCraftStore> { store }
+                        },
+                    )
+                },
+            ) { PostPurchaseLinkGate(onFinished = onFinished) { Text("PAYWALL") } }
         }
 
     @Test
@@ -75,14 +78,16 @@ class PostPurchaseLinkGateTest {
             // is not guaranteed visible across them, a StateFlow is.
             val finished = kotlinx.coroutines.flow.MutableStateFlow(0)
             setContent {
-                KoinApplication(application = {
-                    modules(
-                        module {
-                            single<BillingManager> { billing }
-                            single<PayCraftStore> { store }
-                        },
-                    )
-                }) { PostPurchaseLinkGate(onFinished = { finished.value++ }) { Text("PAYWALL") } }
+                KoinApplication(
+                    koinConfiguration {
+                        modules(
+                            module {
+                                single<BillingManager> { billing }
+                                single<PayCraftStore> { store }
+                            },
+                        )
+                    },
+                ) { PostPurchaseLinkGate(onFinished = { finished.value++ }) { Text("PAYWALL") } }
             }
             billing.emitPremium(true) // the store purchase completed; no email
             waitForIdle()

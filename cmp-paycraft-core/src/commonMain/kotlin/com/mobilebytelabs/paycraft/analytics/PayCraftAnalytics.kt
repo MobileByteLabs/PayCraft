@@ -3,6 +3,7 @@ package com.mobilebytelabs.paycraft.analytics
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import com.russhwolf.settings.Settings
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
@@ -172,6 +173,8 @@ public class PayCraftAnalytics internal constructor(
     private var flushMs: Long = 5_000
 
     /** Starts the drain loop when delivery is enabled, nothing is draining, and there is something to send. */
+    // Channel.isEmpty is a snapshot check; a send that races it is caught by the re-kick below.
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun kick() {
         val s = scope ?: return
         if (loop?.isActive == true) return

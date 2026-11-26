@@ -4,7 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.v2.runComposeUiTest
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +14,7 @@ import kotlinx.coroutines.test.setMain
 import org.koin.compose.KoinApplication
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.module.dsl.viewModelOf
+import org.koin.dsl.koinConfiguration
 import org.koin.dsl.module
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -44,14 +45,16 @@ class PaywallTransientSurfaceResetTest {
         lateinit var vm: PayCraftPaywallViewModel
 
         setContent {
-            KoinApplication(application = {
-                modules(
-                    module {
-                        single<BillingManager> { FakeBillingManager(premium = false) }
-                        viewModelOf(::PayCraftPaywallViewModel)
-                    },
-                )
-            }) {
+            KoinApplication(
+                koinConfiguration {
+                    modules(
+                        module {
+                            single<BillingManager> { FakeBillingManager(premium = false) }
+                            viewModelOf(::PayCraftPaywallViewModel)
+                        },
+                    )
+                },
+            ) {
                 vm = koinViewModel() // the host-owned instance the paywall resolves too
                 if (paywallShown) {
                     PayCraftPaywallComposable(surfaceMode = PayCraftSurfaceMode.Sheet)

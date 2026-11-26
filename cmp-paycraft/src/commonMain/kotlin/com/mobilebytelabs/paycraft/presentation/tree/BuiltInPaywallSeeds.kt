@@ -22,12 +22,11 @@ import org.jetbrains.compose.resources.ExperimentalResourceApi
  */
 object BuiltInPaywallSeeds {
 
-    private fun path(template: PaywallTemplate): String = when (template) {
-        PaywallTemplate.BRANDED_STACK -> "files/paycraft/seed/branded_stack.json"
-        PaywallTemplate.MINIMAL -> "files/paycraft/seed/minimal.json"
-        PaywallTemplate.DARK -> "files/paycraft/seed/dark.json"
-        PaywallTemplate.PREMIUM -> "files/paycraft/seed/premium.json"
-    }
+    /**
+     * Each template's seed is bundled as `seed/<entry name, lowercased>.json`. Derived from the name so
+     * the deprecated MINIMAL / DARK / PREMIUM entries keep resolving without being referenced here.
+     */
+    private fun path(template: PaywallTemplate): String = "files/paycraft/seed/${template.name.lowercase()}.json"
 
     /** Raw seed JSON for [template], or null if the bundled asset is missing/unreadable. */
     @OptIn(ExperimentalResourceApi::class)

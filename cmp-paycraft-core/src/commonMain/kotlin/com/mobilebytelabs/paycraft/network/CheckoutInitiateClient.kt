@@ -134,8 +134,11 @@ class CheckoutInitiateClient(private val httpClient: HttpClient, private val bac
         }
     }
 
-    private fun errorOf(text: String): String? =
-        runCatching { Json { ignoreUnknownKeys = true }.decodeFromString<ErrorBody>(text) }
-            .getOrNull()
-            ?.error
+    private fun errorOf(text: String): String? = runCatching { errorJson.decodeFromString<ErrorBody>(text) }
+        .getOrNull()
+        ?.error
+
+    private companion object {
+        val errorJson = Json { ignoreUnknownKeys = true }
+    }
 }

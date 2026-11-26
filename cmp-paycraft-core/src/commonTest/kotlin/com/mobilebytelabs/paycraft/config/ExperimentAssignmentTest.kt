@@ -92,12 +92,15 @@ class ExperimentAssignmentTest {
         // Verbatim shape of a local `/config` response's `experiment` block (functions served against migration 206).
         val wire = """{"tenant_id":"t","experiment":{"key":"price-test","variants":[""" +
             """{"key":"control","weight":50,"offering_id":"o-1"},{"key":"cheaper","weight":50,"offering_id":"o-2"}]}}"""
-        val cfg = Json { ignoreUnknownKeys = true }.decodeFromString(SuiteConfig.serializer(), wire)
+        val cfg = lenient.decodeFromString(SuiteConfig.serializer(), wire)
         assertEquals(ExperimentVariantDto("cheaper", 50, "o-2"), cfg.experimentOrNull()?.variants?.last())
         assertNull(
-            Json {
-                ignoreUnknownKeys = true
-            }.decodeFromString(SuiteConfig.serializer(), """{"tenant_id":"t","experiment":null}""").experimentOrNull(),
+            lenient.decodeFromString(
+                SuiteConfig.serializer(),
+                """{"tenant_id":"t","experiment":null}""",
+            ).experimentOrNull(),
         )
     }
+
+    private val lenient = Json { ignoreUnknownKeys = true }
 }

@@ -69,20 +69,21 @@ tasks.matching { it.name.endsWith("ProductionLibraryDistribution") }.configureEa
 
 // GOAL D4: the size budget fails the build, it is not advisory. Measures what a website downloads —
 // every .mjs of the production library minified + gzipped — against 150 KB (infra/web-bundle-size.sh).
-val webBundleSize by tasks.registering(Exec::class) {
-    group = "verification"
-    description = "Fails when the minified+gzip paycraft-web library exceeds 150 KB (GOAL D4)."
-    dependsOn("jsBrowserProductionLibraryDistribution")
-    workingDir = rootDir
-    commandLine(
-        "bash",
-        "infra/web-bundle-size.sh",
-        "--dist",
-        layout.buildDirectory
-            .dir("dist/js/productionLibrary")
-            .get()
-            .asFile.path,
-    )
-}
+val webBundleSize =
+    tasks.register<Exec>("webBundleSize") {
+        group = "verification"
+        description = "Fails when the minified+gzip paycraft-web library exceeds 150 KB (GOAL D4)."
+        dependsOn("jsBrowserProductionLibraryDistribution")
+        workingDir = rootDir
+        commandLine(
+            "bash",
+            "infra/web-bundle-size.sh",
+            "--dist",
+            layout.buildDirectory
+                .dir("dist/js/productionLibrary")
+                .get()
+                .asFile.path,
+        )
+    }
 
 tasks.named("check") { dependsOn(webBundleSize) }

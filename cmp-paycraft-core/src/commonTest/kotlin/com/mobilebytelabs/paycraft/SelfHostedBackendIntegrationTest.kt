@@ -1,3 +1,6 @@
+// These tests pin ConfigClient's behaviour until it is removed in 3.0.0; its deprecation is expected here.
+@file:Suppress("DEPRECATION")
+
 package com.mobilebytelabs.paycraft
 
 import com.mobilebytelabs.paycraft.config.ConfigCache

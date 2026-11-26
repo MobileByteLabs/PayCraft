@@ -57,6 +57,8 @@ kotlin {
             paycraftLibs.versions.android.minSdk
                 .get()
                 .toInt()
+        // commonTest also runs on the Android JVM (testAndroidHostTest), not only jvm / iOS / web.
+        withHostTest {}
     }
     iosArm64()
     iosSimulatorArm64()
@@ -71,8 +73,8 @@ kotlin {
             api(project(":cmp-paycraft"))
             api(paycraftLibs.jb.composeNavigation)
 
-            implementation(compose.runtime)
-            implementation(compose.foundation)
+            implementation(paycraftLibs.compose.runtime)
+            implementation(paycraftLibs.compose.foundation)
         }
 
         commonTest.dependencies {
