@@ -329,7 +329,7 @@ class PayCraftContractTest {
     }
 
     @Test
-    fun events_body_carries_the_batch_without_personal_data_or_client_country() {
+    fun events_body_carries_the_batch_without_personal_data() {
         val e = com.mobilebytelabs.paycraft.analytics.PayCraftEvent(
             com.mobilebytelabs.paycraft.analytics.PayCraftEventName.CheckoutStart,
             com.mobilebytelabs.paycraft.analytics.PayCraftStep.Checkout,
@@ -340,14 +340,30 @@ class PayCraftContractTest {
             provider = "razorpay",
             atMs = 42,
         )
-        val body = PayCraftContract.eventsBody("pk_x", deviceRef = "dev-1", deviceToken = "srv_1", events = listOf(e))
+        val body = PayCraftContract.eventsBody(
+            "pk_x",
+            deviceRef = "dev-1",
+            deviceToken = "srv_1",
+            events = listOf(e),
+            appVersion = "2.4.1",
+        )
         assertEquals("pk_x", body["apiKey"]?.jsonPrimitive?.content)
         assertEquals("srv_1", body["deviceToken"]?.jsonPrimitive?.content)
+        // paycraft-ga4-analytics-audit D6 / AC-2: the app's version, once per batch, so PayCraft's events segment like GA4.
+        assertEquals("2.4.1", body["appVersion"]?.jsonPrimitive?.content)
         val first = body["events"]!!.jsonArray[0].jsonObject
         assertEquals("paycraft_checkout_start", first["name"]?.jsonPrimitive?.content)
         assertEquals("checkout", first["step"]?.jsonPrimitive?.content)
         assertEquals(42L, first["at"]?.jsonPrimitive?.content?.toLong())
-        assertEquals(null, first["country"], "country is stamped by the server")
+        // The server's geo still wins; the device's region is only the fallback, sent under its own name so it can
+        // never be mistaken for a server-stamped country.
+        assertEquals(null, first["country"])
+        assertEquals("IN", first["deviceCountry"]?.jsonPrimitive?.content)
+        assertEquals(
+            null,
+            PayCraftContract.eventsBody("pk_x", "dev-1", null, listOf(e))["appVersion"],
+            "no version known → no field",
+        )
         assertEquals(null, body["email"])
         assertEquals(null, first["experiment"], "no experiment → no tag")
         // An A/B experiment's variant (migration 206) rides on the event, and into the app's analytics params.

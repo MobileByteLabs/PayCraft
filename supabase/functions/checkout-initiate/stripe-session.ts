@@ -8,7 +8,8 @@
 // link, the SDK posts here with provider=stripe and this lane opens a per-customer Checkout Session.
 //
 // RECONCILIATION IS ALREADY WIRED: stripe-webhook grants the plan from `session.metadata.plan_id` on
-// checkout.session.completed and reads the buyer from `customer_email`, so the session carries both.
+// checkout.session.completed and reads the buyer from `customer_email`, so the session carries both — and
+// the SDK's attempt id (`client_reference_id` + `metadata.attempt_id`), so it closes the same attempt.
 
 /** The id for [currency] in a per-currency map; the only entry when there is exactly one; else an error. */
 export function pickByCurrency(
@@ -74,6 +75,11 @@ export interface StripeSessionInput {
   winbackOfferId?: string | null
   /** A one-time product (lifetime / consumable): a `payment` session — stripe-webhook's mode=payment branch grants it. */
   oneTime?: boolean
+  /**
+   * The SDK's purchase-attempt id (migration 210). Sent as `client_reference_id` and `metadata.attempt_id`
+   * (and on the subscription, for renewals) so stripe-webhook closes the attempt checkout-initiate opened.
+   */
+  attemptId?: string | null
 }
 
 /** The form body for POST https://api.stripe.com/v1/checkout/sessions (one price; subscription unless [oneTime]). */
@@ -105,6 +111,11 @@ export function stripeSessionForm(i: StripeSessionInput): string {
   if (i.winbackOfferId) {
     f.set("metadata[paycraft_winback_offer]", i.winbackOfferId)
     if (sub) f.set(`${sub}[metadata][paycraft_winback_offer]`, i.winbackOfferId)
+  }
+  if (i.attemptId) {
+    f.set("client_reference_id", i.attemptId)
+    f.set("metadata[attempt_id]", i.attemptId)
+    if (sub) f.set(`${sub}[metadata][attempt_id]`, i.attemptId)
   }
   return f.toString()
 }

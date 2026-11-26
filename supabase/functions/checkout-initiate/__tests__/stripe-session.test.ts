@@ -84,3 +84,24 @@ Deno.test("stripeSessionForm: a one-time product is a payment session with no su
   // Stripe rejects subscription_data on a payment session
   assertEquals([...p.keys()].some((k) => k.startsWith("subscription_data")), false)
 })
+
+Deno.test("stripeSessionForm: the SDK's attempt id rides as client_reference_id + metadata on session and subscription", () => {
+  const base = {
+    priceId: "price_usd", email: "a@b.test", sku: "pro-monthly", tenantId: "t1", productId: "p1",
+    mode: "live" as const, trialDays: 0, success: "https://s/ok", cancel: "https://s/no",
+  }
+  const sub = new URLSearchParams(stripeSessionForm({ ...base, attemptId: "att-123" }))
+  assertEquals(sub.get("client_reference_id"), "att-123")
+  assertEquals(sub.get("metadata[attempt_id]"), "att-123")
+  assertEquals(sub.get("subscription_data[metadata][attempt_id]"), "att-123")
+
+  const oneTime = new URLSearchParams(stripeSessionForm({ ...base, oneTime: true, attemptId: "att-9" }))
+  assertEquals(oneTime.get("client_reference_id"), "att-9")
+  assertEquals(oneTime.get("metadata[attempt_id]"), "att-9")
+  assertEquals(oneTime.get("subscription_data[metadata][attempt_id]"), null, "a payment session carries no subscription_data")
+
+  // An older SDK sends no id: the form is exactly what it was.
+  const legacy = new URLSearchParams(stripeSessionForm(base))
+  assertEquals(legacy.get("client_reference_id"), null)
+  assertEquals(legacy.get("metadata[attempt_id]"), null)
+})

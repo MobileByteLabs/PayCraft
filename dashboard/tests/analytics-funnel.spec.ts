@@ -2,6 +2,10 @@
  * dashboard/tests/analytics-funnel.spec.ts — the paywall funnel renders from real `paywall_events`
  * (paycraft-paywall-analytics T7 / AC-6). Seeds a small funnel for the e2e tenant straight into the local
  * database, opens /analytics signed in, and checks the numbers on screen are the seeded ones.
+ *
+ * Since migration 213 (paycraft-attempt-observability sub-plan 07) the funnel is aggregated in SQL and "Paid" is
+ * what a PROVIDER confirmed: the seed carries 1 200 repeat views (the old API read stopped at 1 000 rows) and an
+ * app-side purchase_success with no provider record behind it, which must not count.
  */
 
 import { execSync } from "child_process"
@@ -22,13 +26,22 @@ test.beforeAll(() => {
   for (const d of ["v1", "v2", "v3", "v4"]) add("paycraft_plan_select", d, null, null)
   add("paycraft_checkout_start", "v1", "IN", "razorpay")
   add("paycraft_checkout_start", "v4", "US", "stripe")
-  add("paycraft_purchase_success", "v1", "IN", "razorpay")
-  psql(`DELETE FROM paywall_events WHERE tenant_id = '${TENANT}';
+  // The app says v4 paid, but no provider confirmed it — not Paid.
+  add("paycraft_purchase_success", "v4", "US", "stripe")
+  // v5 reopens the paywall 1 200 times: still one viewer, and enough rows to break a 1 000-row API read.
+  for (let i = 0; i < 1200; i++) add("paycraft_paywall_view", "v5", "US", null)
+  psql(`${cleanup}
         INSERT INTO paywall_events (tenant_id, device_ref, name, step, platform, country, provider, mode, occurred_at)
-        VALUES ${rows.join(",\n")};`)
+        VALUES ${rows.join(",\n")};
+        -- v1's purchase as Razorpay's webhook recorded it (provider truth, India).
+        INSERT INTO subscriptions (email, provider, plan, status, mode, tenant_id, country, created_at)
+        VALUES ('e2e-funnel-paid@paycraft.test', 'razorpay', 'pro-monthly', 'active', 'live', '${TENANT}', 'IN', now() - interval '1 hour');`)
 })
 
-test.afterAll(() => psql(`DELETE FROM paywall_events WHERE tenant_id = '${TENANT}';`))
+const cleanup = `DELETE FROM paywall_events WHERE tenant_id = '${TENANT}';
+  DELETE FROM subscriptions WHERE tenant_id = '${TENANT}' AND email = 'e2e-funnel-paid@paycraft.test';`
+
+test.afterAll(() => psql(cleanup))
 
 test("the paywall funnel shows the seeded buyers per stage, country and provider", async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 1100 })
@@ -39,7 +52,7 @@ test("the paywall funnel shows the seeded buyers per stage, country and provider
   const counts = await funnel.locator("li span.font-bold").allTextContents()
   expect(counts).toEqual(["5", "4", "2", "1"])
   await expect(funnel).toContainText("20.0% overall")
-  await expect(page.getByRole("heading", { name: "By country" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "By country", exact: true })).toBeVisible()
   await expect(page.getByText("India (IN)")).toBeVisible()
   await expect(page.getByText("Razorpay")).toBeVisible()
   await expect(page.getByText("Not chosen")).toHaveCount(0) // views carry no provider; the provider table starts at checkout

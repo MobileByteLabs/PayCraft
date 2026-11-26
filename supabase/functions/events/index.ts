@@ -6,7 +6,9 @@
 // { "apiKey": "pk_…", "deviceRef": "<per-app device fingerprint>", "deviceToken": "srv_…"?,
 //   "events": [{ "name": "paycraft_paywall_view", "step": "paywall", "platform": "android",
 //                "trigger"?, "sku"?, "currency"?, "provider"?, "reason"?, "experiment"?, "variant"?,
-//                "at": <epoch ms> }] }
+//                "attempt_id"?, "failure"?: { "stage", "error_class", "error_code"?, "error_message"? },
+//                "at": <epoch ms> }],
+//   "attempt_id"? }                       ← the batch's attempt, for events that carry none of their own
 //
 // 202 { stored: N } · 400 unknown_event / bad_event / bad_body · 401 invalid_apiKey · 413 too_large · 429
 //
@@ -14,15 +16,31 @@
 //   · Only catalog names (EVENT_CATALOG, generated from PayCraftEvent.kt) — one bad event refuses the batch.
 //   · No personal data: the buyer is stored as sha256(tenant_id || email), resolved here from the device
 //     token; the email itself never leaves `registered_devices`.
-//   · The country is the SERVER's (edge geo / Accept-Language) — a client-sent country is ignored.
+//   · The country is the edge's IP-geo when there is one (`country_source = 'server'`); else the region the device
+//     reported for the event, or its Accept-Language region (`'device'`) — migration 215. Supabase's edge sends no
+//     geo header, so without the device fallback every row's country was null.
 //   · One device cannot flood the table (token bucket per tenant + device).
+//   · Attempts (migration 210): an event's `attempt_id` (the SDK's purchase-attempt id) is stamped on its
+//     paywall_events row and the event is appended to that attempt's timeline (`attempt_events`, stage
+//     `sdk`); a `failure` lands there with its stage, class, code and a sanitised message ≤ 200 chars (D6).
+//     A malformed id or failure refuses the batch, like any other bad field.
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1"
 import { preflight, withCors } from "../_shared/cors.ts"
 import { EVENT_CATALOG } from "../_shared/event-catalog.ts"
-import { recordedCountry } from "../_shared/geo.ts"
+import { eventCountry } from "../_shared/geo.ts"
 import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/rate-limit.ts"
+import {
+  appendEvents,
+  ATTEMPT_STAGES,
+  attemptBestEffort,
+  type AttemptFailure,
+  type AttemptStage,
+  normaliseAttemptId,
+  sanitiseCode,
+  sanitiseMessage,
+} from "../_shared/payment-attempts.ts"
 
 const MAX_BYTES = 32_768
 const MAX_EVENTS = 50
@@ -39,6 +57,28 @@ type InEvent = {
   name?: unknown; step?: unknown; platform?: unknown; trigger?: unknown; sku?: unknown
   currency?: unknown; provider?: unknown; reason?: unknown; at?: unknown
   experiment?: unknown; variant?: unknown
+  attempt_id?: unknown; failure?: unknown
+  /** The device's region (alpha-2) — stored only when the edge has no geo (migration 215). */
+  deviceCountry?: unknown
+}
+
+/** The failure an SDK event reports, validated: a known stage and a class are required (D6). */
+function parseFailure(v: unknown): AttemptFailure | null | "bad" {
+  if (v === undefined || v === null) return null
+  if (typeof v !== "object" || Array.isArray(v)) return "bad"
+  const f = v as Record<string, unknown>
+  const stage = typeof f.stage === "string" && (ATTEMPT_STAGES as readonly string[]).includes(f.stage)
+    ? f.stage as AttemptStage
+    : null
+  const errorClass = typeof f.error_class === "string" ? sanitiseCode(f.error_class) : null
+  if (!stage || !errorClass) return "bad"
+  const code = typeof f.error_code === "string" || typeof f.error_code === "number" ? f.error_code : null
+  return {
+    stage,
+    error_class: errorClass,
+    error_code: sanitiseCode(code),
+    error_message: sanitiseMessage(typeof f.error_message === "string" ? f.error_message : null),
+  }
 }
 
 const json = (status: number, body: unknown) =>
@@ -66,7 +106,7 @@ serve(async (req: Request): Promise<Response> => {
 
   const raw = await req.text()
   if (new TextEncoder().encode(raw).length > MAX_BYTES) return json(413, { error: "too_large", max_bytes: MAX_BYTES })
-  let body: { apiKey?: string; deviceRef?: string; deviceToken?: string; events?: InEvent[] }
+  let body: { apiKey?: string; deviceRef?: string; deviceToken?: string; events?: InEvent[]; attempt_id?: unknown }
   try {
     body = JSON.parse(raw)
   } catch {
@@ -92,8 +132,14 @@ serve(async (req: Request): Promise<Response> => {
     throw e
   }
 
+  // The batch-level attempt, for events that carry none of their own.
+  const batchAttempt = normaliseAttemptId(body.attempt_id)
+  if (body.attempt_id != null && !batchAttempt) return json(400, { error: "bad_body", detail: "attempt_id" })
+
   const now = Date.now()
   const rows = []
+  // The attempt timeline rows these events produce — beside, not inside, the paywall_events rows.
+  const timeline: Array<{ attemptId: string; event: string; failure: AttemptFailure | null; at: string }> = []
   for (const e of body.events) {
     const name = str(e?.name, 40)
     if (!name || !EVENT_CATALOG.has(name)) return json(400, { error: "unknown_event", name: e?.name ?? null })
@@ -103,18 +149,29 @@ serve(async (req: Request): Promise<Response> => {
     if (!step || !STEP.test(step) || !platform || !PLATFORMS.has(platform) || !Number.isFinite(at) || Math.abs(at - now) > MAX_SKEW_MS) {
       return json(400, { error: "bad_event", name })
     }
+    const ownAttempt = normaliseAttemptId(e.attempt_id)
+    if (e.attempt_id != null && !ownAttempt) return json(400, { error: "bad_event", name, detail: "attempt_id" })
+    const attemptId = ownAttempt ?? batchAttempt
+    const failure = parseFailure(e.failure)
+    if (failure === "bad") return json(400, { error: "bad_event", name, detail: "failure" })
+    if (failure && !attemptId) return json(400, { error: "bad_event", name, detail: "failure requires attempt_id" })
     const currency = str(e.currency, 3)
     const experiment = str(e.experiment, 48)
     const variant = str(e.variant, 32)
     const inExperiment = experiment !== null && variant !== null && EXPERIMENT.test(experiment) && VARIANT.test(variant)
+    // The edge's geo wins; else the region this device reported for the event (migration 215, `country_source`).
+    const { country, source: country_source } = eventCountry(req, str(e.deviceCountry, 8))
     rows.push({
+      country, country_source,
       name, step, platform,
       trigger: str(e.trigger, 100), sku: str(e.sku, 100), provider: str(e.provider, 40), reason: str(e.reason, 100),
       currency: currency && CURRENCY.test(currency) ? currency : null,
       experiment: inExperiment ? experiment : null,
       variant: inExperiment ? variant : null,
+      attempt_id: attemptId,
       occurred_at: new Date(at).toISOString(),
     })
+    if (attemptId) timeline.push({ attemptId, event: name, failure, at: new Date(at).toISOString() })
   }
   if (rows.length === 0) return json(202, { stored: 0 })
 
@@ -131,10 +188,25 @@ serve(async (req: Request): Promise<Response> => {
   const mode = (req.headers.get("x-paycraft-mode") ?? (body as { mode?: string }).mode ?? "").toLowerCase() === "test"
     ? "test"
     : "live"
-  const country = recordedCountry(req)
+  // The app's version, once per batch (migration 215) — what PayCraft's analytics segment by beside GA4's appVersion.
+  const appVersion = str((body as { appVersion?: unknown }).appVersion, 32)
   const { error } = await supabase.from("paywall_events").insert(
-    rows.map((r) => ({ ...r, tenant_id: tenantId, user_ref: userRef, device_ref: deviceRef, country, mode })),
+    rows.map((r) => ({ ...r, tenant_id: tenantId, user_ref: userRef, device_ref: deviceRef, app_version: appVersion, mode })),
   )
   if (error) return json(500, { error: "store_failed" })
+
+  // The attempt timeline (one write through _shared/payment-attempts.ts). The funnel rows above are what this
+  // request promised; a timeline write that fails is logged and the batch still counts as stored (a retry
+  // would duplicate the funnel rows).
+  if (timeline.length) {
+    await attemptBestEffort(`events timeline (${timeline.length} rows)`, () =>
+      appendEvents(supabase, tenantId, timeline.map((t) => ({
+        attemptId: t.attemptId,
+        stage: t.failure?.stage ?? "sdk",
+        event: t.event,
+        failure: t.failure,
+        at: t.at,
+      }))))
+  }
   return json(202, { stored: rows.length })
 })

@@ -7,42 +7,63 @@
 //
 // Endpoint (E6 wiring): register this URL as the Pub/Sub push endpoint for the RTDN topic
 // configured in the Play Console. Service-account credentials for the re-fetch come from play-jwt.ts.
+//
+// Attempts (migration 210): the SDK launches the Play purchase with `obfuscatedProfileId = attempt_id`
+// (obfuscatedAccountId stays the app user), so the re-fetched purchase names the attempt; an older SDK's
+// purchase is found through the purchase-token map register-play-purchase wrote. A purchase Play reports as
+// entitled moves the attempt to `provider_result` and the reconcile closes it as granted; a failure while
+// processing closes it failed at stage `webhook`. Best-effort: attempt bookkeeping never changes an ack.
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { resolveInboundTenant } from "../_shared/inbound-tenant.ts";
-import { reconcileEntitlement, googleToCanonical } from "../_shared/entitlement-reconcile.ts";
+import { googleToCanonical, isEntitledState, reconcileEntitlement } from "../_shared/entitlement-reconcile.ts";
+import {
+  attemptBestEffort,
+  closeAsFailed,
+  closeAsGranted,
+  resolveAttemptIdForPlayToken,
+  resolveAttemptIdFromPlay,
+  transitionAttempt,
+} from "../_shared/payment-attempts.ts";
+import { supabaseAdmin } from "../_shared/supabase-admin.ts";
 import { tenantPlayDeveloperJwt } from "../_shared/play-jwt.ts";
 import { subscriptionsv2Get } from "../_shared/play-api.ts";
 
 /**
- * Resolve the app-supplied account id for a one-time purchase via `purchases.products.get`.
+ * Resolve the app-supplied account id for a one-time purchase via `purchases.products.get` — and the
+ * attempt id the SDK put in `obfuscatedExternalProfileId`.
  *
  * Separate from the subscription path's `subscriptionsv2Get`: managed products are a different
  * Play resource and carry the identifier under `obfuscatedExternalAccountId` on the product
- * purchase itself. Returns null when the app did not set one, which is a REFUSAL rather than a
+ * purchase itself. `appUserId` is null when the app did not set one, which is a REFUSAL rather than a
  * fallback to the purchase token: attributing a paid grant to a token would mint a throwaway
  * subject the buyer can never sign back into.
  */
-async function oneTimeProductAppUserId(
+async function oneTimeProductPurchase(
   packageName: string,
   sku: string,
   token: string,
   jwt: string,
-): Promise<string | null> {
+): Promise<{ appUserId: string | null; attemptId: string | null }> {
   const res = await fetch(
     `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${packageName}/purchases/products/${encodeURIComponent(sku)}/tokens/${encodeURIComponent(token)}`,
     { headers: { Authorization: `Bearer ${jwt}` } },
   );
   if (!res.ok) {
     console.error(`[google-rtdn] purchases.products.get failed (${res.status})`);
-    return null;
+    return { appUserId: null, attemptId: null };
   }
   const purchase = await res.json();
-  return purchase?.obfuscatedExternalAccountId ?? null;
+  return {
+    appUserId: purchase?.obfuscatedExternalAccountId ?? null,
+    attemptId: resolveAttemptIdFromPlay(purchase),
+  };
 }
 
 serve(async (req: Request) => {
+  // The purchase attempt this notification answers, once known — read by the failure path below.
+  let attemptId: string | null = null;
   try {
     const envelope = await req.json(); // Pub/Sub push: { message: { data: <base64 DeveloperNotification> } }
     const message = envelope.message;
@@ -79,7 +100,9 @@ serve(async (req: Request) => {
       const jwt = await tenantPlayDeveloperJwt(packTenantId);
       // The obfuscated account id is the app's OWN user id, threaded through the purchase by the
       // SDK. It is the only buyer identity Play exposes — there is no email on a store purchase.
-      const appUserId = await oneTimeProductAppUserId(rtdn.packageName, oneTime.sku, oneTime.purchaseToken, jwt);
+      const purchase = await oneTimeProductPurchase(rtdn.packageName, oneTime.sku, oneTime.purchaseToken, jwt);
+      const appUserId = purchase.appUserId;
+      attemptId = purchase.attemptId;
       if (!appUserId) {
         console.error(`[google-rtdn] one-time purchase ${oneTime.sku} has no account id — cannot attribute the grant`);
         return new Response("ok", { status: 200 });
@@ -100,6 +123,16 @@ serve(async (req: Request) => {
       });
       if (!grant.granted) {
         console.error(`[google-rtdn] consumable grant refused for ${oneTime.sku}: ${grant.reason}`);
+      } else if (attemptId) {
+        // A pack credits a balance, not an entitlement record — the credit IS the grant.
+        const packAttempt = attemptId;
+        await attemptBestEffort(`google-rtdn consumable grant ${packAttempt}`, async () => {
+          await transitionAttempt(supabaseAdmin, packAttempt, "provider_result", {
+            paid_at: new Date().toISOString(),
+            provider_subscription_id: oneTime.purchaseToken,
+          });
+          return closeAsGranted(supabaseAdmin, packAttempt);
+        });
       }
       return new Response("ok", { status: 200 });
     }
@@ -141,8 +174,13 @@ serve(async (req: Request) => {
       appIdentifier: rtdn.packageName,
       provider: "google_play",
     });
+    // An older SDK's purchase is known only through the token map register-play-purchase wrote; resolved
+    // before the re-fetch so a failed re-fetch still lands on the attempt.
+    attemptId = await attemptBestEffort(`google-rtdn token map`, () =>
+      resolveAttemptIdForPlayToken(supabaseAdmin, sub.purchaseToken));
     const jwt = await tenantPlayDeveloperJwt(subTenantId);
     const truth = await subscriptionsv2Get(rtdn.packageName, sub.purchaseToken, jwt);
+    attemptId = resolveAttemptIdFromPlay(truth) ?? attemptId;
     // Prefer the developer-supplied obfuscated account id for stable identity linking.
     const appUserId: string = truth.externalAccountIdentifiers?.obfuscatedExternalAccountId ??
       truth.externalAccountIdentifiers?.externalAccountId ??
@@ -151,13 +189,30 @@ serve(async (req: Request) => {
     // No reuse guard here: the token came from Google, not a client, and this id is only the
     // hashed obfuscatedAccountId. preserveOwner keeps the owner the SDK's grant/claim set — the
     // old guard rejected every renewal after a restore transfer, and Pub/Sub retried it forever.
-    await reconcileEntitlement({
-      ...googleToCanonical(truth, sub.purchaseToken, appUserId),
-      tenantId: subTenantId,
-    }, { preserveOwner: true });
+    const canonical = { ...googleToCanonical(truth, sub.purchaseToken, appUserId), tenantId: subTenantId };
+    // Play says the purchase is live (paid or in trial): that is the provider's answer to the attempt.
+    const subAttempt = attemptId;
+    if (subAttempt && isEntitledState(canonical.canonicalState)) {
+      await attemptBestEffort(`google-rtdn provider_result ${subAttempt}`, () =>
+        transitionAttempt(supabaseAdmin, subAttempt, "provider_result", {
+          paid_at: typeof truth.startTime === "string" ? new Date(truth.startTime).toISOString() : new Date().toISOString(),
+          provider_subscription_id: sub.purchaseToken,
+        }));
+    }
+    await reconcileEntitlement(canonical, { preserveOwner: true, attemptId });
     return new Response("ok", { status: 200 });
   } catch (err) {
     console.error("google-rtdn error:", (err as Error).message);
+    const failed = attemptId;
+    if (failed) {
+      await attemptBestEffort(`google-rtdn failure ${failed}`, () =>
+        closeAsFailed(supabaseAdmin, failed, {
+          stage: "webhook",
+          error_class: "google_rtdn",
+          error_code: "processing_error",
+          error_message: (err as Error).message,
+        }));
+    }
     // 500 so Pub/Sub retries transient failures; a poison message eventually dead-letters.
     return new Response((err as Error).message, { status: 500 });
   }

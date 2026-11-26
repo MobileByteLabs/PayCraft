@@ -6,6 +6,11 @@
 #
 # Deleting a line without writing the test makes the gate fail, which is the point:
 # the backlog is visible and burns down deliberately instead of being quietly forgotten.
+#
+# attempt-correlation.e2e.test.ts (paycraft-attempt-observability, 2026-11-25) covers stripe-webhook,
+# razorpay-webhook, register-play-purchase and attempt-stitch — their uncovered: lines were burned down.
+# attempt-alerts.e2e.test.ts — critical dispatch, hourly digest, channel-fault isolation, failure_rate_spike (AC-7);
+# covers the new attempt-alerts function (engine in-process over real SQL + its served service-role door).
 uncovered:function:account-token
 uncovered:function:apple-server-notifications
 uncovered:function:billing
@@ -20,12 +25,9 @@ uncovered:function:midtrans-webhook
 uncovered:function:paddle-webhook
 uncovered:function:paypal-webhook
 uncovered:function:paystack-webhook
-uncovered:function:razorpay-webhook
 uncovered:function:register-appstore
-uncovered:function:register-play-purchase
 uncovered:function:send-welcome
 uncovered:function:stripe-connect-oauth
-uncovered:function:stripe-webhook
 uncovered:function:support-to-linear
 uncovered:function:tenant-alerts
 uncovered:function:webhook-health

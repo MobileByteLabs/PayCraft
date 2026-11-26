@@ -283,6 +283,19 @@ interface PayCraftService {
     ): EntitlementDto? = null
 
     /**
+     * [registerPlayPurchase] for a known purchase attempt: [attemptId] rides in the body so the server maps this
+     * purchase token to the attempt (paycraft-attempt-observability D5). The default ignores it, so a fake that
+     * implements only the four-argument form keeps working.
+     */
+    suspend fun registerPlayPurchase(
+        purchaseToken: String,
+        productId: String,
+        appUserId: String,
+        packageName: String,
+        attemptId: String?,
+    ): EntitlementDto? = registerPlayPurchase(purchaseToken, productId, appUserId, packageName)
+
+    /**
      * Register a completed **StoreKit** purchase server-side — the Apple mirror of
      * [registerPlayPurchase].
      *
@@ -307,6 +320,17 @@ interface PayCraftService {
         appUserId: String,
         productId: String,
     ): EntitlementDto? = null
+
+    /**
+     * [registerAppStorePurchase] for a known purchase attempt. The App Store's receipt has no free field for it
+     * (`appAccountToken` is the user), so the server maps `original_transaction_id → attempt` from this body (D5).
+     */
+    suspend fun registerAppStorePurchase(
+        signedTransaction: String,
+        appUserId: String,
+        productId: String,
+        attemptId: String?,
+    ): EntitlementDto? = registerAppStorePurchase(signedTransaction, appUserId, productId)
 }
 
 /** Wire shape of the `register-play-purchase` edge-function response. */
@@ -681,6 +705,14 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         productId: String,
         appUserId: String,
         packageName: String,
+    ): EntitlementDto? = registerPlayPurchase(purchaseToken, productId, appUserId, packageName, attemptId = null)
+
+    override suspend fun registerPlayPurchase(
+        purchaseToken: String,
+        productId: String,
+        appUserId: String,
+        packageName: String,
+        attemptId: String?,
     ): EntitlementDto? = try {
         val backend = PayCraft.backend
         val url = "${backend.supabaseUrl}/functions/v1/register-play-purchase"
@@ -690,13 +722,14 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
             header("apikey", backend.supabaseAnonKey)
             contentType(ContentType.Application.Json)
             setBody(
-                buildJsonObject {
-                    put("purchase_token", purchaseToken)
-                    put("product_id", productId)
-                    put("app_user_id", appUserId)
-                    put("package_name", packageName)
-                    apiKey?.let { put("api_key", it) }
-                },
+                PayCraftContract.registerPlayPurchaseBody(
+                    purchaseToken = purchaseToken,
+                    productId = productId,
+                    appUserId = appUserId,
+                    packageName = packageName,
+                    apiKey = apiKey,
+                    attemptId = attemptId,
+                ),
             )
         }
         if (!response.status.isSuccess()) {
@@ -721,6 +754,13 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
         signedTransaction: String,
         appUserId: String,
         productId: String,
+    ): EntitlementDto? = registerAppStorePurchase(signedTransaction, appUserId, productId, attemptId = null)
+
+    override suspend fun registerAppStorePurchase(
+        signedTransaction: String,
+        appUserId: String,
+        productId: String,
+        attemptId: String?,
     ): EntitlementDto? = try {
         val backend = PayCraft.backend
         val url = "${backend.supabaseUrl}/functions/v1/register-appstore"
@@ -730,12 +770,13 @@ class PayCraftServiceImpl(private val client: SupabaseClient, private val apiKey
             header("apikey", backend.supabaseAnonKey)
             contentType(ContentType.Application.Json)
             setBody(
-                buildJsonObject {
-                    put("signed_transaction", signedTransaction)
-                    put("app_user_id", appUserId)
-                    put("product_id", productId)
-                    apiKey?.let { put("api_key", it) }
-                },
+                PayCraftContract.registerAppStoreBody(
+                    signedTransaction = signedTransaction,
+                    appUserId = appUserId,
+                    productId = productId,
+                    apiKey = apiKey,
+                    attemptId = attemptId,
+                ),
             )
         }
         if (!response.status.isSuccess()) {

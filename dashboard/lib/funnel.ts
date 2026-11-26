@@ -76,14 +76,94 @@ export function splitBy(events: FunnelEvent[], field: "country" | "provider"): S
     .sort((a, b) => b.viewers - a.viewers || b.checkouts - a.checkouts || a.key.localeCompare(b.key))
 }
 
-export const RANGE_OPTIONS = [7, 30, 90] as const
+/**
+ * The funnel as migration 213's `paywall_funnel_stats` aggregates it in SQL. Raw rows through the API stop at
+ * 1 000 (which once read "Picked a plan: 0" beside 147 real picks), and the app's purchase_success event is not
+ * what the providers confirmed — so `paid` and the payer columns come from entitlement_records (stores) and
+ * subscriptions (web PSPs), and `picked` counts a buyer who started checkout on the default plan.
+ */
+export type FunnelStats = {
+  viewed: number
+  picked: number
+  checkout: number
+  paid: number
+  by_country: Array<{ key: string; viewers: number; checkouts: number; paid: number }>
+  by_provider: Array<{ key: string; checkouts: number; paid: number }>
+  /** Migration 215: the same funnel split by platform and app version, and the filters Paid could not apply. */
+  by_platform?: Array<{ key: string; viewers: number; checkouts: number; paid: number }>
+  by_app_version?: Array<{ key: string; viewers: number; checkouts: number }>
+  paid_not_applied?: string[]
+}
 
-/** The range to show: the requested 7 / 30 / 90 days (default 30), capped at the plan's analytics retention. */
+/** The Analytics filters PayCraft's own funnel applies (migration 215). */
+export type FunnelFilters = { platform?: string; country?: string; appVersion?: string; plan?: string }
+
+type RpcClient = { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string } | null }> }
+
+export async function fetchFunnelStats(
+  sb: RpcClient,
+  tenantId: string,
+  mode: string,
+  sinceIso: string,
+  untilIso?: string,
+  filters: FunnelFilters = {},
+): Promise<FunnelStats> {
+  const args: Record<string, unknown> = { p_tenant_id: tenantId, p_mode: mode, p_since: sinceIso }
+  if (untilIso) args.p_until = untilIso
+  if (filters.platform) args.p_platform = filters.platform
+  if (filters.country) args.p_country = filters.country
+  if (filters.appVersion) args.p_app_version = filters.appVersion
+  if (filters.plan) args.p_plan = filters.plan
+  const { data, error } = await sb.rpc("paywall_funnel_stats", args)
+  if (error) throw new Error(`paywall_funnel_stats: ${error.message}`)
+  return data as FunnelStats
+}
+
+export function funnelFromStats(s: FunnelStats): FunnelRow[] {
+  const counts = [s.viewed, s.picked, s.checkout, s.paid]
+  return FUNNEL_STAGES.map((stage, i) => {
+    const users = counts[i]
+    const prev = i === 0 ? 0 : counts[i - 1]
+    return {
+      stage,
+      users,
+      dropFromPrev: i === 0 || prev === 0 ? null : 1 - users / prev,
+      ofFirst: s.viewed === 0 ? null : users / s.viewed,
+    }
+  })
+}
+
+export function splitsFromStats(s: FunnelStats): { byCountry: SplitRow[]; byProvider: SplitRow[] } {
+  const nonEmpty = (r: SplitRow) => r.viewers + r.checkouts + r.payers > 0
+  return {
+    byCountry: s.by_country.map((r) => ({ key: r.key, viewers: r.viewers, checkouts: r.checkouts, payers: r.paid })).filter(nonEmpty),
+    byProvider: s.by_provider.map((r) => ({ key: r.key, viewers: 0, checkouts: r.checkouts, payers: r.paid })).filter(nonEmpty),
+  }
+}
+
+/**
+ * "All time" as a window length: paid plans keep analytics forever (tier_definitions.analytics_retention_days =
+ * 36 500, migration 217), so one numeric window serves every query — and the purge never reaches it.
+ */
+export const ALL_TIME_DAYS = 36_500
+
+export const RANGE_OPTIONS = [7, 30, 90, ALL_TIME_DAYS] as const
+
+/** The range to show: 7 / 30 / 90 days or `all` (default 30), capped at the plan's analytics retention. */
 export function rangeDays(requested: string | undefined, retentionDays: number): { days: number; capped: boolean } {
-  const n = Number(requested)
+  const n = requested === "all" ? ALL_TIME_DAYS : Number(requested)
   const want = (RANGE_OPTIONS as readonly number[]).includes(n) ? n : 30
   return want > retentionDays ? { days: retentionDays, capped: true } : { days: want, capped: false }
 }
+
+/** "Last 30 days" / "All time". */
+export const rangeLabel = (days: number) => (days >= ALL_TIME_DAYS ? "All time" : `Last ${days} days`)
+
+/** How long a plan keeps analytics: "7 days" / "forever". */
+export const retentionLabel = (days: number) => (days >= ALL_TIME_DAYS ? "forever" : `${days} days`)
+
+/** The `range` URL value for a window. */
+export const rangeParam = (days: number) => (days >= ALL_TIME_DAYS ? "all" : String(days))
 
 export const STAGE_LABEL: Record<FunnelStage, string> = {
   paycraft_paywall_view: "Viewed paywall",

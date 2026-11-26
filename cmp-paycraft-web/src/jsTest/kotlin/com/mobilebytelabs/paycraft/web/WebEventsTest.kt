@@ -111,3 +111,12 @@ class WebEventsTest {
         assertEquals(50, pc.pendingEventCount())
     }
 }
+
+/** The tests' shorthand for [PayCraftWeb.track], whose arguments are all explicit to keep the web bundle small. */
+private fun PayCraftWeb.track(
+    name: PayCraftEventName,
+    step: PayCraftStep,
+    sku: String? = null,
+    currency: String? = null,
+    provider: String? = null,
+) = track(name, step, sku, currency, provider, null, null)

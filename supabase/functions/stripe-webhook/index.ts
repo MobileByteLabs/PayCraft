@@ -7,6 +7,15 @@ import Stripe from "https://esm.sh/stripe@14.0.0?target=deno";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?target=deno";
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
+import {
+  attemptBestEffort,
+  closeAsFailed,
+  closeAsGranted,
+  noteWebhookSignatureFailure,
+  recordProviderOutcome,
+  resolveAttemptIdFromStripe,
+  transitionAttempt,
+} from "../_shared/payment-attempts.ts";
 
 /**
  * Multi-tenant Stripe webhook receiver.
@@ -27,7 +36,28 @@ import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
  * price.created, payment_link.created, …): explicit 200 ack with `ignored:
  * true` payload — Stripe stops retrying immediately, so the CLI no longer
  * floods the terminal with 500s for events we don't care about.
+ *
+ * Attempts (migration 210): a Checkout Session carries the SDK's attempt id
+ * (`metadata.attempt_id`, else `client_reference_id`, set by checkout-initiate).
+ * A settled session moves that attempt to `provider_result` (paid_at = the
+ * event's time) and the entitlement write closes it as granted; an expired or
+ * failed session closes it abandoned / failed; a processing error closes it
+ * failed at stage `webhook`; a signature failure is noted on its timeline.
+ * All of it best-effort — attempt bookkeeping never changes a response.
  */
+
+/** Checkout Session events — the only ones whose object is the session the SDK's attempt id rides on. */
+const SESSION_EVENTS = new Set([
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
+  "checkout.session.expired",
+]);
+
+/** A settled session: card payments arrive "paid", trials and 100%-off checkouts "no_payment_required". */
+function sessionSettled(session: { payment_status?: string | null }): boolean {
+  return !session.payment_status || session.payment_status === "paid" || session.payment_status === "no_payment_required";
+}
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "http://kong:8000";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
@@ -165,6 +195,15 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
     console.error(
       `[stripe-webhook] signature verification failed (mode=${stripeMode}, tenant=${pathTenantId ?? "self-hosted"}): ${(err as Error).message}`,
     );
+    // Untrusted payload: nothing changes, but a real attempt it names records the refusal.
+    const claimed = SESSION_EVENTS.has(String(parsedBody.type))
+      ? resolveAttemptIdFromStripe((parsedBody as { data?: { object?: unknown } }).data?.object)
+      : null;
+    if (claimed && SERVICE_ROLE) {
+      const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false, autoRefreshToken: false } });
+      await attemptBestEffort(`stripe signature ${claimed}`, () =>
+        noteWebhookSignatureFailure(admin, claimed, "stripe", (err as Error).message));
+    }
     return new Response(`Webhook Error: ${(err as Error).message}`, { status: 400 });
   }
 
@@ -182,6 +221,9 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
     : null;
 
   let tenantId: string | null = pathTenantId;
+  // The SDK's purchase attempt this event answers (Checkout Session events only; renewals are not attempts).
+  const attemptId = SESSION_EVENTS.has(event.type) ? resolveAttemptIdFromStripe(event.data.object) : null;
+  const paidAt = new Date(event.created * 1000).toISOString();
   try {
     if (ATTRIBUTED_EVENTS.has(event.type)) tenantId ??= await stripeEventTenant(event.data.object, stripeClient);
     // Event-attributed app: call Stripe with THAT app's stored key, not the deployment env fallback (which may
@@ -194,6 +236,14 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
+        // The provider answered: settled now, or (async methods) once async_payment_succeeded arrives.
+        if (attemptId && supabase && sessionSettled(session)) {
+          await attemptBestEffort(`stripe provider_result ${attemptId}`, () =>
+            transitionAttempt(supabase, attemptId, "provider_result", {
+              paid_at: paidAt,
+              provider_subscription_id: (session.subscription as string | null) ?? (session.payment_intent as string | null) ?? null,
+            }));
+        }
         let email =
           session.customer_email || (session as any).customer_details?.email;
         if (!email && session.customer) {
@@ -224,6 +274,7 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
           await handleSubscriptionEvent({
             email,
             provider: "stripe",
+            country: (session as any).customer_details?.address?.country ?? null,
             customerId: session.customer as string,
             subscriptionId: session.subscription as string,
             plan:
@@ -241,6 +292,7 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
             trialEnd: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
             tenantId,
             eventType: event.type,
+            attemptId,
           });
         } else if (session.mode === "payment" && email) {
           // One-time / lifetime purchase (Product.Lifetime, tenant_products
@@ -299,6 +351,10 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
             console.log(
               `[stripe-webhook] granted ${consumable.quantity} of ${consumableSku} to ${email} (balance ${consumable.balance})`,
             );
+            // A pack credits a balance, not an entitlement record — the credit IS the grant.
+            if (attemptId && supabase) {
+              await attemptBestEffort(`stripe consumable grant ${attemptId}`, () => closeAsGranted(supabase, attemptId));
+            }
             break;
           }
           // Not a consumable → fall through to the lifetime path. Anything else is logged with the
@@ -334,6 +390,7 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
             trialEnd: null,
             tenantId,
             eventType: event.type,
+            attemptId,
           });
         }
         break;
@@ -347,6 +404,13 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
         // via `invoice.paid` / `customer.subscription.updated` already.
         const session = event.data.object as Stripe.Checkout.Session;
         if (session.mode !== "payment") break;
+        if (attemptId && supabase) {
+          await attemptBestEffort(`stripe provider_result ${attemptId}`, () =>
+            transitionAttempt(supabase, attemptId, "provider_result", {
+              paid_at: paidAt,
+              provider_subscription_id: (session.payment_intent as string | null) ?? null,
+            }));
+        }
 
         let email =
           session.customer_email || (session as any).customer_details?.email;
@@ -379,6 +443,7 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
           trialEnd: null,
           tenantId,
           eventType: event.type,
+          attemptId,
         });
         break;
       }
@@ -467,12 +532,14 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
       // A declined card does not end a Checkout session; it expires 24 h later, so "abandoned" covers both.
       case "checkout.session.expired":
       case "checkout.session.async_payment_failed": {
-        const row = attemptFromSession(
-          event.data.object,
-          event.type === "checkout.session.expired" ? "abandoned" : "payment_failed",
-          tenantId,
-        );
-        if (row && supabase) await recordAttempt(supabase, row);
+        const outcome = event.type === "checkout.session.expired" ? "abandoned" : "payment_failed";
+        const row = attemptFromSession(event.data.object, outcome, tenantId);
+        if (row && supabase) await recordAttempt(supabase, row, { attemptId });
+        else if (attemptId && supabase) {
+          // No email to list the buyer by, but the attempt itself still ends here.
+          await attemptBestEffort(`stripe ${outcome} ${attemptId}`, () =>
+            recordProviderOutcome(supabase, attemptId, outcome, { stage: "provider", error_class: `stripe_${outcome}` }));
+        }
         break;
       }
 
@@ -493,6 +560,17 @@ serve(withWebhookRateLimit({ bucket: "webhook:stripe" }, async (req) => {
       `[stripe-webhook] processing error (event=${event.type}):`,
       err,
     );
+    // Stripe retries a 500; until a retry lands, the attempt reads failed at the webhook (a later grant
+    // still closes it — failed → granted is a legal late edge).
+    if (attemptId && supabase) {
+      await attemptBestEffort(`stripe webhook failure ${attemptId}`, () =>
+        closeAsFailed(supabase, attemptId, {
+          stage: "webhook",
+          error_class: "stripe_webhook",
+          error_code: "processing_error",
+          error_message: (err as Error).message,
+        }));
+    }
     return new Response(`Processing Error: ${(err as Error).message}`, {
       status: 500,
     });

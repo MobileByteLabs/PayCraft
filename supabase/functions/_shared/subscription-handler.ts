@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1";
 import { reconcileEntitlement, type CanonicalState } from "./entitlement-reconcile.ts";
 import { resolveInboundTenant } from "./inbound-tenant.ts";
 import { buyerRef } from "./winback-offer.ts";
+import { attemptBestEffort, closeAsFailed } from "./payment-attempts.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -29,7 +30,7 @@ export function mapWebStatusToCanonical(status: string, cancelAtPeriodEnd: boole
   }
 }
 
-interface SubscriptionEvent {
+export interface SubscriptionEvent {
   email: string | null;
   provider: string;
   customerId: string | null;
@@ -54,6 +55,14 @@ interface SubscriptionEvent {
    * per-deployment rather than per-tenant. Resolved against `tenants.app_identifier`.
    */
   appIdentifier?: string | null;
+  /**
+   * The SDK's purchase attempt this event answers (migration 210), when the provider echoed it (Stripe
+   * metadata / client_reference_id, Razorpay notes, Cashfree order_tags). The entitlement write closes it as
+   * granted; a handler failure closes it as failed at stage `webhook`.
+   */
+  attemptId?: string | null;
+  /** The buyer's country as the PROVIDER reported it (alpha-2), e.g. Stripe's checkout customer address. */
+  country?: string | null;
 }
 
 export async function handleSubscriptionEvent(data: SubscriptionEvent) {
@@ -118,6 +127,8 @@ export async function handleSubscriptionEvent(data: SubscriptionEvent) {
         updated_at: new Date().toISOString(),
       };
       if (data.tenantId) row.tenant_id = data.tenantId;
+      // Only when the provider said: a later event without it must not erase the recorded country.
+      if (data.country) row.country = data.country.toUpperCase();
 
       // Find-then-write, not upsert: the per-tenant key is an EXPRESSION index
       // (COALESCE(tenant_id, …), email) that ON CONFLICT cannot name, and naming the index made every
@@ -289,7 +300,7 @@ async function reconcileWebEntitlement(data: SubscriptionEvent, appUserId: strin
       isSandbox: data.mode === "test",
       latestEventTs: new Date().toISOString(),
       rawStoreState: { status: data.status, plan: data.plan, mode: data.mode },
-    });
+    }, { attemptId: data.attemptId ?? null });
   } catch (reconcileErr) {
     // Reconcile must NEVER fail the webhook — the subscriptions table remains the live gating path.
     console.error("reconcileWebEntitlement threw (non-fatal):", (reconcileErr as Error).message);
@@ -323,5 +334,17 @@ async function logWebhookEvent(
   } catch (logErr) {
     // Never let logging failure break the webhook
     console.error("Failed to log webhook event:", logErr);
+  }
+  // The attempt this event answers failed at the webhook: closed as failed with the handler's reason
+  // (or, when it can no longer move, the failure is kept on its timeline). Never fails the webhook.
+  const attemptId = data.attemptId;
+  if (status === "failed" && attemptId) {
+    await attemptBestEffort(`webhook failure ${attemptId}`, () =>
+      closeAsFailed(supabase, attemptId, {
+        stage: "webhook",
+        error_class: `${data.provider}_webhook`,
+        error_code: "handler_failed",
+        error_message: errorMessage,
+      }));
   }
 }

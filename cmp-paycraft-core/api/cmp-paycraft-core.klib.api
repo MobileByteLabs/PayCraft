@@ -11,9 +11,13 @@ open annotation class com.mobilebytelabs.paycraft/PayCraftInternalApi : kotlin/A
 }
 
 final enum class com.mobilebytelabs.paycraft.analytics/PayCraftEventName : kotlin/Enum<com.mobilebytelabs.paycraft.analytics/PayCraftEventName> { // com.mobilebytelabs.paycraft.analytics/PayCraftEventName|null[0]
+    enum entry AttemptAbandon // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.AttemptAbandon|null[0]
     enum entry CheckoutReturn // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.CheckoutReturn|null[0]
     enum entry CheckoutStart // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.CheckoutStart|null[0]
     enum entry DeviceLimitView // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.DeviceLimitView|null[0]
+    enum entry NudgeOpen // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.NudgeOpen|null[0]
+    enum entry NudgeScheduled // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.NudgeScheduled|null[0]
+    enum entry NudgeSkipped // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.NudgeSkipped|null[0]
     enum entry OfferAccept // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.OfferAccept|null[0]
     enum entry OfferView // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.OfferView|null[0]
     enum entry PaywallView // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.PaywallView|null[0]
@@ -35,6 +39,22 @@ final enum class com.mobilebytelabs.paycraft.analytics/PayCraftEventName : kotli
 
     final fun valueOf(kotlin/String): com.mobilebytelabs.paycraft.analytics/PayCraftEventName // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.valueOf|valueOf#static(kotlin.String){}[0]
     final fun values(): kotlin/Array<com.mobilebytelabs.paycraft.analytics/PayCraftEventName> // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.values|values#static(){}[0]
+}
+
+final enum class com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage : kotlin/Enum<com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage> { // com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage|null[0]
+    enum entry Entitlement // com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage.Entitlement|null[0]
+    enum entry Provider // com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage.Provider|null[0]
+    enum entry Sdk // com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage.Sdk|null[0]
+    enum entry Server // com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage.Server|null[0]
+    enum entry Webhook // com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage.Webhook|null[0]
+
+    final val entries // com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage> // com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage.entries.<get-entries>|<get-entries>#static(){}[0]
+    final val wire // com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage.wire|{}wire[0]
+        final fun <get-wire>(): kotlin/String // com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage.wire.<get-wire>|<get-wire>(){}[0]
+
+    final fun valueOf(kotlin/String): com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage // com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage> // com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage.values|values#static(){}[0]
 }
 
 final enum class com.mobilebytelabs.paycraft.analytics/PayCraftStep : kotlin/Enum<com.mobilebytelabs.paycraft.analytics/PayCraftStep> { // com.mobilebytelabs.paycraft.analytics/PayCraftStep|null[0]
@@ -242,6 +262,7 @@ abstract interface com.mobilebytelabs.paycraft.billing/NativeBillingClient { // 
     abstract suspend fun restore(): kotlin.collections/List<com.mobilebytelabs.paycraft.billing/NativePurchase> // com.mobilebytelabs.paycraft.billing/NativeBillingClient.restore|restore(){}[0]
     abstract suspend fun storefrontCountry(): kotlin/String? // com.mobilebytelabs.paycraft.billing/NativeBillingClient.storefrontCountry|storefrontCountry(){}[0]
     abstract suspend fun sync() // com.mobilebytelabs.paycraft.billing/NativeBillingClient.sync|sync(){}[0]
+    open suspend fun purchase(kotlin/String, kotlin/String?, com.mobilebytelabs.paycraft.billing/NativeProductType, kotlin/String?): com.mobilebytelabs.paycraft.billing/NativePurchaseResult // com.mobilebytelabs.paycraft.billing/NativeBillingClient.purchase|purchase(kotlin.String;kotlin.String?;com.mobilebytelabs.paycraft.billing.NativeProductType;kotlin.String?){}[0]
 }
 
 abstract interface com.mobilebytelabs.paycraft.network/PayCraftService { // com.mobilebytelabs.paycraft.network/PayCraftService|null[0]
@@ -262,7 +283,9 @@ abstract interface com.mobilebytelabs.paycraft.network/PayCraftService { // com.
     open suspend fun owns(kotlin/String, kotlin/String): kotlin/Boolean // com.mobilebytelabs.paycraft.network/PayCraftService.owns|owns(kotlin.String;kotlin.String){}[0]
     open suspend fun recordStoreAttempt(kotlin/String, kotlin/String, kotlin/String, kotlin/String, kotlin/String, kotlin/String? = ...): kotlin/Boolean // com.mobilebytelabs.paycraft.network/PayCraftService.recordStoreAttempt|recordStoreAttempt(kotlin.String;kotlin.String;kotlin.String;kotlin.String;kotlin.String;kotlin.String?){}[0]
     open suspend fun registerAppStorePurchase(kotlin/String, kotlin/String, kotlin/String): com.mobilebytelabs.paycraft.network/EntitlementDto? // com.mobilebytelabs.paycraft.network/PayCraftService.registerAppStorePurchase|registerAppStorePurchase(kotlin.String;kotlin.String;kotlin.String){}[0]
+    open suspend fun registerAppStorePurchase(kotlin/String, kotlin/String, kotlin/String, kotlin/String?): com.mobilebytelabs.paycraft.network/EntitlementDto? // com.mobilebytelabs.paycraft.network/PayCraftService.registerAppStorePurchase|registerAppStorePurchase(kotlin.String;kotlin.String;kotlin.String;kotlin.String?){}[0]
     open suspend fun registerPlayPurchase(kotlin/String, kotlin/String, kotlin/String, kotlin/String): com.mobilebytelabs.paycraft.network/EntitlementDto? // com.mobilebytelabs.paycraft.network/PayCraftService.registerPlayPurchase|registerPlayPurchase(kotlin.String;kotlin.String;kotlin.String;kotlin.String){}[0]
+    open suspend fun registerPlayPurchase(kotlin/String, kotlin/String, kotlin/String, kotlin/String, kotlin/String?): com.mobilebytelabs.paycraft.network/EntitlementDto? // com.mobilebytelabs.paycraft.network/PayCraftService.registerPlayPurchase|registerPlayPurchase(kotlin.String;kotlin.String;kotlin.String;kotlin.String;kotlin.String?){}[0]
     open suspend fun signOutDevice(kotlin/String, kotlin/String): kotlin/Boolean // com.mobilebytelabs.paycraft.network/PayCraftService.signOutDevice|signOutDevice(kotlin.String;kotlin.String){}[0]
     open suspend fun spendBalance(kotlin/String, kotlin/String, kotlin/Int, kotlin/String): kotlin/Int? // com.mobilebytelabs.paycraft.network/PayCraftService.spendBalance|spendBalance(kotlin.String;kotlin.String;kotlin.Int;kotlin.String){}[0]
     open suspend fun transferToDevice(kotlin/String, kotlin/String, kotlin/String?): kotlin/Boolean // com.mobilebytelabs.paycraft.network/PayCraftService.transferToDevice|transferToDevice(kotlin.String;kotlin.String;kotlin.String?){}[0]
@@ -717,6 +740,7 @@ sealed interface com.mobilebytelabs.paycraft.core/PaywallPresentation { // com.m
         final enum class Trigger : kotlin/Enum<com.mobilebytelabs.paycraft.core/PaywallPresentation.Shown.Trigger> { // com.mobilebytelabs.paycraft.core/PaywallPresentation.Shown.Trigger|null[0]
             enum entry IfNeeded // com.mobilebytelabs.paycraft.core/PaywallPresentation.Shown.Trigger.IfNeeded|null[0]
             enum entry Manual // com.mobilebytelabs.paycraft.core/PaywallPresentation.Shown.Trigger.Manual|null[0]
+            enum entry ResumeNudge // com.mobilebytelabs.paycraft.core/PaywallPresentation.Shown.Trigger.ResumeNudge|null[0]
             enum entry TrialManagedAppOpen // com.mobilebytelabs.paycraft.core/PaywallPresentation.Shown.Trigger.TrialManagedAppOpen|null[0]
 
             final val entries // com.mobilebytelabs.paycraft.core/PaywallPresentation.Shown.Trigger.entries|#static{}entries[0]
@@ -1072,16 +1096,20 @@ final class com.mobilebytelabs.paycraft.analytics/PayCraftAnalytics { // com.mob
 }
 
 final class com.mobilebytelabs.paycraft.analytics/PayCraftEvent { // com.mobilebytelabs.paycraft.analytics/PayCraftEvent|null[0]
-    constructor <init>(com.mobilebytelabs.paycraft.analytics/PayCraftEventName, com.mobilebytelabs.paycraft.analytics/PayCraftStep, kotlin/String, kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/Long, kotlin/String? = ..., kotlin/String? = ...) // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.<init>|<init>(com.mobilebytelabs.paycraft.analytics.PayCraftEventName;com.mobilebytelabs.paycraft.analytics.PayCraftStep;kotlin.String;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.Long;kotlin.String?;kotlin.String?){}[0]
+    constructor <init>(com.mobilebytelabs.paycraft.analytics/PayCraftEventName, com.mobilebytelabs.paycraft.analytics/PayCraftStep, kotlin/String, kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/Long, kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., com.mobilebytelabs.paycraft.analytics/PayCraftFailure? = ...) // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.<init>|<init>(com.mobilebytelabs.paycraft.analytics.PayCraftEventName;com.mobilebytelabs.paycraft.analytics.PayCraftStep;kotlin.String;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.Long;kotlin.String?;kotlin.String?;kotlin.String?;com.mobilebytelabs.paycraft.analytics.PayCraftFailure?){}[0]
 
     final val atMs // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.atMs|{}atMs[0]
         final fun <get-atMs>(): kotlin/Long // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.atMs.<get-atMs>|<get-atMs>(){}[0]
+    final val attemptId // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.attemptId|{}attemptId[0]
+        final fun <get-attemptId>(): kotlin/String? // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.attemptId.<get-attemptId>|<get-attemptId>(){}[0]
     final val country // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.country|{}country[0]
         final fun <get-country>(): kotlin/String? // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.country.<get-country>|<get-country>(){}[0]
     final val currency // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.currency|{}currency[0]
         final fun <get-currency>(): kotlin/String? // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.currency.<get-currency>|<get-currency>(){}[0]
     final val experiment // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.experiment|{}experiment[0]
         final fun <get-experiment>(): kotlin/String? // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.experiment.<get-experiment>|<get-experiment>(){}[0]
+    final val failure // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.failure|{}failure[0]
+        final fun <get-failure>(): com.mobilebytelabs.paycraft.analytics/PayCraftFailure? // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.failure.<get-failure>|<get-failure>(){}[0]
     final val name // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.name|{}name[0]
         final fun <get-name>(): com.mobilebytelabs.paycraft.analytics/PayCraftEventName // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.name.<get-name>|<get-name>(){}[0]
     final val platform // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.platform|{}platform[0]
@@ -1100,6 +1128,21 @@ final class com.mobilebytelabs.paycraft.analytics/PayCraftEvent { // com.mobileb
         final fun <get-variant>(): kotlin/String? // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.variant.<get-variant>|<get-variant>(){}[0]
 
     final fun params(): kotlin.collections/Map<kotlin/String, kotlin/String> // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.params|params(){}[0]
+}
+
+final class com.mobilebytelabs.paycraft.analytics/PayCraftFailure { // com.mobilebytelabs.paycraft.analytics/PayCraftFailure|null[0]
+    constructor <init>(com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage, kotlin/String, kotlin/String) // com.mobilebytelabs.paycraft.analytics/PayCraftFailure.<init>|<init>(com.mobilebytelabs.paycraft.analytics.PayCraftFailureStage;kotlin.String;kotlin.String){}[0]
+    constructor <init>(com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage, kotlin/String, kotlin/String, kotlin/String) // com.mobilebytelabs.paycraft.analytics/PayCraftFailure.<init>|<init>(com.mobilebytelabs.paycraft.analytics.PayCraftFailureStage;kotlin.String;kotlin.String;kotlin.String){}[0]
+
+    final val code // com.mobilebytelabs.paycraft.analytics/PayCraftFailure.code|{}code[0]
+        final fun <get-code>(): kotlin/String // com.mobilebytelabs.paycraft.analytics/PayCraftFailure.code.<get-code>|<get-code>(){}[0]
+    final val errorClass // com.mobilebytelabs.paycraft.analytics/PayCraftFailure.errorClass|{}errorClass[0]
+        final fun <get-errorClass>(): kotlin/String // com.mobilebytelabs.paycraft.analytics/PayCraftFailure.errorClass.<get-errorClass>|<get-errorClass>(){}[0]
+    final val stage // com.mobilebytelabs.paycraft.analytics/PayCraftFailure.stage|{}stage[0]
+        final fun <get-stage>(): com.mobilebytelabs.paycraft.analytics/PayCraftFailureStage // com.mobilebytelabs.paycraft.analytics/PayCraftFailure.stage.<get-stage>|<get-stage>(){}[0]
+
+    final var message // com.mobilebytelabs.paycraft.analytics/PayCraftFailure.message|{}message[0]
+        final fun <get-message>(): kotlin/String // com.mobilebytelabs.paycraft.analytics/PayCraftFailure.message.<get-message>|<get-message>(){}[0]
 }
 
 final class com.mobilebytelabs.paycraft.billing/NativeDisplayPrice { // com.mobilebytelabs.paycraft.billing/NativeDisplayPrice|null[0]
@@ -2339,8 +2382,8 @@ final class com.mobilebytelabs.paycraft.network/ActiveDevice { // com.mobilebyte
 final class com.mobilebytelabs.paycraft.network/CheckoutInitiateClient { // com.mobilebytelabs.paycraft.network/CheckoutInitiateClient|null[0]
     constructor <init>(io.ktor.client/HttpClient, com.mobilebytelabs.paycraft/PayCraftBackend) // com.mobilebytelabs.paycraft.network/CheckoutInitiateClient.<init>|<init>(io.ktor.client.HttpClient;com.mobilebytelabs.paycraft.PayCraftBackend){}[0]
 
-    final suspend fun initiate(kotlin/String, kotlin/String, kotlin/String, kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ...): com.mobilebytelabs.paycraft.network/CheckoutInitiateClient.Result // com.mobilebytelabs.paycraft.network/CheckoutInitiateClient.initiate|initiate(kotlin.String;kotlin.String;kotlin.String;kotlin.String?;kotlin.String?;kotlin.String?){}[0]
-    final suspend fun initiateWithOffer(kotlin/String, kotlin/String, kotlin/String, kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String?, kotlin/String?): com.mobilebytelabs.paycraft.network/CheckoutInitiateClient.Result // com.mobilebytelabs.paycraft.network/CheckoutInitiateClient.initiateWithOffer|initiateWithOffer(kotlin.String;kotlin.String;kotlin.String;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?){}[0]
+    final suspend fun initiate(kotlin/String, kotlin/String, kotlin/String, kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ...): com.mobilebytelabs.paycraft.network/CheckoutInitiateClient.Result // com.mobilebytelabs.paycraft.network/CheckoutInitiateClient.initiate|initiate(kotlin.String;kotlin.String;kotlin.String;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?){}[0]
+    final suspend fun initiateWithOffer(kotlin/String, kotlin/String, kotlin/String, kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String?, kotlin/String?, kotlin/String? = ...): com.mobilebytelabs.paycraft.network/CheckoutInitiateClient.Result // com.mobilebytelabs.paycraft.network/CheckoutInitiateClient.initiateWithOffer|initiateWithOffer(kotlin.String;kotlin.String;kotlin.String;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?){}[0]
 
     sealed class Result { // com.mobilebytelabs.paycraft.network/CheckoutInitiateClient.Result|null[0]
         final class Error : com.mobilebytelabs.paycraft.network/CheckoutInitiateClient.Result { // com.mobilebytelabs.paycraft.network/CheckoutInitiateClient.Result.Error|null[0]
@@ -2515,8 +2558,10 @@ final class com.mobilebytelabs.paycraft.network/PayCraftServiceImpl : com.mobile
     final suspend fun owns(kotlin/String, kotlin/String): kotlin/Boolean // com.mobilebytelabs.paycraft.network/PayCraftServiceImpl.owns|owns(kotlin.String;kotlin.String){}[0]
     final suspend fun recordStoreAttempt(kotlin/String, kotlin/String, kotlin/String, kotlin/String, kotlin/String, kotlin/String?): kotlin/Boolean // com.mobilebytelabs.paycraft.network/PayCraftServiceImpl.recordStoreAttempt|recordStoreAttempt(kotlin.String;kotlin.String;kotlin.String;kotlin.String;kotlin.String;kotlin.String?){}[0]
     final suspend fun registerAppStorePurchase(kotlin/String, kotlin/String, kotlin/String): com.mobilebytelabs.paycraft.network/EntitlementDto? // com.mobilebytelabs.paycraft.network/PayCraftServiceImpl.registerAppStorePurchase|registerAppStorePurchase(kotlin.String;kotlin.String;kotlin.String){}[0]
+    final suspend fun registerAppStorePurchase(kotlin/String, kotlin/String, kotlin/String, kotlin/String?): com.mobilebytelabs.paycraft.network/EntitlementDto? // com.mobilebytelabs.paycraft.network/PayCraftServiceImpl.registerAppStorePurchase|registerAppStorePurchase(kotlin.String;kotlin.String;kotlin.String;kotlin.String?){}[0]
     final suspend fun registerDevice(kotlin/String, kotlin/String, kotlin/String, kotlin/String, kotlin/String): com.mobilebytelabs.paycraft.network/RegisterDeviceResult // com.mobilebytelabs.paycraft.network/PayCraftServiceImpl.registerDevice|registerDevice(kotlin.String;kotlin.String;kotlin.String;kotlin.String;kotlin.String){}[0]
     final suspend fun registerPlayPurchase(kotlin/String, kotlin/String, kotlin/String, kotlin/String): com.mobilebytelabs.paycraft.network/EntitlementDto? // com.mobilebytelabs.paycraft.network/PayCraftServiceImpl.registerPlayPurchase|registerPlayPurchase(kotlin.String;kotlin.String;kotlin.String;kotlin.String){}[0]
+    final suspend fun registerPlayPurchase(kotlin/String, kotlin/String, kotlin/String, kotlin/String, kotlin/String?): com.mobilebytelabs.paycraft.network/EntitlementDto? // com.mobilebytelabs.paycraft.network/PayCraftServiceImpl.registerPlayPurchase|registerPlayPurchase(kotlin.String;kotlin.String;kotlin.String;kotlin.String;kotlin.String?){}[0]
     final suspend fun revokeDevice(kotlin/String, kotlin/String): kotlin/Boolean // com.mobilebytelabs.paycraft.network/PayCraftServiceImpl.revokeDevice|revokeDevice(kotlin.String;kotlin.String){}[0]
     final suspend fun signOutDevice(kotlin/String, kotlin/String): kotlin/Boolean // com.mobilebytelabs.paycraft.network/PayCraftServiceImpl.signOutDevice|signOutDevice(kotlin.String;kotlin.String){}[0]
     final suspend fun spendBalance(kotlin/String, kotlin/String, kotlin/Int, kotlin/String): kotlin/Int? // com.mobilebytelabs.paycraft.network/PayCraftServiceImpl.spendBalance|spendBalance(kotlin.String;kotlin.String;kotlin.Int;kotlin.String){}[0]
@@ -3525,6 +3570,7 @@ final object com.mobilebytelabs.paycraft/PayCraft { // com.mobilebytelabs.paycra
     final fun manageSubscription(kotlin/String? = ...) // com.mobilebytelabs.paycraft/PayCraft.manageSubscription|manageSubscription(kotlin.String?){}[0]
     final fun manageSubscriptionUrl(kotlin/String? = ...): kotlin/String? // com.mobilebytelabs.paycraft/PayCraft.manageSubscriptionUrl|manageSubscriptionUrl(kotlin.String?){}[0]
     final fun onAppOpen(com.mobilebytelabs.paycraft.core/EntitlementSnapshot, com.mobilebytelabs.paycraft.core/TrialSnapshot) // com.mobilebytelabs.paycraft/PayCraft.onAppOpen|onAppOpen(com.mobilebytelabs.paycraft.core.EntitlementSnapshot;com.mobilebytelabs.paycraft.core.TrialSnapshot){}[0]
+    final fun onNotificationOpened(kotlin/String): kotlin/Boolean // com.mobilebytelabs.paycraft/PayCraft.onNotificationOpened|onNotificationOpened(kotlin.String){}[0]
     final fun presentPaywall() // com.mobilebytelabs.paycraft/PayCraft.presentPaywall|presentPaywall(){}[0]
     final fun presentPaywallIfNeeded(kotlin/String? = ...) // com.mobilebytelabs.paycraft/PayCraft.presentPaywallIfNeeded|presentPaywallIfNeeded(kotlin.String?){}[0]
     final fun refreshConfig() // com.mobilebytelabs.paycraft/PayCraft.refreshConfig|refreshConfig(){}[0]
@@ -3534,6 +3580,7 @@ final object com.mobilebytelabs.paycraft/PayCraft { // com.mobilebytelabs.paycra
     final suspend fun answerExitSurvey(kotlin/String, kotlin/String, kotlin/String?, kotlin/String?): com.mobilebytelabs.paycraft.winback/WinbackResult // com.mobilebytelabs.paycraft/PayCraft.answerExitSurvey|answerExitSurvey(kotlin.String;kotlin.String;kotlin.String?;kotlin.String?){}[0]
     final suspend fun applyCoupon(kotlin/String, kotlin/String): com.mobilebytelabs.paycraft.network/CouponClient.Result // com.mobilebytelabs.paycraft/PayCraft.applyCoupon|applyCoupon(kotlin.String;kotlin.String){}[0]
     final suspend fun prefetchProducts() // com.mobilebytelabs.paycraft/PayCraft.prefetchProducts|prefetchProducts(){}[0]
+    final suspend fun requestNotificationPermission(): kotlin/Boolean // com.mobilebytelabs.paycraft/PayCraft.requestNotificationPermission|requestNotificationPermission(){}[0]
 
     final enum class Mode : kotlin/Enum<com.mobilebytelabs.paycraft/PayCraft.Mode> { // com.mobilebytelabs.paycraft/PayCraft.Mode|null[0]
         enum entry Live // com.mobilebytelabs.paycraft/PayCraft.Mode.Live|null[0]
@@ -3552,9 +3599,17 @@ final object com.mobilebytelabs.paycraft/PayCraftPlatform { // com.mobilebytelab
     final fun openUrl(kotlin/String) // com.mobilebytelabs.paycraft/PayCraftPlatform.openUrl|openUrl(kotlin.String){}[0]
 }
 
+final const val com.mobilebytelabs.paycraft.analytics/MAX_FAILURE_MESSAGE // com.mobilebytelabs.paycraft.analytics/MAX_FAILURE_MESSAGE|{}MAX_FAILURE_MESSAGE[0]
+    final fun <get-MAX_FAILURE_MESSAGE>(): kotlin/Int // com.mobilebytelabs.paycraft.analytics/MAX_FAILURE_MESSAGE.<get-MAX_FAILURE_MESSAGE>|<get-MAX_FAILURE_MESSAGE>(){}[0]
 final const val com.mobilebytelabs.paycraft.config/BUNDLED_FALLBACK_FILENAME // com.mobilebytelabs.paycraft.config/BUNDLED_FALLBACK_FILENAME|{}BUNDLED_FALLBACK_FILENAME[0]
     final fun <get-BUNDLED_FALLBACK_FILENAME>(): kotlin/String // com.mobilebytelabs.paycraft.config/BUNDLED_FALLBACK_FILENAME.<get-BUNDLED_FALLBACK_FILENAME>|<get-BUNDLED_FALLBACK_FILENAME>(){}[0]
 
+final val com.mobilebytelabs.paycraft.analytics/code // com.mobilebytelabs.paycraft.analytics/code|@com.mobilebytelabs.paycraft.analytics.PayCraftEvent{}code[0]
+    final fun (com.mobilebytelabs.paycraft.analytics/PayCraftEvent).<get-code>(): kotlin/String? // com.mobilebytelabs.paycraft.analytics/code.<get-code>|<get-code>@com.mobilebytelabs.paycraft.analytics.PayCraftEvent(){}[0]
+final val com.mobilebytelabs.paycraft.analytics/errorClass // com.mobilebytelabs.paycraft.analytics/errorClass|@com.mobilebytelabs.paycraft.analytics.PayCraftEvent{}errorClass[0]
+    final fun (com.mobilebytelabs.paycraft.analytics/PayCraftEvent).<get-errorClass>(): kotlin/String? // com.mobilebytelabs.paycraft.analytics/errorClass.<get-errorClass>|<get-errorClass>@com.mobilebytelabs.paycraft.analytics.PayCraftEvent(){}[0]
+final val com.mobilebytelabs.paycraft.analytics/stage // com.mobilebytelabs.paycraft.analytics/stage|@com.mobilebytelabs.paycraft.analytics.PayCraftEvent{}stage[0]
+    final fun (com.mobilebytelabs.paycraft.analytics/PayCraftEvent).<get-stage>(): kotlin/String? // com.mobilebytelabs.paycraft.analytics/stage.<get-stage>|<get-stage>@com.mobilebytelabs.paycraft.analytics.PayCraftEvent(){}[0]
 final val com.mobilebytelabs.paycraft.config/effectiveThemeOverride // com.mobilebytelabs.paycraft.config/effectiveThemeOverride|@com.mobilebytelabs.paycraft.config.PaywallDto{}effectiveThemeOverride[0]
     final fun (com.mobilebytelabs.paycraft.config/PaywallDto).<get-effectiveThemeOverride>(): kotlin.collections/Map<kotlin/String, kotlin/String> // com.mobilebytelabs.paycraft.config/effectiveThemeOverride.<get-effectiveThemeOverride>|<get-effectiveThemeOverride>@com.mobilebytelabs.paycraft.config.PaywallDto(){}[0]
 final val com.mobilebytelabs.paycraft.di/PayCraftModule // com.mobilebytelabs.paycraft.di/PayCraftModule|{}PayCraftModule[0]

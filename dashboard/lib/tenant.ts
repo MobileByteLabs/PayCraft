@@ -12,18 +12,48 @@ export async function requireTenant(): Promise<{ tenant: Tenant; userId: string 
     redirect("/auth/login")
   }
 
-  // Fetch all tenant memberships for this user.
-  const { data: memberships } = await supabase.rpc("tenant_admins_list_for_user")
+  // Fetch all tenant memberships for this user. A failed lookup throws (error page) — it must never
+  // read as "no apps", which would send an owner with apps into /onboarding.
+  const memberships = await listMemberships(supabase)
 
-  if (!memberships?.length) {
+  if (!memberships.length) {
     // First sign-in — no apps yet. Send the user through /onboarding so they
     // name the app themselves. NEVER auto-provision with their Google display
     // name (that ends up as "Rajan Maurya" or "John Doe" as the app brand).
     redirect("/onboarding")
   }
 
-  const { tenantId } = pickActiveTenant(memberships.map((m: any) => m.tenant_id))
+  const { tenantId } = pickActiveTenant(memberships.map((m) => m.tenant_id))
   return loadTenant(supabase, tenantId!, user!.id)
+}
+
+export type Membership = { tenant_id: string }
+
+/** The membership lookup failed twice — the caller must surface an error, not treat it as zero apps. */
+export class MembershipLookupError extends Error {
+  constructor(cause: string) {
+    super(`tenant membership lookup failed: ${cause}`)
+    this.name = "MembershipLookupError"
+  }
+}
+
+/**
+ * The caller's tenant memberships. THE one read of `tenant_admins_list_for_user`.
+ *
+ * Retries once: the local Kong gateway answers this RPC with a transient 502 when it reuses a
+ * connection PostgREST already closed, and a production gateway blip looks the same. A second
+ * failure throws `MembershipLookupError`; an empty array means the RPC succeeded with no rows.
+ */
+export async function listMemberships(
+  supabase: Pick<ReturnType<typeof createClient>, "rpc">,
+): Promise<Membership[]> {
+  let lastError = ""
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await supabase.rpc("tenant_admins_list_for_user")
+    if (!error) return (data ?? []) as Membership[]
+    lastError = error.message
+  }
+  throw new MembershipLookupError(lastError)
 }
 
 export type TenantResolution =
@@ -58,8 +88,8 @@ export async function resolveTenantForUser(
   supabase: ReturnType<typeof createClient>,
   requested?: string | null,
 ): Promise<TenantResolution> {
-  const { data: memberships } = await supabase.rpc("tenant_admins_list_for_user")
-  return pickActiveTenant((memberships ?? []).map((m: any) => m.tenant_id), requested)
+  const memberships = await listMemberships(supabase)
+  return pickActiveTenant(memberships.map((m) => m.tenant_id), requested)
 }
 
 async function loadTenant(
@@ -80,10 +110,10 @@ async function loadTenant(
 /** Get all tenants the current user is a member of (for AppSwitcher). */
 export async function getUserApps(): Promise<{ id: string; name: string; plan: string }[]> {
   const supabase = createClient()
-  const { data: memberships } = await supabase.rpc("tenant_admins_list_for_user")
-  if (!memberships?.length) return []
+  const memberships = await listMemberships(supabase)
+  if (!memberships.length) return []
 
-  const tenantIds = memberships.map((m: any) => m.tenant_id)
+  const tenantIds = memberships.map((m) => m.tenant_id)
   const { data: tenants } = await supabase
     .from("tenants")
     .select("id, name, plan")

@@ -1,7 +1,6 @@
 export const runtime = "edge"
 
 import {
-  TrendingUp,
   TrendingDown,
   Users,
   Webhook,
@@ -16,14 +15,34 @@ import { Badge } from "@/components/ui/badge"
 import { MRRChart } from "@/components/charts/mrr-chart"
 import { ChurnChart } from "@/components/charts/churn-chart"
 import { WebhookDonut } from "@/components/charts/webhook-donut"
-import { FunnelChart, RangeMenu, SplitTable } from "@/components/analytics/funnel-chart"
-import { funnel, rangeDays, splitBy, type FunnelEvent } from "@/lib/funnel"
+import { RangeMenu, SplitTable } from "@/components/analytics/funnel-chart"
+import { rangeDays, rangeLabel, retentionLabel, splitsFromStats } from "@/lib/funnel"
+import { joinedAnalytics, segmentRows, type JoinedAnalytics } from "@/lib/analytics-joined"
+import { PaymentHealthPanel } from "@/components/analytics/payment-health"
+import { AnalyticsFilters, type FilterValue } from "@/components/analytics/analytics-filters"
+import { JoinedFunnel } from "@/components/analytics/joined-funnel"
+import { SegmentTable } from "@/components/analytics/segment-tables"
+import { AiAuditPanel, type AuditFinding } from "@/components/analytics/ai-audit-panel"
 import { getMode } from "@/lib/mode"
 import { ga4ErrorMessage, ga4Overview, paycraftGa4Account } from "@/lib/ga4"
 import { Ga4ConnectCard, type Ga4ConnectionRow } from "@/components/analytics/ga4-connect-card"
 import { Ga4Panels } from "@/components/analytics/ga4-panels"
 
-export default async function AnalyticsPage({ searchParams }: { searchParams?: { range?: string } }) {
+type AnalyticsSearch = { range?: string; platform?: string; country?: string; app_version?: string; plan?: string }
+
+/** The URL's filters, kept only when well-formed (a malformed one is ignored, never sent to a query). */
+function readFilters(q: AnalyticsSearch | undefined): FilterValue {
+  const platform = q?.platform?.toLowerCase()
+  const country = q?.country?.toUpperCase()
+  return {
+    platform: platform && ["android", "ios", "web", "desktop", "macos"].includes(platform) ? platform : undefined,
+    country: country && /^[A-Z]{2}$/.test(country) ? country : undefined,
+    appVersion: q?.app_version && /^[0-9A-Za-z._+-]{1,32}$/.test(q.app_version) ? q.app_version : undefined,
+    plan: q?.plan && /^[a-z0-9][a-z0-9._-]{0,99}$/.test(q.plan) ? q.plan : undefined,
+  }
+}
+
+export default async function AnalyticsPage({ searchParams }: { searchParams?: AnalyticsSearch }) {
   const { tenant } = await requireTenant()
   const supabase = createClient()
 
@@ -47,27 +66,57 @@ export default async function AnalyticsPage({ searchParams }: { searchParams?: {
   const ga4 = ga4Account && ga4Connection?.verified_at
     ? await ga4Overview(ga4Connection.property_id, range.days, { token: ga4Account.token, saEmail: ga4Account.email }, ga4Connection.stream_ids ?? [])
     : null
-  const eventsRes = await supabase
-    .from("paywall_events")
-    .select("name,user_ref,device_ref,country,provider")
-    .eq("tenant_id", tenant.id)
-    .eq("mode", getMode())
-    .gte("occurred_at", since)
-    .in("name", ["paycraft_paywall_view", "paycraft_plan_select", "paycraft_checkout_start", "paycraft_purchase_success"])
-    .limit(50_000)
-  const funnelEvents = (eventsRes.data ?? []) as FunnelEvent[]
-  const funnelRows = funnel(funnelEvents)
-  const byCountry = splitBy(funnelEvents, "country")
-  const byProvider = splitBy(funnelEvents, "provider")
+  // The joined report (paycraft-ga4-analytics-audit): ONE filter set over the provider-truth funnel (migrations
+  // 213 + 215), Payment health and the app's GA4 streams — the same shape /v1/analytics serves the MCP and
+  // /idea-paycraft-analytics. A read failure is shown as such, never as an empty (healthy-looking) report.
+  const filters = readFilters(searchParams)
+  const joinedRes = await joinedAnalytics(supabase, tenant.id, getMode(), { days: range.days, ...filters }, { account: ga4Account }).then(
+    (data) => ({ data, error: null as string | null }),
+    (e: Error) => ({ data: null as JoinedAnalytics | null, error: e.message }),
+  )
+  const joined = joinedRes.data
+  const [{ data: findingRows }, { data: productRows }] = await Promise.all([
+    supabase
+      .from("analytics_findings")
+      .select("id,kind,severity,title,summary,proposed_fix,status,fixed_note,source,window_start,window_end,created_at")
+      .eq("tenant_id", tenant.id)
+      .order("created_at", { ascending: false })
+      .limit(20),
+    supabase.from("tenant_products").select("sku").eq("tenant_id", tenant.id).order("display_order"),
+  ])
+  const keysOf = (...lists: ({ key: string }[] | undefined)[]) =>
+    [...new Set(lists.flatMap((l) => (l ?? []).map((r) => r.key)).filter((k) => k && k !== "unknown"))]
+  const filterOptions = {
+    platforms: keysOf(joined?.ga4?.byPlatform, joined?.paycraft.by_platform),
+    countries: keysOf(joined?.ga4?.byCountry, joined?.paycraft.by_country).sort(),
+    appVersions: keysOf(joined?.ga4?.byAppVersion, joined?.paycraft.by_app_version),
+    plans: (productRows ?? []).map((p: { sku: string }) => p.sku),
+  }
+  const filterQuery = new URLSearchParams(
+    Object.entries({ platform: filters.platform, country: filters.country, app_version: filters.appVersion, plan: filters.plan })
+      .filter((e): e is [string, string] => !!e[1]),
+  ).toString()
+  const byProvider = joined ? splitsFromStats(joined.paycraft).byProvider : []
   const regionName = (() => {
     try {
       const names = new Intl.DisplayNames(["en"], { type: "region" })
-      return (cc: string) => (cc === "unknown" ? "Unknown" : `${names.of(cc) ?? cc} (${cc})`)
+      // Intl throws a RangeError on anything that is not a region code — never let one label take the page down.
+      return (cc: string) => {
+        if (cc === "unknown") return "Unknown"
+        if (!/^[A-Z]{2}$/.test(cc)) return cc
+        try {
+          return `${names.of(cc) ?? cc} (${cc})`
+        } catch {
+          return cc
+        }
+      }
     } catch {
       return (cc: string) => cc
     }
   })()
   const providerName = (p: string) => (p === "unknown" ? "Not chosen" : p.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()))
+  const platformName = (p: string) =>
+    p === "unknown" ? "Unknown" : p === "ios" ? "iOS" : p === "macos" ? "macOS" : p.charAt(0).toUpperCase() + p.slice(1)
 
   const [mrrRes, churnRes, subCountRes, revenueRes, webhookRes, subsSeriesRes] =
     await Promise.all([
@@ -212,31 +261,57 @@ export default async function AnalyticsPage({ searchParams }: { searchParams?: {
               rate.
             </p>
             <Badge tone="brand">
-              Retention {retentionDays} days ({tenant.plan ?? "free"})
+              Retention {retentionLabel(retentionDays)} ({tenant.plan ?? "free"})
             </Badge>
           </div>
         </div>
-        <RangeMenu days={range.days} retentionDays={retentionDays} />
+        <RangeMenu days={range.days} retentionDays={retentionDays} query={filterQuery} />
       </div>
 
-      {/* Paywall funnel — from PayCraft's own paywall_events (exact; GA4 panels show app-level context). */}
+      <AnalyticsFilters days={range.days} value={filters} options={filterOptions} />
+
+      {/* Paywall funnel — GA4 behaviour beside PayCraft's buyers and provider-confirmed Paid, one filter set. */}
       <section className="space-y-6" aria-labelledby="funnel-h">
-        <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-sm">
-          <div className="mb-6 flex flex-wrap items-baseline justify-between gap-2">
-            <div>
-              <h3 id="funnel-h" className="text-lg font-bold tracking-tight text-ink-900">Paywall funnel</h3>
-              <p className="mt-0.5 text-xs text-ink-500">
-                Distinct buyers at each step, last {range.days} days{range.capped ? ` (your plan keeps ${retentionDays})` : ""} · {getMode()} mode
-              </p>
+        <div>
+          <h3 id="funnel-h" className="text-lg font-bold tracking-tight text-ink-900">Paywall funnel</h3>
+          <p className="mt-0.5 text-xs text-ink-500">
+            {rangeLabel(range.days)}{range.capped ? ` (your plan keeps ${retentionLabel(retentionDays)})` : ""} · {getMode()} mode · Paid = purchases the providers confirmed
+          </p>
+        </div>
+        {joined ? (
+          <>
+            <JoinedFunnel
+              ga4={joined.ga4?.funnel ?? null}
+              ga4Status={joined.ga4Status}
+              paycraft={joined.paycraft}
+              notApplied={{ ga4: joined.ga4?.notApplied ?? [], paid: joined.paycraft.paid_not_applied ?? [] }}
+              filtered={!!filterQuery}
+            />
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+              <SegmentTable title="By platform" rows={segmentRows(joined.ga4?.byPlatform ?? null, joined.paycraft.by_platform ?? [])} label={platformName} />
+              <SegmentTable title="By country" rows={segmentRows(joined.ga4?.byCountry ?? null, joined.paycraft.by_country)} label={regionName} />
+              <SegmentTable title="By app version" rows={segmentRows(joined.ga4?.byAppVersion ?? null, joined.paycraft.by_app_version ?? [])} label={(v) => (v === "unknown" ? "Not reported" : v)} />
+              <SplitTable title="By payment provider" rows={byProvider} label={providerName} base="checkouts" />
             </div>
-          </div>
-          <FunnelChart rows={funnelRows} />
-        </div>
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <SplitTable title="By country" rows={byCountry} label={regionName} />
-          <SplitTable title="By payment provider" rows={byProvider} label={providerName} base="checkouts" />
-        </div>
+          </>
+        ) : (
+          <p role="alert" className="rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700">
+            Couldn&apos;t load the funnel: {joinedRes.error}
+          </p>
+        )}
       </section>
+
+      {/* What Claude found in this app's data and what was done about it (weekly digest + /idea-paycraft-analytics). */}
+      <AiAuditPanel findings={(findingRows ?? []) as AuditFinding[]} />
+
+      {/* Payment health — where attempts fail and where buyers give up, under the same filters. */}
+      {joined ? (
+        <PaymentHealthPanel data={joined.health} days={range.days} mode={getMode()} countryLabel={regionName} providerLabel={providerName} />
+      ) : (
+        <section aria-label="Payment health" role="alert" className="rounded-xl border border-danger-100 bg-danger-50 p-6 text-sm text-danger-700">
+          Payment health could not be loaded: {joinedRes.error}
+        </section>
+      )}
 
       {/* Google Analytics — the app's own GA4 property next to PayCraft's exact funnel. */}
       <section className="rounded-xl border border-ink-200 bg-white p-6 shadow-sm" aria-labelledby="ga4-h">
@@ -269,12 +344,6 @@ export default async function AnalyticsPage({ searchParams }: { searchParams?: {
             <span className="text-2xl font-extrabold tabular-nums text-ink-900">
               ${mrrToday.toFixed(0)}
             </span>
-            {mrrToday > 0 && (
-              <span className="text-xs font-bold text-success-600 flex items-center gap-0.5">
-                <TrendingUp className="w-3.5 h-3.5" strokeWidth={2.5} />
-                +12%
-              </span>
-            )}
           </div>
         </div>
 

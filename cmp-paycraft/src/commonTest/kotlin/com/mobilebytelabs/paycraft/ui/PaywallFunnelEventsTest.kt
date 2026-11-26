@@ -1,15 +1,22 @@
 package com.mobilebytelabs.paycraft.ui
 
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.analytics.AttemptTracker
 import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
 import com.mobilebytelabs.paycraft.analytics.PayCraftEventName
+import com.mobilebytelabs.paycraft.analytics.PayCraftFailure
+import com.mobilebytelabs.paycraft.analytics.PayCraftFailureStage
 import com.mobilebytelabs.paycraft.analytics.PayCraftStep
+import com.mobilebytelabs.paycraft.analytics.code
+import com.mobilebytelabs.paycraft.analytics.errorClass
+import com.mobilebytelabs.paycraft.analytics.stage
 import com.mobilebytelabs.paycraft.config.ProviderDto
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
 import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.model.SubscriptionStatus
+import com.mobilebytelabs.paycraft.notify.ResumeNudgeTrigger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -18,6 +25,10 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Every step of the mobile paywall reports where the buyer is and where they left (GOAL AC-2): the
@@ -38,9 +49,21 @@ class PaywallFunnelEventsTest {
             currency = "INR",
         )
 
+    private var minted = 0
+    private val attempts = AttemptTracker(now = { 7L }, newId = { "att-${minted++}" }, platform = { "android" }) {
+        events += it
+    }
+    private val ended = mutableListOf<ResumeNudgeTrigger>()
+
+    private fun tracker() = PaywallFunnelTracker(
+        emit = { e -> events += e },
+        now = { 7L },
+        attempts = attempts,
+        attemptEnded = { ended += it },
+    )
+
     private fun vm(billing: FakeBillingManager = FakeBillingManager()) = PayCraftPaywallViewModel(billing).also {
-        it.funnel =
-            PaywallFunnelTracker(emit = { e -> events += e }, now = { 7L })
+        it.funnel = tracker()
     }
 
     private fun names() = events.map { it.name }
@@ -111,13 +134,20 @@ class PaywallFunnelEventsTest {
     }
 
     @Test fun a_checkout_that_cannot_start_is_reported_as_a_failure_with_its_reason() {
-        val t = PaywallFunnelTracker(emit = { e -> events += e }, now = { 7L })
+        val t = tracker()
         t.shown()
         t.checkoutStarted(monthly, "razorpay")
-        t.purchaseFailed("checkout_rejected")
+        t.purchaseFailed(
+            PayCraftFailure(PayCraftFailureStage.Sdk, "paywall_vm", "checkout_rejected", "No plan for USD"),
+        )
         assertEquals(PayCraftEventName.PurchaseFail, events.last().name)
         assertEquals("checkout_rejected", events.last().reason)
         assertEquals(PayCraftStep.Checkout, events.last().step)
+        // Structured (paycraft-attempt-observability D6): the stage, class and code group it on the attempt timeline.
+        assertEquals("sdk", events.last().stage)
+        assertEquals("paywall_vm", events.last().errorClass)
+        assertEquals("checkout_rejected", events.last().code)
+        assertEquals("att-0", events.last().attemptId)
     }
 
     @Test fun sign_in_reports_its_view_and_completion() {
@@ -204,5 +234,78 @@ class PaywallFunnelEventsTest {
         PayCraft.paywallPlacement = null
         v.onShown()
         assertEquals("direct", events.single().trigger, "the earlier placement was consumed")
+    }
+
+    // ── Purchase attempts (paycraft-attempt-observability D4, AC-9) ──────────────────────────────────────────
+
+    @Test fun every_step_after_the_plan_pick_carries_the_same_attempt_id() {
+        val billing = FakeBillingManager()
+        val v = vm(billing)
+        v.onShown()
+        v.dispatch(PayCraftPaywallAction.SelectPlan(monthly))
+        v.dispatch(PayCraftPaywallAction.ShowProviderSheet(monthly))
+        v.dispatch(PayCraftPaywallAction.CheckoutWithProvider(monthly, ProviderDto(provider = "razorpay")))
+        billing.emitState(BillingState.Premium(SubscriptionStatus(isPremium = true, plan = "pro-monthly")))
+        assertNull(events.first().attemptId, "the paywall view comes before any attempt")
+        val after = events.drop(1)
+        assertEquals(PayCraftEventName.PlanSelect, after.first().name)
+        assertTrue(
+            after.map { it.name }.containsAll(
+                listOf(
+                    PayCraftEventName.ProviderView,
+                    PayCraftEventName.ProviderSelect,
+                    PayCraftEventName.CheckoutStart,
+                    PayCraftEventName.PurchaseSuccess,
+                ),
+            ),
+            after.map { it.name }.toString(),
+        )
+        val id = assertNotNull(after.first().attemptId)
+        assertTrue(after.all { it.attemptId == id }, "one attempt id: ${after.map { it.attemptId }}")
+        assertNull(attempts.current, "premium ends the attempt")
+    }
+
+    @Test fun picking_another_plan_closes_the_open_attempt_as_abandoned() {
+        val v = vm()
+        v.onShown()
+        v.dispatch(PayCraftPaywallAction.SelectPlan(monthly))
+        val first = events.last().attemptId
+        v.dispatch(PayCraftPaywallAction.SelectPlan(quarterly))
+        val closed = events.single { it.name == PayCraftEventName.AttemptAbandon }
+        assertEquals(first, closed.attemptId)
+        assertEquals("new_plan_select", closed.code)
+        assertNotEquals(first, events.last().attemptId)
+        assertEquals(PayCraftEventName.PlanSelect, events.last().name)
+    }
+
+    @Test fun checkout_return_is_reported_once_when_the_buyer_comes_back() {
+        val t = tracker()
+        t.shown()
+        t.checkoutStarted(monthly, "stripe")
+        t.hostedCheckoutLaunched()
+        assertTrue(t.awaitingCheckoutReturn)
+        t.checkoutReturned("success")
+        val ret = events.single { it.name == PayCraftEventName.CheckoutReturn }
+        assertEquals(PayCraftStep.Checkout, ret.step)
+        assertEquals("success", ret.reason)
+        assertEquals("att-0", ret.attemptId)
+        assertEquals(false, t.awaitingCheckoutReturn, "a second foreground is not a second return")
+    }
+
+    @Test fun leaving_after_checkout_started_ends_the_attempt_for_the_resume_reminder() {
+        val v = vm()
+        v.onShown()
+        v.dispatch(PayCraftPaywallAction.CheckoutWithProvider(monthly, ProviderDto(provider = "razorpay")))
+        v.dispatch(PayCraftPaywallAction.Dismiss)
+        assertEquals(listOf(ResumeNudgeTrigger.CheckoutAbandon), ended)
+        assertEquals("att-0", events.last { it.name == PayCraftEventName.StepAbandon }.attemptId)
+    }
+
+    @Test fun leaving_before_any_checkout_is_not_a_reminder_trigger() {
+        val v = vm()
+        v.onShown()
+        v.dispatch(PayCraftPaywallAction.SelectPlan(monthly))
+        v.dispatch(PayCraftPaywallAction.Dismiss)
+        assertTrue(ended.isEmpty())
     }
 }

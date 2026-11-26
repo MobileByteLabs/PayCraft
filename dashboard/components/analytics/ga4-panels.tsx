@@ -4,6 +4,7 @@
 
 import { Info } from "lucide-react"
 import type { Ga4Overview } from "@/lib/ga4"
+import { rangeLabel } from "@/lib/funnel"
 
 type Ok = Extract<Ga4Overview, { ok: true }>
 
@@ -56,7 +57,7 @@ export function Ga4Panels({ data, days }: { data: Ok; days: number }) {
       {data.totalsWithheld && <Withheld what="users" />}
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-lg border border-ink-200 p-4">
-          <h4 className="mb-3 text-sm font-semibold text-ink-900">Active users per day <span className="font-normal text-ink-400">· last {days} days</span></h4>
+          <h4 className="mb-3 text-sm font-semibold text-ink-900">Active users per day <span className="font-normal text-ink-400">· {rangeLabel(days).toLowerCase()}</span></h4>
           <UsersLine points={data.daily} />
         </div>
         <div className="rounded-lg border border-ink-200 p-4">

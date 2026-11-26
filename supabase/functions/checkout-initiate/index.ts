@@ -29,14 +29,28 @@
 // `razorpay-webhook` reads — `paycraft_email`, `paycraft_plan`, `paycraft_mode`,
 // `paycraft_tenant_id`, `paycraft_product_id` — so `subscription.authenticated` / `.charged` flow
 // into the existing entitlement handler with no further work.
+//
+// ATTEMPTS (migration 210). When the SDK sends `attempt_id`, this function opens that purchase attempt,
+// forwards the id to the provider (Stripe `client_reference_id` + `metadata.attempt_id`, Razorpay
+// `notes.attempt_id`) so the webhook closes the same record, moves it to `checkout_opened` on success and
+// records every refusal on it (stage `server` for our own, `provider` when the PSP rejected the call).
+// Without an id — an older SDK — nothing about the response changes.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1";
 import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/rate-limit.ts";
 import { preflight, withCors } from "../_shared/cors.ts";
 import { pickByCurrency, returnUrls, stripeSessionForm } from "./stripe-session.ts";
+import { razorpaySubscriptionPayload } from "./razorpay-subscription.ts";
 import { razorpayCheckoutTarget } from "./razorpay-return.ts";
 import { buyerRef, type OfferCoupon, offerUsable, type OfferRow } from "../_shared/winback-offer.ts";
 import { effectiveTrial } from "../_shared/trial.ts";
+import {
+  attemptBestEffort,
+  closeAsFailed,
+  normaliseAttemptId,
+  openAttempt,
+  transitionAttempt,
+} from "../_shared/payment-attempts.ts";
 
 const RAZORPAY_API = "https://api.razorpay.com/v1";
 const STRIPE_API = "https://api.stripe.com/v1";
@@ -80,23 +94,6 @@ function resolvePlanId(
   };
 }
 
-/**
- * Charges to authorise, chosen to be ~10 years while staying inside Razorpay's per-period maximum.
- * Yearly is the one that bites: its cap is 100, not the 120 a monthly plan allows.
- */
-function totalCountFor(interval: string): number {
-  switch (interval) {
-    case "year":
-      return 100
-    case "semiannual":
-      return 20
-    case "quarter":
-      return 40
-    default:
-      return 120
-  }
-}
-
 // Browser entry (cmp-paycraft-web): answer the CORS preflight, then add the CORS headers to
 // every response — success and error alike — without touching the handler's own logic.
 export async function handleCheckoutInitiate(req: Request): Promise<Response> {
@@ -117,6 +114,53 @@ export async function handleCheckoutInitiate(req: Request): Promise<Response> {
   }
 }
 
+/**
+ * The attempt this checkout belongs to (migration 210), when the SDK named one. Every exit after the
+ * attempt is opened goes through [refuse] so the reason lands on the attempt — stage `server` for a
+ * refusal of our own (no product, no price, no credentials), `provider` when the PSP rejected the call.
+ * Attempt bookkeeping is best-effort: it never costs the buyer a checkout or changes a response.
+ */
+interface CheckoutAttemptCtx {
+  attemptId: string | null;
+  refuse(
+    status: number,
+    body: Record<string, unknown>,
+    failure: { stage: "server" | "provider"; code: string | number; message: string },
+  ): Promise<Response>;
+  opened(providerSessionId: string, providerSubscriptionId: string | null): Promise<void>;
+}
+
+function checkoutAttemptCtx(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  attemptId: string | null,
+  provider: "stripe" | "razorpay",
+): CheckoutAttemptCtx {
+  return {
+    attemptId,
+    async refuse(status, body, failure) {
+      if (attemptId) {
+        await attemptBestEffort(`checkout-initiate fail ${attemptId}`, () =>
+          closeAsFailed(supabase, attemptId, {
+            stage: failure.stage,
+            error_class: `${provider}_init`,
+            error_code: failure.code,
+            error_message: failure.message,
+          }));
+      }
+      return json(body, status);
+    },
+    async opened(providerSessionId, providerSubscriptionId) {
+      if (!attemptId) return;
+      await attemptBestEffort(`checkout-initiate opened ${attemptId}`, () =>
+        transitionAttempt(supabase, attemptId, "checkout_opened", {
+          provider_session_id: providerSessionId,
+          provider_subscription_id: providerSubscriptionId,
+        }));
+    },
+  };
+}
+
 async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
@@ -134,6 +178,12 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
   const provider = body.provider === "stripe" ? "stripe" : "razorpay";
   if (body.provider != null && body.provider !== "stripe" && body.provider !== "razorpay") {
     return json({ error: `provider ${String(body.provider)} has no server checkout` }, 400);
+  }
+  // The SDK's purchase-attempt id (paycraft-attempt-observability). Optional — older SDKs send none and
+  // keep working; a malformed one is refused rather than stored.
+  const attemptId = normaliseAttemptId(body.attempt_id);
+  if (body.attempt_id != null && !attemptId) {
+    return json({ error: "attempt_id must be 1–100 characters of A–Z a–z 0–9 _ . : -" }, 400);
   }
 
   if (!sku && !productId) return json({ error: "sku or product_id is required" }, 400);
@@ -172,6 +222,56 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
     : modeHeader === "live" ? "live"
     : apiKey.startsWith("pk_test_") ? "test" : "live";
 
+  // The attempt opens here — the app and the mode are known — so every refusal from now on is recorded
+  // against it. A retried request finds it already open and leaves it as it is.
+  if (attemptId) {
+    await attemptBestEffort(`checkout-initiate open ${attemptId}`, () =>
+      openAttempt(supabase, {
+        attempt_id: attemptId,
+        tenant_id: tenantId,
+        provider,
+        mode,
+        email: customer.email!,
+        plan: sku ?? null,
+      }));
+  }
+  const attempt = checkoutAttemptCtx(supabase, attemptId, provider);
+  try {
+    return await checkoutForTenant(supabase, req, body, attempt, {
+      tenantId, mode, provider, sku, productId, customer, requestedCurrency,
+    });
+  } catch (e) {
+    // An unexpected throw is a server failure of this attempt too; the outer handler still answers 500.
+    if (attemptId) {
+      await attemptBestEffort(`checkout-initiate crash ${attemptId}`, () =>
+        closeAsFailed(supabase, attemptId, {
+          stage: "server",
+          error_class: `${provider}_init`,
+          error_code: "internal_error",
+          error_message: (e as Error)?.message ?? String(e),
+        }));
+    }
+    throw e;
+  }
+}
+
+async function checkoutForTenant(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  req: Request,
+  body: Record<string, unknown>,
+  attempt: CheckoutAttemptCtx,
+  c: {
+    tenantId: string;
+    mode: "test" | "live";
+    provider: "stripe" | "razorpay";
+    sku: string | null;
+    productId: string | null;
+    customer: CustomerInput;
+    requestedCurrency: string | null;
+  },
+): Promise<Response> {
+  const { tenantId, mode, provider, sku, productId, customer, requestedCurrency } = c;
   const productQuery = supabase
     .from("tenant_products")
     // One literal: supabase-js types the row from it (a concatenated string types it as an error).
@@ -184,16 +284,23 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
     productId ? productQuery.eq("id", productId) : productQuery.eq("sku", sku!)
   ).maybeSingle();
 
-  if (productErr) return json({ error: `product lookup failed: ${productErr.message}` }, 500);
-  if (!product) return json({ error: "product_not_found" }, 404);
+  if (productErr) {
+    return attempt.refuse(500, { error: `product lookup failed: ${productErr.message}` },
+      { stage: "server", code: "product_lookup_failed", message: productErr.message });
+  }
+  if (!product) {
+    return attempt.refuse(404, { error: "product_not_found" },
+      { stage: "server", code: "product_not_found", message: `no active product ${productId ?? sku}` });
+  }
   // A one-time product on Stripe gets a `payment` session: the web SDK sends every Stripe buy from a page
   // through here so the buyer returns to the site (a payment link strands them on Stripe's page), and the
   // 409 this used to return broke every web lifetime purchase (Status Saver pro-lifetime, 2026-11-23).
   // Razorpay one-time products keep their payment link — this lane creates Razorpay SUBSCRIPTIONS only.
   if (product.type !== "subscription" && provider !== "stripe") {
-    return json(
-      { error: "product is not a subscription — use the payment link from /config for one-time products" },
+    return attempt.refuse(
       409,
+      { error: "product is not a subscription — use the payment link from /config for one-time products" },
+      { stage: "server", code: "not_a_subscription", message: `product ${product.sku} is ${product.type}` },
     );
   }
 
@@ -203,11 +310,14 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
   let winback: { offer: OfferRow; coupon: OfferCoupon } | null = null;
   if (typeof body.offerId === "string" && body.offerId.length > 0) {
     winback = await usableOffer(supabase, tenantId, body.offerId, customer.email!, typeof body.deviceRef === "string" ? body.deviceRef : null);
-    if (!winback) return json({ error: "offer_not_usable" }, 409);
+    if (!winback) {
+      return attempt.refuse(409, { error: "offer_not_usable" },
+        { stage: "server", code: "offer_not_usable", message: "win-back offer expired, redeemed or not this buyer's" });
+    }
   }
 
   if (provider === "stripe") {
-    return await stripeCheckout(supabase, req, body, tenantId, mode, product, customer, requestedCurrency, winback);
+    return await stripeCheckout(supabase, req, body, tenantId, mode, product, customer, requestedCurrency, winback, attempt);
   }
 
   // Plan ids are ACCOUNT-scoped per mode: a test key cannot see a live plan. Sending the live map in
@@ -219,7 +329,9 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
       | null,
     requestedCurrency,
   );
-  if ("error" in resolved) return json({ error: resolved.error }, 409);
+  if ("error" in resolved) {
+    return attempt.refuse(409, { error: resolved.error }, { stage: "server", code: "no_plan_for_currency", message: resolved.error });
+  }
 
   // `tenant_psp_credential_resolve`, NOT `tenant_providers_decrypt_key`. The latter is the
   // DASHBOARD's wrapper and gates on `auth.uid()` membership, so it raises `forbidden` for a
@@ -237,47 +349,27 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
   const keyId = (keys as { key_id?: string } | null)?.key_id;
   const keySecret = (keys as { secret_key?: string } | null)?.secret_key;
   if (keyErr || !keyId || !keySecret) {
-    return json({ error: `razorpay ${mode} credentials not configured for this tenant` }, 409);
+    const error = `razorpay ${mode} credentials not configured for this tenant`;
+    return attempt.refuse(409, { error }, { stage: "server", code: "credentials_missing", message: error });
   }
 
-  // Razorpay's start_at is the FIRST CHARGE time, so a trial is expressed as the gap between now
-  // and start_at rather than as a trial flag.
-  const now = Math.floor(Date.now() / 1000);
-  const trialDays = effectiveTrial(product).days; // the rule /config advertises (_shared/trial.ts)
-  const startAt = trialDays > 0 ? now + trialDays * 86_400 : undefined;
-
-  const payload: Record<string, unknown> = {
-    plan_id: resolved.planId,
-    // Razorpay caps total_count PER PERIOD, and the cap is not the same for all of them — a yearly
-    // plan rejects anything above 100 with "Exceeds the maximum total_count (100) allowed for the
-    // given period and interval". A single hardcoded 120 ("≈10 years of monthly billing") therefore
-    // made every ANNUAL subscription impossible to create, which is the most valuable plan on the
-    // paywall. Aim for ~10 years within each cap; the subscription auto-completes after this many
-    // charges, so too small a number would quietly end a subscription the buyer believes is ongoing.
-    total_count: totalCountFor(String(product.interval ?? "month")),
-    customer_notify: 1,
-    notify_info: {
-      notify_email: customer.email,
-      ...(customer.phone ? { notify_phone: customer.phone } : {}),
-    },
-    // Echoed back on every webhook — this is how razorpay-webhook routes the event to a tenant and
-    // a subscriber without a separate lookup table.
-    notes: {
-      paycraft_tenant_id: tenantId,
-      paycraft_product_id: product.id,
-      paycraft_plan: product.sku,
-      paycraft_email: customer.email,
-      paycraft_mode: mode,
-      // Omitted rather than sent blank. An empty string is a value Razorpay stores and echoes back
-      // on every webhook, so downstream code cannot tell "no name given" from "name is empty".
-      ...(customer.name ? { paycraft_customer_name: customer.name } : {}),
-    },
-  };
-  if (startAt) payload.start_at = startAt;
-  if (winback?.coupon.razorpay_offer_id) {
-    payload.offer_id = winback.coupon.razorpay_offer_id;
-    (payload.notes as Record<string, unknown>).paycraft_winback_offer = winback.offer.id;
-  }
+  const payload = razorpaySubscriptionPayload({
+    planId: resolved.planId,
+    interval: String(product.interval ?? "month"),
+    email: customer.email!,
+    phone: customer.phone,
+    name: customer.name,
+    tenantId,
+    productId: product.id,
+    sku: product.sku,
+    mode,
+    trialDays: effectiveTrial(product).days, // the rule /config advertises (_shared/trial.ts)
+    nowSeconds: Math.floor(Date.now() / 1000),
+    attemptId: attempt.attemptId,
+    winback: winback?.coupon.razorpay_offer_id
+      ? { razorpayOfferId: winback.coupon.razorpay_offer_id, offerId: winback.offer.id }
+      : null,
+  });
 
   const rzpRes = await fetch(`${RAZORPAY_API}/subscriptions`, {
     method: "POST",
@@ -293,10 +385,12 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
     // Surface Razorpay's own description. A generic 500 here is what sent the last investigation
     // chasing credentials that were fine all along.
     const detail = rzpJson?.error?.description ?? `razorpay ${rzpRes.status}`;
-    return json({ error: `razorpay: ${detail}`, provider: "razorpay" }, 502);
+    return attempt.refuse(502, { error: `razorpay: ${detail}`, provider: "razorpay" },
+      { stage: "provider", code: rzpJson?.error?.code ?? rzpRes.status, message: detail });
   }
   if (!rzpJson?.id || !rzpJson?.short_url) {
-    return json({ error: "razorpay returned a subscription with no short_url" }, 502);
+    return attempt.refuse(502, { error: "razorpay returned a subscription with no short_url" },
+      { stage: "provider", code: "no_short_url", message: "razorpay returned a subscription with no short_url" });
   }
 
   // Best-effort audit. A failure to write the log must not cost the buyer a checkout they can use.
@@ -313,6 +407,7 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
         plan_id: resolved.planId,
         currency: resolved.currency,
         mode,
+        attempt_id: attempt.attemptId,
       },
     })
     .then(
@@ -343,6 +438,7 @@ async function handleCheckoutInitiateInner(req: Request): Promise<Response> {
     else console.error("[checkout-initiate] razorpay return row:", retErr.message);
   }
 
+  await attempt.opened(rzpJson.id, rzpJson.id);
   return json({
     url: checkoutUrl,
     provider: "razorpay",
@@ -369,26 +465,35 @@ async function stripeCheckout(
   customer: CustomerInput,
   requestedCurrency: string | null,
   winback: { offer: OfferRow; coupon: OfferCoupon } | null,
+  attempt: CheckoutAttemptCtx,
 ): Promise<Response> {
   // Stripe ids are ACCOUNT-scoped per mode (migration 147). A live column not yet verified by a live
   // sync may still hold test ids, which would fail at Stripe with a confusing "No such price".
   if (mode === "live" && product.live_stripe_ids_verified === false) {
-    return json({ error: "live Stripe prices are not verified for this product — run a live Stripe sync" }, 409);
+    const error = "live Stripe prices are not verified for this product — run a live Stripe sync";
+    return attempt.refuse(409, { error }, { stage: "server", code: "live_prices_unverified", message: error });
   }
   const priceMap = (mode === "test" ? product.stripe_price_id_by_currency_test : product.stripe_price_id_by_currency) as
     | Record<string, string>
     | null;
   const price = pickByCurrency(priceMap, requestedCurrency, `${mode} Stripe price`);
-  if ("error" in price) return json({ error: price.error }, 409);
+  if ("error" in price) {
+    return attempt.refuse(409, { error: price.error }, { stage: "server", code: "no_price_for_currency", message: price.error });
+  }
 
   const back = returnUrls(typeof body.return_url === "string" ? body.return_url : null, req.headers.get("origin"));
-  if ("error" in back) return json({ error: back.error }, 400);
+  if ("error" in back) {
+    return attempt.refuse(400, { error: back.error }, { stage: "server", code: "bad_return_url", message: back.error });
+  }
 
   const { data: keys, error: keyErr } = await supabase
     .rpc("tenant_psp_credential_resolve", { p_tenant_id: tenantId, p_provider: "stripe", p_mode: mode })
     .single();
   const secret = (keys as { secret_key?: string } | null)?.secret_key;
-  if (keyErr || !secret) return json({ error: `stripe ${mode} credentials not configured for this tenant` }, 409);
+  if (keyErr || !secret) {
+    const error = `stripe ${mode} credentials not configured for this tenant`;
+    return attempt.refuse(409, { error }, { stage: "server", code: "credentials_missing", message: error });
+  }
 
   const res = await fetch(`${STRIPE_API}/checkout/sessions`, {
     method: "POST",
@@ -408,13 +513,19 @@ async function stripeCheckout(
         ? { promotionCodeId: winback.coupon.stripe_promotion_code_id, couponId: winback.coupon.stripe_coupon_id }
         : null,
       winbackOfferId: winback?.offer.id ?? null,
+      attemptId: attempt.attemptId,
     }),
   });
   const session = await res.json().catch(() => ({}));
   if (!res.ok) {
-    return json({ error: `stripe: ${session?.error?.message ?? `stripe ${res.status}`}`, provider: "stripe" }, 502);
+    const detail = session?.error?.message ?? `stripe ${res.status}`;
+    return attempt.refuse(502, { error: `stripe: ${detail}`, provider: "stripe" },
+      { stage: "provider", code: session?.error?.code ?? res.status, message: detail });
   }
-  if (!session?.id || !session?.url) return json({ error: "stripe returned a session with no url" }, 502);
+  if (!session?.id || !session?.url) {
+    return attempt.refuse(502, { error: "stripe returned a session with no url" },
+      { stage: "provider", code: "no_session_url", message: "stripe returned a session with no url" });
+  }
 
   await supabase
     .rpc("audit_log_emit", {
@@ -423,13 +534,21 @@ async function stripeCheckout(
       p_actor_type: "sdk",
       p_action: "checkout.initiated",
       p_resource: `tenant_products:id=${product.id}`,
-      p_after: { provider: "stripe", session_id: session.id, price_id: price.id, currency: price.currency, mode },
+      p_after: {
+        provider: "stripe",
+        session_id: session.id,
+        price_id: price.id,
+        currency: price.currency,
+        mode,
+        attempt_id: attempt.attemptId,
+      },
     })
     .then(
       () => {},
       () => {},
     );
 
+  await attempt.opened(session.id, null);
   return json({
     url: session.url,
     provider: "stripe",

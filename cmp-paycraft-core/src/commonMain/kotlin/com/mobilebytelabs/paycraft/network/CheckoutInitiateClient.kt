@@ -30,20 +30,6 @@ import kotlinx.serialization.json.Json
 class CheckoutInitiateClient(private val httpClient: HttpClient, private val backend: PayCraftBackend) {
 
     @Serializable
-    private data class CustomerBody(val email: String, val name: String? = null, val phone: String? = null)
-
-    @Serializable
-    private data class InitiateRequest(
-        val sku: String,
-        val customer: CustomerBody,
-        val currency: String? = null,
-        /** A win-back offer the buyer claimed (exit survey); the server validates it is theirs and live. */
-        val offerId: String? = null,
-        /** The device the offer may have been made to (signed-out buyers' offers bind to the device). */
-        val deviceRef: String? = null,
-    )
-
-    @Serializable
     private data class InitiateResponse(
         val url: String,
         val provider: String? = null,
@@ -71,11 +57,23 @@ class CheckoutInitiateClient(private val httpClient: HttpClient, private val bac
         name: String? = null,
         phone: String? = null,
         currency: String? = null,
-    ): Result = initiateWithOffer(apiKey, sku, email, name, phone, currency, offerId = null, deviceRef = null)
+        attemptId: String? = null,
+    ): Result = initiateWithOffer(
+        apiKey,
+        sku,
+        email,
+        name,
+        phone,
+        currency,
+        offerId = null,
+        deviceRef = null,
+        attemptId = attemptId,
+    )
 
     /**
      * [initiate] with a claimed win-back [offerId]: the server applies its discount, or answers 409
      * `offer_not_usable` (→ [Result.Rejected] carrying that code) when it is not this buyer's or has ended.
+     * [attemptId] is the purchase attempt this checkout belongs to.
      */
     suspend fun initiateWithOffer(
         apiKey: String,
@@ -86,16 +84,24 @@ class CheckoutInitiateClient(private val httpClient: HttpClient, private val bac
         currency: String? = null,
         offerId: String?,
         deviceRef: String?,
+        attemptId: String? = null,
     ): Result {
         val url = PayCraftContract.checkoutInitiateUrl(backend.supabaseUrl, apiKey)
         return try {
             val response = httpClient.post(url) {
                 contentType(ContentType.Application.Json)
+                // The one body definition the browser SDK shares; [attemptId] opens the server's attempt record so
+                // the PSP's later webhook lands on the same timeline (paycraft-attempt-observability D5).
                 setBody(
-                    InitiateRequest(
+                    PayCraftContract.checkoutInitiateBody(
                         sku = sku,
-                        customer = CustomerBody(email = email, name = name, phone = phone),
+                        email = email,
+                        attemptId = attemptId,
+                        name = name,
+                        phone = phone,
                         currency = currency,
+                        provider = null,
+                        returnUrl = null,
                         offerId = offerId,
                         deviceRef = deviceRef,
                     ),

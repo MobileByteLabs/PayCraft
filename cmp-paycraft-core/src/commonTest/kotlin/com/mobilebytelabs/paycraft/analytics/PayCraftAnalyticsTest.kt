@@ -8,7 +8,8 @@ import kotlin.test.assertTrue
 /**
  * The emitter's contract with the host app (GOAL AC-3): the app's listener sees every catalog event in order;
  * a missing or broken listener never affects the paywall; consent off means nothing leaves the device; and the
- * ingest queue is bounded and batched, so an offline buyer cannot grow memory or flood the server.
+ * ingest queue is bounded and batched, so an offline buyer cannot grow memory or flood the server (retry and
+ * persistence: [EventRetryQueueTest]).
  */
 class PayCraftAnalyticsTest {
 
@@ -79,15 +80,23 @@ class PayCraftAnalyticsTest {
         assertEquals(249L, sent.last().atMs)
     }
 
-    @Test fun a_failed_send_is_swallowed_and_does_not_retry_forever() = runTest {
+    /** A failed send never throws into the paywall and is not hammered: the next try waits for its backoff. */
+    @Test fun a_failed_send_is_swallowed_and_waits_for_its_backoff_before_retrying() = runTest {
         var calls = 0
-        val a = PayCraftAnalytics(send = {
-            calls++
-            error("offline")
-        })
-        a.emit(ev(PayCraftEventName.PaywallView, PayCraftStep.Paywall))
+        var clock = 1_000L
+        val a = PayCraftAnalytics(
+            send = {
+                calls++
+                error("offline")
+            },
+            now = { clock },
+        )
+        a.emit(ev(PayCraftEventName.PaywallView, PayCraftStep.Paywall, at = clock))
         a.flush()
         a.flush()
-        assertEquals(1, calls)
+        assertEquals(1, calls, "the second flush is inside the 1 s backoff")
+        clock += 1_000L
+        a.flush()
+        assertEquals(2, calls, "kept, and retried once the backoff passed")
     }
 }

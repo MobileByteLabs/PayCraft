@@ -41,7 +41,18 @@ function loadServiceAccount(): ServiceAccount {
  * existing register-play-purchase / google-rtdn callers are unaffected.
  */
 export async function playDeveloperJwt(creds?: ServiceAccount): Promise<string> {
-  const sa = creds ?? loadServiceAccount();
+  return googleServiceAccountToken(creds ?? loadServiceAccount(), ANDROID_PUBLISHER_SCOPE);
+}
+
+/**
+ * A Google OAuth2 access token for [sa] with [scope], via the JWT-bearer grant — the one signer the Play
+ * Developer API and the GA4 Data API (paycraft-ga4-analytics-audit, `_shared/ga4-report.ts`) both use.
+ */
+export async function googleServiceAccountToken(
+  sa: ServiceAccount,
+  scope: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
   if (!sa.client_email || !sa.private_key) {
     throw new Error("play-jwt: service account missing client_email/private_key");
   }
@@ -49,7 +60,7 @@ export async function playDeveloperJwt(creds?: ServiceAccount): Promise<string> 
   const key = await importPKCS8(sa.private_key, "RS256");
   const now = Math.floor(Date.now() / 1000);
 
-  const assertion = await new SignJWT({ scope: ANDROID_PUBLISHER_SCOPE })
+  const assertion = await new SignJWT({ scope })
     .setProtectedHeader({ alg: "RS256", typ: "JWT" })
     .setIssuer(sa.client_email)
     .setSubject(sa.client_email)
@@ -58,7 +69,7 @@ export async function playDeveloperJwt(creds?: ServiceAccount): Promise<string> 
     .setExpirationTime(now + 60 * 60)
     .sign(key);
 
-  const res = await fetch(tokenUri, {
+  const res = await fetchImpl(tokenUri, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({

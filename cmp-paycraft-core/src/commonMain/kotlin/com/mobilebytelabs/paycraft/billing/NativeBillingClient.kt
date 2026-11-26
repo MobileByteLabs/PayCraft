@@ -100,7 +100,8 @@ sealed interface NativePurchaseResult {
 
     /**
      * [code] is a short, PII-free reason the merchant sees on the attempt (record_store_attempt, migration 201):
-     * `connect_<n>`, `product_not_found`, `no_offer`, `no_activity`, `launch_<n>`, `purchase_<n>` where `<n>` is the
+     * `connect_<n>`, `query_<n>` (the product lookup itself failed), `product_not_found` (the store answered with no
+     * such product), `no_offer`, `no_activity`, `launch_<n>`, `purchase_<n>` where `<n>` is the
      * store's response code. Without it every Play failure looked the same (2026-11-17: 41 failures, no cause).
      */
     data class Failed(val message: String, val code: String? = null) : NativePurchaseResult
@@ -152,6 +153,20 @@ interface NativeBillingClient {
         appUserId: String? = null,
         productType: NativeProductType = NativeProductType.SUBSCRIPTION,
     ): NativePurchaseResult
+
+    /**
+     * [purchase] for a known purchase attempt (paycraft-attempt-observability D5). A store that has a receipt field
+     * free for it carries [attemptId] on the receipt — Google Play's `obfuscatedProfileId` — so its server
+     * notification names the attempt; `obfuscatedAccountId` / `appAccountToken` stay the USER. A store with no such
+     * field (StoreKit: the App Store's attempt travels in the `register-appstore` body instead) keeps this default,
+     * which ignores the id — so existing implementations of this interface are unaffected.
+     */
+    suspend fun purchase(
+        productId: String,
+        appUserId: String?,
+        productType: NativeProductType,
+        attemptId: String?,
+    ): NativePurchaseResult = purchase(productId, appUserId, productType)
 
     /**
      * Durably record [purchase] with the store — Play `acknowledgePurchase` / `consumeAsync`,

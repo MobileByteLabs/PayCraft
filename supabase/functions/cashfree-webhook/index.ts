@@ -5,6 +5,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1?targe
 import { handleConsumablePurchase } from "../_shared/consumable-handler.ts";
 import { handleSubscriptionEvent } from "../_shared/subscription-handler.ts";
 import { attemptRow, recordAttempt } from "../_shared/checkout-attempts.ts";
+import {
+  attemptBestEffort,
+  closeAsFailed,
+  closeAsGranted,
+  noteWebhookSignatureFailure,
+  resolveAttemptIdFromCashfree,
+  transitionAttempt,
+} from "../_shared/payment-attempts.ts";
 
 /**
  * Cashfree PG webhook handler.
@@ -32,6 +40,13 @@ import { attemptRow, recordAttempt } from "../_shared/checkout-attempts.ts";
  * link_id parsing: PayCraft generates link IDs as `pc-{tenant6}-{product6}-inr`
  * via cashfree-product-sync.ts. We parse those back to identify (tenant,
  * product) for the subscription update.
+ *
+ * Attempts (migration 210): an order tagged `order_tags.paycraft_attempt_id`
+ * carries the SDK's attempt id. PAYMENT_SUCCESS moves that attempt to
+ * `provider_result` (paid_at = the event's time) and the grant closes it;
+ * PAYMENT_FAILED / USER_DROPPED close it failed / abandoned with Cashfree's
+ * error code; a processing error closes it failed at stage `webhook`; a
+ * signature failure is noted on its timeline. Best-effort throughout.
  */
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "http://kong:8000";
@@ -185,6 +200,13 @@ serve(withWebhookRateLimit({ bucket: "webhook:cashfree" }, async (req) => {
     console.error(
       `[cashfree-webhook] signature verification failed (tenant=${tenantId ?? "self-hosted"})`,
     );
+    // Untrusted payload: nothing changes, but a real attempt it names records the refusal.
+    const claimed = resolveAttemptIdFromCashfree(payload?.data);
+    if (claimed && SERVICE_ROLE) {
+      const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false, autoRefreshToken: false } });
+      await attemptBestEffort(`cashfree signature ${claimed}`, () =>
+        noteWebhookSignatureFailure(admin, claimed, "cashfree", "signature verification failed"));
+    }
     return new Response("invalid signature", { status: 401 });
   }
 
@@ -199,6 +221,12 @@ serve(withWebhookRateLimit({ bucket: "webhook:cashfree" }, async (req) => {
         auth: { persistSession: false, autoRefreshToken: false },
       })
     : null;
+
+  // The SDK's purchase attempt this event answers, when the order was tagged with one.
+  const attemptId = resolveAttemptIdFromCashfree(payload?.data);
+  const eventAt = typeof payload?.event_time === "string" && !Number.isNaN(Date.parse(payload.event_time))
+    ? new Date(payload.event_time).toISOString()
+    : new Date().toISOString();
 
   try {
     switch (eventType) {
@@ -226,6 +254,13 @@ serve(withWebhookRateLimit({ bucket: "webhook:cashfree" }, async (req) => {
             `no PayCraft product matching prefix ${parsed.productPrefix}`,
           );
         }
+        if (attemptId) {
+          await attemptBestEffort(`cashfree provider_result ${attemptId}`, () =>
+            transitionAttempt(supabase, attemptId, "provider_result", {
+              paid_at: eventAt,
+              provider_subscription_id: order?.order_id ?? null,
+            }));
+        }
 
         // Consumable / one-time packs credit a BALANCE rather than an entitlement row. Cashfree is
         // a one-time-only lane (subscriptions self-skip in its product sync), so this is the
@@ -245,6 +280,9 @@ serve(withWebhookRateLimit({ bucket: "webhook:cashfree" }, async (req) => {
           });
           if (!grant.granted) {
             console.error(`[cashfree-webhook] consumable grant refused: ${grant.reason}`);
+          } else if (attemptId) {
+            // A pack credits a balance, not an entitlement record — the credit IS the grant.
+            await attemptBestEffort(`cashfree consumable grant ${attemptId}`, () => closeAsGranted(supabase, attemptId));
           }
           return new Response(
             JSON.stringify({ received: true, granted: grant.quantity, balance: grant.balance }),
@@ -267,6 +305,7 @@ serve(withWebhookRateLimit({ bucket: "webhook:cashfree" }, async (req) => {
           trialEnd: null,
           tenantId: product.tenant_id,
           eventType,
+          attemptId,
         });
         return new Response(JSON.stringify({ received: true }), {
           status: 200,
@@ -294,7 +333,11 @@ serve(withWebhookRateLimit({ bucket: "webhook:cashfree" }, async (req) => {
           sessionId: payload?.data?.order?.order_id ?? payload?.data?.payment?.cf_payment_id?.toString(),
         });
         if (!row) return ackIgnore(`${eventType} — no buyer email`);
-        await recordAttempt(supabase, row);
+        await recordAttempt(supabase, row, {
+          attemptId,
+          errorCode: payload?.data?.error_details?.error_code ?? null,
+          errorMessage: payload?.data?.error_details?.error_description ?? payload?.data?.payment?.payment_message ?? null,
+        });
         return new Response(JSON.stringify({ received: true, attempt: row.outcome }), {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -312,6 +355,15 @@ serve(withWebhookRateLimit({ bucket: "webhook:cashfree" }, async (req) => {
     }
   } catch (err) {
     console.error("[cashfree-webhook] processing error:", err);
+    if (attemptId && supabase) {
+      await attemptBestEffort(`cashfree webhook failure ${attemptId}`, () =>
+        closeAsFailed(supabase, attemptId, {
+          stage: "webhook",
+          error_class: "cashfree_webhook",
+          error_code: "processing_error",
+          error_message: (err as Error).message,
+        }));
+    }
     return new Response(`processing error: ${(err as Error).message}`, {
       status: 500,
     });

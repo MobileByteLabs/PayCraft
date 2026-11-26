@@ -1,8 +1,10 @@
 package com.mobilebytelabs.paycraft
 
+import com.mobilebytelabs.paycraft.analytics.AttemptTracker
 import com.mobilebytelabs.paycraft.analytics.PayCraftAnalytics
 import com.mobilebytelabs.paycraft.analytics.PayCraftAnalyticsListener
 import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
+import com.mobilebytelabs.paycraft.analytics.mintAttemptId
 import com.mobilebytelabs.paycraft.attribution.AttributionIdsSync
 import com.mobilebytelabs.paycraft.billing.CheckoutLane
 import com.mobilebytelabs.paycraft.billing.NativeBillingClient
@@ -36,10 +38,16 @@ import com.mobilebytelabs.paycraft.model.BillingPlan
 import com.mobilebytelabs.paycraft.network.CheckoutInitiateClient
 import com.mobilebytelabs.paycraft.network.CouponClient
 import com.mobilebytelabs.paycraft.network.PayCraftRealtime
+import com.mobilebytelabs.paycraft.notify.NudgeConfig
+import com.mobilebytelabs.paycraft.notify.ResumeNudgeEligibility
+import com.mobilebytelabs.paycraft.notify.ResumeNudgeIds
+import com.mobilebytelabs.paycraft.notify.ResumeNudgeScheduler
+import com.mobilebytelabs.paycraft.notify.ResumeNudgeTrigger
 import com.mobilebytelabs.paycraft.persistence.PayCraftStore
 import com.mobilebytelabs.paycraft.platform.BuildKind
 import com.mobilebytelabs.paycraft.platform.DeviceFingerprint
 import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
+import com.mobilebytelabs.paycraft.platform.NotificationPermission
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 import com.mobilebytelabs.paycraft.platform.platformSettings
@@ -62,11 +70,17 @@ import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -168,8 +182,127 @@ object PayCraft {
      * Set [PayCraftAnalytics.ingestEnabled] to false to honour a consent decision for PayCraft's copy.
      */
     val analytics: PayCraftAnalytics by lazy {
-        PayCraftAnalytics(send = ::postEvents).also { it.start(applicationScope) }
+        // Persisted: a batch the ingest did not take is retried with backoff and survives a restart (D14).
+        // The flush loop starts in initialize(), not here: an event emitted before initialize (the billing manager
+        // reports every purchase result) queues instead of starting an endless loop with nothing to send to.
+        PayCraftAnalytics(send = ::postEvents, settings = runCatching { platformSettings() }.getOrNull())
     }
+
+    // ─── Purchase attempts + resume reminder (paycraft-attempt-observability D4 / D10–D12) ────────────────
+
+    /**
+     * The purchase attempt in progress — minted when a plan is picked (or a checkout starts without one), carried by
+     * every paywall event, the checkout request, the Play receipt and the store registration.
+     */
+    @PayCraftInternalApi
+    val attemptTracker: AttemptTracker by lazy {
+        AttemptTracker(
+            now = ::currentTimeMillis,
+            newId = { mintAttemptId(currentTimeMillis()) },
+            platform = { runCatching { PlatformInfo.platform.lowercase() }.getOrDefault("android") },
+        ) { analytics.emit(it) }
+    }
+
+    private val nudgeScheduler: ResumeNudgeScheduler by lazy { ResumeNudgeScheduler() }
+    private val nudgeEligibility: ResumeNudgeEligibility by lazy {
+        ResumeNudgeEligibility(
+            settings = platformSettings(),
+            now = ::currentTimeMillis,
+            permissionGranted = { NotificationPermission.isGranted() },
+        ) { analytics.emit(it) }
+    }
+
+    /** One decision at a time: a store cancel and the paywall's close can report the same abandon together. */
+    private val nudgeLock = Mutex()
+
+    /** The tenant's reminder from the last `/config` (persisted, so a cold offline start keeps their choice). */
+    private val nudgeConfig: NudgeConfig
+        get() = runCatching { platformSettings().getStringOrNull(KEY_NUDGE_CONFIG) }.getOrNull()
+            ?.let { PayCraftContract.decodeNudgeConfig(it) }
+            ?: NudgeConfig.Default
+
+    /**
+     * Asks the user to allow notifications, so PayCraft can send ONE reminder after a checkout they did not finish
+     * (delay and copy from your dashboard; at most one a week; never after they subscribe). Call it at a moment
+     * your app chooses — onboarding, a settings toggle, after a first success. **PayCraft never asks by itself**: if
+     * permission is not granted, no reminder is scheduled. Returns whether notifications are allowed afterwards;
+     * false on platforms without reminders (desktop, web). Android needs `POST_NOTIFICATIONS` in the app manifest.
+     */
+    suspend fun requestNotificationPermission(): Boolean =
+        runCatching { nudgeScheduler.isSupported && nudgeScheduler.requestPermission() }.getOrDefault(false)
+
+    /**
+     * The open attempt ended without a purchase — the buyer backed out of checkout, or the payment failed. The attempt
+     * stays open for a retry; the resume reminder is scheduled when [ResumeNudgeEligibility] allows it.
+     */
+    @PayCraftInternalApi
+    fun onAttemptEnded(trigger: ResumeNudgeTrigger) {
+        val attemptId = attemptTracker.current ?: return
+        val sku = attemptTracker.currentSku
+        if (!isConfigured || backend is PayCraftBackend.Mock || !nudgeScheduler.isSupported) return
+        // The reminder names the subscription the buyer picked ("Your Pro Monthly plan is saved …").
+        val config = nudgeConfig.personalized(plans.firstOrNull { it.sku == sku }?.name)
+        applicationScope.launch {
+            nudgeLock.withLock {
+                if (!nudgeEligibility.shouldSchedule(trigger, attemptId, config, sku)) return@withLock
+                runCatching { nudgeScheduler.schedule(attemptId, config) }
+                    .onSuccess {
+                        nudgeEligibility.recordScheduled(attemptId, trigger, sku)
+                        PayCraftLogger.onFlow(
+                            "resumeNudge",
+                            "scheduled in ${config.delayMs / 1_000}s (${trigger.wire})",
+                        )
+                    }
+                    .onFailure { PayCraftLogger.onError("resumeNudge", "schedule: ${it.message}") }
+            }
+        }
+    }
+
+    /** Premium arrived: the attempt is over and no reminder may follow. */
+    internal fun onAttemptGranted() {
+        runCatching { attemptTracker.granted() }
+        if (!nudgeScheduler.isSupported) return
+        applicationScope.launch {
+            nudgeLock.withLock {
+                runCatching {
+                    nudgeEligibility.cancelOnSubscribe()
+                    nudgeScheduler.cancelAll()
+                }.onFailure { PayCraftLogger.onError("resumeNudge", "cancel on subscribe: ${it.message}") }
+            }
+        }
+    }
+
+    /**
+     * The buyer tapped the resume reminder for [attemptId]: record it and raise the paywall through
+     * [paywallPresentation] — the host renders the SDK's own paywall there, as for any other request.
+     */
+    internal fun onNudgeOpened(attemptId: String) {
+        runCatching { nudgeEligibility.recordOpened(attemptId) }
+            .onFailure { PayCraftLogger.onError("resumeNudge", "open: ${it.message}") }
+        PayCraftLogger.onFlow("resumeNudge", "opened — presenting the paywall")
+        _paywallPresentation.value = PaywallPresentation.Shown(trigger = PaywallPresentation.Shown.Trigger.ResumeNudge)
+    }
+
+    /**
+     * For an iOS app that installs its OWN `UNUserNotificationCenter` delegate: forward each tapped notification's
+     * request identifier here. Returns true when it was PayCraft's resume reminder (the paywall is then raised);
+     * false for the app's own notifications. Apps without a delegate need nothing — PayCraft installs one. Android
+     * apps never call this.
+     */
+    fun onNotificationOpened(identifier: String): Boolean {
+        val attemptId = ResumeNudgeIds.attemptIdOf(identifier) ?: return false
+        onNudgeOpened(attemptId)
+        return true
+    }
+
+    private val _appForegrounds = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    /** Each return of the app to the foreground — e.g. the buyer coming back from a hosted checkout page. */
+    @PayCraftInternalApi
+    val appForegrounds: SharedFlow<Unit> = _appForegrounds.asSharedFlow()
 
     /**
      * Where the app is opening the paywall from — `home`, `settings`, `download_limit`… Set it right before
@@ -297,18 +430,43 @@ object PayCraft {
         }.status.isSuccess()
     }
 
+    /**
+     * Delivers one batch to the `events` ingest. Returns normally only when it was stored; a refusal the server
+     * explained (4xx) throws [PayCraftAnalytics.Rejected] so the queue drops it instead of retrying forever, and
+     * anything else (offline, 429, 5xx) throws so the queue retries it with backoff (D14).
+     */
     private suspend fun postEvents(batch: List<PayCraftEvent>) {
         val key = apiKey ?: return
         if (!isConfigured || backend is PayCraftBackend.Mock) return
-        configHttpClient().post(PayCraftContract.eventsUrl(backend.supabaseUrl, key)) {
+        val response = configHttpClient().post(PayCraftContract.eventsUrl(backend.supabaseUrl, key)) {
             PayCraftContract.headers(
                 anonKey = backend.supabaseAnonKey,
                 platform = runCatching { PlatformInfo.platform.lowercase() }.getOrDefault(""),
                 mode = if (mode == Mode.Test) "test" else "live",
                 json = true,
             ).forEach { (name, value) -> header(name, value) }
-            setBody(PayCraftContract.eventsBody(key, deviceId, DeviceTokenStore.getToken(), batch).toString())
+            setBody(
+                PayCraftContract.eventsBody(
+                    key,
+                    deviceId,
+                    DeviceTokenStore.getToken(),
+                    batch,
+                    appVersion = runCatching { PlatformInfo.appVersion }.getOrNull(),
+                ).toString(),
+            )
         }
+        val status = response.status.value
+        if (response.status.isSuccess()) return
+        if (status in 400..499 && status != 429) {
+            val body = runCatching { response.body<String>() }.getOrDefault("")
+            val refused = runCatching {
+                val o = Json.parseToJsonElement(body) as? JsonObject
+                val name = (o?.get("name") as? JsonPrimitive)?.takeIf { it.isString }?.content
+                name.takeIf { (o?.get("error") as? JsonPrimitive)?.content == "unknown_event" }
+            }.getOrNull()
+            throw PayCraftAnalytics.Rejected(unknownEventName = refused)
+        }
+        error("events ingest HTTP $status")
     }
 
     /**
@@ -451,6 +609,7 @@ object PayCraft {
         // Runs on the main thread from an Activity lifecycle / UIKit callback: a throw here (e.g. a
         // Koin definition that fails to construct) would crash the host on every app resume.
         try {
+            _appForegrounds.tryEmit(Unit)
             billingManager?.onAppForegrounded()
             // A browser sign-in (D2) completes in the browser; the app learns the result on return.
             KoinPlatform.getKoinOrNull()?.getOrNull<VerifiedSignIn>()?.onForeground()
@@ -658,6 +817,7 @@ object PayCraft {
             deviceCountry = runCatching { PlatformInfo.country }.getOrNull(),
             configLocale = null,
         )
+        analytics.start(applicationScope) // idempotent; drains whatever was emitted before initialize
         PayCraftLogger.onInitialize(
             backendName = when (backend) {
                 is PayCraftBackend.Cloud -> "cloud"
@@ -842,6 +1002,7 @@ object PayCraft {
             }
             val raw: String = response.body()
             _exitSurvey.value = PayCraftContract.decodeExitSurvey(raw)
+            rememberNudgeConfig(raw)
             val json = Json {
                 ignoreUnknownKeys = true
                 isLenient = true
@@ -1326,6 +1487,7 @@ object PayCraft {
         }
         // A claimed exit-survey offer rides on the server checkout (Stripe / Razorpay apply its discount). If the
         // server says it is no longer usable, drop it and check out at the normal price — never a dead end.
+        val attemptId = attemptTracker.ensure(plan.sku)
         val offer = activeWinbackOffer?.takeIf { it.stripe || it.razorpay }
         if (offer != null) {
             val withOffer = checkoutInitiateClient.initiateWithOffer(
@@ -1335,6 +1497,7 @@ object PayCraft {
                 currency = plan.currency.takeIf { it.isNotBlank() },
                 offerId = offer.id,
                 deviceRef = deviceId,
+                attemptId = attemptId,
             )
             if (withOffer !is CheckoutInitiateClient.Result.Rejected ||
                 !withOffer.message.contains("offer_not_usable")
@@ -1348,6 +1511,7 @@ object PayCraft {
             sku = plan.sku,
             email = email,
             currency = plan.currency.takeIf { it.isNotBlank() },
+            attemptId = attemptId,
         )
     }
 
@@ -1420,6 +1584,7 @@ object PayCraft {
      * [resolveCheckoutLane], the single unit-tested decision point.
      */
     fun checkout(plan: BillingPlan, email: String? = null) {
+        attemptTracker.ensure(plan.sku)
         when (val lane = resolveCheckoutLane(PlatformInfo.platform, plan)) {
             is CheckoutLane.Web -> {
                 val baseUrl = requireConfig().provider.getCheckoutUrl(plan, email)
@@ -1447,6 +1612,7 @@ object PayCraft {
      */
     @PayCraftInternalApi
     fun checkoutWithProvider(plan: BillingPlan, provider: ProviderDto, email: String? = null) {
+        attemptTracker.ensure(plan.sku)
         when (val lane = resolveCheckoutLane(PlatformInfo.platform, plan)) {
             is CheckoutLane.Web -> {
                 val adapter = SuiteProviderAdapter(provider)
@@ -1725,6 +1891,22 @@ object PayCraft {
 
     /** Default entitlement name used when [presentPaywallIfNeeded] is called without one. */
     private const val DEFAULT_ENTITLEMENT = "premium"
+
+    /** Settings key: the last `/config` `nudge` block, as served. */
+    private const val KEY_NUDGE_CONFIG = "paycraft.nudge.config"
+
+    /** Keeps the tenant's `nudge` block (only that block) for reminders scheduled before the next fetch. */
+    private fun rememberNudgeConfig(raw: String) {
+        runCatching {
+            val nudge = (Json.parseToJsonElement(raw) as? JsonObject)?.get("nudge") as? JsonObject
+            // No block = a server without the reminder settings: the defaults apply, not a stale earlier copy.
+            if (nudge == null) {
+                platformSettings().remove(KEY_NUDGE_CONFIG)
+            } else {
+                platformSettings().putString(KEY_NUDGE_CONFIG, JsonObject(mapOf("nudge" to nudge)).toString())
+            }
+        }.onFailure { PayCraftLogger.onError("loadConfig", "nudge config not kept: ${it.message}") }
+    }
 }
 
 data class InitOptions(

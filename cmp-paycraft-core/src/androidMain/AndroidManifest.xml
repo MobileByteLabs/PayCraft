@@ -43,6 +43,19 @@
             </intent-filter>
         </activity>
 
+        <!--
+            Resume reminder tap target (paycraft-attempt-observability D12). Reached only through PayCraft's own
+            PendingIntent, so not exported; it records the open, raises the SDK paywall and brings the app forward.
+            The host app declares POST_NOTIFICATIONS itself — the SDK never adds a permission to its manifest.
+        -->
+        <activity
+            android:name="com.mobilebytelabs.paycraft.notify.internal.PayCraftNudgeActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"

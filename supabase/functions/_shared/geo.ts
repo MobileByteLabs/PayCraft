@@ -38,7 +38,30 @@ export function geoCountry(req: Request): string | null {
 export function recordedCountry(req: Request): string | null {
   const geo = geoCountry(req)
   if (geo) return geo
+  return acceptLanguageRegion(req)
+}
+
+function acceptLanguageRegion(req: Request): string | null {
   const tag = (req.headers.get("accept-language") ?? "").split(",")[0]?.trim() ?? ""
-  const region = toAlpha2(tag.split("-")[1])
+  return validRegion(tag.split("-")[1])
+}
+
+function validRegion(raw: string | null | undefined): string | null {
+  const region = toAlpha2(raw)
   return region && ISO2.test(region) && region !== "XX" ? region : null
+}
+
+/**
+ * The country to store on an analytics EVENT, and where it came from (paycraft-ga4-analytics-audit D6): the edge's
+ * IP-geo (`server`) first; else the region the device reported for this event, else its Accept-Language region
+ * (`device`). Supabase's edge sends no geo header, so without the device fallback every event's country was null.
+ */
+export function eventCountry(
+  req: Request,
+  deviceCountry: string | null | undefined,
+): { country: string | null; source: "server" | "device" | null } {
+  const geo = geoCountry(req)
+  if (geo) return { country: geo, source: "server" }
+  const device = validRegion(deviceCountry) ?? acceptLanguageRegion(req)
+  return device ? { country: device, source: "device" } : { country: null, source: null }
 }

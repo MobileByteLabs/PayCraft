@@ -1,6 +1,7 @@
+import React from "react"
 import Link from "next/link"
 import { CalendarDays, Lock } from "lucide-react"
-import { RANGE_OPTIONS, STAGE_LABEL, type FunnelRow, type SplitRow } from "@/lib/funnel"
+import { RANGE_OPTIONS, STAGE_LABEL, rangeLabel, rangeParam, type FunnelRow, type SplitRow } from "@/lib/funnel"
 
 const pct = (v: number | null, digits = 0) => (v === null ? "—" : `${(v * 100).toFixed(digits)}%`)
 
@@ -103,22 +104,27 @@ export function SplitTable({ title, rows, label, base = "viewers" }: {
  * The range menu — 7 / 30 / 90 days as links (`?range=`), so it works without client JavaScript. Ranges beyond
  * the plan's analytics retention are shown locked with an upgrade link instead of silently returning less data.
  */
-export function RangeMenu({ days, retentionDays }: { days: number; retentionDays: number }) {
+export function RangeMenu({ days, retentionDays, query }: {
+  days: number
+  retentionDays: number
+  /** The page's other query (the Analytics filters), kept when the range changes. */
+  query?: string
+}) {
   return (
     <details className="relative flex-shrink-0">
       <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg border border-ink-200 bg-white px-4 py-2 text-sm font-semibold text-ink-700 shadow-sm hover:border-ink-300">
         <CalendarDays className="h-4 w-4" strokeWidth={2} />
-        <span>Last {days} days</span>
+        <span>{rangeLabel(days)}</span>
       </summary>
       <div className="absolute right-0 z-10 mt-2 w-48 overflow-hidden rounded-lg border border-ink-200 bg-white py-1 shadow-lg">
         {RANGE_OPTIONS.map((d) =>
           d > retentionDays ? (
             <Link key={d} href="/billing" className="flex items-center justify-between px-4 py-2 text-sm text-ink-400 hover:bg-ink-50">
-              Last {d} days <Lock className="h-3.5 w-3.5" aria-label="Upgrade to unlock" />
+              {rangeLabel(d)} <Lock className="h-3.5 w-3.5" aria-label="Upgrade to unlock" />
             </Link>
           ) : (
-            <Link key={d} href={`?range=${d}`} className={`block px-4 py-2 text-sm hover:bg-ink-50 ${d === days ? "font-bold text-brand-700" : "text-ink-700"}`}>
-              Last {d} days
+            <Link key={d} href={`?range=${rangeParam(d)}${query ? `&${query}` : ""}`} className={`block px-4 py-2 text-sm hover:bg-ink-50 ${d === days ? "font-bold text-brand-700" : "text-ink-700"}`}>
+              {rangeLabel(d)}
             </Link>
           ),
         )}

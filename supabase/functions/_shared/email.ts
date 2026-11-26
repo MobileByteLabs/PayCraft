@@ -6,8 +6,10 @@
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
 // env-optional: PAYCRAFT_FROM_EMAIL — literal default on the same line.
 const FROM_EMAIL = Deno.env.get("PAYCRAFT_FROM_EMAIL") || "PayCraft <noreply@paycraft.dev>";
+// env-optional: RESEND_API_URL — literal default on the same line (the e2e suite points it at a local fake).
+const RESEND_API_URL = Deno.env.get("RESEND_API_URL") || "https://api.resend.com/emails";
 
-interface EmailParams {
+export interface EmailParams {
   to: string;
   subject: string;
   html: string;
@@ -15,7 +17,7 @@ interface EmailParams {
   from?: string;
 }
 
-interface SendResult {
+export interface SendResult {
   ok: boolean;
   id?: string;
   error?: string;
@@ -28,7 +30,7 @@ export async function sendEmail(params: EmailParams): Promise<SendResult> {
   }
 
   try {
-    const res = await fetch("https://api.resend.com/emails", {
+    const res = await fetch(RESEND_API_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${RESEND_API_KEY}`,
@@ -171,7 +173,7 @@ export function subscriptionExpiryEmail(appName: string, daysLeft: number): Emai
   };
 }
 
-function escapeHtml(str: string): string {
+export function escapeHtml(str: string): string {
   return str
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

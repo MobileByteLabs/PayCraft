@@ -12,6 +12,10 @@ import com.mobilebytelabs.paycraft.debug.platformLog
 import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.russhwolf.settings.Settings
 import com.russhwolf.settings.SharedPreferencesSettings
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import java.lang.ref.WeakReference
 
 actual object PayCraftPlatform {
@@ -35,6 +39,17 @@ actual object PayCraftPlatform {
 
     /** The current foreground [Activity] (or null), tracked via [startActivityTracking]. */
     internal fun currentActivityOrNull(): Activity? = currentActivityRef?.get()
+
+    private val pauses = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    private val resumes =
+        MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /**
+     * Every Activity pause / resume, for a flow that has to wait on the user — the notification-permission dialog
+     * pauses the foreground Activity and the user's answer resumes it.
+     */
+    internal val activityPauses: SharedFlow<Unit> = pauses.asSharedFlow()
+    internal val activityResumes: SharedFlow<Unit> = resumes.asSharedFlow()
 
     /**
      * Register foreground-Activity tracking on [app] so `launchBillingFlow` can
@@ -63,10 +78,12 @@ actual object PayCraftPlatform {
 
             override fun onActivityResumed(activity: Activity) {
                 currentActivityRef = WeakReference(activity)
+                resumes.tryEmit(Unit)
             }
 
             override fun onActivityPaused(activity: Activity) {
                 if (currentActivityRef?.get() === activity) currentActivityRef = null
+                pauses.tryEmit(Unit)
             }
 
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit

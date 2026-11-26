@@ -119,13 +119,17 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
   expiring after `offer_hours`), with the lanes the coupon reaches (`_shared/winback-offer.ts#lanesFor`). Claimed,
   it rides into checkout: `checkout-initiate` applies it (Stripe discount / Razorpay offer; 409 `offer_not_usable`
   → retried at full price), Google Play uses the coupon's offer id, the App Store a server-signed promotional offer.
-- **Web:** `cmp-paycraft-web` (≤ 151 KB, every page) stays free of UI; the checkout page and the survey live in
+- **Web:** `cmp-paycraft-web` (≤ 156,000 B, every page) stays free of UI; the checkout page and the survey live in
   `cmp-paycraft-web-ui` (≤ 20 KB, imported lazily by buyers), which depends on the stdlib only and calls the page's
   `PayCraftWeb` through `PayCraftWebApi` — `infra/web-ui-api-check.sh` keeps the two in step,
   `infra/web-bundle-size.sh` holds both budgets.
 - **GA4 on the dashboard:** tenants add PayCraft's service account — the org Firebase account
   (`firebase-adminsdk-fbsvc@prod-applications-c7f87.iam.gserviceaccount.com`; alias `paycraft-ga4-service-account` →
   vault `mbs-firebase-service-account`, env `PAYCRAFT_GA4_SA_JSON`, raw or base64 JSON) — as a Viewer on their property; `tenant_ga4_connections` (184) stores only the property id, plus (190) the `stream_ids` that are the tenant's when one property holds several apps — every report (`ga4Overview`) is then filtered by `streamId`.
+- **PayCraft's own site analytics:** paycraft.mobilebytesensei.com reports to GA4 stream "PayCraft Production"
+  (`G-546MLX2N39`, stream 15137829546) — separate from tenants' properties above. The id is public and lives in
+  `deploy-cloud.yml` (`env.PAYCRAFT_GA_ID` → `NEXT_PUBLIC_GA_ID`, inlined at build; the build refuses a missing one) and
+  `components/google-analytics.tsx` renders nothing without it. `cloud-smoke.yml` fails if the loader leaves the page.
 - **Attribution forwarding (server → the app's ad platforms):** verified lifecycle events — trial start, purchase,
   renewal, refund — go from `reconcileEntitlement()` (the one path every Play / App Store / web-PSP event takes) to
   GA4 (Firebase Measurement Protocol, by `app_instance_id`) and AppsFlyer (S2S events, by `appsflyer_id`) via

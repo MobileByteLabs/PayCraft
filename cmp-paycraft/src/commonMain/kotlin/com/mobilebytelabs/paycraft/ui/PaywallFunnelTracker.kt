@@ -1,11 +1,14 @@
 package com.mobilebytelabs.paycraft.ui
 
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.analytics.AttemptTracker
 import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
 import com.mobilebytelabs.paycraft.analytics.PayCraftEventName
+import com.mobilebytelabs.paycraft.analytics.PayCraftFailure
 import com.mobilebytelabs.paycraft.analytics.PayCraftStep
 import com.mobilebytelabs.paycraft.core.PaywallPresentation
 import com.mobilebytelabs.paycraft.model.BillingPlan
+import com.mobilebytelabs.paycraft.notify.ResumeNudgeTrigger
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
 
@@ -16,10 +19,17 @@ import com.mobilebytelabs.paycraft.platform.currentTimeMillis
  * device limit along the way — so when they leave, [abandoned] reports WHERE they left, with the plan,
  * currency, provider and what opened the paywall. The ViewModel calls it at each transition; events go to
  * [PayCraft.analytics] (the app's listener + PayCraft's funnel) unless a test hands in [emit].
+ *
+ * It also carries the PURCHASE ATTEMPT (paycraft-attempt-observability D4, AC-9): picking a plan opens one on
+ * [attempts] (switching plans closes the previous as abandoned), and from then on every event of this paywall carries
+ * its id — the same id the checkout request and the store purchase carry. Leaving at checkout, or a premium arrival,
+ * ends it; leaving at checkout also lets the SDK schedule its resume reminder ([attemptEnded]).
  */
 internal class PaywallFunnelTracker(
     private val emit: (PayCraftEvent) -> Unit = { PayCraft.analytics.emit(it) },
     private val now: () -> Long = { currentTimeMillis() },
+    private val attempts: AttemptTracker = PayCraft.attemptTracker,
+    private val attemptEnded: (ResumeNudgeTrigger) -> Unit = { PayCraft.onAttemptEnded(it) },
 ) {
     /** The step the buyer is on now — where an abandon is recorded. */
     var step: PayCraftStep = PayCraftStep.Paywall
@@ -30,6 +40,13 @@ internal class PaywallFunnelTracker(
     private var checkoutStarted = false
     private var purchased = false
     private var showing = false
+
+    /** The attempt this showing's events belong to — none until a plan is picked (or a reminder reopened one). */
+    private var attemptId: String? = null
+
+    /** A hosted checkout page (browser / Custom Tab) was opened and the buyer has not come back from it yet. */
+    var awaitingCheckoutReturn = false
+        private set
 
     /** What opened this paywall — resolved once when it is shown, so every event of the funnel carries the same one. */
     private var trigger: String = "direct"
@@ -47,12 +64,18 @@ internal class PaywallFunnelTracker(
                     PaywallPresentation.Shown.Trigger.Manual -> "manual"
                     PaywallPresentation.Shown.Trigger.IfNeeded -> "if_needed"
                     PaywallPresentation.Shown.Trigger.TrialManagedAppOpen -> "trial_app_open"
+                    PaywallPresentation.Shown.Trigger.ResumeNudge -> "resume_nudge"
                 }
                 PaywallPresentation.Hidden -> "direct"
             }
     }
 
-    private fun send(name: PayCraftEventName, step: PayCraftStep = this.step, reason: String? = null) {
+    private fun send(
+        name: PayCraftEventName,
+        step: PayCraftStep = this.step,
+        reason: String? = null,
+        failure: PayCraftFailure? = null,
+    ) {
         val experiment = runCatching { PayCraft.activeExperiment }.getOrNull()
         emit(
             PayCraftEvent(
@@ -62,8 +85,14 @@ internal class PaywallFunnelTracker(
                 country = runCatching { PayCraft.activeCountry }.getOrNull(),
                 provider = provider, reason = reason, atMs = now(),
                 experiment = experiment?.experiment, variant = experiment?.variant,
+                attemptId = attemptId, failure = failure,
             ),
         )
+    }
+
+    /** Joins (or opens) the attempt for [plan] — the plan pick and everything after it share one id. */
+    private fun attemptFor(plan: BillingPlan) {
+        attemptId = attempts.ensure(plan.sku)
     }
 
     /** The paywall appeared (each time it is shown — the ViewModel outlives the sheet). */
@@ -74,6 +103,8 @@ internal class PaywallFunnelTracker(
         checkoutStarted = false
         purchased = false
         showing = true
+        // A paywall the resume reminder raised continues the attempt it reminded about; any other starts with none.
+        attemptId = if (trigger == "resume_nudge") attempts.current else null
         send(PayCraftEventName.PaywallView)
     }
 
@@ -81,10 +112,12 @@ internal class PaywallFunnelTracker(
         sku = plan.sku
         currency = plan.currency
         step = PayCraftStep.Plan
+        attemptFor(plan)
         send(PayCraftEventName.PlanSelect)
     }
 
     fun providerSheetShown(plan: BillingPlan) {
+        attemptFor(plan)
         sku = plan.sku
         currency = plan.currency
         step = PayCraftStep.Provider
@@ -98,6 +131,7 @@ internal class PaywallFunnelTracker(
     }
 
     fun providerChosen(plan: BillingPlan, providerId: String) {
+        attemptFor(plan)
         sku = plan.sku
         currency = plan.currency
         provider = providerId
@@ -106,6 +140,7 @@ internal class PaywallFunnelTracker(
     }
 
     fun checkoutStarted(plan: BillingPlan, providerId: String?) {
+        attemptFor(plan)
         sku = plan.sku
         currency = plan.currency
         if (providerId != null) provider = providerId
@@ -114,7 +149,24 @@ internal class PaywallFunnelTracker(
         send(PayCraftEventName.CheckoutStart)
     }
 
-    fun purchaseFailed(reason: String) = send(PayCraftEventName.PurchaseFail, reason = reason.take(100))
+    /** The checkout could not start or failed — reported with its structured [failure] (stage, class, code). */
+    fun purchaseFailed(failure: PayCraftFailure) =
+        send(PayCraftEventName.PurchaseFail, reason = failure.code, failure = failure)
+
+    /** A hosted checkout page opened; the buyer's return to the app is reported by [checkoutReturned]. */
+    fun hostedCheckoutLaunched() {
+        awaitingCheckoutReturn = true
+    }
+
+    /**
+     * The buyer came back from a hosted checkout page (web redirect, Custom Tab). [result] is `success` when premium
+     * had already arrived, else `unconfirmed` — a webhook can still grant it, which `purchase_success` then reports.
+     * Once per launched checkout.
+     */
+    fun checkoutReturned(result: String) {
+        awaitingCheckoutReturn = false
+        send(PayCraftEventName.CheckoutReturn, PayCraftStep.Checkout, reason = result)
+    }
 
     /** Premium arrived. Counted once, and only for a checkout started from this paywall. */
     fun purchaseSucceeded(planId: String?) {
@@ -124,6 +176,7 @@ internal class PaywallFunnelTracker(
         // which no dashboard row is keyed on. Only fall back to it when the checkout left no SKU.
         if (sku == null) sku = planId
         send(PayCraftEventName.PurchaseSuccess)
+        attempts.granted()
     }
 
     fun signInShown(providerId: String) {
@@ -171,6 +224,8 @@ internal class PaywallFunnelTracker(
         showing = false
         if (purchased) return null
         send(PayCraftEventName.StepAbandon)
+        // Leaving with a checkout started ends the attempt without a purchase — the resume reminder's trigger.
+        if (checkoutStarted && attemptId != null) attemptEnded(ResumeNudgeTrigger.CheckoutAbandon)
         return step
     }
 }

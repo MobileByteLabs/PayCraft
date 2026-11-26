@@ -30,6 +30,22 @@ public enum class PayCraftEventName(public val wire: String) {
     SurveyAnswer("paycraft_survey_answer"),
     OfferView("paycraft_offer_view"),
     OfferAccept("paycraft_offer_accept"),
+
+    /**
+     * An open purchase attempt was left for another one — the buyer picked a different plan before paying. Carries
+     * the closed attempt's id and a `sdk / flow_switch / new_plan_select` failure, so its timeline ends instead of
+     * hanging open (paycraft-attempt-observability D4).
+     */
+    AttemptAbandon("paycraft_attempt_abandon"),
+
+    /** The resume reminder was scheduled for this attempt (checkout abandoned or payment failed; D10). */
+    NudgeScheduled("paycraft_nudge_scheduled"),
+
+    /** The resume reminder was NOT scheduled — [PayCraftEvent.code] says why (`skipped_no_permission`; D11). */
+    NudgeSkipped("paycraft_nudge_skipped"),
+
+    /** The buyer tapped the resume reminder and the paywall was raised. */
+    NudgeOpen("paycraft_nudge_open"),
 }
 
 /** Where in the buying path an event happened — the funnel's stages and the abandon points. */
@@ -62,12 +78,20 @@ public class PayCraftEvent(
     public val country: String? = null,
     /** The payment provider in play (`razorpay`, `stripe`, `google_play`, `app_store`, …). */
     public val provider: String? = null,
-    /** A survey reason code, a purchase-failure code, or a checkout-return result (`success` / `cancel`). */
+    /** A survey reason code, a purchase-failure code, or a checkout-return result (`success` / `unconfirmed`). */
     public val reason: String? = null,
     public val atMs: Long,
     /** The A/B experiment the device was in when this happened (migration 206), with [variant]. */
     public val experiment: String? = null,
     public val variant: String? = null,
+    /**
+     * The purchase attempt this event belongs to (paycraft-attempt-observability D4) — a random id the SDK mints when
+     * a plan is picked, which every later event, the checkout request, the Play purchase and the store registration
+     * carry, so the server joins them into one timeline. Never derived from the buyer.
+     */
+    public val attemptId: String? = null,
+    /** What went wrong, when this event reports a failure ([PayCraftFailure] — already scrubbed and capped). */
+    public val failure: PayCraftFailure? = null,
 ) {
     /** GA4-shaped parameters: only what is set, ≤ 25 keys, values cut to GA4's 100-character limit. */
     public fun params(): Map<String, String> = buildMap {
@@ -81,9 +105,27 @@ public class PayCraftEvent(
         reason?.let { put("reason", it.take(MAX_VALUE)) }
         experiment?.let { put("experiment", it.take(MAX_VALUE)) }
         variant?.let { put("variant", it.take(MAX_VALUE)) }
+        attemptId?.let { put("attempt_id", it.take(MAX_VALUE)) }
+        // The failure's groupable fields only — its message stays first-party (PayCraft's ingest), never GA4.
+        failure?.let {
+            put("stage", it.stage.wire)
+            put("error_class", it.errorClass.take(MAX_VALUE))
+            put("code", it.code.take(MAX_VALUE))
+        }
     }
 
     private companion object {
         const val MAX_VALUE = 100
     }
 }
+
+// Extensions, not members: a member is kept in every bundle that has the class; these are dropped where unused (D16).
+
+/** The event's failure stage (`sdk`, `provider`…), or null when it reports none. */
+public val PayCraftEvent.stage: String? get() = failure?.stage?.wire
+
+/** The event's failure class (`store_connect`, `transport`…), or null. */
+public val PayCraftEvent.errorClass: String? get() = failure?.errorClass
+
+/** The event's failure code (`connect_6`, `skipped_no_permission`…), or null. */
+public val PayCraftEvent.code: String? get() = failure?.code
