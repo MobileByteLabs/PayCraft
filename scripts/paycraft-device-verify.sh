@@ -74,12 +74,12 @@ else
 adb devices | grep -qw "device" || { log "FATAL: no Android device connected (adb devices)"; exit 1; }
 
 if [ "$SKIP_BUILD" -eq 0 ]; then
-  log ">> ./gradlew :sample-app:installDebug"
-  ./gradlew :sample-app:installDebug >"$EVID_DIR/install.log" 2>&1 || {
+  log ">> ./gradlew :sample-app-android:installDebug"
+  ./gradlew :sample-app-android:installDebug >"$EVID_DIR/install.log" 2>&1 || {
     log "FATAL: sample-app build/install failed — see $EVID_DIR/install.log"; exit 1; }
 fi
 
-BUILT_APK="$(find sample-app/build/outputs/apk/debug -name '*.apk' 2>/dev/null | head -1)"
+BUILT_APK="$(find sample-app-android/build/outputs/apk/debug -name '*.apk' 2>/dev/null | head -1)"
 BUILT_MD5="$(md5_of "$BUILT_APK")"
 DEV_PATH="$(adb shell pm path "$APP_ID" | sed 's/package://' | tr -d '\r' | head -1)"
 adb pull "$DEV_PATH" "$EVID_DIR/device_base.apk" >/dev/null 2>&1

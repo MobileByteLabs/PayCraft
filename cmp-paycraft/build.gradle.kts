@@ -97,13 +97,18 @@ kotlin {
     // not target macOS; no consumer ships macOS). Re-add macosX64()/macosArm64() + src/macosMain
     // once Store5 ships macOS artifacts, or move store5 into a non-macOS intermediate source set.
 
+    // binaries.executable(): Compose UI tests on js / wasmJs need a webpack bundle to load the Skiko runtime
+    // (CMP-4906); without it the Compose plugin refuses to run them. The published klib is unaffected.
     js {
         browser()
-        nodejs()
+        // Compose UI cannot render on Node (no DOM / canvas), so the js tests run in the browser only.
+        nodejs { testTask { enabled = false } }
+        binaries.executable()
     }
 
     wasmJs {
         browser()
+        binaries.executable()
     }
 
     compilerOptions {

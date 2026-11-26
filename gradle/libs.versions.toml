@@ -38,7 +38,8 @@ android-targetSdk = "36"
 vanniktechMavenPublish = "0.36.0"
 
 # Code Quality
-detekt = "1.23.8"
+# detekt 2.0 line (dev.detekt) — the version the detekt README pairs with Gradle 9.6 / Kotlin 2.4 / AGP 9.3.
+detekt = "2.0.0-alpha.6"
 spotless = "7.0.4"
 ktlint = "1.5.0"
 
@@ -149,7 +150,7 @@ kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.
 junit = { module = "junit:junit", version.ref = "junit" }
 
 # Detekt
-detekt-formatting = { module = "io.gitlab.arturbosch.detekt:detekt-formatting", version.ref = "detekt" }
+detekt-ktlint-wrapper = { module = "dev.detekt:detekt-rules-ktlint-wrapper", version.ref = "detekt" }
 
 # AndroidX
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activityCompose" }
@@ -234,7 +235,7 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 jetbrainsCompose = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 vanniktech-mavenPublish = { id = "com.vanniktech.maven.publish", version.ref = "vanniktechMavenPublish" }
-detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+detekt = { id = "dev.detekt", version.ref = "detekt" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 # Roborazzi Gradle plugin — generates record/verify tasks per target when applied to the module.
 # Applied to :cmp-paycraft only (jvm target consumes it via jvmTest deps); do not apply at root.

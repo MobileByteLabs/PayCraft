@@ -362,6 +362,7 @@ See [`plugin-template/`](plugin-template/) for a starter template.
 ```bash
 ./gradlew jvmTest          # run tests
 ./gradlew :sample-app:run  # desktop sample
+./gradlew :sample-app-android:installDebug  # Android sample (shared UI from :sample-app)
 ./gradlew spotlessApply    # format
 ./gradlew detekt           # lint
 ```

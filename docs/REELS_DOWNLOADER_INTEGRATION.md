@@ -266,7 +266,7 @@ startKoin {
 
 Without this module the SDK's `NativeBillingClient` stays the no-op `WebCheckoutNativeBillingClient`
 and an Android digital checkout **fails closed with `BillingState.Error`** — it does **not** fall
-back to the browser (that would be the violation). See `sample-app/.../SampleApplication.kt` for a
+back to the browser (that would be the violation). See `sample-app-android/.../SampleApplication.kt` for a
 complete `ActivityLifecycleCallbacks`-based `activityProvider`.
 
 **2. Configure `play_product_id` per product** in the PayCraft dashboard (or your SuiteConfig).

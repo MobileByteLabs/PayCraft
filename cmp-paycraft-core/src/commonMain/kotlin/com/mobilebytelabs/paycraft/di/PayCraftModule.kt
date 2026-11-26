@@ -1,6 +1,7 @@
 package com.mobilebytelabs.paycraft.di
 
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.PayCraftBackend
 import com.mobilebytelabs.paycraft.billing.NativeBillingClient
 import com.mobilebytelabs.paycraft.billing.WebCheckoutNativeBillingClient
 import com.mobilebytelabs.paycraft.billing.platformDefaultNativeBillingClient
@@ -11,6 +12,7 @@ import com.mobilebytelabs.paycraft.core.PayCraftBillingManager
 import com.mobilebytelabs.paycraft.core.identity.IdentityTokenClient
 import com.mobilebytelabs.paycraft.core.identity.VerifiedSignIn
 import com.mobilebytelabs.paycraft.network.CouponClient
+import com.mobilebytelabs.paycraft.network.MockPayCraftService
 import com.mobilebytelabs.paycraft.network.PayCraftRealtime
 import com.mobilebytelabs.paycraft.network.PayCraftService
 import com.mobilebytelabs.paycraft.network.PayCraftServiceImpl
@@ -51,6 +53,9 @@ val PayCraftModule = module {
     }
 
     single<PayCraftService> {
+        // Mock is an offline preview: its `mock://` URL becomes https://localhost in the Supabase client, so the
+        // real service could only fail ("register_device … Connection refused"). Keep it in process instead.
+        if (PayCraft.backend is PayCraftBackend.Mock) return@single MockPayCraftService()
         PayCraftServiceImpl(
             client = get<SupabaseClient>(qualifier = named("paycraft")),
             // apiKey is set synchronously in PayCraft.initialize() — read it directly instead of

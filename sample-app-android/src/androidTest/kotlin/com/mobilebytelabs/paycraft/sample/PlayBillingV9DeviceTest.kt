@@ -27,7 +27,7 @@ import kotlin.test.assertTrue
  * exists for the sample app. What is provable here is that the v9 client connects and its query
  * surface behaves — which is exactly what the version bump put at risk.
  *
- * Run: `./gradlew :sample-app:connectedDebugAndroidTest --tests "*PlayBillingV9DeviceTest*"`
+ * Run: `./gradlew :sample-app-android:connectedDebugAndroidTest --tests "*PlayBillingV9DeviceTest*"`
  */
 class PlayBillingV9DeviceTest {
 

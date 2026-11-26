@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.v2.runComposeUiTest
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
+import com.mobilebytelabs.paycraft.awaitText
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.config.ValuePropTriple
@@ -282,7 +283,7 @@ class PaywallTemplateTest {
     @Test fun branded_stack_free_attribution_branding_renders() = runComposeUiTest {
         val content = hostContent(BillingState.Free)
         setContent { content() }
-        onNodeWithText("Powered by PayCraft by MobileByteSensei", substring = true).assertExists()
+        awaitText("Powered by PayCraft by MobileByteSensei", substring = true).assertExists()
     }
 
     /**
@@ -292,8 +293,8 @@ class PaywallTemplateTest {
     @Test fun branded_stack_premium_shows_plan_and_renewal() = runComposeUiTest {
         val content = hostContent(premiumState)
         setContent { content() }
-        onNodeWithText("Plan: monthly", substring = false).assertExists()
-        onNodeWithText("Renews 2027-01-01", substring = false).assertExists()
+        awaitText("Plan: monthly").assertExists()
+        awaitText("Renews 2027-01-01").assertExists()
     }
 
     /**
@@ -302,7 +303,7 @@ class PaywallTemplateTest {
     @Test fun branded_stack_premium_shows_trial_days_remaining() = runComposeUiTest {
         val content = hostContent(premiumState)
         setContent { content() }
-        onNodeWithText("Trial: 5 days remaining", substring = false).assertExists()
+        awaitText("Trial: 5 days remaining").assertExists()
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ import androidx.compose.ui.test.v2.runComposeUiTest
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
 import com.mobilebytelabs.paycraft.analytics.PayCraftEventName
+import com.mobilebytelabs.paycraft.awaitText
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
 import com.mobilebytelabs.paycraft.winback.ExitSurveyConfig
@@ -105,7 +106,7 @@ class ExitSurveyContentTest {
             onNodeWithTag(PayCraftTestTags.exitReason("too_expensive")).performClick()
             waitForIdle()
             onNodeWithTag(PayCraftTestTags.WINBACK_OFFER).assertIsDisplayed()
-            onNodeWithText("50% off").assertIsDisplayed()
+            awaitText("50% off").assertIsDisplayed()
 
             onNodeWithTag(PayCraftTestTags.WINBACK_CLAIM).performClick()
             waitForIdle()

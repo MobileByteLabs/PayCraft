@@ -62,8 +62,43 @@ kotlin {
     }
     iosArm64()
     iosSimulatorArm64()
-    js { browser() }
-    wasmJs { browser() }
+
+    // Same Swift-runtime -L fix as :cmp-paycraft (see the full note there): the CryptoKit cinterop klib that
+    // core pulls in hardcodes /Applications/Xcode.app, so an iOS test binary fails to link with
+    // `__swift_FORCE_LOAD_$_swiftCompatibility56` wherever Xcode lives under another name. Resolve the
+    // active toolchain from `xcode-select -p` instead; no-op off macOS.
+    val swiftRuntimeSearchPaths: Map<String, File> =
+        runCatching {
+            check(System.getProperty("os.name").orEmpty().startsWith("Mac")) { "Apple toolchain lookup is macOS-only" }
+            val developerDir =
+                providers
+                    .exec { commandLine("xcode-select", "-p") }
+                    .standardOutput.asText
+                    .get()
+                    .trim()
+            val swiftLibRoot = File(developerDir, "Toolchains/XcodeDefault.xctoolchain/usr/lib/swift")
+            mapOf(
+                "iosSimulatorArm64" to File(swiftLibRoot, "iphonesimulator"),
+                "iosArm64" to File(swiftLibRoot, "iphoneos"),
+            ).filterValues { it.isDirectory }
+        }.getOrDefault(emptyMap())
+
+    targets.withType(org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget::class.java).configureEach {
+        val swiftLibs = swiftRuntimeSearchPaths[name]
+        if (swiftLibs != null) {
+            binaries.all { linkerOpts("-L${swiftLibs.absolutePath}") }
+        }
+    }
+    // binaries.executable(): Compose UI tests on js / wasmJs need a webpack bundle to load the Skiko runtime
+    // (CMP-4906); without it the Compose plugin refuses to run them. The published klib is unaffected.
+    js {
+        browser()
+        binaries.executable()
+    }
+    wasmJs {
+        browser()
+        binaries.executable()
+    }
 
     sourceSets {
         commonMain.dependencies {

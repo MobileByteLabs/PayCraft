@@ -31,17 +31,20 @@ detekt {
     config.setFrom("$rootDir/config/detekt/detekt.yml")
     baseline = file("$rootDir/config/detekt/baseline.xml")
     parallel = true
+    // The plugin lives on the root project, whose own src/ is empty — without a source set the task reported
+    // NO-SOURCE and analyzed nothing. Point it at every library module's Kotlin, every source set.
+    source.setFrom(fileTree(rootDir) { include("cmp-*/src/*/kotlin/**/*.kt") })
 }
 
 dependencies {
-    detektPlugins(libs.detekt.formatting)
+    detektPlugins(libs.detekt.ktlint.wrapper)
 }
 
-tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
+tasks.withType<dev.detekt.gradle.Detekt>().configureEach {
     reports {
         html.required.set(true)
-        xml.required.set(true)
-        txt.required.set(false)
+        // detekt 2.0 calls the XML report "checkstyle" and has no txt report.
+        checkstyle.required.set(true)
         sarif.required.set(false)
     }
     jvmTarget = "11"

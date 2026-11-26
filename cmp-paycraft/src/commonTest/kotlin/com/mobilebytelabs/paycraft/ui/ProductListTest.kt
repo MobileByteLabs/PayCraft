@@ -25,6 +25,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
 import com.mobilebytelabs.paycraft.LocalPayCraftConfig
+import com.mobilebytelabs.paycraft.awaitText
 import com.mobilebytelabs.paycraft.config.PaywallDto
 import com.mobilebytelabs.paycraft.config.SuiteConfig
 import com.mobilebytelabs.paycraft.model.BillingState
@@ -242,6 +243,7 @@ class ProductListTest {
         // The disclosure block must tell users the trial auto-converts AND how to
         // avoid the charge (cancel) — the third required policy term.
         onNodeWithTag(PayCraftTestTags.TRIAL_BADGE).assertExists()
+        awaitText("Cancel", substring = true, ignoreCase = true)
         val cancelCopy = onAllNodesWithText("Cancel", substring = true, ignoreCase = true)
             .fetchSemanticsNodes()
         assertTrue(
