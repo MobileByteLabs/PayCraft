@@ -20,6 +20,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -93,5 +94,14 @@ class MockPayCraftServiceTest {
         val koin = startKoin { modules(PayCraftModule) }.koin
         assertIs<MockPayCraftService>(koin.get<PayCraftService>())
         assertEquals("mock", PayCraft.backend.supabaseAnonKey)
+    }
+
+    @Test
+    fun mock_joins_no_realtime_channel() {
+        // PayCraftRealtime is bound by the module, but on Mock its socket would dial wss://localhost and
+        // log Connection refused on every login — the device showed exactly that after the service fix.
+        PayCraft.initialize(apiKey = "pk_test_mock", backend = PayCraftBackend.Mock(SuiteConfig(tenantId = "t")))
+        startKoin { modules(PayCraftModule) }
+        assertNull(PayCraft.realtimeOrNull())
     }
 }

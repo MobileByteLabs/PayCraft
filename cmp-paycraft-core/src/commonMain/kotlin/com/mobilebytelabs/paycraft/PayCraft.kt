@@ -1396,16 +1396,17 @@ object PayCraft {
      * rethrows a definition that fails to CONSTRUCT. This runs inside [applySuiteConfig], i.e.
      * synchronously inside [initialize] on a warm start, so an unguarded resolution is a startup crash.
      */
-    private fun realtimeOrNull(): PayCraftRealtime? = try {
-        KoinPlatform.getKoinOrNull()?.getOrNull<PayCraftRealtime>()
+    internal fun realtimeOrNull(): PayCraftRealtime? = try {
+        // Mock is in-process: its `mock://` URL becomes wss://localhost, so a socket would only ever log
+        // Connection refused. Nothing pushes to a Mock buyer — there is no channel to join.
+        if (backend is PayCraftBackend.Mock) null else KoinPlatform.getKoinOrNull()?.getOrNull<PayCraftRealtime>()
     } catch (e: Exception) {
         PayCraftLogger.onError("realtime", "unavailable — TTL/foreground sync only: ${e.message}")
         null
     }
 
     internal fun resubscribeRealtime() {
-        val koin = KoinPlatform.getKoinOrNull() ?: return
-        runCatching { koin.getOrNull<PayCraftRealtime>()?.resubscribe() }
+        runCatching { realtimeOrNull()?.resubscribe() }
     }
 
     internal fun refreshRealtimeIdentity() {
