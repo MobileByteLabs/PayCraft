@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr"
+import { supabaseCookieOptions } from "@/lib/supabase-cookie"
 import { cookies } from "next/headers"
 
 // Stays synchronous for its ~70 callers: Next 16's cookies() is a Promise, and @supabase/ssr accepts async
@@ -10,6 +11,7 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: supabaseCookieOptions,
       cookies: {
         async getAll() {
           return (await cookieStore).getAll()

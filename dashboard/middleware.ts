@@ -2,6 +2,7 @@
 // the Node runtime, which @opennextjs/cloudflare 1.20 labels "experimental in cloudflare, and not officially
 // maintained". Rename once OpenNext supports Node proxy — the deprecated name still works meanwhile.
 import { createServerClient } from "@supabase/ssr"
+import { supabaseCookieOptions } from "@/lib/supabase-cookie"
 import { NextResponse, type NextRequest } from "next/server"
 import { checkEdgeRateLimit, extractIp, rateLimitHeaders } from "@/lib/edge-rate-limit"
 import { API_HOSTS, MCP_HOSTS } from "@/lib/hosts"
@@ -83,6 +84,7 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: supabaseCookieOptions,
       cookies: {
         getAll() {
           return request.cookies.getAll()

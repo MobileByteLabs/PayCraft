@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr"
 import { NextRequest, NextResponse } from "next/server"
 import { AFTER_LOGIN_COOKIE, safeAfterLogin } from "@/lib/spa-paths"
+import { supabaseCookieOptions } from "@/lib/supabase-cookie"
 
 /**
  * Expire every PKCE `code-verifier` cookie once the exchange has consumed it.
@@ -47,6 +48,7 @@ export async function GET(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: supabaseCookieOptions,
       cookies: {
         getAll() {
           return request.cookies.getAll()

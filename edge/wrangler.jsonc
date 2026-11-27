@@ -1,0 +1,19 @@
+// paycraft-edge — the Supabase proxy at edge.paycraft.mobilebytesensei.com (src/index.ts explains what it is for).
+//
+//   deploy:  cd dashboard && npx wrangler deploy -c ../edge/wrangler.jsonc     (dashboard/ has wrangler installed)
+//   test:    deno test edge/src/proxy.test.ts
+{
+  "$schema": "../dashboard/node_modules/wrangler/config-schema.json",
+  "name": "paycraft-edge",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+
+  // A custom domain: Cloudflare creates the DNS record and certificate, and the Worker is the origin.
+  "routes": [{ "pattern": "edge.paycraft.mobilebytesensei.com", "custom_domain": true }],
+  "workers_dev": false,
+
+  // Next to the Supabase project (AWS ap-northeast-1), so the proxy adds a short hop, not a continent.
+  "placement": { "mode": "targeted", "region": "aws:ap-northeast-1" },
+
+  "observability": { "enabled": true },
+}

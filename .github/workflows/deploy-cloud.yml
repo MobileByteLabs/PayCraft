@@ -177,7 +177,8 @@ jobs:
           # reads them via createBrowserClient, so every client page threw and rendered
           # "Application error: a client-side exception has occurred" — including /auth/login,
           # which locked the dashboard entirely.
-          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.sb.outputs.url }}
+          # The edge proxy (edge/), not the project URL: production reaches Supabase only through it.
+          NEXT_PUBLIC_SUPABASE_URL: https://edge.paycraft.mobilebytesensei.com
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_GA_ID: ${{ env.PAYCRAFT_GA_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

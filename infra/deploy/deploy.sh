@@ -70,6 +70,8 @@ LEDGER="$PAYCRAFT_SRC/infra/deploy/.deploy-ledger.jsonl"
 mkdir -p "$STATE_DIR"
 
 PROD_URL="https://paycraft.mobilebytesensei.com"
+# The Supabase proxy Worker (edge/) — the production dashboard and the SDKs reach Supabase only through it.
+PAYCRAFT_EDGE_URL="https://edge.paycraft.mobilebytesensei.com"
 CF_WORKER="paycraft-dashboard"   # Cloudflare Worker (OpenNext; dashboard/wrangler.jsonc) — was the `paycraft` Pages project
 GITHUB_REPO="MobileByteLabs/PayCraft"
 SUPABASE_REF="mlwfgytjxlqyfxcgpysm"
@@ -638,9 +640,12 @@ phase_5_deploy_cloudflare() {
     : > "$ep"; chmod 600 "$ep"
     bash "$FW_ROOT/core/scripts/secrets-get.sh" "$TARGET_URL_ALIAS"  --to-file "$tmpd/sburl" 2>/dev/null || { echo "  ✗ vault pull: $TARGET_URL_ALIAS"; return 1; }
     bash "$FW_ROOT/core/scripts/secrets-get.sh" "$TARGET_ANON_ALIAS" --to-file "$tmpd/sbanon" 2>/dev/null || { echo "  ✗ vault pull: $TARGET_ANON_ALIAS"; return 1; }
+    # Production talks to Supabase only through the edge proxy (edge/); staging keeps its own project's URL.
+    local sb_url; sb_url="$(cat "$tmpd/sburl")"
+    [[ "$MODE" = "staging" ]] || sb_url="$PAYCRAFT_EDGE_URL"
     {
-        printf 'NEXT_PUBLIC_SUPABASE_URL=%s\n'          "$(cat "$tmpd/sburl")"
-        printf 'NEXT_PUBLIC_PAYCRAFT_SUPABASE_URL=%s\n' "$(cat "$tmpd/sburl")"
+        printf 'NEXT_PUBLIC_SUPABASE_URL=%s\n'          "$sb_url"
+        printf 'NEXT_PUBLIC_PAYCRAFT_SUPABASE_URL=%s\n' "$sb_url"
         printf 'NEXT_PUBLIC_SUPABASE_ANON_KEY=%s\n'     "$(cat "$tmpd/sbanon")"
         printf 'NEXT_PUBLIC_PAYCRAFT_DASHBOARD_URL=%s\n' "$public_url"
         # Inlined at build time; unset, /api/health reports "local" on production.
