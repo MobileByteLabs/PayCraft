@@ -43,6 +43,8 @@ export interface PaywallTreeEditorProps {
   prices?: Record<string, PackagePrice>
   initialRevision: number | null
   publishedRevision: number | null
+  /** Called after a successful save or publish (e.g. to invalidate the cached paywall). */
+  onSaved?: () => void
 }
 
 const SAMPLE: Record<string, PackagePrice> = {
@@ -55,6 +57,7 @@ export function PaywallTreeEditor({
   prices,
   initialRevision,
   publishedRevision,
+  onSaved,
 }: PaywallTreeEditorProps) {
   const [doc, setDoc] = useState<Json>(() => clone(initialWorkflow))
   const [selected, setSelected] = useState<string | null>("0")
@@ -140,6 +143,7 @@ export function PaywallTreeEditor({
       setRevision(json.revision ?? null)
       setDirty(false)
       setNotice(`Draft saved as revision ${json.revision}. Not live yet.`)
+      onSaved?.()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -157,6 +161,7 @@ export function PaywallTreeEditor({
       if (!res.ok) throw new Error(json.error ?? `publish failed (${res.status})`)
       setLive(json.published_revision ?? null)
       setNotice(`Published revision ${json.published_revision}. Devices pick it up within the SDK cache TTL.`)
+      onSaved?.()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {

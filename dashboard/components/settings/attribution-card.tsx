@@ -1,7 +1,9 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Megaphone } from "lucide-react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useDashboard } from "@/components/app-providers"
+import { Loader2, Megaphone } from "lucide-react"
 
 /**
  * Attribution forwarding (migration 208): PayCraft's server sends this app's verified purchases, trial
@@ -25,15 +27,19 @@ const MESSAGES: Record<string, string> = {
 }
 
 export function AttributionCard() {
-  const [status, setStatus] = useState<Status | null>(null)
-
-  async function load() {
-    const res = await fetch("/api/settings/attribution").catch(() => null)
-    if (res?.ok) setStatus(await res.json())
-  }
-  useEffect(() => {
-    void load()
-  }, [])
+  const { tenantId } = useDashboard()
+  const queryClient = useQueryClient()
+  const statusQuery = useQuery({
+    queryKey: ["attribution", tenantId],
+    queryFn: async () => {
+      const res = await fetch("/api/settings/attribution")
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error ?? `Couldn't load (${res.status})`)
+      return body as Status
+    },
+  })
+  const status = statusQuery.data ?? null
+  const load = () => queryClient.invalidateQueries({ queryKey: ["attribution", tenantId] })
 
   return (
     <div className="bg-white rounded-xl border border-ink-200 shadow-sm p-6 space-y-5" data-testid="attribution-card">
@@ -49,6 +55,23 @@ export function AttributionCard() {
           shown again.
         </p>
       </div>
+      {statusQuery.isPending && (
+        <div role="status" aria-busy="true" className="space-y-3 animate-pulse">
+          <span className="sr-only">Loading ad attribution…</span>
+          <div className="h-24 rounded-lg bg-ink-100" />
+          <div className="h-24 rounded-lg bg-ink-100" />
+        </div>
+      )}
+      {statusQuery.isError && (
+        <p role="alert" className="text-xs text-danger-700">
+          Couldn&rsquo;t load ad attribution: {statusQuery.error.message}{" "}
+          <button type="button" onClick={() => statusQuery.refetch()} className="font-semibold underline">
+            Retry
+          </button>
+        </p>
+      )}
+      {statusQuery.isSuccess && (
+        <>
       <PlatformForm
         platform="ga4"
         title="Google Analytics 4 / Firebase"
@@ -71,6 +94,8 @@ export function AttributionCard() {
         savedId={status?.appsflyer?.app_id ?? null}
         onChange={load}
       />
+        </>
+      )}
     </div>
   )
 }
@@ -84,13 +109,14 @@ function PlatformForm(props: {
   secretLabel: string
   secretKey: string
   savedId: string | null
-  onChange: () => Promise<void>
+  onChange: () => Promise<unknown>
 }) {
   const connected = props.savedId !== null
   const [appId, setAppId] = useState("")
   const [secret, setSecret] = useState("")
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     setAppId(props.savedId ?? "")
@@ -99,16 +125,21 @@ function PlatformForm(props: {
   async function call(init: RequestInit, url = "/api/settings/attribution", done: string) {
     setBusy(true)
     setNote(null)
+    setFailed(false)
     try {
       const res = await fetch(url, { ...init, headers: { "content-type": "application/json" } })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
+        setFailed(true)
         setNote(MESSAGES[body?.error] ?? body?.error ?? "Couldn't save — try again.")
         return
       }
       setSecret("")
       setNote(done)
       await props.onChange()
+    } catch (e: any) {
+      setFailed(true)
+      setNote(String(e?.message ?? e))
     } finally {
       setBusy(false)
     }
@@ -148,7 +179,16 @@ function PlatformForm(props: {
         </div>
       </div>
       <div className="flex items-center justify-end gap-2">
-        {note && <span className="text-[11px] text-ink-600 mr-auto">{note}</span>}
+        {busy && (
+          <span role="status" className="text-[11px] text-ink-500 mr-auto flex items-center gap-1.5">
+            <Loader2 className="w-3 h-3 animate-spin" /> Saving…
+          </span>
+        )}
+        {!busy && note && (
+          <span role={failed ? "alert" : undefined} className={`text-[11px] mr-auto ${failed ? "text-danger-700" : "text-ink-600"}`}>
+            {note}
+          </span>
+        )}
         {connected && (
           <button
             type="button"

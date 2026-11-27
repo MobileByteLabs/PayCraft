@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   ChevronDown,
   ExternalLink,
@@ -28,7 +28,7 @@ type SyncReport = { status: "ok" | "failed" | "skipped"; message?: string }
  *             deep-links to the product page on dashboard.stripe.com (test
  *             or live depending on the connected key mode).
  *
- * Refreshes the server-component table after a successful re-sync so the
+ * Invalidates the products queries after a successful re-sync so the
  * green/amber chips reflect the new state.
  */
 export function ProductRowActions({
@@ -56,7 +56,7 @@ export function ProductRowActions({
   playConnected: boolean
   appStoreConnected: boolean
 }) {
-  const router = useRouter()
+  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
   // Report shape mirrors the /api/products/{id}/sync response keys exactly:
@@ -96,8 +96,8 @@ export function ProductRowActions({
         return
       }
       setLastResult(data)
-      // Refresh the server-rendered list so the chips update.
-      router.refresh()
+      // Re-read the products list so the chips update.
+      void queryClient.invalidateQueries({ queryKey: ["products"] })
     } catch (e: any) {
       setError(e?.message ?? String(e))
     } finally {

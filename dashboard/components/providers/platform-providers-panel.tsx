@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 import { Card, CardBody } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -119,6 +120,7 @@ export function PlatformProvidersPanel({
 
   const [sel, setSel] = useState<Record<string, string[]>>(initSel)
   const [ruleIds, setRuleIds] = useState<Record<string, string>>(ruleIdByPlatform)
+  const queryClient = useQueryClient()
   const [saving, setSaving] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -155,6 +157,7 @@ export function PlatformProvidersPanel({
         if (id) setRuleIds((r) => ({ ...r, [platform]: id }))
       }
       setSaved(platform)
+      queryClient.invalidateQueries({ queryKey: ["providers"] })
       setTimeout(() => setSaved((cur) => (cur === platform ? null : cur)), 2500)
     } catch (e: any) {
       setError(`${platform}: ${e?.message ?? "save failed"}`)
@@ -310,7 +313,7 @@ export function PlatformProvidersPanel({
           </div>
         )}
 
-        {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+        {error && <p role="alert" className="text-xs text-red-600 mt-2">{error}</p>}
         <p className="text-[11px] text-ink-400 mt-3">
           Fees are the provider's domestic rate — lower routes cheaper. Cross-border adds each
           provider's FX markup.

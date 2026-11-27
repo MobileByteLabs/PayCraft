@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { KeyRound, Loader2, Plus, ShieldAlert, Trash2, Check, Copy, Boxes, Pencil } from "lucide-react"
 import { Card, CardBody, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -141,10 +142,22 @@ function ScopeChecklist({ selected, onToggle }: { selected: string[]; onToggle: 
 }
 
 export function AccountTokensClient() {
-  const [tokens, setTokens] = useState<TokenRow[]>([])
-  const [reaches, setReaches] = useState<Reach[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  // Account-level (not per app), so the key carries no tenant id.
+  const tokensQuery = useQuery({
+    queryKey: ["account-tokens"],
+    queryFn: async () => {
+      const res = await fetch("/api/account-tokens")
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? "could not load tokens")
+      return { tokens: (data.tokens ?? []) as TokenRow[], reaches: (data.reaches ?? []) as Reach[] }
+    },
+  })
+  const tokens = tokensQuery.data?.tokens ?? []
+  const reaches = tokensQuery.data?.reaches ?? []
+  const loading = tokensQuery.isPending
   const [error, setError] = useState<string | null>(null)
+  const [revokingId, setRevokingId] = useState<string | null>(null)
 
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState("")
@@ -157,25 +170,7 @@ export function AccountTokensClient() {
   const [freshToken, setFreshToken] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
-  async function load() {
-    setLoading(true)
-    try {
-      const res = await fetch("/api/account-tokens")
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error ?? "could not load tokens")
-      setTokens(data.tokens ?? [])
-      setReaches(data.reaches ?? [])
-      setError(null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void load()
-  }, [])
+  const load = () => queryClient.invalidateQueries({ queryKey: ["account-tokens"] })
 
   // "Edit scopes": which token is open, and its working copy of the scope set.
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -183,6 +178,7 @@ export function AccountTokensClient() {
 
   async function saveScopes(id: string) {
     setBusy(true)
+    setError(null)
     try {
       const res = await fetch("/api/account-tokens", {
         method: "PATCH",
@@ -202,6 +198,7 @@ export function AccountTokensClient() {
 
   async function create() {
     setBusy(true)
+    setError(null)
     try {
       const res = await fetch("/api/account-tokens", {
         method: "POST",
@@ -224,12 +221,16 @@ export function AccountTokensClient() {
 
   async function revoke(id: string, label: string) {
     if (!confirm(`Revoke "${label}"? Anything using it stops working immediately.`)) return
+    setRevokingId(id)
+    setError(null)
     try {
       const res = await fetch(`/api/account-tokens?id=${encodeURIComponent(id)}`, { method: "DELETE" })
       if (!res.ok) throw new Error((await res.json())?.error ?? "could not revoke")
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRevokingId(null)
     }
   }
 
@@ -277,7 +278,7 @@ export function AccountTokensClient() {
       )}
 
       {error && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {error}
         </div>
       )}
@@ -401,8 +402,15 @@ export function AccountTokensClient() {
           )}
 
           {loading ? (
-            <div className="flex items-center gap-2 text-sm text-ink-500">
+            <div role="status" aria-busy="true" className="flex items-center gap-2 text-sm text-ink-500">
               <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+            </div>
+          ) : tokensQuery.isError ? (
+            <div role="alert" className="text-sm text-rose-800">
+              Couldn&rsquo;t load tokens: {tokensQuery.error.message}{" "}
+              <button onClick={() => tokensQuery.refetch()} className="font-semibold underline">
+                Retry
+              </button>
             </div>
           ) : tokens.length === 0 ? (
             <p className="text-sm text-ink-500">
@@ -487,10 +495,11 @@ export function AccountTokensClient() {
                       )}
                       <button
                         onClick={() => revoke(t.id, t.name)}
-                        className="text-ink-400 hover:text-rose-600"
+                        disabled={revokingId === t.id}
+                        className="text-ink-400 hover:text-rose-600 disabled:opacity-50"
                         aria-label={`Revoke ${t.name}`}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        {revokingId === t.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                       </button>
                     </div>
                   </div>

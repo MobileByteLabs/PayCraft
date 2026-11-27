@@ -1,7 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Timer } from "lucide-react"
+import { useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useDashboard } from "@/components/app-providers"
+import { Loader2, Timer } from "lucide-react"
 
 /**
  * How quickly dashboard changes reach devices.
@@ -29,26 +31,28 @@ function humanize(seconds: number): string {
 }
 
 export function ConfigTtlCard() {
-  const [seconds, setSeconds] = useState<number | null>(null)
+  const { tenantId } = useDashboard()
+  const queryClient = useQueryClient()
+  const queryKey = ["config-ttl", tenantId]
+  const ttlQuery = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const res = await fetch("/api/settings/config-ttl")
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d?.error ?? `Couldn't load (${res.status})`)
+      return (d?.seconds ?? null) as number | null
+    },
+  })
+  const seconds = ttlQuery.data ?? null
+  const setSeconds = (v: number) => queryClient.setQueryData(queryKey, v)
   const [saving, setSaving] = useState(false)
   const [note, setNote] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    fetch("/api/settings/config-ttl")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!cancelled && d?.seconds) setSeconds(d.seconds)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const [failed, setFailed] = useState(false)
 
   async function save(next: number) {
     setSaving(true)
     setNote(null)
+    setFailed(false)
     try {
       const res = await fetch("/api/settings/config-ttl", {
         method: "PATCH",
@@ -57,6 +61,7 @@ export function ConfigTtlCard() {
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
+        setFailed(true)
         setNote(body?.error ?? "Couldn't save — try again.")
         return
       }
@@ -68,6 +73,9 @@ export function ConfigTtlCard() {
           ? `Clamped to ${humanize(body.seconds)} — the allowed range is 30 sec to 24 hours.`
           : `Saved — changes now reach devices within ${humanize(body.seconds)}.`,
       )
+    } catch (e: any) {
+      setFailed(true)
+      setNote(String(e?.message ?? e))
     } finally {
       setSaving(false)
     }
@@ -85,6 +93,17 @@ export function ConfigTtlCard() {
         reaches buyers.{" "}
         {seconds !== null && (
           <span className="text-ink-700 font-semibold">Currently {humanize(seconds)}.</span>
+        )}
+        {ttlQuery.isPending && (
+          <span role="status" aria-busy="true" className="inline-block h-3 w-24 rounded bg-ink-100 animate-pulse align-middle" />
+        )}
+        {ttlQuery.isError && (
+          <span role="alert" className="text-danger-700">
+            Couldn&rsquo;t load the current value: {ttlQuery.error.message}{" "}
+            <button type="button" onClick={() => ttlQuery.refetch()} className="font-semibold underline">
+              Retry
+            </button>
+          </span>
         )}
       </p>
 
@@ -117,6 +136,7 @@ export function ConfigTtlCard() {
           type="number"
           min={30}
           max={86400}
+          key={seconds ?? "unset"}
           disabled={saving}
           defaultValue={seconds ?? 300}
           onBlur={(e) => {
@@ -128,7 +148,16 @@ export function ConfigTtlCard() {
         <span className="text-[11px] text-ink-400">30 – 86400</span>
       </div>
 
-      {note && <p className="text-[11px] text-ink-600 mt-3">{note}</p>}
+      {saving && (
+        <p role="status" className="text-[11px] text-ink-500 mt-3 flex items-center gap-1.5">
+          <Loader2 className="w-3 h-3 animate-spin" /> Saving…
+        </p>
+      )}
+      {note && (
+        <p role={failed ? "alert" : undefined} className={`text-[11px] mt-3 ${failed ? "text-danger-700" : "text-ink-600"}`}>
+          {note}
+        </p>
+      )}
     </div>
   )
 }

@@ -7,6 +7,7 @@ import { AppSwitcher } from "@/components/app-switcher"
 import { GraceBanner } from "@/components/billing/GraceBanner"
 import { ModeToggle, TestModeBanner } from "@/components/mode-toggle"
 import { requireTenant, getUserApps } from "@/lib/tenant"
+import { AppProviders } from "@/components/app-providers"
 import { getMode } from "@/lib/mode"
 import { createClient } from "@/lib/supabase-server"
 import { RealtimeRefresh } from "@/components/realtime-refresh"
@@ -48,6 +49,7 @@ export default async function DashboardLayout({
   ])
 
   return (
+    <AppProviders tenantId={tenant.id} mode={mode}>
     <div className="min-h-screen bg-ink-50 antialiased">
       {/* Realtime island (invisible): live-refreshes every dashboard page when the
           active app's billing data changes — products, pricing, paywall, coupons,
@@ -81,5 +83,6 @@ export default async function DashboardLayout({
       {/* Persistent PayCraft AI entry point on every dashboard page. */}
       <AiBubble />
     </div>
+    </AppProviders>
   )
 }

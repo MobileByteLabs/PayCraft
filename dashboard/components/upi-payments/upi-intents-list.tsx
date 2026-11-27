@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   AlertCircle,
   Check,
@@ -77,13 +77,14 @@ export function UpiIntentsList({
 }
 
 function Row({ intent, status }: { intent: UpiIntent; status: Status }) {
-  const router = useRouter()
+  const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
   const [email, setEmail] = useState(intent.customer_email ?? "")
   const [bankTxn, setBankTxn] = useState("")
   const [notes, setNotes] = useState("")
   const [pending, setPending] = useState<"none" | "mark" | "abandon">("none")
   const [error, setError] = useState<string | null>(null)
+  const [abandonError, setAbandonError] = useState<string | null>(null)
   const [refCopied, setRefCopied] = useState(false)
 
   async function markPaid() {
@@ -108,7 +109,7 @@ function Row({ intent, status }: { intent: UpiIntent; status: Status }) {
         setError(data?.error ?? "mark-paid failed")
         return
       }
-      router.refresh()
+      queryClient.invalidateQueries({ queryKey: ["upi-intents"] })
     } catch (e: any) {
       setError(e?.message ?? String(e))
     } finally {
@@ -121,11 +122,18 @@ function Row({ intent, status }: { intent: UpiIntent; status: Status }) {
       return
     }
     setPending("abandon")
+    setAbandonError(null)
     try {
       const res = await fetch(`/api/upi-intents/${intent.id}/abandon`, {
         method: "POST",
       })
-      if (res.ok) router.refresh()
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error ?? `abandon failed (${res.status})`)
+      }
+      queryClient.invalidateQueries({ queryKey: ["upi-intents"] })
+    } catch (e: any) {
+      setAbandonError(e?.message ?? String(e))
     } finally {
       setPending("none")
     }
@@ -188,10 +196,15 @@ function Row({ intent, status }: { intent: UpiIntent; status: Status }) {
               <button
                 onClick={abandon}
                 disabled={pending !== "none"}
-                className="text-ink-400 hover:text-danger-600 p-1"
+                aria-busy={pending === "abandon"}
+                className="text-ink-400 hover:text-danger-600 p-1 disabled:opacity-50"
                 title="Abandon"
               >
-                <X className="w-3.5 h-3.5" />
+                {pending === "abandon" ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <X className="w-3.5 h-3.5" />
+                )}
               </button>
               <button
                 onClick={() => setExpanded((v) => !v)}
@@ -208,6 +221,11 @@ function Row({ intent, status }: { intent: UpiIntent; status: Status }) {
             </span>
           ) : (
             <span className="text-[10px] text-ink-400">—</span>
+          )}
+          {abandonError && (
+            <p role="alert" className="mt-1 text-[11px] text-danger-700">
+              {abandonError}
+            </p>
           )}
         </Td>
       </tr>
@@ -252,7 +270,7 @@ function Row({ intent, status }: { intent: UpiIntent; status: Status }) {
               </div>
               <div className="flex items-center gap-3">
                 {error && (
-                  <span className="text-[11px] text-danger-700 flex items-center gap-1">
+                  <span role="alert" className="text-[11px] text-danger-700 flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" />
                     {error}
                   </span>

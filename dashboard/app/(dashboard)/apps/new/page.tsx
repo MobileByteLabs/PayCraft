@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 import { ArrowLeft, Smartphone } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -20,9 +21,18 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 export default function NewAppPage() {
   const [name, setName] = useState("")
-  const [creating, setCreating] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [apps, setApps] = useState<AppRow[]>([])
+  const queryClient = useQueryClient()
+  // The reuse picker needs each app's connected providers, which /api/apps already returns.
+  const appsQuery = useQuery({
+    queryKey: ["apps", "with-providers"],
+    queryFn: async () => {
+      const res = await fetch("/api/apps", { cache: "no-store" })
+      if (!res.ok) throw new Error(`Couldn't load your apps (${res.status})`)
+      const data = await res.json()
+      return (Array.isArray(data) ? data : data.apps ?? []) as AppRow[]
+    },
+  })
+  const apps = appsQuery.data ?? []
   // Provider setup choice. Default to reusing the account's existing connections
   // when the account already has another app — one provider secret serves many apps.
   const [providerMode, setProviderMode] = useState<"reuse" | "later">("later")
@@ -37,29 +47,19 @@ export default function NewAppPage() {
     setSelectedProviders(new Set((src?.providers ?? []).map((p) => p.provider)))
   }, [reuseFrom, apps])
 
+  // Once the list arrives, default to reusing the account's existing connections.
+  const [defaulted, setDefaulted] = useState(false)
   useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch("/api/apps", { cache: "no-store" })
-        if (!res.ok) return
-        const data = await res.json()
-        const list: AppRow[] = Array.isArray(data) ? data : data.apps ?? []
-        setApps(list)
-        if (list.length > 0) {
-          setProviderMode("reuse")
-          setReuseFrom(list[0].id)
-        }
-      } catch {
-        /* non-fatal — the form still works with "connect later" */
-      }
-    })()
-  }, [])
+    if (defaulted || !appsQuery.data) return
+    setDefaulted(true)
+    if (appsQuery.data.length > 0) {
+      setProviderMode("reuse")
+      setReuseFrom(appsQuery.data[0].id)
+    }
+  }, [appsQuery.data, defaulted])
 
-  async function create() {
-    if (!name.trim()) return
-    setCreating(true)
-    setError(null)
-    try {
+  const createMutation = useMutation({
+    mutationFn: async () => {
       let tenantId: string
       if (providerMode === "reuse" && reuseFrom) {
         // Full onboarding: create the tenant, INHERIT the source app's connected
@@ -96,12 +96,21 @@ export default function NewAppPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ tenant_id: tenantId }),
       })
+      return tenantId
+    },
+    onSuccess: async (tenantId) => {
+      await queryClient.invalidateQueries({ queryKey: ["apps"] })
       router.push(`/apps/${tenantId}`)
+      // The active app changed: the (server) layout must re-resolve it, so this refresh stays.
       router.refresh()
-    } catch (e: any) {
-      setError(String(e.message ?? e))
-      setCreating(false)
-    }
+    },
+  })
+  const creating = createMutation.isPending || createMutation.isSuccess
+  const error = createMutation.error?.message ?? null
+
+  function create() {
+    if (!name.trim() || creating) return
+    createMutation.mutate()
   }
 
   return (
@@ -150,6 +159,19 @@ export default function NewAppPage() {
             <label className="text-[11px] font-bold uppercase tracking-wider text-ink-500 block">
               Payment providers
             </label>
+            {appsQuery.isPending && (
+              <p role="status" aria-busy="true" className="text-xs text-ink-400 animate-pulse">
+                Loading your connected providers…
+              </p>
+            )}
+            {appsQuery.isError && (
+              <p role="alert" className="text-xs text-danger-700">
+                {appsQuery.error.message} — you can still create the app and connect providers later.{" "}
+                <button type="button" onClick={() => void appsQuery.refetch()} className="font-semibold underline">
+                  Retry
+                </button>
+              </p>
+            )}
             {apps[0]?.owner_email && (
               <p className="text-xs text-ink-400">
                 Shared across your apps under <span className="font-medium text-ink-600">{apps[0].owner_email}</span>
@@ -253,7 +275,7 @@ export default function NewAppPage() {
           </div>
 
           {error && (
-            <div className="rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700">
+            <div role="alert" className="rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700">
               {error}
             </div>
           )}
@@ -262,7 +284,8 @@ export default function NewAppPage() {
             variant="primary"
             size="lg"
             onClick={create}
-            disabled={!name.trim() || creating}
+            disabled={!name.trim()}
+            loading={creating}
             className="w-full justify-center"
           >
             {creating ? "Creating…" : "Create app"}

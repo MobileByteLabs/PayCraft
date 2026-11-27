@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { SKU_RULE, isCanonicalSku } from "@/lib/sku"
 import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 import {
   ArrowLeft,
@@ -74,6 +75,7 @@ export function ProductFormShell({
   subscriptions: Subscription[]
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [p, setP] = useState<ProductInput>({ ...initial, pricing_mode: initial.pricing_mode ?? "auto" })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -151,7 +153,7 @@ export function ProductFormShell({
         throw new Error(body.error ?? "save failed")
       }
       router.push("/products")
-      router.refresh()
+      void queryClient.invalidateQueries({ queryKey: ["products"] })
     } catch (e: any) {
       setError(String(e.message ?? e))
     } finally {

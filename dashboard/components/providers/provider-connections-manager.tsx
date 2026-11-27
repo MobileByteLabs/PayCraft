@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, Loader2, Star, Trash2 } from "lucide-react"
 
 /**
@@ -49,28 +50,25 @@ function identity(c: Connection): string | null {
 }
 
 export function ProviderConnectionsManager() {
-  const [connections, setConnections] = useState<Connection[] | null>(null)
+  const queryClient = useQueryClient()
+  // Account-level (shared by every app), so the key carries no tenant id.
+  const connectionsQuery = useQuery({
+    queryKey: ["provider-connections"],
+    queryFn: async () => {
+      const res = await fetch("/api/provider-accounts/manage")
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error ?? `failed (${res.status})`)
+      return (json.connections ?? []) as Connection[]
+    },
+  })
+  const connections = connectionsQuery.data ?? null
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [draftLabel, setDraftLabel] = useState("")
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch("/api/provider-accounts/manage")
-      const json = await res.json()
-      if (!res.ok) throw new Error(json?.error ?? `failed (${res.status})`)
-      setConnections((json.connections ?? []) as Connection[])
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-      setConnections([])
-    }
-  }, [])
-
-  useEffect(() => {
-    void load()
-  }, [load])
+  const load = () => queryClient.invalidateQueries({ queryKey: ["provider-connections"] })
 
   async function mutate(id: string, body: Record<string, unknown>, okNote: string) {
     setBusy(id)
@@ -123,12 +121,22 @@ export function ProviderConnectionsManager() {
     }
   }
 
-  if (connections === null) {
+  if (connectionsQuery.isPending) {
     return (
-      <div className="flex items-center gap-2 text-xs text-ink-500 py-8">
+      <div role="status" aria-busy="true" className="flex items-center gap-2 text-xs text-ink-500 py-8">
         <Loader2 className="w-3.5 h-3.5 animate-spin" />
         Loading connections…
       </div>
+    )
+  }
+  if (connections === null) {
+    return (
+      <p role="alert" className="text-xs text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">
+        Couldn&rsquo;t load connections: {connectionsQuery.error?.message}{" "}
+        <button onClick={() => connectionsQuery.refetch()} className="font-semibold underline">
+          Retry
+        </button>
+      </p>
     )
   }
 

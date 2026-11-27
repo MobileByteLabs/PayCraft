@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   AlertCircle,
   CheckCircle2,
@@ -51,6 +52,7 @@ interface SyncResult {
  * uses deterministic idempotency keys.
  */
 export function UnsyncedProductsBanner() {
+  const queryClient = useQueryClient()
   const [preview, setPreview] = useState<Preview | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [result, setResult] = useState<SyncResult | null>(null)
@@ -88,6 +90,8 @@ export function UnsyncedProductsBanner() {
       setResult(data)
       // Refresh preview so the count drops after success.
       void loadPreview()
+      // …and the products table, whose chips just changed.
+      void queryClient.invalidateQueries({ queryKey: ["products"] })
     } catch (e: any) {
       setError(e?.message ?? String(e))
     } finally {

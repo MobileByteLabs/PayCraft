@@ -1,0 +1,662 @@
+"use client"
+
+import Link from "next/link"
+import { useSearchParams } from "next/navigation"
+import { useQuery } from "@tanstack/react-query"
+import { useDashboard } from "@/components/app-providers"
+import { LoadError, LoadingCard } from "@/components/query-ui"
+import {
+  Download,
+  Search,
+  Filter,
+  Users,
+  TrendingUp,
+  TrendingDown,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react"
+import { ButtonLink } from "@/components/ui/button"
+import { EmptyState } from "@/components/ui/empty-state"
+import { type CustomerRow, detailHref, displayId, providerLabel, searchTerm, statusesFor } from "@/lib/customers"
+
+const PER_PAGE = 25
+
+function planBadgeClass(plan: string | null) {
+  const p = (plan ?? "").toLowerCase()
+  if (p === "pro")
+    return "bg-brand-50 text-brand-700 ring-1 ring-brand-200"
+  if (p === "enterprise")
+    return "bg-ink-900 text-white"
+  return "bg-ink-100 text-ink-500 ring-1 ring-ink-200"
+}
+
+function statusBadgeClass(status: string) {
+  if (status === "active")
+    return "bg-success-50 text-success-700 ring-1 ring-success-200"
+  if (status === "trialing")
+    return "bg-warning-50 text-warning-700 ring-1 ring-warning-200"
+  if (status === "canceled" || status === "cancelled" || status === "expired" || status === "payment_failed")
+    return "bg-danger-50 text-danger-700 ring-1 ring-danger-200"
+  if (status === "abandoned")
+    return "bg-warning-50 text-warning-700 ring-1 ring-warning-200"
+  return "bg-ink-100 text-ink-500 ring-1 ring-ink-200"
+}
+
+/**
+ * Which canonical_state values mean the customer IS entitled right now.
+ *
+ * Taken from the CHECK constraint on entitlement_records. The three non-obvious members are the
+ * point of the whole column: `in_grace_period` and `on_billing_retry` are failing payments where
+ * access is deliberately preserved, and `active_non_renewing` is a cancelled subscription still
+ * inside its paid term. Treating any of them as "not entitled" would tell a support agent to
+ * revoke access a customer has paid for.
+ */
+const ENTITLED_STATES = new Set([
+  "trial",
+  "active",
+  "active_non_renewing",
+  "in_grace_period",
+  "on_billing_retry",
+])
+
+const ENTITLEMENT_LABELS: Record<string, string> = {
+  trial: "Trial",
+  active: "Active",
+  active_non_renewing: "Active, not renewing",
+  in_grace_period: "Active, in grace",
+  on_billing_retry: "Active, retrying",
+  paused: "Paused",
+  expired: "Expired",
+  cancelled: "Cancelled",
+  refunded: "Refunded",
+  pending: "Pending",
+}
+
+function statusLabel(status: string) {
+  if (status === "trialing") return "Trial"
+  if (status === "canceled" || status === "cancelled") return "Churned"
+  if (status === "abandoned") return "Abandoned checkout"
+  if (status === "payment_failed") return "Payment failed"
+  if (status === "active_non_renewing") return "Active, not renewing"
+  return status.charAt(0).toUpperCase() + status.slice(1)
+}
+
+function planLabel(plan: string | null) {
+  if (!plan) return "Free"
+  const p = plan.toLowerCase()
+  if (p === "pro") return "Pro"
+  if (p === "enterprise") return "Enterprise"
+  if (p === "free") return "Free"
+  return plan
+}
+
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const m = Math.floor(diff / 60000)
+  if (m < 2) return "Just now"
+  if (m < 60) return `${m} mins ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h} hour${h > 1 ? "s" : ""} ago`
+  const d = Math.floor(h / 24)
+  if (d === 1) return "Yesterday"
+  return `${d} days ago`
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
+}
+
+function stripUndefined<T extends Record<string, any>>(
+  o: T,
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const k in o) if (o[k] != null && o[k] !== "") out[k] = String(o[k])
+  return out
+}
+
+type EntRow = {
+  app_user_id: string
+  canonical_state: string
+  expires_at: string | null
+  in_grace_until: string | null
+  will_renew: boolean
+}
+
+export function SubscribersView() {
+  const { tenantId, supabase } = useDashboard()
+  const sp = useSearchParams()
+  const searchParams: { q?: string; status?: string; plan?: string; provider?: string; mode?: string; page?: string } = {}
+  for (const k of ["q", "status", "plan", "provider", "mode", "page"] as const) {
+    const v = sp.get(k)
+    if (v != null) searchParams[k] = v
+  }
+
+  const page = parseInt(searchParams.page ?? "1") || 1
+  const offset = (page - 1) * PER_PAGE
+  const mode = searchParams.mode ?? "live"
+
+  const query = useQuery({
+    queryKey: ["subscribers", tenantId, mode, page, searchParams.q ?? "", searchParams.status ?? "", searchParams.plan ?? "", searchParams.provider ?? ""],
+    queryFn: async () => {
+      // tenant_customers_view (migration 186): web subscriptions + store buyers + checkout attempts —
+      // everyone who paid or tried, from every provider. It used to read `subscriptions` alone, which only
+      // the web providers write, so Google Play / App Store buyers and abandoned checkouts never appeared.
+      let listQuery = supabase
+        .from("tenant_customers_view")
+        .select(
+          "row_id,source,email,app_user_id,plan,provider,status,mode,period_end,started_at,updated_at",
+          { count: "exact" },
+        )
+        .eq("tenant_id", tenantId)
+        .eq("mode", mode)
+        .order("updated_at", { ascending: false })
+        .range(offset, offset + PER_PAGE - 1)
+
+      const q = searchTerm(searchParams.q)
+      if (q) listQuery = listQuery.or(`email.ilike.%${q}%,app_user_id.ilike.%${q}%`)
+      const statuses = statusesFor(searchParams.status)
+      if (statuses) listQuery = listQuery.in("status", statuses)
+      if (searchParams.plan) listQuery = listQuery.eq("plan", searchParams.plan)
+      if (searchParams.provider) listQuery = listQuery.eq("provider", searchParams.provider)
+
+      // Stats — counted over the same list, so the cards always add up to what the table shows.
+      const countWhere = async (states: string[]) => {
+        const { count: c, error } = await supabase
+          .from("tenant_customers_view")
+          .select("row_id", { count: "exact", head: true })
+          .eq("tenant_id", tenantId)
+          .eq("mode", mode)
+          .in("status", states)
+        if (error) throw new Error(error.message)
+        return c ?? 0
+      }
+      const [listRes, activeN, trialN, churnedN, triedN, mrrRes] = await Promise.all([
+        listQuery,
+        countWhere(statusesFor("active")!),
+        countWhere(statusesFor("trialing")!),
+        countWhere(statusesFor("churned")!),
+        countWhere([...statusesFor("abandoned")!, ...statusesFor("payment_failed")!]),
+        supabase.from("tenant_mrr_view").select("mrr_dollars").eq("tenant_id", tenantId).maybeSingle(),
+      ])
+      if (listRes.error) throw new Error(listRes.error.message)
+      const rows = (listRes.data as CustomerRow[]) ?? []
+
+      // ── Entitlements for the rows on screen ──────────────────────────────────
+      //
+      // A SUBSCRIPTION is what the provider bills. An ENTITLEMENT is what PayCraft grants, and it is
+      // the one the app actually trusts. They disagree exactly when it matters most:
+      //   · past_due  subscription  → entitlement still active through in_grace_until
+      //   · cancelled subscription  → entitlement active_non_renewing until the paid term ends
+      //
+      // Shown as two columns and never merged: collapsing them would hide the disagreement the agent
+      // needs. Scoped to the emails on THIS page, so the extra read stays proportional to what is rendered.
+      const emails = rows.filter((r) => r.source === "subscription").map((r) => r.email).filter(Boolean) as string[]
+      const { data: entRows } = emails.length
+        ? await supabase
+            .from("entitlement_records")
+            .select("app_user_id, canonical_state, expires_at, in_grace_until, will_renew, latest_event_ts")
+            .eq("tenant_id", tenantId)
+            .in("app_user_id", emails)
+            .order("latest_event_ts", { ascending: false })
+        : { data: [] as never[] }
+
+      return {
+        rows,
+        count: listRes.count,
+        activeN,
+        trialN,
+        churnedN,
+        triedN,
+        mrrDollars: (mrrRes.data?.mrr_dollars as number | null | undefined) ?? 0,
+        entRows: (entRows ?? []) as EntRow[],
+      }
+    },
+  })
+
+  if (query.isPending || query.isError) {
+    return (
+      <div className="space-y-8">
+        <section className="pt-2">
+          <h2 className="text-3xl font-extrabold text-ink-900 tracking-tight">Subscribers</h2>
+        </section>
+        {query.isPending ? (
+          <LoadingCard label="Loading subscribers…" rows={8} />
+        ) : (
+          <LoadError what="subscribers" error={query.error} retry={() => query.refetch()} />
+        )}
+      </div>
+    )
+  }
+  const { rows, count, activeN, trialN, churnedN, triedN, entRows } = query.data
+  const totalPages = Math.max(1, Math.ceil((count ?? 0) / PER_PAGE))
+
+  // First row per user wins: the query is ordered by latest_event_ts descending, and
+  // latest_event_ts is the monotonic guard the webhook pipeline uses against out-of-order
+  // delivery. Taking the newest is therefore the same answer the SDK would resolve.
+  const entitlementByUser = new Map<string, EntRow>()
+  for (const e of entRows) {
+    if (!entitlementByUser.has(e.app_user_id)) entitlementByUser.set(e.app_user_id, e)
+  }
+
+  const activeCount = activeN
+  const trialCount = trialN
+  const churnedCount = churnedN
+  const mrrToday = query.data.mrrDollars
+
+  return (
+    <div className="space-y-8">
+      {/* Page Header */}
+      <section className="flex flex-col md:flex-row md:items-end justify-between gap-4 pt-2">
+        <div>
+          <h2 className="text-3xl font-extrabold text-ink-900 tracking-tight">
+            Subscribers
+          </h2>
+          <p className="text-ink-500 font-medium mt-1">
+            {(count ?? 0).toLocaleString()} customers across all providers — paid, store, and tried
+            {triedN > 0 && <> · {triedN.toLocaleString()} tried without subscribing</>}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Live / Test mode pills */}
+          {["live", "test"].map((m) => (
+            <Link
+              key={m}
+              href={`/subscribers?mode=${m}`}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                mode === m
+                  ? "bg-ink-900 text-white"
+                  : "bg-white text-ink-700 border border-ink-200 hover:bg-ink-50"
+              }`}
+            >
+              {m.charAt(0).toUpperCase() + m.slice(1)}
+            </Link>
+          ))}
+          <ButtonLink
+            href={`/api/subscribers/export?mode=${mode}`}
+            variant="secondary"
+            leading={<Download className="w-4 h-4" strokeWidth={2.5} />}
+          >
+            Export CSV
+          </ButtonLink>
+        </div>
+      </section>
+
+      {/* Stats Strip */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Active */}
+        <div className="bg-white p-6 rounded-xl border border-ink-200 shadow-[0_2px_4px_rgba(0,0,0,0.02)] hover:border-success-300 transition-all">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-ink-500 text-xs font-bold uppercase tracking-wider">
+              Active
+            </span>
+            <div className="w-8 h-8 rounded-lg bg-success-50 flex items-center justify-center text-success-600">
+              <CheckCircle2 className="w-4 h-4" strokeWidth={2.5} />
+            </div>
+          </div>
+          <div className="text-3xl font-extrabold text-ink-900">
+            {activeCount.toLocaleString()}
+          </div>
+          <div className="mt-2 flex items-center gap-1 text-[11px] font-bold text-success-600">
+            <TrendingUp className="w-3 h-3" />
+            entitled now
+          </div>
+        </div>
+
+        {/* Churned */}
+        <div className="bg-white p-6 rounded-xl border border-ink-200 shadow-[0_2px_4px_rgba(0,0,0,0.02)] hover:border-danger-300 transition-all">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-ink-500 text-xs font-bold uppercase tracking-wider">
+              Churned
+            </span>
+            <div className="w-8 h-8 rounded-lg bg-danger-50 flex items-center justify-center text-danger-600">
+              <TrendingDown className="w-4 h-4" strokeWidth={2.5} />
+            </div>
+          </div>
+          <div className="text-3xl font-extrabold text-ink-900">
+            {churnedCount.toLocaleString()}
+          </div>
+          <div className="mt-2 flex items-center gap-1 text-[11px] font-bold text-danger-600">
+            <TrendingDown className="w-3 h-3" />
+            cancelled or expired
+          </div>
+        </div>
+
+        {/* Trial */}
+        <div className="bg-white p-6 rounded-xl border border-ink-200 shadow-[0_2px_4px_rgba(0,0,0,0.02)] hover:border-warning-300 transition-all">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-ink-500 text-xs font-bold uppercase tracking-wider">
+              Trial
+            </span>
+            <div className="w-8 h-8 rounded-lg bg-warning-50 flex items-center justify-center text-warning-600">
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z" />
+              </svg>
+            </div>
+          </div>
+          <div className="text-3xl font-extrabold text-ink-900">
+            {trialCount.toLocaleString()}
+          </div>
+          <div className="mt-2 flex items-center gap-1 text-[11px] font-bold text-ink-400">
+            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z" />
+            </svg>
+            Expiring soon
+          </div>
+        </div>
+
+        {/* MRR */}
+        <div className="bg-white p-6 rounded-xl border border-ink-200 border-l-4 border-l-brand-600 shadow-[0_2px_4px_rgba(0,0,0,0.02)] transition-all">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-ink-500 text-xs font-bold uppercase tracking-wider">
+              MRR
+            </span>
+            <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center text-brand-600">
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z" />
+              </svg>
+            </div>
+          </div>
+          <div className="text-3xl font-extrabold text-ink-900 tabular-nums">
+            ${mrrToday.toFixed(0)}
+          </div>
+          <div className="mt-2 flex items-center gap-1 text-[11px] font-bold text-brand-600">
+            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M7 2v11h3v9l7-12h-4l4-8z" />
+            </svg>
+            Growth tracking
+          </div>
+        </div>
+      </section>
+
+      {/* Filter Bar */}
+      <section className="bg-white p-3 rounded-xl border border-ink-200 shadow-sm flex flex-wrap items-center gap-3">
+        <form
+          action="/subscribers"
+          className="flex flex-wrap items-center gap-3 flex-1"
+        >
+          <input type="hidden" name="mode" value={mode} />
+          <div className="relative flex-1 min-w-[240px]">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" strokeWidth={2} />
+            <input
+              name="q"
+              defaultValue={searchParams.q ?? ""}
+              placeholder="Filter by email, ID or name..."
+              className="w-full bg-ink-50 border border-ink-200 rounded-lg py-1.5 pl-10 pr-4 text-xs focus:ring-2 focus:ring-brand-600/20 focus:border-brand-600 outline-none transition-all"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              name="status"
+              defaultValue={searchParams.status ?? ""}
+              className="bg-ink-50 border border-ink-200 rounded-lg py-1.5 px-3 text-xs font-medium focus:ring-2 focus:ring-brand-600/20 focus:border-brand-600 outline-none transition-all"
+            >
+              <option value="">Status: All</option>
+              <option value="active">Active</option>
+              <option value="trialing">Trial</option>
+              <option value="churned">Churned / expired</option>
+              <option value="past_due">Past Due</option>
+              <option value="pending">Pending</option>
+              <option value="abandoned">Abandoned checkout</option>
+              <option value="payment_failed">Payment failed</option>
+            </select>
+            <select
+              name="plan"
+              defaultValue={searchParams.plan ?? ""}
+              className="bg-ink-50 border border-ink-200 rounded-lg py-1.5 px-3 text-xs font-medium focus:ring-2 focus:ring-brand-600/20 focus:border-brand-600 outline-none transition-all"
+            >
+              <option value="">Plan: All</option>
+              <option value="free">Free</option>
+              <option value="pro">Pro</option>
+              <option value="enterprise">Enterprise</option>
+            </select>
+            <button
+              type="submit"
+              className="bg-ink-50 border border-ink-200 rounded-lg py-1.5 px-3 text-xs font-medium text-ink-600 flex items-center gap-1.5 hover:bg-ink-100 transition-colors"
+            >
+              <Filter className="w-3.5 h-3.5" strokeWidth={2} />
+              Filter
+            </button>
+          </div>
+        </form>
+      </section>
+
+      {/* Data Table */}
+      <section className="bg-white rounded-xl border border-ink-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-ink-50/50 border-b border-ink-100">
+              <tr>
+                <th className="px-6 py-4 text-[11px] font-bold text-ink-400 uppercase tracking-widest">
+                  App ID
+                </th>
+                <th className="px-6 py-4 text-[11px] font-bold text-ink-400 uppercase tracking-widest">
+                  Email
+                </th>
+                <th className="px-6 py-4 text-[11px] font-bold text-ink-400 uppercase tracking-widest">
+                  Plan
+                </th>
+                <th className="px-6 py-4 text-[11px] font-bold text-ink-400 uppercase tracking-widest">
+                  Subscription
+                </th>
+                {/* Separate column, deliberately never merged with Subscription. This is the one
+                    the app trusts, and the two disagree exactly when support needs the answer. */}
+                <th className="px-6 py-4 text-[11px] font-bold text-ink-400 uppercase tracking-widest">
+                  Entitlement
+                </th>
+                <th className="px-6 py-4 text-[11px] font-bold text-ink-400 uppercase tracking-widest">
+                  Provider
+                </th>
+                <th className="px-6 py-4 text-[11px] font-bold text-ink-400 uppercase tracking-widest">
+                  Period End
+                </th>
+                <th className="px-6 py-4 text-[11px] font-bold text-ink-400 uppercase tracking-widest">
+                  Started
+                </th>
+                <th className="px-6 py-4 text-[11px] font-bold text-ink-400 uppercase tracking-widest text-right">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-ink-100">
+              {rows.length === 0 && (
+                <tr>
+                  {/* 9 columns since the Entitlement column landed. A short colSpan leaves the
+                      empty state misaligned under a wider header, which reads as a broken table
+                      rather than an empty one. */}
+                  <td colSpan={9} className="px-6 py-16 text-center">
+                    <EmptyState
+                      icon={<Users className="w-5 h-5" strokeWidth={2} />}
+                      title={
+                        searchParams.q ||
+                        searchParams.status ||
+                        searchParams.plan
+                          ? "No subscribers match your filter"
+                          : "No subscribers yet"
+                      }
+                      description={
+                        searchParams.q ||
+                        searchParams.status ||
+                        searchParams.plan
+                          ? "Try clearing some filters."
+                          : "Customers land here when they buy, subscribe in a store, or start a checkout."
+                      }
+                    />
+                  </td>
+                </tr>
+              )}
+              {rows.map((r) => (
+                <tr
+                  key={`${r.source}-${r.row_id}`}
+                  className="hover:bg-ink-50/80 transition-colors group"
+                >
+                  <td className="px-6 py-4 text-[12px] font-mono text-ink-500">
+                    {displayId(r)}…
+                  </td>
+                  <td className="px-6 py-4 text-[13px] font-medium text-ink-900">
+                    {detailHref(r) ? (
+                      <Link href={detailHref(r)!} className="hover:text-brand-600 transition-colors">
+                        {r.email}
+                      </Link>
+                    ) : (
+                      <span className={r.email ? "" : "text-ink-400 font-normal"}>{r.email ?? "anonymous device"}</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${planBadgeClass(r.plan)}`}
+                    >
+                      {planLabel(r.plan)}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase whitespace-nowrap ${statusBadgeClass(r.status)}`}
+                    >
+                      {statusLabel(r.status)}
+                    </span>
+                  </td>
+                  {/* ENTITLEMENT — what the app actually grants right now.
+                      When it disagrees with the subscription the cell carries a NEUTRAL marker,
+                      not a warning: a cancelled sub that stays entitled until the paid term ends,
+                      or a past-due sub still inside its grace window, are both CORRECT states.
+                      Colouring them as problems would send support chasing non-issues. */}
+                  <td className="px-6 py-4">
+                    {(() => {
+                      // A store row IS the entitlement; an attempt never had one.
+                      if (r.source === "store") {
+                        const entitled = ENTITLED_STATES.has(r.status)
+                        return (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className={`h-1.5 w-1.5 rounded-full ${entitled ? "bg-success-500" : "bg-ink-300"}`} />
+                            <span className="text-[12px] font-medium text-ink-700">{entitled ? "Entitled" : "Not entitled"}</span>
+                          </span>
+                        )
+                      }
+                      const ent = r.email ? entitlementByUser.get(r.email) : undefined
+                      if (!ent) {
+                        return <span className="text-[12px] text-ink-400">none</span>
+                      }
+                      const entitled = ENTITLED_STATES.has(ent.canonical_state)
+                      const disagrees = entitled !== (r.status === "active" || r.status === "trialing")
+                      return (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="inline-flex items-center gap-1.5">
+                            <span
+                              className={`h-1.5 w-1.5 rounded-full ${
+                                entitled ? "bg-success-500" : "bg-ink-300"
+                              }`}
+                            />
+                            <span className="text-[12px] font-medium text-ink-700">
+                              {ENTITLEMENT_LABELS[ent.canonical_state] ?? ent.canonical_state}
+                            </span>
+                          </span>
+                          {disagrees && (
+                            <span className="text-[10px] text-ink-500">
+                              {ent.in_grace_until
+                                ? `in grace to ${formatDate(ent.in_grace_until)}`
+                                : ent.expires_at
+                                  ? `until ${formatDate(ent.expires_at)}`
+                                  : "differs from subscription"}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })()}
+                  </td>
+                  <td className="px-6 py-4 text-[12px] text-ink-500">
+                    {providerLabel(r.provider)}
+                  </td>
+                  <td className="px-6 py-4 text-[13px] text-ink-500">
+                    {r.period_end ? formatDate(r.period_end) : "—"}
+                  </td>
+                  <td className="px-6 py-4 text-[13px] text-ink-500">
+                    {formatDate(r.started_at)}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    {detailHref(r) ? (
+                      <Link href={detailHref(r)!} className="text-brand-600 text-xs font-bold hover:underline">
+                        View
+                      </Link>
+                    ) : (
+                      <span className="text-[11px] text-ink-400">{r.source === "attempt" ? "tried" : "store"}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination Footer */}
+        {rows.length > 0 && (
+          <div className="px-6 py-4 border-t border-ink-100 flex items-center justify-between">
+            <p className="text-[12px] font-medium text-ink-500">
+              Showing{" "}
+              <span className="text-ink-900 tabular-nums font-semibold">
+                {offset + 1}–{Math.min(offset + PER_PAGE, count ?? 0)}
+              </span>{" "}
+              of{" "}
+              <span className="text-ink-900 tabular-nums font-semibold">
+                {(count ?? 0).toLocaleString()}
+              </span>{" "}
+              subscribers
+            </p>
+            <div className="flex items-center gap-2">
+              {page > 1 ? (
+                <Link
+                  href={`/subscribers?${new URLSearchParams({
+                    ...stripUndefined(searchParams as any),
+                    page: String(page - 1),
+                  }).toString()}`}
+                  className="px-3 py-1.5 border border-ink-200 rounded-lg text-xs font-bold text-ink-700 hover:bg-ink-50 active:scale-95 transition-all flex items-center gap-1"
+                >
+                  <ChevronLeft className="w-4 h-4" strokeWidth={2.5} />
+                  Previous
+                </Link>
+              ) : (
+                <span className="px-3 py-1.5 border border-ink-200 rounded-lg text-xs font-bold text-ink-300 cursor-not-allowed flex items-center gap-1">
+                  <ChevronLeft className="w-4 h-4" strokeWidth={2.5} />
+                  Previous
+                </span>
+              )}
+              <span className="px-2 text-xs text-ink-500 tabular-nums">
+                {page} / {totalPages}
+              </span>
+              {page < totalPages ? (
+                <Link
+                  href={`/subscribers?${new URLSearchParams({
+                    ...stripUndefined(searchParams as any),
+                    page: String(page + 1),
+                  }).toString()}`}
+                  className="px-3 py-1.5 border border-ink-200 rounded-lg text-xs font-bold text-ink-700 hover:bg-ink-50 active:scale-95 transition-all flex items-center gap-1"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" strokeWidth={2.5} />
+                </Link>
+              ) : (
+                <span className="px-3 py-1.5 border border-ink-200 rounded-lg text-xs font-bold text-ink-300 cursor-not-allowed flex items-center gap-1">
+                  Next
+                  <ChevronRight className="w-4 h-4" strokeWidth={2.5} />
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}

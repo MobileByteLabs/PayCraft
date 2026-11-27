@@ -2,12 +2,9 @@ export const runtime = "edge"
 
 import { ShieldAlert } from "lucide-react"
 import { AccountTokensClient } from "@/components/settings/account-tokens-client"
-import { requireTenant } from "@/lib/tenant"
 
-export default async function AccountTokensPage() {
-  // Gates the page on a real session before any token metadata is fetched.
-  await requireTenant()
-
+// The layout already enforces auth; the client reads its data in the browser.
+export default function AccountTokensPage() {
   return (
     <div className="max-w-[860px] mx-auto">
       <div className="mb-8">

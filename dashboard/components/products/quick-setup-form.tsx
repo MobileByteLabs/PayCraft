@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 import { ArrowLeft, Check, CheckCircle2, Loader2, Sparkles, Zap } from "lucide-react"
 import { resolveTemplatePrices } from "@/lib/pricing-template"
@@ -40,6 +41,7 @@ function scaledPriceCents(monthlyCents: number, months: number, discount: number
 
 export function QuickSetupForm() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [skuBase, setSkuBase] = useState("pro")
   const [nameBase, setNameBase] = useState("Pro")
   const [monthlyCents, setMonthlyCents] = useState(999)
@@ -155,7 +157,7 @@ export function QuickSetupForm() {
       return
     }
     router.push("/products")
-    router.refresh()
+    void queryClient.invalidateQueries({ queryKey: ["products"] })
   }
 
   return (

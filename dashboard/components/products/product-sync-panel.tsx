@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   AlertCircle,
   Check,
@@ -25,7 +25,8 @@ type SyncReport = {
   message?: string
 }
 
-type StripeVerification = "verified" | "stale" | "unsynced" | "unknown"
+// `checking` = the Stripe probe is still in flight (the page reads it from /api/dash/products).
+type StripeVerification = "verified" | "stale" | "unsynced" | "unknown" | "checking"
 
 interface Props {
   productId: string
@@ -60,7 +61,7 @@ export function ProductSyncPanel({
   initialAppStoreProductId,
   stripeVerification,
 }: Props) {
-  const router = useRouter()
+  const queryClient = useQueryClient()
   const [connections, setConnections] = useState<ProviderConnections | null>(null)
   const [syncing, setSyncing] = useState(false)
   // Report keys mirror the /api/products/{id}/sync response exactly:
@@ -94,7 +95,7 @@ export function ProductSyncPanel({
         }).catch(() => {}),
       ),
     )
-    router.refresh()
+    void queryClient.invalidateQueries({ queryKey: ["products"] })
   }
 
   useEffect(() => {
@@ -128,7 +129,7 @@ export function ProductSyncPanel({
         return
       }
       setResult(data)
-      router.refresh()
+      void queryClient.invalidateQueries({ queryKey: ["products"] })
     } catch (e: any) {
       setError(e?.message ?? String(e))
     } finally {
@@ -187,6 +188,7 @@ export function ProductSyncPanel({
           unverified={
             stripeVerification === "unknown" && !!initialStripeProductId
           }
+          checking={stripeVerification === "checking" && !!initialStripeProductId}
           externalUrl={stripeVerification === "verified" ? stripeUrl : null}
           settingsUrl="/providers/stripe"
         />
@@ -242,6 +244,7 @@ function ProviderCard({
   synced,
   stale = false,
   unverified = false,
+  checking = false,
   externalUrl,
   settingsUrl,
 }: {
@@ -250,6 +253,7 @@ function ProviderCard({
   synced: boolean
   stale?: boolean
   unverified?: boolean
+  checking?: boolean
   externalUrl: string | null
   settingsUrl: string
 }) {
@@ -265,6 +269,8 @@ function ProviderCard({
         ? "good"
         : unverified
           ? "unverified"
+          : checking
+            ? "checking"
           : connected
             ? "pending"
             : "muted"
@@ -297,6 +303,11 @@ function ProviderCard({
         {tone === "stale" && (
           <span className="text-[10px] font-bold uppercase tracking-tighter bg-danger-100 text-danger-700 px-1.5 py-0.5 rounded-full">
             Stale ⚠
+          </span>
+        )}
+        {tone === "checking" && (
+          <span role="status" className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-tighter bg-ink-100 text-ink-500 px-1.5 py-0.5 rounded-full">
+            <Loader2 className="w-2.5 h-2.5 animate-spin" /> Checking
           </span>
         )}
         {tone === "unverified" && (

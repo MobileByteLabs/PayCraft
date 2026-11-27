@@ -84,7 +84,16 @@ function Results({ experimentKey }: { experimentKey: string }) {
   )
 }
 
-export function ExperimentsEditor({ initial, offerings }: { initial: Experiment[]; offerings: EditorOffering[] }) {
+export function ExperimentsEditor({
+  initial,
+  offerings,
+  onSaved,
+}: {
+  initial: Experiment[]
+  offerings: EditorOffering[]
+  /** Called after a successful save / status change (e.g. to invalidate the cached list). */
+  onSaved?: () => void
+}) {
   const [list, setList] = useState<Experiment[]>(initial)
   const [draft, setDraft] = useState<ExperimentDraft | null>(null)
   const [isNew, setIsNew] = useState(false)
@@ -111,12 +120,19 @@ export function ExperimentsEditor({ initial, offerings }: { initial: Experiment[
   async function call(method: "PUT" | "POST", body: unknown): Promise<boolean> {
     setBusy(true)
     setError(null)
-    const res = await fetch("/api/experiments", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
-    const json = await res.json().catch(() => ({}))
-    setBusy(false)
-    if (!res.ok) { setError(String(json.error ?? "save_failed")); return false }
-    upsert(json.experiment as Experiment)
-    return true
+    try {
+      const res = await fetch("/api/experiments", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(String(json.error ?? "save_failed")); return false }
+      upsert(json.experiment as Experiment)
+      onSaved?.()
+      return true
+    } catch {
+      setError("save_failed")
+      return false
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function save() {

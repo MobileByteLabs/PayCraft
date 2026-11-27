@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import { Check, Loader2, Upload } from "lucide-react"
 
 /**
@@ -30,7 +30,7 @@ export function AppStoreKeysForm({
   /** What this app currently bills through — names the thing a save would OVERWRITE. */
   connectionLabel?: string | null
 }) {
-  const router = useRouter()
+  const queryClient = useQueryClient()
   const [p8, setP8] = useState("")
   // Rotating this team's key and connecting a second App Store Connect team produce an identical
   // payload, and a connection is SHARED — inferring the wrong one re-points every app using it.
@@ -88,7 +88,7 @@ export function AppStoreKeysForm({
       setFileName(null)
       setSharedWarning(null)
       setCreateNew(false)
-      router.refresh()
+      queryClient.invalidateQueries({ queryKey: ["providers"] })
       setTimeout(() => setSaved(false), 2500)
     } catch (e: any) {
       setError(e?.message ?? String(e))
@@ -258,7 +258,7 @@ export function AppStoreKeysForm({
       )}
 
       {error && (
-        <div className="text-xs text-danger-700 font-mono bg-danger-50 border border-danger-200 px-3 py-2 rounded-lg">
+        <div role="alert" className="text-xs text-danger-700 font-mono bg-danger-50 border border-danger-200 px-3 py-2 rounded-lg">
           {error}
         </div>
       )}

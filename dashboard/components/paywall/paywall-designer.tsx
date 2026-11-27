@@ -96,11 +96,14 @@ export function PaywallDesigner({
   products,
   canRemoveAttribution,
   plan,
+  onSaved,
 }: {
   initial: PaywallConfig
   products: Product[]
   canRemoveAttribution: boolean
   plan: string
+  /** Called after a successful save (e.g. to invalidate the cached paywall); defaults to router.refresh(). */
+  onSaved?: () => void
 }) {
   const router = useRouter()
   const [cfg, setCfg] = useState<PaywallConfig>(() => withPaywallDefaults(initial))
@@ -108,17 +111,25 @@ export function PaywallDesigner({
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<string | null>(null)
 
+  const [saveError, setSaveError] = useState<string | null>(null)
+
   async function save() {
     setSaving(true)
-    const res = await fetch("/api/paywall", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(cfg),
-    })
-    setSaving(false)
-    if (res.ok) {
+    setSaveError(null)
+    try {
+      const res = await fetch("/api/paywall", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(cfg),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? `Save failed (${res.status})`)
       setSavedAt(new Date().toLocaleTimeString())
-      router.refresh()
+      if (onSaved) onSaved()
+      else router.refresh()
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -719,6 +730,11 @@ export function PaywallDesigner({
             Save paywall
           </Button>
         </div>
+        {saveError && (
+          <div role="alert" className="text-xs text-danger-700">
+            Couldn&rsquo;t save the paywall: {saveError}
+          </div>
+        )}
         {savedAt && (
           <div className="text-xs text-success-700 flex items-center gap-1.5">
             <Check className="w-3.5 h-3.5" strokeWidth={2.5} />

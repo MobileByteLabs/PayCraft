@@ -1,9 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Save } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ArrowLeft, Loader2, Save } from "lucide-react"
+import { useDashboard } from "@/components/app-providers"
 import {
   LocaleMatrix,
   type PricingMap,
@@ -12,80 +14,104 @@ import {
 
 /**
  * Locale-pricing matrix editor — AC-32. Reads existing tenant_pricing
- * rows for the product, lets the user override the shipped template
+ * rows for the product (in the browser — RLS scopes them to the tenant), lets the user override the shipped template
  * per-country, and bulk-upserts via `tenant_pricing_bulk_upsert` on Save.
  */
 export default function PricingMatrixPage() {
   const params = useParams<{ id: string }>()
   const productId = params.id
+  const { tenantId, supabase } = useDashboard()
 
-  const [product, setProduct] = useState<{
-    id: string
-    display_name: string
-    sku: string
-    base_price_cents: number
-    base_currency: string
-  } | null>(null)
-  const [rows, setRows] = useState<PricingMap>({})
-  // Distinguishing "failed to load" from "still loading" is what makes the stub unnecessary:
-  // previously the page had only a null-product state, so a fetch failure rendered the loading
-  // spinner forever and the placeholder row was the compensating hack.
-  const [loadError, setLoadError] = useState<{ status: number } | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [status, setStatus] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function load() {
+  const query = useQuery({
+    queryKey: ["products", tenantId, "pricing", productId],
+    queryFn: async () => {
       const [productRes, pricingRes] = await Promise.all([
-        fetch(`/api/products/${productId}`).catch(() => null),
-        fetch(`/api/pricing?product_id=${productId}`),
+        supabase
+          .from("tenant_products")
+          .select("id, display_name, sku, base_price_cents, base_currency")
+          .eq("id", productId)
+          .eq("tenant_id", tenantId)
+          .maybeSingle(),
+        supabase
+          .from("tenant_pricing")
+          .select("locale, amount_cents, currency, source")
+          .eq("tenant_id", tenantId)
+          .eq("product_id", productId)
+          .order("locale"),
       ])
-
-      if (cancelled) return
-
-      // GET /api/products/[id] exists now, so the placeholder row is gone. Showing a merchant
-      // a fabricated name and price is worse than showing an error: the numbers look real, so a
-      // pricing decision can be made against data that was never theirs.
-      if (!productRes?.ok) {
-        setLoadError({ status: productRes?.status ?? 0 })
-        return
-      }
-      const json = await productRes.json()
-      setProduct({
-        id: json.id,
-        display_name: json.display_name,
-        sku: json.sku,
-        base_price_cents: json.base_price_cents,
-        base_currency: json.base_currency,
-      })
-
-      const pricingJson = await pricingRes.json()
+      // Showing a merchant a fabricated name and price is worse than showing an error: the numbers
+      // look real, so a pricing decision can be made against data that was never theirs.
+      if (productRes.error) throw new Error(productRes.error.message)
+      if (!productRes.data) throw new Error("This product doesn't exist in this app.")
+      if (pricingRes.error) throw new Error(pricingRes.error.message)
       const map: PricingMap = {}
-      ;(pricingJson.rows ?? []).forEach((r: any) => {
-        const row: PricingRowState = {
+      for (const r of pricingRes.data ?? []) {
+        map[r.locale] = {
           locale: r.locale,
           amount_cents: r.amount_cents,
           currency: r.currency,
           source: r.source ?? "manual",
           override: true, // saved rows are by definition overrides
-        }
-        map[r.locale] = row
-      })
-      setRows(map)
-    }
+        } as PricingRowState
+      }
+      return { product: productRes.data as Product, rows: map }
+    },
+    // The editor copies the rows into local state once — a background refetch must not reset edits.
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  })
 
-    load()
-    return () => {
-      cancelled = true
-    }
-  }, [productId])
+  if (query.isError) {
+    return (
+      <div
+        role="alert"
+        className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        data-testid="pricing-load-error"
+      >
+        <p className="font-medium">Could not load this product.</p>
+        <p className="mt-1">
+          The pricing matrix needs the product&rsquo;s real name and base price, so it will not
+          render with placeholder values. ({query.error.message})
+        </p>
+        <button type="button" className="mt-2 underline" onClick={() => query.refetch()}>
+          Retry
+        </button>
+      </div>
+    )
+  }
 
-  async function saveAll() {
-    setSaving(true)
-    setStatus(null)
-    try {
+  if (query.isPending) {
+    return (
+      <p role="status" aria-busy="true" className="text-sm text-ink-500 inline-flex items-center gap-2">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading pricing matrix…
+      </p>
+    )
+  }
+
+  return <PricingEditor productId={productId} product={query.data.product} initialRows={query.data.rows} />
+}
+
+type Product = {
+  id: string
+  display_name: string
+  sku: string
+  base_price_cents: number
+  base_currency: string
+}
+
+function PricingEditor({
+  productId,
+  product,
+  initialRows,
+}: {
+  productId: string
+  product: Product
+  initialRows: PricingMap
+}) {
+  const queryClient = useQueryClient()
+  const [rows, setRows] = useState<PricingMap>(initialRows)
+  const save = useMutation({
+    mutationFn: async () => {
       const payload = Object.values(rows)
         .filter((r) => r.override)
         .map((r) => ({
@@ -99,44 +125,13 @@ export default function PricingMatrixPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ product_id: productId, rows: payload }),
       })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        setStatus(`Save failed: ${err.error ?? res.statusText}`)
-      } else {
-        const json = await res.json()
-        setStatus(`Saved — ${json.written ?? payload.length} row(s) written.`)
-      }
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  if (loadError) {
-    return (
-      <div
-        className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-        data-testid="pricing-load-error"
-      >
-        <p className="font-medium">Could not load this product.</p>
-        <p className="mt-1">
-          The pricing matrix needs the product&rsquo;s real name and base price, so it will not
-          render with placeholder values.
-          {loadError.status ? ` (HTTP ${loadError.status})` : ""}
-        </p>
-        <button
-          type="button"
-          className="mt-2 underline"
-          onClick={() => window.location.reload()}
-        >
-          Retry
-        </button>
-      </div>
-    )
-  }
-
-  if (!product) {
-    return <p className="text-sm text-ink-500">Loading pricing matrix…</p>
-  }
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(`Save failed: ${json.error ?? res.statusText}`)
+      return (json.written ?? payload.length) as number
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["products"] }),
+  })
+  const saving = save.isPending
 
   return (
     <div className="space-y-6">
@@ -163,18 +158,23 @@ export default function PricingMatrixPage() {
           </p>
         </div>
         <button
-          onClick={saveAll}
+          onClick={() => save.mutate()}
           disabled={saving}
           className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-ink-900 text-white rounded-lg hover:bg-ink-800 disabled:opacity-50 flex-shrink-0"
         >
-          <Save className="w-3.5 h-3.5" />
+          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
           {saving ? "Saving…" : "Save all"}
         </button>
       </div>
 
-      {status && (
+      {save.isSuccess && (
         <div className="text-xs text-ink-600 bg-ink-50 border border-ink-100 rounded px-3 py-2">
-          {status}
+          Saved — {save.data} row(s) written.
+        </div>
+      )}
+      {save.isError && (
+        <div role="alert" className="text-xs text-danger-700 bg-danger-50 border border-danger-200 rounded px-3 py-2">
+          {save.error.message}
         </div>
       )}
 

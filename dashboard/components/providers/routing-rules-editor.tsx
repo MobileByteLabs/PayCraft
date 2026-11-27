@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   ChevronDown,
   ChevronUp,
@@ -70,7 +70,7 @@ export function RoutingRulesEditor({
   connectedMethods: string[]
   connectedProviders: string[]
 }) {
-  const router = useRouter()
+  const queryClient = useQueryClient()
   const [rules, setRules] = useState<Rule[]>(initialRules)
 
   // List of method names available for routing: registry rows whose
@@ -89,13 +89,18 @@ export function RoutingRulesEditor({
 
   return (
     <div className="space-y-6">
-      <RulesList rules={rules} registry={registry} onChange={setRules} router={router} />
+      <RulesList
+        rules={rules}
+        registry={registry}
+        onChange={setRules}
+        onDeleted={() => queryClient.invalidateQueries({ queryKey: ["providers"] })}
+      />
       <NewRuleForm
         eligibleMethods={eligibleMethods}
         registry={registry}
         onAdded={(rule) => {
           setRules([...rules, rule])
-          router.refresh()
+          queryClient.invalidateQueries({ queryKey: ["providers"] })
         }}
       />
     </div>
@@ -106,13 +111,28 @@ function RulesList({
   rules,
   registry,
   onChange,
-  router,
+  onDeleted,
 }: {
   rules: Rule[]
   registry: RegistryRow[]
   onChange: (r: Rule[]) => void
-  router: ReturnType<typeof useRouter>
+  onDeleted: () => void
 }) {
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/routing-rules/${id}`, { method: "DELETE" })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(`Delete failed: ${data?.error ?? res.statusText}`)
+      }
+      return id
+    },
+    onSuccess: (id) => {
+      onChange(rules.filter((r) => r.id !== id))
+      onDeleted()
+    },
+  })
+
   if (rules.length === 0) {
     return (
       <div className="bg-white border border-ink-200 rounded-xl p-8 text-center">
@@ -124,16 +144,9 @@ function RulesList({
     )
   }
 
-  async function deleteRule(id: string) {
+  function deleteRule(id: string) {
     if (!confirm("Delete this routing rule?")) return
-    const res = await fetch(`/api/routing-rules/${id}`, { method: "DELETE" })
-    if (res.ok) {
-      onChange(rules.filter((r) => r.id !== id))
-      router.refresh()
-    } else {
-      const data = await res.json().catch(() => ({}))
-      alert(`Delete failed: ${data?.error ?? res.statusText}`)
-    }
+    deleteMutation.mutate(id)
   }
 
   return (
@@ -143,6 +156,11 @@ function RulesList({
           Active rules — tried in priority order
         </h3>
       </div>
+      {deleteMutation.isError && (
+        <div role="alert" className="text-xs text-danger-700 bg-danger-50 border-b border-danger-200 px-5 py-2">
+          {deleteMutation.error.message}
+        </div>
+      )}
       <table className="w-full">
         <thead className="bg-ink-50/30 border-b border-ink-100">
           <tr>
@@ -192,10 +210,16 @@ function RulesList({
               <Td right>
                 <button
                   onClick={() => deleteRule(r.id)}
-                  className="text-ink-400 hover:text-danger-600 p-1"
+                  disabled={deleteMutation.isPending}
+                  aria-busy={deleteMutation.isPending && deleteMutation.variables === r.id}
+                  className="text-ink-400 hover:text-danger-600 p-1 disabled:opacity-50"
                   aria-label="Delete rule"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  {deleteMutation.isPending && deleteMutation.variables === r.id ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-3.5 h-3.5" />
+                  )}
                 </button>
               </Td>
             </tr>
@@ -475,7 +499,7 @@ function NewRuleForm({
       </div>
 
       {error && (
-        <div className="text-xs text-danger-700 font-mono bg-danger-50 border border-danger-200 px-3 py-2 rounded">
+        <div role="alert" className="text-xs text-danger-700 font-mono bg-danger-50 border border-danger-200 px-3 py-2 rounded">
           {error}
         </div>
       )}
