@@ -73,9 +73,9 @@ export default async function ApiKeysPage() {
 function WebhookSecretRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between p-4 bg-white border border-ink-200 rounded-lg shadow-sm">
-      <div className="flex items-center gap-4">
-        <span className="text-sm font-bold text-ink-800 w-12">{label}</span>
-        <code className="font-mono text-xs text-ink-400">{value}</code>
+      <div className="flex min-w-0 items-center gap-4">
+        <span className="text-sm font-bold text-ink-800 w-12 shrink-0">{label}</span>
+        <code className="min-w-0 break-all font-mono text-xs text-ink-400">{value}</code>
       </div>
     </div>
   )

@@ -178,7 +178,7 @@ export default async function ProductsPage() {
       <UnsyncedProductsBanner />
 
       {/* Bento-Style Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-8 animate-slide-up">
+      <div className="grid grid-cols-2 gap-4 mb-8 lg:grid-cols-4 animate-slide-up">
         <div className="bg-white border border-ink-200 p-5 rounded-xl shadow-sm">
           <span className="text-ink-500 text-xs font-semibold uppercase tracking-wider">Active SKUs</span>
           <div className="flex items-end justify-between mt-2">

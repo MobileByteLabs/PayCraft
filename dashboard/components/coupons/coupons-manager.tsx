@@ -126,7 +126,7 @@ export function CouponsManager({
 
   return (
     <div>
-      <div className="mb-8 pt-10 flex justify-between items-end">
+      <div className="mb-8 pt-6 flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-end lg:pt-10">
         <div>
           <h2 className="text-2xl font-bold text-ink-900 tracking-tight flex items-center gap-3">
             <Tag className="w-6 h-6 text-brand-600" />
@@ -140,7 +140,7 @@ export function CouponsManager({
         </div>
         <button
           onClick={() => setShowForm((v) => !v)}
-          className="px-4 py-2 text-sm font-semibold bg-brand-600 text-white rounded-lg hover:bg-brand-700 shadow-sm active:scale-[0.98] transition-all flex items-center gap-2"
+          className="self-start whitespace-nowrap px-4 py-2 text-sm font-semibold bg-brand-600 text-white rounded-lg hover:bg-brand-700 shadow-sm active:scale-[0.98] transition-all flex items-center gap-2"
         >
           {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
           {showForm ? "Cancel" : "New coupon"}
@@ -178,7 +178,7 @@ export function CouponsManager({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
             <div className="space-y-2">
               <label className="text-[11px] font-bold uppercase tracking-wider text-ink-500 block">
                 Percent off

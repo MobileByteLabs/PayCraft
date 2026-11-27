@@ -51,7 +51,7 @@ export default async function UpiSetupPage() {
       </div>
 
       {/* Value proposition cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <ValueCard
           icon={<TrendingDown className="w-4 h-4 text-emerald-600" />}
           title="0% transaction fees"

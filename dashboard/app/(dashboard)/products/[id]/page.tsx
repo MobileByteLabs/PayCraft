@@ -220,7 +220,7 @@ export default async function ProductViewPage({
               {pricingRows?.length ?? 0} locale{(pricingRows?.length ?? 0) === 1 ? "" : "s"}
             </span>
           </div>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {currencyRows.map((row) => (
               <div
                 key={row.currency}

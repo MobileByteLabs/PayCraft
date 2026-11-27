@@ -128,9 +128,9 @@ export function PaywallDesigner({
   }
 
   return (
-    <div className="flex gap-8 overflow-hidden animate-fade-in" style={{ height: "calc(100vh - 13rem)" }}>
+    <div className="flex flex-col gap-8 animate-fade-in lg:h-[calc(100vh-13rem)] lg:flex-row lg:overflow-hidden">
       {/* Left column: Controls */}
-      <div className="w-[420px] flex-shrink-0 flex flex-col gap-6 overflow-y-auto pb-12" style={{ scrollbarWidth: "none" }}>
+      <div className="w-full lg:w-[420px] flex-shrink-0 flex flex-col gap-6 overflow-y-auto pb-12" style={{ scrollbarWidth: "none" }}>
         {/* Content — v2 dashboard-driven copy */}
         <section className="bg-white p-5 rounded-xl border border-ink-200 shadow-sm">
           <h3 className="text-[11px] font-bold text-ink-400 uppercase tracking-widest mb-4">
@@ -731,14 +731,14 @@ export function PaywallDesigner({
       {/* Right column: Live Preview */}
       <div className="flex-1 flex flex-col gap-6 min-w-0">
         {/* Toolbar */}
-        <div className="flex items-center justify-between flex-shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-[11px] font-bold text-ink-400 uppercase tracking-widest">
               Preview · {previewState} State
             </span>
           </div>
-          <div className="flex bg-white border border-ink-200 rounded-lg p-1 shadow-sm">
+          <div className="flex max-w-full overflow-x-auto bg-white border border-ink-200 rounded-lg p-1 shadow-sm">
             {STATES.map((s) => (
               <button
                 key={s}

@@ -214,7 +214,7 @@ function Row({ intent, status }: { intent: UpiIntent; status: Status }) {
       {expanded && status === "pending" && (
         <tr className="bg-emerald-50/40 border-b border-emerald-200">
           <td colSpan={6} className="p-4">
-            <div className="grid grid-cols-3 gap-3 mb-3">
+            <div className="grid grid-cols-1 gap-3 mb-3 sm:grid-cols-3">
               <Field label="Customer email *">
                 <input
                   type="email"

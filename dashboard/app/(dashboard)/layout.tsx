@@ -66,8 +66,8 @@ export default async function DashboardLayout({
           <AppSwitcher apps={apps} activeId={activeTenantId} />
         }
       />
-      <main className="ml-64 min-h-screen">
-        <header className="sticky top-0 z-30 flex h-12 items-center justify-end gap-3 border-b border-ink-200/60 bg-white/80 px-10 backdrop-blur">
+      <main className="min-h-screen lg:ml-64">
+        <header className="sticky top-0 z-30 flex h-12 items-center justify-end gap-3 border-b border-ink-200/60 bg-white/80 px-4 backdrop-blur sm:px-6 lg:px-10">
           <ModeToggle initialMode={mode} />
         </header>
         <TestModeBanner mode={mode} />
@@ -75,8 +75,8 @@ export default async function DashboardLayout({
             unpublished paywall, a test key in a live slot or an unsynced product is just as
             true while the operator is on Analytics. Mounted in the SHELL so it cannot be
             left out by whichever page someone happens to open. Renders null when clean. */}
-        <div className="px-10 max-w-[1280px]"><NeedsAttention tenantId={tenant.id} /></div>
-        <div className="px-10 pb-20 max-w-[1280px]">{children}</div>
+        <div className="px-4 sm:px-6 lg:px-10 max-w-[1280px]"><NeedsAttention tenantId={tenant.id} /></div>
+        <div className="px-4 pb-20 sm:px-6 lg:px-10 max-w-[1280px]">{children}</div>
       </main>
       {/* Persistent PayCraft AI entry point on every dashboard page. */}
       <AiBubble />

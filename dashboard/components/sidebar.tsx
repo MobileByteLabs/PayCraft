@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useEffect, useState } from "react"
 import { clsx } from "clsx"
 import {
   BarChart3,
@@ -14,6 +15,8 @@ import {
   Layers,
   LayoutGrid,
   LogOut,
+  Menu,
+  X,
   MessageSquareText,
   Package,
   Plug,
@@ -120,8 +123,38 @@ export function Sidebar({
     .flatMap((g) => g.items.map((i) => i.href))
     .filter((href) => pathname === href || (href !== "/" && pathname.startsWith(href + "/")))
     .sort((a, b) => b.length - a.length)[0]
+  // Below lg the sidebar is a drawer: a fixed 256 px column covered a phone screen. Any navigation closes it.
+  const [open, setOpen] = useState(false)
+  useEffect(() => setOpen(false), [pathname])
   return (
-    <aside className="fixed left-0 top-0 h-screen w-64 bg-white border-r border-ink-200 flex flex-col py-6 px-4 z-50">
+    <>
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      aria-label="Open menu"
+      aria-expanded={open}
+      className="fixed left-3 top-2 z-40 rounded-md p-2 text-ink-700 hover:bg-ink-100 lg:hidden"
+    >
+      <Menu className="h-5 w-5" strokeWidth={2} />
+    </button>
+    {open && (
+      <div aria-hidden className="fixed inset-0 z-40 bg-ink-900/40 lg:hidden" onClick={() => setOpen(false)} />
+    )}
+    <aside
+      className={clsx(
+        "fixed left-0 top-0 h-screen w-64 bg-white border-r border-ink-200 flex flex-col py-6 px-4 z-50",
+        "transition-transform duration-200 lg:translate-x-0",
+        open ? "translate-x-0 shadow-xl" : "-translate-x-full",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        aria-label="Close menu"
+        className="absolute right-3 top-5 rounded-md p-1 text-ink-500 hover:bg-ink-100 lg:hidden"
+      >
+        <X className="h-4 w-4" strokeWidth={2} />
+      </button>
       {/* Brand */}
       <Link
         href="/dashboard"
@@ -240,5 +273,6 @@ export function Sidebar({
         </div>
       </div>
     </aside>
+    </>
   )
 }

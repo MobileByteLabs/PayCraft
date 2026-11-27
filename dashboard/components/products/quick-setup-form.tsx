@@ -397,8 +397,8 @@ export function QuickSetupForm() {
                         <span className="text-xs font-mono text-ink-400">{plan.sku}</span>
                       </div>
                       {plan.enabled && (
-                        <div className="flex items-center gap-4 mt-2">
-                          <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-4 mt-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <label className="text-[10px] uppercase tracking-wider text-ink-500 font-bold">
                               Price (¢)
                             </label>

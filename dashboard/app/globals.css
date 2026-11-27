@@ -108,3 +108,11 @@
   backdrop-filter: blur(12px);
   border: 1px solid rgba(228, 228, 231, 0.6);
 }
+
+/* Wide tables scroll sideways inside their card instead of being clipped (phones: a 900 px table in a 390 px
+   screen hid its right-hand columns). Whatever directly holds a table becomes the scroll container; the
+   `.overflow-hidden` form outranks the card's own Tailwind class. */
+main :has(> table),
+main .overflow-hidden:has(> table) {
+  overflow-x: auto;
+}
