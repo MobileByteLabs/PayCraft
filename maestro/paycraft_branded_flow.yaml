@@ -8,7 +8,7 @@
 # sample-app is the canonical in-repo branded-flow showcase and runs on-device.
 #
 # Run: maestro test maestro/paycraft_branded_flow.yaml
-# Prereq: ./gradlew :sample-app:installDebug on a connected device/emulator.
+# Prereq: ./gradlew :sample-app-android:installDebug on a connected device/emulator.
 #
 # This device (OnePlus/ColorOS) denies `pm clear` to the shell, so instead of
 # clearState we cold-start via stopApp (force-stop IS permitted).

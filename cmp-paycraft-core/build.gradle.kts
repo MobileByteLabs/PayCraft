@@ -238,6 +238,14 @@ kotlin {
         wasmJsMain.dependencies {
             implementation(paycraftLibs.ktor.client.js)
         }
+        // @JsFun / JsNumber — the wasm platform bridges (platform/*.wasmJs.kt) are JS interop by design.
+        wasmJsMain { languageSettings.optIn("kotlin.js.ExperimentalWasmJsInterop") }
+
+        // runTest / advanceUntilIdle / UnconfinedTestDispatcher are ExperimentalCoroutinesApi — test code only.
+        // Every test source set: Kotlin/Native reads the opt-in from the target's own test source set, not commonTest.
+        matching { it.name.endsWith("Test") }.configureEach {
+            languageSettings.optIn("kotlinx.coroutines.ExperimentalCoroutinesApi")
+        }
 
         commonTest.dependencies {
             implementation(paycraftLibs.kotlin.test)

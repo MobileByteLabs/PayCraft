@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { SKU_RULE, isCanonicalSku } from "@/lib/sku"
 import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 
 type ProductType = "subscription" | "trial" | "lifetime"
 type Interval = "month" | "quarter" | "semiannual" | "year"
@@ -70,6 +71,7 @@ export function ProductForm({
   subscriptions: Subscription[]
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [p, setP] = useState<ProductInput>(initial)
   // A SKU from before the naming convention is grandfathered; only a changed one must follow it.
   const skuInvalid = p.sku !== initial.sku && !isCanonicalSku(p.sku)
@@ -95,7 +97,7 @@ export function ProductForm({
       // operator sees the updated config + sync panel. After creating, go
       // back to the products list (no view to return to yet).
       router.push(p.id ? `/products/${p.id}` : "/products")
-      router.refresh()
+      void queryClient.invalidateQueries({ queryKey: ["products"] })
     } catch (e: any) {
       setError(String(e.message ?? e))
     } finally {

@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Check, ChevronDown } from "lucide-react"
+import { useMutation } from "@tanstack/react-query"
+import { Check, ChevronDown, Loader2 } from "lucide-react"
 import { PageHeader } from "@/components/ui/page-header"
 import { clsx } from "clsx"
 
@@ -105,28 +106,29 @@ const FAQ = [
 ]
 
 export default function UpgradePage() {
-  const [submitting, setSubmitting] = useState<string | null>(null)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
+  const upgrade = useMutation({
+    mutationFn: async (target: "pro") => {
+      const res = await fetch("/api/billing/upgrade", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target_tier: target }),
+      })
+      const body = await res.json().catch(() => ({}))
+      const next = body.checkout_url ?? body.contact_url
+      if (!res.ok || !next) throw new Error(body.error ?? `Upgrade failed (${res.status})`)
+      window.location.href = next
+    },
+  })
+  const submitting = upgrade.isPending ? upgrade.variables : null
 
-  async function go(target: "pro" | "enterprise") {
+  function go(target: "pro" | "enterprise") {
     if (target === "enterprise") {
       window.location.href =
         "mailto:sales@paycraft.mobilebytesensei.com?subject=Enterprise%20inquiry"
       return
     }
-    setSubmitting(target)
-    const res = await fetch("/api/billing/upgrade", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ target_tier: target }),
-    })
-    setSubmitting(null)
-    const body = await res.json().catch(() => ({}))
-    if (body.checkout_url) {
-      window.location.href = body.checkout_url
-    } else if (body.contact_url) {
-      window.location.href = body.contact_url
-    }
+    upgrade.mutate(target)
   }
 
   return (
@@ -144,6 +146,12 @@ export default function UpgradePage() {
           { label: "Upgrade" },
         ]}
       />
+
+      {upgrade.isError && (
+        <div role="alert" className="mb-6 rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700">
+          {upgrade.error.message}
+        </div>
+      )}
 
       {/* Pricing Cards */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12">
@@ -222,7 +230,13 @@ export default function UpgradePage() {
                   disabled={submitting === "pro"}
                   className="w-full py-3 px-4 bg-brand-500 hover:bg-brand-700 text-white font-bold rounded-lg transition-all active:scale-[0.98] shadow-lg shadow-brand-500/20 disabled:opacity-60"
                 >
-                  {submitting === "pro" ? "Redirecting…" : t.cta}
+                  {submitting === "pro" ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Redirecting…
+                    </span>
+                  ) : (
+                    t.cta
+                  )}
                 </button>
               ) : (
                 <button

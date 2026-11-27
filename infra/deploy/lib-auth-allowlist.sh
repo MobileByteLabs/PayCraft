@@ -50,12 +50,18 @@ allowlist_covers() {
 #   • "<staging_url>/**"                  — the stable alias every staging deploy resolves to.
 #   • "https://*.<project>.pages.dev/**"  — the per-deployment hash hosts (8ec2e33e.paycraft.…),
 #                                           which is what you actually get handed on a rollback or
-#                                           when comparing two builds side by side.
+#                                           when comparing two builds side by side. Pages only: pass
+#                                           an empty <pages_project> for a Worker, whose staging host
+#                                           is fixed (deploy.sh does, since 2026-11-27).
 # ──────────────────────────────────────────────────────────────────────────────────────────────
 auth_allowlist_missing() {
     local csv="$1" staging_url="$2" project="$3"
     local specific="${staging_url}/**"
     local wildcard="https://*.${project}.pages.dev/**"
+    if [[ -z "$project" ]]; then
+        allowlist_covers "$csv" "${staging_url}/auth/callback" || printf '%s\n' "$specific"
+        return 0
+    fi
 
     # The two requirements are evaluated INDEPENDENTLY. An earlier version returned early once the
     # callback URL was covered, which meant a present specific entry suppressed the wildcard — so

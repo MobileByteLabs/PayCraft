@@ -2,9 +2,19 @@ import { createClient } from "@/lib/supabase-server"
 import { redirect } from "next/navigation"
 import { cookies } from "next/headers"
 import type { Tenant } from "./types"
+import * as React from "react"
 
-/** Get the current user's active tenant. Redirects to login if not authenticated. */
-export async function requireTenant(): Promise<{ tenant: Tenant; userId: string }> {
+// Next's server React has `cache`; the stable build jest loads does not — there it is a plain call.
+const cache: <F extends (...args: never[]) => unknown>(fn: F) => F = React.cache ?? ((fn) => fn)
+
+/**
+ * Get the current user's active tenant. Redirects to login if not authenticated.
+ *
+ * Memoized per request (React `cache`): the dashboard layout and the page both call it, and each call is three
+ * sequential Supabase round trips (user → memberships → tenant) — Cloudflare's edge to the Tokyo project, so the
+ * second copy added ~400 ms to every page.
+ */
+export const requireTenant = cache(async (): Promise<{ tenant: Tenant; userId: string }> => {
   const supabase = createClient()
   const { data: { user }, error } = await supabase.auth.getUser()
 
@@ -23,11 +33,16 @@ export async function requireTenant(): Promise<{ tenant: Tenant; userId: string 
     redirect("/onboarding")
   }
 
-  const { tenantId } = pickActiveTenant(memberships.map((m) => m.tenant_id))
+  const { tenantId } = pickActiveTenant(memberships.map((m) => m.tenant_id), null, await activeAppCookie())
   return loadTenant(supabase, tenantId!, user!.id)
-}
+})
 
 export type Membership = { tenant_id: string }
+
+/** The app the user switched to (/api/apps/switch), if any. */
+async function activeAppCookie(): Promise<string | undefined> {
+  return (await cookies()).get("paycraft_active_app_id")?.value
+}
 
 /** The membership lookup failed twice — the caller must surface an error, not treat it as zero apps. */
 export class MembershipLookupError extends Error {
@@ -70,13 +85,16 @@ export type TenantResolution =
  *   else the `paycraft_active_app_id` cookie, if it names a membership;
  *   else the first membership.
  */
-export function pickActiveTenant(tenantIds: string[], requested?: string | null): TenantResolution {
+export function pickActiveTenant(
+  tenantIds: string[],
+  requested?: string | null,
+  activeCookieId?: string | null,
+): TenantResolution {
   if (requested) {
     return tenantIds.includes(requested)
       ? { tenantId: requested, resolvedFrom: "query" }
       : { tenantId: null, resolvedFrom: "not_a_member" }
   }
-  const activeCookieId = cookies().get("paycraft_active_app_id")?.value
   if (activeCookieId && tenantIds.includes(activeCookieId)) {
     return { tenantId: activeCookieId, resolvedFrom: "cookie" }
   }
@@ -89,7 +107,7 @@ export async function resolveTenantForUser(
   requested?: string | null,
 ): Promise<TenantResolution> {
   const memberships = await listMemberships(supabase)
-  return pickActiveTenant(memberships.map((m) => m.tenant_id), requested)
+  return pickActiveTenant(memberships.map((m) => m.tenant_id), requested, await activeAppCookie())
 }
 
 async function loadTenant(
@@ -107,8 +125,8 @@ async function loadTenant(
   return { tenant: tenant as Tenant, userId }
 }
 
-/** Get all tenants the current user is a member of (for AppSwitcher). */
-export async function getUserApps(): Promise<{ id: string; name: string; plan: string }[]> {
+/** Get all tenants the current user is a member of (for AppSwitcher). Memoized per request, like `requireTenant`. */
+export const getUserApps = cache(async (): Promise<{ id: string; name: string; plan: string }[]> => {
   const supabase = createClient()
   const memberships = await listMemberships(supabase)
   if (!memberships.length) return []
@@ -121,4 +139,4 @@ export async function getUserApps(): Promise<{ id: string; name: string; plan: s
     .order("created_at")
 
   return (tenants ?? []) as { id: string; name: string; plan: string }[]
-}
+})

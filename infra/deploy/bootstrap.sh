@@ -158,25 +158,16 @@ sub_0_2_auth() {
 FRAMEWORK_SUPABASE_PROJECT_REF="mlwfgytjxlqyfxcgpysm"
 
 sub_0_3_link() {
-    substep "0.3" "PROJECT LINK (cloudflare pages + supabase)" || return 0
+    substep "0.3" "PROJECT LINK (cloudflare worker + supabase)" || return 0
 
-    # Cloudflare Pages needs no local "link" file — the project is named on every
-    # deploy (--project-name=paycraft). Just confirm it exists on the account, so a
-    # typo or a wrong-account token fails here rather than mid-deploy.
-    # NOTE: dashboard/.vercel/ is next-on-pages BUILD OUTPUT, not a Vercel link.
-    if (cd "$PAYCRAFT_SRC/dashboard" && npx --no-install wrangler pages project list 2>/dev/null | grep -q "\b${CF_PAGES_PROJECT:-paycraft}\b"); then
-        ok "cloudflare pages project present (${CF_PAGES_PROJECT:-paycraft})"
+    # The dashboard is the `paycraft-dashboard` Worker (dashboard/wrangler.jsonc names it, with its
+    # routes). A Worker needs no pre-created project — the first deploy creates it — so this only
+    # checks the token can reach the account, so a wrong-account token fails here, not mid-deploy.
+    if (cd "$PAYCRAFT_SRC/dashboard" && npx --no-install wrangler whoami 2>/dev/null | grep -qi "account"); then
+        ok "cloudflare account reachable (worker paycraft-dashboard is created/updated by deploy)"
     else
-        if [[ "$NON_INTERACTIVE" = "true" || "$CHECK_ONLY" = "true" ]]; then
-            fail "pages project '${CF_PAGES_PROJECT:-paycraft}' not found — check the token account, or create it: npx wrangler pages project create ${CF_PAGES_PROJECT:-paycraft}"
-            return 1
-        fi
-        info "Creating Cloudflare Pages project ${CF_PAGES_PROJECT:-paycraft}..."
-        (cd "$PAYCRAFT_SRC/dashboard" && npx --no-install wrangler pages project create "${CF_PAGES_PROJECT:-paycraft}" --production-branch=main 2>&1 | tail -5) || {
-            fail "pages project create failed — try manually: npx wrangler pages project create ${CF_PAGES_PROJECT:-paycraft}"
-            return 1
-        }
-        ok "cloudflare pages project created"
+        fail "wrangler cannot reach the Cloudflare account — check CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID"
+        return 1
     fi
 
     # supabase link (project ref is fixed for framework-supabase)

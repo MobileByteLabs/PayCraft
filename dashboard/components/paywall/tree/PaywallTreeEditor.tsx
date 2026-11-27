@@ -43,6 +43,8 @@ export interface PaywallTreeEditorProps {
   prices?: Record<string, PackagePrice>
   initialRevision: number | null
   publishedRevision: number | null
+  /** Called after a successful save or publish (e.g. to invalidate the cached paywall). */
+  onSaved?: () => void
 }
 
 const SAMPLE: Record<string, PackagePrice> = {
@@ -55,6 +57,7 @@ export function PaywallTreeEditor({
   prices,
   initialRevision,
   publishedRevision,
+  onSaved,
 }: PaywallTreeEditorProps) {
   const [doc, setDoc] = useState<Json>(() => clone(initialWorkflow))
   const [selected, setSelected] = useState<string | null>("0")
@@ -140,6 +143,7 @@ export function PaywallTreeEditor({
       setRevision(json.revision ?? null)
       setDirty(false)
       setNotice(`Draft saved as revision ${json.revision}. Not live yet.`)
+      onSaved?.()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -157,6 +161,7 @@ export function PaywallTreeEditor({
       if (!res.ok) throw new Error(json.error ?? `publish failed (${res.status})`)
       setLive(json.published_revision ?? null)
       setNotice(`Published revision ${json.published_revision}. Devices pick it up within the SDK cache TTL.`)
+      onSaved?.()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -213,9 +218,9 @@ export function PaywallTreeEditor({
         </div>
       )}
 
-      <div className="flex min-h-[640px] overflow-hidden rounded-xl border border-ink-200 dark:border-ink-800">
+      <div className="flex min-h-[640px] flex-col overflow-hidden rounded-xl border lg:flex-row border-ink-200 dark:border-ink-800">
         {/* Layer tree */}
-        <div className="w-64 shrink-0 overflow-y-auto border-r border-ink-200 dark:border-ink-800">
+        <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b border-ink-200 dark:border-ink-800 lg:max-h-none lg:w-64 lg:border-b-0 lg:border-r">
           {steps.length > 1 && (
             // Only shown for a multi-step paywall: one step needs no switcher, and a control that
             // does nothing is worse than no control.
@@ -294,10 +299,11 @@ export function PaywallTreeEditor({
         </div>
 
         {/* Preview */}
-        <div className="flex flex-1 justify-center overflow-y-auto bg-ink-100 p-6 dark:bg-ink-950">
+        <div className="flex flex-1 justify-center overflow-y-auto bg-ink-100 p-3 dark:bg-ink-950 sm:p-6">
           <div
             style={{
               width: 380,
+              maxWidth: "100%",
               borderRadius: 20,
               overflow: "hidden",
               boxShadow: "0 8px 30px rgba(0,0,0,.14)",

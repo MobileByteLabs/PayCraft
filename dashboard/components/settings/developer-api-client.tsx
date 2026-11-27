@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useDashboard } from "@/components/app-providers"
 import { KeyRound, Loader2, Plus, ShieldAlert, Trash2, Check, Copy, ExternalLink, Pencil } from "lucide-react"
 import { Card, CardBody, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -66,8 +68,19 @@ function ScopeChecklist({ selected, onChange }: { selected: string[]; onChange: 
 const isExpired = (k: KeyRow) => !!k.expires_at && new Date(k.expires_at).getTime() <= Date.now()
 
 export function DeveloperApiClient() {
-  const [keys, setKeys] = useState<KeyRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const { tenantId } = useDashboard()
+  const queryClient = useQueryClient()
+  const keysQuery = useQuery({
+    queryKey: ["developer-keys", tenantId],
+    queryFn: async () => {
+      const res = await fetch("/api/developer-keys")
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? "could not load keys")
+      return (data.keys ?? []) as KeyRow[]
+    },
+  })
+  const keys = keysQuery.data ?? []
+  const loading = keysQuery.isPending
   const [error, setError] = useState<string | null>(null)
 
   const [creating, setCreating] = useState(false)
@@ -80,24 +93,8 @@ export function DeveloperApiClient() {
   const [freshKey, setFreshKey] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
-  async function load() {
-    setLoading(true)
-    try {
-      const res = await fetch("/api/developer-keys")
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error ?? "could not load keys")
-      setKeys(data.keys ?? [])
-      setError(null)
-    } catch (e: any) {
-      setError(String(e?.message ?? e))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void load()
-  }, [])
+  const load = () => queryClient.invalidateQueries({ queryKey: ["developer-keys", tenantId] })
+  const [revokingId, setRevokingId] = useState<string | null>(null)
 
   async function create() {
     setBusy(true)
@@ -151,6 +148,8 @@ export function DeveloperApiClient() {
     // authenticating. Worth a confirm: anything still using it breaks the moment this returns.
     if (!confirm(`Revoke "${k.name}"? Anything still using this key stops working immediately.`)) return
     setBusy(true)
+    setRevokingId(k.id)
+    setError(null)
     try {
       const res = await fetch(`/api/developer-keys?id=${encodeURIComponent(k.id)}`, { method: "DELETE" })
       const data = await res.json()
@@ -160,6 +159,7 @@ export function DeveloperApiClient() {
       setError(String(e?.message ?? e))
     } finally {
       setBusy(false)
+      setRevokingId(null)
     }
   }
 
@@ -214,7 +214,7 @@ export function DeveloperApiClient() {
       )}
 
       {error && (
-        <div className="rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700">
+        <div role="alert" className="rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700">
           {error}
         </div>
       )}
@@ -278,8 +278,15 @@ export function DeveloperApiClient() {
 
         <CardBody>
           {loading ? (
-            <div className="flex items-center gap-2 text-sm text-ink-500 py-6 justify-center">
+            <div role="status" aria-busy="true" className="flex items-center gap-2 text-sm text-ink-500 py-6 justify-center">
               <Loader2 className="w-4 h-4 animate-spin" /> Loading keys…
+            </div>
+          ) : keysQuery.isError ? (
+            <div role="alert" className="py-6 text-center text-sm text-danger-700">
+              Couldn&rsquo;t load keys: {keysQuery.error.message}{" "}
+              <button onClick={() => keysQuery.refetch()} className="font-semibold underline">
+                Retry
+              </button>
             </div>
           ) : active.length === 0 ? (
             <div className="text-center py-8">
@@ -370,7 +377,7 @@ export function DeveloperApiClient() {
                       className="text-ink-400 hover:text-danger-600 p-1.5 rounded disabled:opacity-40"
                       title="Revoke"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      {revokingId === k.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>

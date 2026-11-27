@@ -12,7 +12,7 @@ End-to-end UI flows for the v2 branded paywall + restore sheet (sub-plan 03 T6 o
 
 ## Target app
 
-Both flows target the **in-repo `sample-app`** (`com.mobilebytelabs.paycraft.sample`),
+Both flows target the **in-repo sample app** (`:sample-app-android`, `com.mobilebytelabs.paycraft.sample`),
 which renders the branded paywall via `PayCraftBackend.Mock`. The plan originally named
 `reels-downloader` (an external consumer workspace); that project is not buildable from this
 repo, so the in-repo showcase — which is the canonical branded-flow demo and runs on the
@@ -22,7 +22,7 @@ connected device — is the correct, self-contained e2e target.
 
 ```bash
 # 1. Install the sample app on a connected device/emulator
-./gradlew :sample-app:installDebug
+./gradlew :sample-app-android:installDebug
 
 # 2. Run the flows (requires Maestro CLI: https://maestro.mobile.dev)
 maestro test maestro/paycraft_branded_flow.yaml

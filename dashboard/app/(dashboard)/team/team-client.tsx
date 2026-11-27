@@ -1,8 +1,11 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { UserPlus, Mail, Clock, Shield, Edit2, Trash2, X, ChevronRight } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import { UserPlus, Mail, Clock, Shield, Edit2, Trash2, X, ChevronRight, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { useDashboard } from "@/components/app-providers"
+import { useActiveTenant, LoadingRows, LoadError } from "@/components/dashboard/account-queries"
 
 interface Member {
   id: string
@@ -47,15 +50,47 @@ const RBAC_ROLES = [
   },
 ]
 
-export function TeamClient({
-  initialMembers,
-  initialPending,
-}: {
-  initialMembers: Member[]
-  initialPending: PendingInvite[]
-}) {
-  const [members] = useState<Member[]>(initialMembers)
-  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(initialPending)
+export function TeamClient() {
+  const { tenantId, supabase } = useDashboard()
+  const tenantQuery = useActiveTenant()
+  const adminsQuery = useQuery({
+    queryKey: ["team", tenantId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tenant_admins")
+        .select("id, user_id, role, created_at")
+        .eq("tenant_id", tenantId)
+        .order("created_at", { ascending: true })
+      if (error) throw new Error(error.message)
+      return data ?? []
+    },
+  })
+  const membersQuery = tenantQuery.isError ? tenantQuery : adminsQuery
+
+  // `tenant_admins` stores auth user ids, not emails, and auth.users is not readable from here.
+  // The owner is identifiable because tenants.owner_email is a real column; everyone else renders
+  // by role and join date, with the user id shown so a row is still traceable. Showing an id is
+  // honest about what we know, where a fabricated name would not be.
+  const ownerEmail = tenantQuery.data?.owner_email ?? "Account owner"
+  const members: Member[] = (adminsQuery.data ?? []).map((a, i) => {
+    const isOwner = a.role === "owner"
+    const label = isOwner ? ownerEmail : `Team member ${i + 1}`
+    return {
+      id: a.id as string,
+      name: label,
+      email: isOwner ? ownerEmail : (a.user_id as string),
+      role: a.role as "owner" | "admin" | "viewer",
+      status: "active" as const,
+      joined: new Date(a.created_at as string).toLocaleDateString("en-US", {
+        month: "long",
+        year: "numeric",
+      }),
+      initials: label.slice(0, 2).toUpperCase(),
+      avatarBg: "from-ink-400 to-ink-600",
+    }
+  })
+  // PENDING INVITATIONS have no backing table yet — this list only holds invites sent this visit.
+  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([])
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteRole, setInviteRole] = useState<"viewer" | "admin">("viewer")
@@ -116,7 +151,10 @@ export function TeamClient({
           <h2 className="text-3xl font-extrabold text-ink-900 tracking-tight">Team</h2>
           <p className="text-ink-500 mt-1">
             Manage your team members and their roles.{" "}
-            <span className="font-semibold text-ink-700">{members.length} members</span> active in your organization.
+            <span className="font-semibold text-ink-700">
+              {adminsQuery.isPending ? "…" : members.length} members
+            </span>{" "}
+            active in your organization.
           </p>
         </div>
         <button
@@ -133,6 +171,11 @@ export function TeamClient({
         <div className="col-span-12 lg:col-span-9 space-y-8">
           {/* Members Table */}
           <div className="bg-white rounded-xl border border-ink-200 shadow-sm overflow-hidden">
+            {membersQuery.isPending || tenantQuery.isPending ? (
+              <LoadingRows label="Loading team members…" />
+            ) : membersQuery.isError ? (
+              <LoadError what="team members" error={membersQuery.error!} onRetry={() => void membersQuery.refetch()} />
+            ) : (
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-ink-50/50 border-b border-ink-200">
@@ -196,6 +239,7 @@ export function TeamClient({
                 })}
               </tbody>
             </table>
+            )}
           </div>
 
           {/* Pending Invites */}
@@ -342,6 +386,7 @@ export function TeamClient({
 
                 {feedback && (
                   <div
+                    role={feedback.kind === "error" ? "alert" : "status"}
                     className={`rounded-lg px-3 py-2 text-sm animate-fade-in ${
                       feedback.kind === "success"
                         ? "bg-success-50 border border-success-200 text-success-700"
@@ -365,8 +410,9 @@ export function TeamClient({
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-6 py-2 bg-brand-600 text-white font-bold text-sm rounded-lg hover:bg-brand-700 hover:shadow-lg hover:shadow-brand-600/20 transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="px-6 py-2 bg-brand-600 text-white font-bold text-sm rounded-lg hover:bg-brand-700 hover:shadow-lg hover:shadow-brand-600/20 transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                 >
+                  {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
                   {submitting ? "Sending…" : "Send invite"}
                 </button>
               </div>

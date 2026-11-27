@@ -21,6 +21,5 @@ actual fun readBundledSuiteConfigJsonOrNull(): String? = runCatching {
         BUNDLED_FALLBACK_FILENAME.removeSuffix(".json"),
         "json",
     ) ?: return null
-    @Suppress("CAST_NEVER_SUCCEEDS")
-    NSString.stringWithContentsOfFile(path, NSUTF8StringEncoding, null) as String?
+    NSString.stringWithContentsOfFile(path, NSUTF8StringEncoding, null)
 }.getOrNull()

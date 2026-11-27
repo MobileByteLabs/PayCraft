@@ -28,6 +28,16 @@ import { createClient as createServiceClient, type SupabaseClient } from "@supab
 // pinning THIS api version at runtime deliberately (stable payloads); Stripe
 // accepts an explicit older apiVersion regardless of the SDK build.
 const STRIPE_API_VERSION = "2026-05-27.dahlia" as Stripe.LatestApiVersion
+
+/**
+ * The ONE way to build a Stripe client. Stripe's default HTTP client is Node's `http`, which hangs on Cloudflare
+ * Workers (OpenNext bundles the Node build) — the runtime then kills the request ("code had hung"), as it did to
+ * /api/sync/drift. The fetch client works on Workers, Node and the edge alike. `apiVersion: null` keeps the
+ * account's default version (PayCraft's own checkout has always used it).
+ */
+export function stripeClient(key: string, apiVersion: Stripe.LatestApiVersion | null = STRIPE_API_VERSION): Stripe {
+  return new Stripe(key, { ...(apiVersion ? { apiVersion } : {}), httpClient: Stripe.createFetchHttpClient() })
+}
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
@@ -53,7 +63,7 @@ export async function getPlatformStripeClient(): Promise<Stripe> {
       "Stripe platform secret key not configured. Set it at /admin/platform-keys.",
     )
   }
-  return new Stripe(key, { apiVersion: STRIPE_API_VERSION })
+  return stripeClient(key)
 }
 
 export async function getPlatformConnectClientId(): Promise<string | null> {
@@ -98,7 +108,7 @@ export async function getConnectedStripeClient(
       .rpc("tenant_stripe_connect_decrypt", { p_tenant_id: tenantId })
       .single<{ access_token: string }>()
     if (oauth?.access_token) {
-      return new Stripe(oauth.access_token, { apiVersion: STRIPE_API_VERSION })
+      return stripeClient(oauth.access_token)
     }
   }
 
@@ -120,7 +130,7 @@ export async function getConnectedStripeClient(
   // wrong Stripe account, which is worse than failing.
   if (mode) {
     const key = await tryMode(mode).catch(() => null)
-    if (key) return new Stripe(key, { apiVersion: STRIPE_API_VERSION })
+    if (key) return stripeClient(key)
     throw new Error(
       `No Stripe ${mode} credentials for tenant ${tenantId}. Add them at /providers/stripe first.`,
     )
@@ -129,7 +139,7 @@ export async function getConnectedStripeClient(
   const liveKey = await tryMode("live").catch(() => null)
   const key = liveKey ?? (await tryMode("test").catch(() => null))
   if (key) {
-    return new Stripe(key, { apiVersion: STRIPE_API_VERSION })
+    return stripeClient(key)
   }
 
   throw new Error(

@@ -4,7 +4,6 @@ import { requireTenant } from "@/lib/tenant"
 import { answer } from "@/lib/ai/engine"
 import { getMode } from "@/lib/mode"
 
-export const runtime = "edge"
 
 /**
  * PayCraft AI / Growth Copilot — tenant-facing answering endpoint.
@@ -30,7 +29,7 @@ export async function POST(req: NextRequest) {
 
   let result
   try {
-    result = await answer(lastUser, supabase, tenant.id, { mode: getMode() })
+    result = await answer(lastUser, supabase, tenant.id, { mode: await getMode() })
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Could not answer right now." },

@@ -45,6 +45,20 @@ describe("validateExperiment", () => {
     expect(validateExperiment(base(), [A])).toBe("experiment_offering_unknown")
   })
 
+  it("checks a pre-selected plan against the variant's offering (221)", () => {
+    const skus = { [A]: ["pro-quarterly", "pro-monthly"], [B]: ["pro-monthly-b"] }
+    const pick = (default_sku: unknown) => base({ variants: [v[0], { ...v[1], default_sku: default_sku as string }] })
+    expect(validateExperiment(pick("pro-monthly-b"), [A, B], skus)).toBeNull()
+    expect(validateExperiment(pick(undefined), [A, B], skus)).toBeNull()
+    expect(validateExperiment(pick(null), [A, B], skus)).toBeNull()
+    expect(validateExperiment(pick(""), [A, B], skus)).toBeNull()
+    expect(validateExperiment(pick("pro-quarterly"), [A, B], skus)).toBe("experiment_default_sku_unknown")
+    expect(validateExperiment(pick("nope"), [A, B], skus)).toBe("experiment_default_sku_unknown")
+    expect(validateExperiment(pick(7), [A, B], skus)).toBe("experiment_default_sku_unknown")
+    // Without the catalogue (the API route) the database decides.
+    expect(validateExperiment(pick("nope"), [A, B])).toBeNull()
+  })
+
   it("explains every code in words", () => {
     for (const code of EXPERIMENT_ERROR_CODES) expect(experimentErrorMessage(code)).not.toBe(experimentErrorMessage("nope"))
   })

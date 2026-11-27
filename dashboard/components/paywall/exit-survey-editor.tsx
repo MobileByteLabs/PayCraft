@@ -52,10 +52,13 @@ export function ExitSurveyEditor({
   initial,
   coupons,
   productCount,
+  onSaved,
 }: {
   initial: SurveyDraft
   coupons: EditorCoupon[]
   productCount: number
+  /** Called after a successful save (e.g. to invalidate the cached survey). */
+  onSaved?: () => void
 }) {
   const [s, setS] = useState<SurveyDraft>(initial)
   const [saving, setSaving] = useState(false)
@@ -77,13 +80,19 @@ export function ExitSurveyEditor({
   async function save() {
     if (problem) return
     setSaving(true)
-    const res = await fetch("/api/exit-survey", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(s) })
-    setSaving(false)
-    if (res.ok) {
-      setSavedAt(new Date().toLocaleTimeString())
-    } else {
-      const body = await res.json().catch(() => ({}))
-      setServerError(String(body.error ?? "save_failed"))
+    try {
+      const res = await fetch("/api/exit-survey", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(s) })
+      if (res.ok) {
+        setSavedAt(new Date().toLocaleTimeString())
+        onSaved?.()
+      } else {
+        const body = await res.json().catch(() => ({}))
+        setServerError(String(body.error ?? "save_failed"))
+      }
+    } catch {
+      setServerError("save_failed")
+    } finally {
+      setSaving(false)
     }
   }
 

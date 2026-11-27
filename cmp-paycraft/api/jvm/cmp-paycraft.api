@@ -927,6 +927,10 @@ public final class com/mobilebytelabs/paycraft/ui/ComposableSingletons$UpsellBan
 	public final fun getLambda$1660453085$io_github_mobilebytelabs_cmp_paycraft ()Lkotlin/jvm/functions/Function3;
 }
 
+public final class com/mobilebytelabs/paycraft/ui/ConsumerSupabaseAuthKt {
+	public static final fun useConsumerAuth (Lcom/mobilebytelabs/paycraft/PayCraft;Lio/github/mobilebytelabs/supabaseauth/KmpSupabaseAuthClient;)V
+}
+
 public final class com/mobilebytelabs/paycraft/ui/DisplayMode : java/lang/Enum {
 	public static final field Banner Lcom/mobilebytelabs/paycraft/ui/DisplayMode;
 	public static final field FullScreen Lcom/mobilebytelabs/paycraft/ui/DisplayMode;

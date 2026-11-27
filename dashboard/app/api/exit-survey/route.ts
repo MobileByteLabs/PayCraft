@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 // Paywall ▸ Exit survey (paycraft-paywall-analytics T15). GET: the tenant's survey, its coupons (with the lanes each
 // discount reaches) and how many products a store offer must cover. PUT: save — checked here for a quick 400, then
 // by tenant_exit_survey_save (migration 183), which owns the rules and the admin check. Apps pick the change up with

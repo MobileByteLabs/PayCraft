@@ -52,14 +52,34 @@ export const PROVIDER_COUPON_ADAPTERS: CouponAdapter[] = [
 ]
 
 /** Fan a coupon out to every provider (best-effort — one failure never blocks the rest). */
-export async function syncCouponToAllProviders(args: CouponSyncArgs): Promise<void> {
-  await Promise.all(
-    PROVIDER_COUPON_ADAPTERS.map((adapter) =>
-      adapter.run(args).catch((e) =>
-        console.error(`[coupon-provider-sync] ${adapter.provider} failed:`, e?.message ?? e),
-      ),
-    ),
-  )
+/** The providers a coupon syncs to — the dashboard calls `/api/coupons/{id}/sync?provider=…` once for each. */
+export const COUPON_SYNC_PROVIDERS: readonly string[] = PROVIDER_COUPON_ADAPTERS.map((a) => a.provider)
+
+/** A `tenant_coupons` row → the arguments every adapter takes. */
+export function couponSyncArgsFromRow(row: {
+  id: string
+  tenant_id: string
+  code: string
+  name?: string | null
+  percent_off: number | string
+  duration: CouponSyncArgs["duration"]
+  duration_in_months?: number | null
+  max_redemptions?: number | null
+  redeem_by?: string | null
+  applies_to_product_ids?: string[] | null
+}): CouponSyncArgs {
+  return {
+    tenantId: row.tenant_id,
+    couponRowId: row.id,
+    code: row.code,
+    name: row.name ?? null,
+    percentOff: Number(row.percent_off),
+    duration: row.duration,
+    durationInMonths: row.duration_in_months ?? null,
+    maxRedemptions: row.max_redemptions ?? null,
+    redeemBy: row.redeem_by ?? null,
+    appliesToProductIds: row.applies_to_product_ids?.length ? row.applies_to_product_ids : null,
+  }
 }
 
 /**

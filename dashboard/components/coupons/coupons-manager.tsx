@@ -1,8 +1,10 @@
 "use client"
 
+import { couponReach } from "@/lib/coupon-reach"
 import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { CheckCircle2, Plus, Tag, Trash2, X } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useDashboard } from "@/components/app-providers"
+import { CheckCircle2, Loader2, Plus, Tag, Trash2, X } from "lucide-react"
 
 type Duration = "once" | "repeating" | "forever"
 
@@ -26,6 +28,9 @@ interface Coupon {
    */
   stripe_coupon_id?: string | null
   stripe_promotion_code_id?: string | null
+  razorpay_offer_id?: string | null
+  googleplay_offer_ids?: Record<string, string> | null
+  appstore_offer_ids?: Record<string, string> | null
 }
 
 interface ProductRef {
@@ -35,15 +40,39 @@ interface ProductRef {
   interval: string | null
 }
 
-export function CouponsManager({
-  initialCoupons,
-  products,
-}: {
-  initialCoupons: Coupon[]
-  products: ProductRef[]
-}) {
-  const router = useRouter()
-  const [coupons, setCoupons] = useState<Coupon[]>(initialCoupons)
+export function CouponsManager() {
+  const { tenantId, supabase } = useDashboard()
+  const queryClient = useQueryClient()
+  const couponsQuery = useQuery({
+    queryKey: ["coupons", tenantId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("tenant_coupons_list", { p_tenant_id: tenantId })
+      if (error) throw new Error(error.message)
+      return (data ?? []) as Coupon[]
+    },
+  })
+  const productsQuery = useQuery({
+    queryKey: ["products", "refs", tenantId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tenant_products")
+        .select("id, sku, display_name, interval")
+        .eq("tenant_id", tenantId)
+        .eq("active", true)
+        .order("display_order")
+      if (error) throw new Error(error.message)
+      return (data ?? []) as ProductRef[]
+    },
+  })
+  const coupons = couponsQuery.data ?? []
+  const products = productsQuery.data ?? []
+  const deactivateMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/coupons/${id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Deactivate failed (${res.status})`)
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["coupons", tenantId] }),
+  })
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState<{
@@ -81,9 +110,15 @@ export function CouponsManager({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? "save failed")
-      const refresh = await fetch("/api/coupons")
-      const refreshed = await refresh.json()
-      setCoupons(refreshed.coupons ?? [])
+      // One request per store (Cloudflare caps sub-requests per invocation). A store that fails is reported, the
+      // coupon itself is already saved.
+      const failed: string[] = []
+      for (const provider of (data.providers ?? []) as string[]) {
+        const sync = await fetch(`/api/coupons/${data.id}/sync?provider=${provider}`, { method: "POST" })
+        if (!sync.ok) failed.push(provider)
+      }
+      if (failed.length) setError(`Saved, but syncing to ${failed.join(", ")} failed — save again to retry.`)
+      await queryClient.invalidateQueries({ queryKey: ["coupons", tenantId] })
       setShowForm(false)
       setDraft({
         code: "",
@@ -95,7 +130,6 @@ export function CouponsManager({
         redeem_by: "",
         applies_to_product_ids: [],
       })
-      router.refresh()
     } catch (e: any) {
       setError(String(e.message ?? e))
     } finally {
@@ -103,18 +137,14 @@ export function CouponsManager({
     }
   }
 
-  async function deactivate(id: string) {
+  function deactivate(id: string) {
     if (!confirm("Deactivate this coupon? Existing redemptions stay intact.")) return
-    const res = await fetch(`/api/coupons/${id}`, { method: "DELETE" })
-    if (res.ok) {
-      setCoupons((prev) => prev.filter((c) => c.id !== id))
-      router.refresh()
-    }
+    deactivateMutation.mutate(id)
   }
 
   return (
     <div>
-      <div className="mb-8 pt-10 flex justify-between items-end">
+      <div className="mb-8 pt-6 flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-end lg:pt-10">
         <div>
           <h2 className="text-2xl font-bold text-ink-900 tracking-tight flex items-center gap-3">
             <Tag className="w-6 h-6 text-brand-600" />
@@ -128,7 +158,7 @@ export function CouponsManager({
         </div>
         <button
           onClick={() => setShowForm((v) => !v)}
-          className="px-4 py-2 text-sm font-semibold bg-brand-600 text-white rounded-lg hover:bg-brand-700 shadow-sm active:scale-[0.98] transition-all flex items-center gap-2"
+          className="self-start whitespace-nowrap px-4 py-2 text-sm font-semibold bg-brand-600 text-white rounded-lg hover:bg-brand-700 shadow-sm active:scale-[0.98] transition-all flex items-center gap-2"
         >
           {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
           {showForm ? "Cancel" : "New coupon"}
@@ -166,7 +196,7 @@ export function CouponsManager({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
             <div className="space-y-2">
               <label className="text-[11px] font-bold uppercase tracking-wider text-ink-500 block">
                 Percent off
@@ -333,8 +363,31 @@ export function CouponsManager({
         </div>
       )}
 
+      {deactivateMutation.isError && (
+        <div role="alert" className="mb-4 rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700">
+          {deactivateMutation.error.message}
+        </div>
+      )}
       <div className="bg-white border border-ink-200 rounded-xl overflow-hidden">
-        {coupons.length === 0 ? (
+        {couponsQuery.isPending ? (
+          <div role="status" aria-busy="true" className="animate-pulse divide-y divide-ink-100">
+            <span className="sr-only">Loading coupons…</span>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-6 px-6 py-4">
+                <div className="h-4 w-28 rounded bg-ink-200/70" />
+                <div className="h-4 flex-1 rounded bg-ink-100" />
+                <div className="h-4 w-16 rounded bg-ink-200/70" />
+              </div>
+            ))}
+          </div>
+        ) : couponsQuery.isError ? (
+          <div role="alert" className="p-8 text-center text-sm text-danger-700">
+            Couldn&rsquo;t load coupons: {couponsQuery.error.message}{" "}
+            <button onClick={() => couponsQuery.refetch()} className="font-semibold underline">
+              Retry
+            </button>
+          </div>
+        ) : coupons.length === 0 ? (
           <div className="p-12 text-center">
             <Tag className="w-10 h-10 text-ink-300 mx-auto mb-3" />
             <h3 className="text-sm font-bold text-ink-700 mb-1">No coupons yet</h3>
@@ -390,16 +443,18 @@ export function CouponsManager({
                       {c.times_redeemed}
                       {c.max_redemptions !== null && ` / ${c.max_redemptions}`}
                     </td>
-                    {/* AT PROVIDER. A code with no stripe_coupon_id is inert at checkout: the
-                        customer types it, nothing happens, and no error is raised anywhere. An
-                        empty cell would hide that, so an unmapped coupon states it in words. It
-                        is NEUTRAL rather than red because an unsynced code is usually work not
-                        yet done rather than something broken. */}
+                    {/* AT PROVIDER. A code no provider knows is inert at checkout: the customer types it,
+                        nothing happens, and no error is raised anywhere — so it says so in words. NEUTRAL
+                        rather than red: an unsynced code is usually work not yet done, not something broken. */}
                     <td className="px-6 py-3">
-                      {c.stripe_coupon_id ? (
-                        <span className="inline-flex items-center gap-1.5 text-xs text-ink-700">
-                          <span className="h-1.5 w-1.5 rounded-full bg-success-500" />
-                          Stripe
+                      {couponReach(c).length > 0 ? (
+                        <span className="flex flex-wrap gap-x-3 gap-y-1">
+                          {couponReach(c).map((p) => (
+                            <span key={p} className="inline-flex items-center gap-1.5 text-xs text-ink-700">
+                              <span className="h-1.5 w-1.5 rounded-full bg-success-500" />
+                              {p}
+                            </span>
+                          ))}
                         </span>
                       ) : (
                         <span
@@ -421,10 +476,16 @@ export function CouponsManager({
                       {c.active && (
                         <button
                           onClick={() => deactivate(c.id)}
-                          className="p-2 text-ink-400 hover:text-danger-600 hover:bg-danger-50 rounded transition-colors"
+                          disabled={deactivateMutation.isPending}
+                          aria-busy={deactivateMutation.isPending && deactivateMutation.variables === c.id}
+                          className="p-2 text-ink-400 hover:text-danger-600 hover:bg-danger-50 rounded transition-colors disabled:opacity-50"
                           title="Deactivate"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          {deactivateMutation.isPending && deactivateMutation.variables === c.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
                         </button>
                       )}
                     </td>

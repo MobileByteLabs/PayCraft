@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Buyers sign in through your app's own Supabase.** `PayCraft.useConsumerAuth(client)` (with a
+  `KmpSupabaseAuthClient` from kmp-supabase-auth) links whoever is signed in to the app — no second PayCraft
+  sign-in. The device is registered, then `identity-verify` checks the app's Supabase token against the app's
+  issuer (recorded once per app — migration 219's `tenant_set_auth_issuer`, service role only); a refused token
+  rolls the link back, and signing out of the app signs out of PayCraft. The restore / device-limit / link screens
+  sign in the same way. Web: `PayCraftWeb.signInWithSession(accessToken)`. Adds a dependency on
+  `io.github.mobilebytelabs:cmp-supabase-auth` 0.3.6.
+- **Win-back offers reach Android.** The exit survey sent the plan's id where `winback` looks products up by SKU,
+  so the Google Play offer came back empty; it now sends the SKU (and the server accepts either, for apps already
+  shipped).
+- **An A/B variant can choose the pre-selected plan.** A variant's `default_sku` (migration 221; set per variant in
+  Paywall ▸ Experiments) opens the paywall on that plan, ahead of `popular_plan_sku` and the workflow's
+  `is_selected_by_default`; a plan the variant doesn't sell is ignored. **Binary change:**
+  `ExperimentVariantDto` and `ExperimentAssignment` gained a `defaultSku` constructor parameter (source-compatible;
+  code compiled against the old constructors must be rebuilt) — release as a minor version.
+
 - **Web prices are region-specific by default.** `PayCraftWeb` on PayCraft Cloud now looks up the visitor's
   country once per page (new dashboard route `GET /api/geo`, the edge's IP-geo header, CORS `*`) before the first
   `/config`, so a site that never calls `setCountry` still quotes its visitor's currency — before, a browser in India

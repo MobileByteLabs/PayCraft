@@ -35,13 +35,11 @@ sealed interface PayCraftBackend {
     }
 
     companion object {
-        // Canonical PayCraft Cloud endpoints. Per RESEARCH.md D1, the
-        // production domain is paycraft.mobilebytesensei.com (with api.* and
-        // docs.* sub-domains planned). The SDK targets the Supabase project
-        // directly because PayCraft's dashboard is a stateless Vercel
-        // deployment that proxies the same Supabase project.
+        // PayCraft Cloud's API — the edge proxy (PayCraft/edge/), a Cloudflare Worker in front of the Supabase
+        // project. Apps never address supabase.co: the proxy carries REST, functions, auth, storage and realtime,
+        // so the backend can move, and Cloudflare's WAF / rate limits apply, without an app update.
         const val CLOUD_SUPABASE_URL: String =
-            "https://mlwfgytjxlqyfxcgpysm.supabase.co"
+            "https://edge.paycraft.mobilebytesensei.com"
 
         // Public anon key for paycraft.mobilebytesensei.com — embedded by
         // build pipeline at release time. (Anon key is safe to ship — RLS

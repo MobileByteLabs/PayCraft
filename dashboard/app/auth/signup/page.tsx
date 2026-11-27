@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { redirect } from "next/navigation"
 
 // Signup and login are the same Google OAuth flow.

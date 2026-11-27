@@ -10,21 +10,19 @@
 // Client components: import { useMode } from "@/lib/mode-client" → reactive.
 
 import { cookies } from "next/headers"
+import { MODE_COOKIE, MODE_DEFAULT, type Mode } from "./mode-constants"
 
-export type Mode = "test" | "live"
-
-export const MODE_COOKIE = "pc_mode"
-export const MODE_DEFAULT: Mode = "live"
+export { MODE_COOKIE, MODE_DEFAULT, type Mode }
 
 /** Server-component helper: resolve the active mode from the cookie. */
-export function getMode(): Mode {
-  const c = cookies().get(MODE_COOKIE)?.value
+export async function getMode(): Promise<Mode> {
+  const c = (await cookies()).get(MODE_COOKIE)?.value
   return c === "test" || c === "live" ? c : MODE_DEFAULT
 }
 
 /** Pick the right entry from a `{ test, live }` shaped object using the cookie. */
-export function pickByMode<T>(maps: { test: T; live: T }): T {
-  return getMode() === "test" ? maps.test : maps.live
+export async function pickByMode<T>(maps: { test: T; live: T }): Promise<T> {
+  return (await getMode()) === "test" ? maps.test : maps.live
 }
 
 /**

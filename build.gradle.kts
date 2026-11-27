@@ -31,17 +31,20 @@ detekt {
     config.setFrom("$rootDir/config/detekt/detekt.yml")
     baseline = file("$rootDir/config/detekt/baseline.xml")
     parallel = true
+    // The plugin lives on the root project, whose own src/ is empty — without a source set the task reported
+    // NO-SOURCE and analyzed nothing. Point it at every library module's Kotlin, every source set.
+    source.setFrom(fileTree(rootDir) { include("cmp-*/src/*/kotlin/**/*.kt") })
 }
 
 dependencies {
-    detektPlugins(libs.detekt.formatting)
+    detektPlugins(libs.detekt.ktlint.wrapper)
 }
 
-tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
+tasks.withType<dev.detekt.gradle.Detekt>().configureEach {
     reports {
         html.required.set(true)
-        xml.required.set(true)
-        txt.required.set(false)
+        // detekt 2.0 calls the XML report "checkstyle" and has no txt report.
+        checkstyle.required.set(true)
         sarif.required.set(false)
     }
     jvmTarget = "11"
@@ -68,7 +71,7 @@ spotless {
                 ),
             )
         trimTrailingWhitespace()
-        indentWithSpaces(4)
+        leadingTabsToSpaces(4)
         endWithNewline()
     }
 
@@ -77,7 +80,7 @@ spotless {
         targetExclude("**/build/**/*.gradle.kts")
         ktlint(libs.versions.ktlint.get())
         trimTrailingWhitespace()
-        indentWithSpaces(4)
+        leadingTabsToSpaces(4)
         endWithNewline()
     }
 
@@ -95,7 +98,7 @@ spotless {
             "**/playwright-report/**",
         )
         trimTrailingWhitespace()
-        indentWithSpaces(4)
+        leadingTabsToSpaces(4)
         endWithNewline()
     }
 }
@@ -118,4 +121,18 @@ tasks.register("fix") {
 // clear the other's cached config mid-test (ResilienceChainTest saw BuiltIn instead of Stale).
 subprojects {
     tasks.withType<Test>().configureEach { systemProperty("paycraft.settings", "memory") }
+}
+
+// kotlin-js-store/*.lock must match what CI and consumers resolve: the PUBLISHED cmp-supabase-auth. With the local
+// kmp-supabase-auth source build swapped in (settings.gradle.kts), its npm graph differs (it pulls `ws`), so a
+// mismatch only warns here instead of failing every local JS build. CI has no local checkout and stays strict.
+if (gradle.includedBuilds.any { it.name == "kmp-supabase-auth" }) {
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin> {
+        the<org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootExtension>().yarnLockMismatchReport =
+            org.jetbrains.kotlin.gradle.targets.js.yarn.YarnLockMismatchReport.WARNING
+    }
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnPlugin> {
+        the<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnRootExtension>().yarnLockMismatchReport =
+            org.jetbrains.kotlin.gradle.targets.js.yarn.YarnLockMismatchReport.WARNING
+    }
 }

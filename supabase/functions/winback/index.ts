@@ -20,7 +20,7 @@ import { preflight, withCors } from "../_shared/cors.ts"
 import { redeemableNow } from "../_shared/exit-survey.ts"
 import { recordedCountry } from "../_shared/geo.ts"
 import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/rate-limit.ts"
-import { buyerRef, lanesFor, type OfferCoupon } from "../_shared/winback-offer.ts"
+import { buyerRef, lanesFor, productLookupColumn, type OfferCoupon } from "../_shared/winback-offer.ts"
 import { signPromotionalOffer } from "../_shared/appstore-offer.ts"
 
 const CODE = /^[a-z][a-z_]{0,30}$/
@@ -75,7 +75,15 @@ serve(async (req: Request): Promise<Response> => {
   }
   const userRef = await buyerRef(tenantId, email, deviceRef)
   const mode = (req.headers.get("x-paycraft-mode") ?? str(body.mode, 4) ?? "").toLowerCase() === "test" ? "test" : "live"
-  const sku = str(body.sku, 100)
+  const sentSku = str(body.sku, 100)
+  // Shipped SDKs send the plan's product id here; resolve either form, and record the real SKU.
+  let product: { id: string; sku: string; app_store_product_id: string | null } | null = null
+  if (sentSku) {
+    const { data: p } = await supabase.from("tenant_products").select("id,sku,app_store_product_id")
+      .eq("tenant_id", tenantId).eq(productLookupColumn(sentSku), sentSku).maybeSingle()
+    product = p ?? null
+  }
+  const sku = product?.sku ?? sentSku
 
   await supabase.from("exit_survey_responses").insert({
     tenant_id: tenantId, user_ref: userRef, device_ref: deviceRef, step, reason_code: reasonCode,
@@ -98,11 +106,6 @@ serve(async (req: Request): Promise<Response> => {
   // A unique violation means this buyer already had this offer (GOAL D7): nothing more to give.
   if (offerErr || !offer) return json(200, { action: "none" })
 
-  let product: { id: string; app_store_product_id: string | null } | null = null
-  if (sku) {
-    const { data: p } = await supabase.from("tenant_products").select("id,app_store_product_id").eq("tenant_id", tenantId).eq("sku", sku).maybeSingle()
-    product = p ?? null
-  }
   const lanes: Record<string, unknown> = lanesFor(coupon as OfferCoupon, product?.id ?? null)
   // iOS: StoreKit applies a promotional offer only with a signature from the app's In-App Purchase key, over
   // this product, offer and the purchase's appAccountToken. No key / no App Store product → no App Store lane.

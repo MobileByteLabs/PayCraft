@@ -9,7 +9,7 @@
 # RULE-IMPL-BEHAVIOR-EXECUTED-001).
 #
 # Run: maestro test maestro/paycraft_storekit_android_flow.yaml
-# Prereq: ./gradlew :sample-app:installDebug on the connected Android device.
+# Prereq: ./gradlew :sample-app-android:installDebug on the connected Android device.
 appId: com.mobilebytelabs.paycraft.sample
 ---
 # --- Fresh capture after force-stop ---

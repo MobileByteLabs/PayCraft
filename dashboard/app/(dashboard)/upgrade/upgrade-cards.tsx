@@ -1,6 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useMutation } from "@tanstack/react-query"
+import { Loader2 } from "lucide-react"
+import { useActiveTenant, LoadingRows, LoadError } from "@/components/dashboard/account-queries"
 
 const plans = [
   {
@@ -30,6 +32,34 @@ const plans = [
   },
 ]
 
+/** The upgrade page body: the active app's plan (read in the browser) + the plan cards. */
+export function UpgradeView() {
+  const tenantQuery = useActiveTenant()
+  const tenant = tenantQuery.data
+  return (
+    <div>
+      <h1 className="text-2xl font-bold text-ink-900 mb-2">Upgrade Plan</h1>
+      {tenantQuery.isPending ? (
+        <div className="mb-8 rounded-xl border border-ink-200 bg-white">
+          <LoadingRows label="Loading your plan…" rows={1} />
+        </div>
+      ) : tenantQuery.isError ? (
+        <div className="mb-8 rounded-xl border border-ink-200 bg-white">
+          <LoadError what="your plan" error={tenantQuery.error} onRetry={() => void tenantQuery.refetch()} />
+        </div>
+      ) : (
+        <>
+          <p className="text-ink-500 mb-8">
+            Current plan: <span className="font-medium capitalize">{tenant!.plan}</span>
+            {" "}({tenant!.subscriber_limit.toLocaleString()} subscribers)
+          </p>
+          <UpgradeCards currentPlan={tenant!.plan} tenantId={tenant!.id} />
+        </>
+      )}
+    </div>
+  )
+}
+
 export function UpgradeCards({
   currentPlan,
   tenantId,
@@ -37,29 +67,37 @@ export function UpgradeCards({
   currentPlan: string
   tenantId: string
 }) {
-  const [loading, setLoading] = useState<string | null>(null)
+  const checkout = useMutation({
+    mutationFn: async (planId: string) => {
+      const res = await fetch("/api/create-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: planId, tenant_id: tenantId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!data.url) throw new Error(data.error || "Failed to create checkout session")
+      return data.url as string
+    },
+    // Leaving for Stripe Checkout — the button keeps its "Redirecting..." state until the page unloads.
+    onSuccess: (url) => {
+      window.location.href = url
+    },
+  })
+  // Pending, or succeeded and navigating away.
+  const loading = checkout.isPending || checkout.isSuccess ? checkout.variables : null
 
-  async function handleUpgrade(planId: string) {
-    if (planId === "free" || planId === currentPlan) return
-    setLoading(planId)
-
-    const res = await fetch("/api/create-checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plan: planId, tenant_id: tenantId }),
-    })
-
-    const data = await res.json()
-
-    if (data.url) {
-      window.location.href = data.url
-    } else {
-      alert(data.error || "Failed to create checkout session")
-      setLoading(null)
-    }
+  function handleUpgrade(planId: string) {
+    if (planId === "free" || planId === currentPlan || loading) return
+    checkout.mutate(planId)
   }
 
   return (
+    <>
+    {checkout.isError && (
+      <div role="alert" className="mb-6 rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700">
+        {checkout.error.message}
+      </div>
+    )}
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
       {plans.map((plan) => {
         const isCurrent = plan.id === currentPlan
@@ -101,11 +139,13 @@ export function UpgradeCards({
                     : "bg-ink-900 text-white hover:bg-ink-800"
               } disabled:opacity-50`}
             >
+              {loading === plan.id && <Loader2 className="mr-2 inline w-4 h-4 animate-spin" />}
               {isCurrent ? "Current Plan" : loading === plan.id ? "Redirecting..." : `Upgrade to ${plan.name}`}
             </button>
           </div>
         )
       })}
     </div>
+    </>
   )
 }

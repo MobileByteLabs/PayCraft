@@ -29,6 +29,10 @@ import com.mobilebytelabs.paycraft.core.MonetizationModeResolver
 import com.mobilebytelabs.paycraft.core.PaywallPresentation
 import com.mobilebytelabs.paycraft.core.SessionDebounce
 import com.mobilebytelabs.paycraft.core.TrialSnapshot
+import com.mobilebytelabs.paycraft.core.identity.ConsumerAuth
+import com.mobilebytelabs.paycraft.core.identity.ConsumerIdentityLink
+import com.mobilebytelabs.paycraft.core.identity.ConsumerLinkFailure
+import com.mobilebytelabs.paycraft.core.identity.ConsumerSessionVerifier
 import com.mobilebytelabs.paycraft.core.identity.VerifiedSignIn
 import com.mobilebytelabs.paycraft.debug.PayCraftError
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
@@ -100,6 +104,23 @@ import org.koin.mp.KoinPlatform
  * pick it up on the next refresh.
  */
 object PayCraft {
+
+    /**
+     * Decodes a [SuiteConfig] from the config endpoint and from the bundled fallback — one instance,
+     * because building a Json format per decode is slow.
+     */
+    private val suiteConfigJson = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        // An explicit `null` for a non-nullable field with a default falls back to that
+        // default. kotlinx applies a default ONLY when the key is ABSENT, so an explicit
+        // `"template": null` throws — and the config endpoint sends explicit nulls for every
+        // unset column of a tenant that has not finished configuring its paywall
+        // (`tenant_id`, `template`, `theme_jsonb`, `branding` …). Without this, a brand-new
+        // tenant's config failed to decode ENTIRELY and fell through every resilience layer
+        // to "Something went wrong" on the first paywall its owner ever opened.
+        coerceInputValues = true
+    }
 
     @PayCraftInternalApi
     var config: PayCraftConfig? = null
@@ -603,6 +624,42 @@ object PayCraft {
     internal val billingManager: BillingManager?
         get() = KoinPlatform.getKoinOrNull()?.getOrNull<BillingManager>()
 
+    private val _consumerIdentity = MutableStateFlow<ConsumerIdentityLink?>(null)
+
+    /** The consumer-session link bound by [useConsumerAuth]; null until an app binds its sign-in. */
+    val consumerIdentity: StateFlow<ConsumerIdentityLink?> = _consumerIdentity.asStateFlow()
+
+    /**
+     * Signs buyers in through the APP's own Supabase (PLAN paycraft-consumer-supabase-identity). Call once,
+     * after [initialize], with the app's sign-in — `cmp-paycraft` adapts a kmp-supabase-auth client
+     * (`PayCraft.useConsumerAuth(kmpSupabaseAuthClient)`). From then on a signed-in app user is linked to
+     * PayCraft silently (`identity-verify`), sign-out unlinks, and PayCraft's sign-in buttons drive the app's
+     * sign-in. The tenant must carry `auth_issuer_url`; without it the link reports
+     * [ConsumerLinkFailure.NotConfigured].
+     */
+    fun useConsumerAuth(auth: ConsumerAuth) {
+        check(isConfigured) { "PayCraft.initialize must run before useConsumerAuth" }
+        if (_consumerIdentity.value != null) return
+        val koin = KoinPlatform.getKoin()
+        val billing = koin.get<BillingManager>()
+        val verifier = ConsumerSessionVerifier(koin.get(), backend, apiKey)
+        val link = ConsumerIdentityLink(
+            auth = auth,
+            register = { email ->
+                billing.onVerifiedSignIn(email)
+                DeviceTokenStore.getToken()
+            },
+            verify = { access, device ->
+                verifier.verify(access, device, PlatformInfo.platform, PlatformInfo.deviceName)
+            },
+            onLinked = { billing.refreshStatus(force = true) },
+            onUnlinked = { billing.logOut() },
+            scope = payCraftScope(),
+        )
+        _consumerIdentity.value = link
+        link.start()
+    }
+
     /** Platform foreground signal (Android: first Activity started after all were stopped). */
     internal fun onAppForegrounded() {
         if (!isConfigured) return
@@ -1003,19 +1060,7 @@ object PayCraft {
             val raw: String = response.body()
             _exitSurvey.value = PayCraftContract.decodeExitSurvey(raw)
             rememberNudgeConfig(raw)
-            val json = Json {
-                ignoreUnknownKeys = true
-                isLenient = true
-                // An explicit `null` for a non-nullable field with a default falls back to that
-                // default. kotlinx applies a default ONLY when the key is ABSENT, so an explicit
-                // `"template": null` throws — and the config endpoint sends explicit nulls for every
-                // unset column of a tenant that has not finished configuring its paywall
-                // (`tenant_id`, `template`, `theme_jsonb`, `branding` …). Without this, a brand-new
-                // tenant's config failed to decode ENTIRELY and fell through every resilience layer
-                // to "Something went wrong" on the first paywall its owner ever opened.
-                coerceInputValues = true
-            }
-            val cfg = json.decodeFromString(SuiteConfig.serializer(), raw)
+            val cfg = suiteConfigJson.decodeFromString(SuiteConfig.serializer(), raw)
                 .copy(fetchedAtEpochMillis = currentTimeMillis())
             // Fold the server's edge IP-geo (cfg.geoCountry) into the unified country resolution.
             // It beats the device locale but NOT the store storefront — recomputed here so a
@@ -1182,12 +1227,7 @@ object PayCraft {
         val bundledJson = runCatching { readBundledSuiteConfigJsonOrNull() }.getOrNull()
         if (!bundledJson.isNullOrBlank()) {
             val bundled = runCatching {
-                Json {
-                    ignoreUnknownKeys = true
-                    isLenient = true
-                    coerceInputValues = true
-                }
-                    .decodeFromString(SuiteConfig.serializer(), bundledJson)
+                suiteConfigJson.decodeFromString(SuiteConfig.serializer(), bundledJson)
             }.getOrNull()
             if (bundled != null && runCatching { applySuiteConfig(bundled) }.isSuccess) {
                 _configResultFlow.value = ConfigResult.Bundled(bundled)
@@ -1396,16 +1436,17 @@ object PayCraft {
      * rethrows a definition that fails to CONSTRUCT. This runs inside [applySuiteConfig], i.e.
      * synchronously inside [initialize] on a warm start, so an unguarded resolution is a startup crash.
      */
-    private fun realtimeOrNull(): PayCraftRealtime? = try {
-        KoinPlatform.getKoinOrNull()?.getOrNull<PayCraftRealtime>()
+    internal fun realtimeOrNull(): PayCraftRealtime? = try {
+        // Mock is in-process: its `mock://` URL becomes wss://localhost, so a socket would only ever log
+        // Connection refused. Nothing pushes to a Mock buyer — there is no channel to join.
+        if (backend is PayCraftBackend.Mock) null else KoinPlatform.getKoinOrNull()?.getOrNull<PayCraftRealtime>()
     } catch (e: Exception) {
         PayCraftLogger.onError("realtime", "unavailable — TTL/foreground sync only: ${e.message}")
         null
     }
 
     internal fun resubscribeRealtime() {
-        val koin = KoinPlatform.getKoinOrNull() ?: return
-        runCatching { koin.getOrNull<PayCraftRealtime>()?.resubscribe() }
+        runCatching { realtimeOrNull()?.resubscribe() }
     }
 
     internal fun refreshRealtimeIdentity() {
@@ -2142,7 +2183,7 @@ private class SuiteProviderAdapter(private val dto: ProviderDto?) : PaymentProvi
             // before checkout ever reaches this adapter. Reaching this message therefore means the
             // server lane was NOT taken when it should have been — so it says that, rather than the
             // old "this cannot work today", which would send an operator chasing a solved problem.
-            "Plan ${plan.sku} is bound to ${binding!!.provider} plan ${binding.productId}, which has " +
+            "Plan ${plan.sku} is bound to ${binding.provider} plan ${binding.productId}, which has " +
                 "no reusable checkout link by design — a ${binding.provider} subscription is created " +
                 "per customer at functions/v1/checkout-initiate. Reaching this path means the server " +
                 "checkout lane was skipped; check that the SDK is initialized with an API key and " +

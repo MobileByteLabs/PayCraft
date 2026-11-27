@@ -1,8 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useDashboard } from "@/components/app-providers"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -62,26 +63,22 @@ const EMPTY_KEYS: KeyPair = { key_id: "", key_secret: "", webhook_secret: "" }
  *      HTTPS URLs, same as Stripe).
  */
 export default function RazorpayProviderPage() {
-  const [status, setStatus] = useState<ConnectionStatus | null>(null)
-  const [statusLoading, setStatusLoading] = useState(true)
+  const { tenantId } = useDashboard()
+  const queryClient = useQueryClient()
+  const statusQuery = useQuery({
+    queryKey: ["provider-status", "razorpay", tenantId],
+    queryFn: async () => {
+      const res = await fetch("/api/providers/razorpay/status", { cache: "no-store" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error ?? `Status check failed (${res.status})`)
+      return data as ConnectionStatus
+    },
+  })
+  const status = statusQuery.data ?? null
+  const statusLoading = statusQuery.isPending
   const [forceSetup, setForceSetup] = useState(false)
 
-  async function reload() {
-    setStatusLoading(true)
-    try {
-      const res = await fetch("/api/providers/razorpay/status", { cache: "no-store" })
-      const data = await res.json()
-      setStatus(data)
-    } catch {
-      setStatus({ connected: false, mode: null, test_key_id: null, live_key_id: null, livemode: false })
-    } finally {
-      setStatusLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void reload()
-  }, [])
+  const reload = () => queryClient.invalidateQueries({ queryKey: ["provider-status", "razorpay", tenantId] })
 
   return (
     <div>
@@ -104,6 +101,8 @@ export default function RazorpayProviderPage() {
             <h2 className="text-2xl font-bold text-ink-900 tracking-tight">Razorpay</h2>
             {statusLoading ? (
               <Badge tone="neutral">Checking…</Badge>
+            ) : statusQuery.isError ? (
+              <Badge tone="danger">Status unknown</Badge>
             ) : status?.connected ? (
               <Badge tone="success" dot>
                 Connected via API keys
@@ -115,9 +114,18 @@ export default function RazorpayProviderPage() {
         </div>
       </div>
 
+      {statusQuery.isError && (
+        <div role="alert" className="mb-6 rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700">
+          Couldn&rsquo;t check the Razorpay connection: {statusQuery.error.message}{" "}
+          <button onClick={() => statusQuery.refetch()} className="font-semibold underline">
+            Retry
+          </button>
+        </div>
+      )}
       {statusLoading ? (
-        <div className="flex items-center justify-center py-20">
+        <div role="status" aria-busy="true" className="flex items-center justify-center py-20">
           <Loader2 className="w-5 h-5 animate-spin text-ink-400" />
+          <span className="sr-only">Checking the Razorpay connection…</span>
         </div>
       ) : status?.connected && !forceSetup ? (
         <ConnectedStatusView
@@ -166,43 +174,40 @@ function ConnectedStatusView({
   onUpdateKeys: () => void
   onDisconnected: () => void
 }) {
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<any | null>(null)
-  const [disconnecting, setDisconnecting] = useState(false)
-
-  async function testWebhook() {
-    setTesting(true)
-    setTestResult(null)
-    try {
+  const testMutation = useMutation({
+    mutationFn: async () => {
       const res = await fetch("/api/providers/razorpay/test-webhook", { method: "POST" })
-      const data = await res.json()
-      setTestResult(data)
-    } catch (e: any) {
-      setTestResult({ error: e.message })
-    } finally {
-      setTesting(false)
-    }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok && !data?.results) throw new Error(data?.error ?? `Webhook test failed (${res.status})`)
+      return data
+    },
+  })
+  const testing = testMutation.isPending
+  const testResult: any | null = testMutation.data ?? null
+  const disconnectMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/providers/razorpay/disconnect", { method: "DELETE" })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(`Disconnect failed: ${d.error ?? res.statusText}`)
+      }
+    },
+    onSuccess: onDisconnected,
+  })
+  const disconnecting = disconnectMutation.isPending
+
+  function testWebhook() {
+    testMutation.mutate()
   }
 
-  async function disconnect() {
+  function disconnect() {
     if (
       !confirm(
         "Disconnect Razorpay?\n\nThis removes the saved API keys. Existing Razorpay subscriptions keep running — only PayCraft's link to your account is cleared. You can re-connect at any time.",
       )
     )
       return
-    setDisconnecting(true)
-    try {
-      const res = await fetch("/api/providers/razorpay/disconnect", { method: "DELETE" })
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
-        alert(`Disconnect failed: ${d.error ?? res.statusText}`)
-        return
-      }
-      onDisconnected()
-    } finally {
-      setDisconnecting(false)
-    }
+    disconnectMutation.mutate()
   }
 
   return (
@@ -282,6 +287,12 @@ function ConnectedStatusView({
           </div>
         </CardBody>
       </Card>
+
+      {(testMutation.isError || disconnectMutation.isError) && (
+        <div role="alert" className="rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700">
+          {(testMutation.error ?? disconnectMutation.error)?.message}
+        </div>
+      )}
 
       {testResult && (
         <Card className="shadow-sm">
@@ -587,22 +598,9 @@ function ManualKeysPanel({
   const [saved, setSaved] = useState(false)
   const [sharedWarning, setSharedWarning] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [tenantId, setTenantId] = useState<string | null>(null)
-  const [supabaseUrl, setSupabaseUrl] = useState<string>("http://localhost:54321")
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch("/api/me")
-        if (!res.ok) return
-        const data = await res.json()
-        setTenantId(data.tenant_id)
-        if (data.supabase_url) setSupabaseUrl(data.supabase_url)
-      } catch {
-        // /api/me isn't available — fall back to placeholders.
-      }
-    })()
-  }, [])
+  // Same values /api/me returned, without the round trip: the tenant comes from the layout, the URL is public.
+  const { tenantId } = useDashboard()
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:54321"
 
   const webhookUrl = tenantId
     ? `${supabaseUrl}/functions/v1/razorpay-webhook/${tenantId}`

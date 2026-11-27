@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import { Check, Loader2, Upload } from "lucide-react"
 
 /**
@@ -23,7 +23,7 @@ export function GooglePlayKeysForm({
   /** What this app currently bills through — names the thing a save would OVERWRITE. */
   connectionLabel?: string | null
 }) {
-  const router = useRouter()
+  const queryClient = useQueryClient()
   const [saJson, setSaJson] = useState("")
   const [pkg, setPkg] = useState(packageName ?? "")
   const [accountLabel, setAccountLabel] = useState("")
@@ -78,7 +78,7 @@ export function GooglePlayKeysForm({
       setFileName(null)
       setSharedWarning(null)
       setCreateNew(false)
-      router.refresh()
+      queryClient.invalidateQueries({ queryKey: ["providers"] })
       setTimeout(() => setSaved(false), 2500)
     } catch (e: any) {
       setError(e?.message ?? String(e))
@@ -211,7 +211,7 @@ export function GooglePlayKeysForm({
       )}
 
       {error && (
-        <div className="text-xs text-danger-700 font-mono bg-danger-50 border border-danger-200 px-3 py-2 rounded-lg">
+        <div role="alert" className="text-xs text-danger-700 font-mono bg-danger-50 border border-danger-200 px-3 py-2 rounded-lg">
           {error}
         </div>
       )}

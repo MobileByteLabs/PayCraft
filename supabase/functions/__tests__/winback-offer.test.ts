@@ -3,7 +3,7 @@
 // a Stripe promotion code (or the coupon), a Razorpay offer id — and an unusable one never blocks checkout.
 // Run: deno test --no-check supabase/functions/__tests__/winback-offer.test.ts
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts"
-import { buyerRef, lanesFor, offerUsable, type OfferRow, type OfferCoupon } from "../_shared/winback-offer.ts"
+import { buyerRef, lanesFor, offerUsable, productLookupColumn, type OfferRow, type OfferCoupon } from "../_shared/winback-offer.ts"
 import { stripeSessionForm } from "../checkout-initiate/stripe-session.ts"
 
 const coupon = (over: Partial<OfferCoupon> = {}): OfferCoupon => ({
@@ -50,4 +50,10 @@ Deno.test("a Stripe checkout session carries the promotion code (or the coupon) 
   const plain = new URLSearchParams(stripeSessionForm(base))
   assertEquals(plain.get("discounts[0][promotion_code]"), null)
   assertEquals(plain.get("discounts[0][coupon]"), null)
+})
+
+Deno.test("the survey's sku resolves a product whether apps sent the SKU or the plan's product id", () => {
+  assertEquals(productLookupColumn("pro-quarterly"), "sku")
+  assertEquals(productLookupColumn("35515f32-a5db-4b2e-b159-72e0ce4becda"), "id")
+  assertEquals(productLookupColumn("com.sensei.social.proquarterly"), "sku")
 })

@@ -15,3 +15,5 @@ playwright-report/
 # OpenNext / Cloudflare Workers build output (never commit — contains baked env)
 .open-next/
 .wrangler/
+public/_spa
+.open-next

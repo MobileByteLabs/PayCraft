@@ -11,7 +11,16 @@ import { announceAlertsRead } from "./unread-badge"
  * The inbox list. Mark read POSTs, updates the row in place, then refreshes the server components so the
  * sidebar badge (read in the layout) shows the new unread count.
  */
-export function InboxList({ alerts, filtered }: { alerts: Alert[]; filtered: boolean }) {
+export function InboxList({
+  alerts,
+  filtered,
+  onChanged,
+}: {
+  alerts: Alert[]
+  filtered: boolean
+  /** Called after a mark-read succeeds (e.g. to invalidate the inbox queries); defaults to router.refresh(). */
+  onChanged?: () => void
+}) {
   const router = useRouter()
   const [rows, setRows] = useState(alerts)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -38,7 +47,7 @@ export function InboxList({ alerts, filtered }: { alerts: Alert[]; filtered: boo
       if (target && target.read_at === null) {
         announceAlertsRead({ total: 1, critical: target.severity === "critical" ? 1 : 0 })
       }
-      startRefresh(() => router.refresh())
+      startRefresh(() => (onChanged ? onChanged() : router.refresh()))
     } catch (e) {
       setError(`Couldn't mark it read: ${(e as Error).message}`)
     } finally {
@@ -58,7 +67,7 @@ export function InboxList({ alerts, filtered }: { alerts: Alert[]; filtered: boo
       const unreadHere = rows.filter((r) => r.read_at === null)
       setRows((rs) => rs.map((r) => (r.read_at ? r : { ...r, read_at: at })))
       announceAlertsRead({ total: unreadHere.length, critical: unreadHere.filter((r) => r.severity === "critical").length })
-      startRefresh(() => router.refresh())
+      startRefresh(() => (onChanged ? onChanged() : router.refresh()))
     } catch (e) {
       setError(`Couldn't mark all read: ${(e as Error).message}`)
     } finally {

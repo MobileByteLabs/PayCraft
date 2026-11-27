@@ -88,16 +88,45 @@ class ExperimentAssignmentTest {
     }
 
     @Test
+    fun a_variant_default_sku_rides_on_the_assignment_and_an_unknown_one_is_dropped() {
+        val withDefault = experiment.copy(
+            variants = listOf(
+                ExperimentVariantDto("control", 50, "control"),
+                ExperimentVariantDto("cheaper", 50, "cheaper", defaultSku = "pro-monthly-low"),
+            ),
+        )
+        val cheaper = (0 until 100).map { "d$it" }.first { withDefault.assign(it)!!.key == "cheaper" }
+        val control = (0 until 100).map { "d$it" }.first { withDefault.assign(it)!!.key == "control" }
+        val cfg = config.copy(experiment = withDefault.toJson())
+        assertEquals("pro-monthly-low", cfg.withExperimentAssigned(cheaper).second?.defaultSku)
+        assertNull(cfg.withExperimentAssigned(control).second?.defaultSku)
+        // A sku the variant doesn't sell (here: another variant's) falls back to the paywall's own default.
+        val unknown = config.copy(
+            experiment = withDefault.copy(
+                variants = withDefault.variants.map { it.copy(defaultSku = it.defaultSku?.let { "pro-monthly" }) },
+            ).toJson(),
+        )
+        val (_, tag) = unknown.withExperimentAssigned(cheaper)
+        assertEquals(ExperimentAssignment("price-test", "cheaper", null), tag)
+    }
+
+    @Test
     fun the_server_payload_decodes() {
         // Verbatim shape of a local `/config` response's `experiment` block (functions served against migration 206).
         val wire = """{"tenant_id":"t","experiment":{"key":"price-test","variants":[""" +
             """{"key":"control","weight":50,"offering_id":"o-1"},{"key":"cheaper","weight":50,"offering_id":"o-2"}]}}"""
-        val cfg = Json { ignoreUnknownKeys = true }.decodeFromString(SuiteConfig.serializer(), wire)
+        val cfg = lenient.decodeFromString(SuiteConfig.serializer(), wire)
         assertEquals(ExperimentVariantDto("cheaper", 50, "o-2"), cfg.experimentOrNull()?.variants?.last())
+        val withSku = wire.replace(""""offering_id":"o-2"""", """"offering_id":"o-2","default_sku":"pro-monthly"""")
+        val decoded = lenient.decodeFromString(SuiteConfig.serializer(), withSku)
+        assertEquals("pro-monthly", decoded.experimentOrNull()?.variants?.last()?.defaultSku)
         assertNull(
-            Json {
-                ignoreUnknownKeys = true
-            }.decodeFromString(SuiteConfig.serializer(), """{"tenant_id":"t","experiment":null}""").experimentOrNull(),
+            lenient.decodeFromString(
+                SuiteConfig.serializer(),
+                """{"tenant_id":"t","experiment":null}""",
+            ).experimentOrNull(),
         )
     }
+
+    private val lenient = Json { ignoreUnknownKeys = true }
 }

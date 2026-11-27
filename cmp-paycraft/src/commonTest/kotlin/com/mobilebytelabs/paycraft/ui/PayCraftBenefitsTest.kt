@@ -9,8 +9,9 @@ import androidx.compose.material.icons.filled.NewReleases
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.v2.runComposeUiTest
 import com.mobilebytelabs.paycraft.PayCraftBenefits
+import com.mobilebytelabs.paycraft.awaitText
 import com.mobilebytelabs.paycraft.generated.resources.Res
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_benefit_ad_free
 import com.mobilebytelabs.paycraft.generated.resources.paycraft_benefit_early_access
@@ -76,7 +77,7 @@ class PayCraftBenefitsTest {
     @Test
     fun preset_renders_the_localised_resource_string() = runComposeUiTest {
         setContent { BenefitItem(benefit = PayCraftBenefits.adFree, index = 0) }
-        onNodeWithText("Ad-free experience across the entire app").assertExists()
+        awaitText("Ad-free experience across the entire app").assertExists()
     }
 
     @Test

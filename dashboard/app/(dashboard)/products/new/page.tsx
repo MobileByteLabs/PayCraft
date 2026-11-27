@@ -1,46 +1,9 @@
-export const runtime = "edge"
+"use client"
 
-import { createClient } from "@/lib/supabase-server"
-import { requireTenant } from "@/lib/tenant"
-import { NewProductPicker } from "@/components/products/new-product-picker"
+import { useSearchParams } from "next/navigation"
+import { NewProduct } from "@/components/products/product-form-pages"
 
-export default async function NewProductPage({
-  searchParams,
-}: {
-  searchParams?: { mode?: string }
-}) {
-  const { tenant } = await requireTenant()
-  const supabase = createClient()
-
-  const { data: subscriptions } = await supabase
-    .from("tenant_products")
-    .select("id, sku, display_name, base_price_cents, base_currency, interval")
-    .eq("tenant_id", tenant.id)
-    .eq("type", "subscription")
-    .eq("active", true)
-
-  const blank = {
-    sku: "",
-    type: "subscription" as const,
-    display_name: "",
-    interval: "month" as const,
-    trial_enabled: true,
-    trial_duration_days: 7,
-    attaches_to_product_id: null,
-    base_price_cents: 999,
-    base_currency: "USD",
-    pricing_mode: "auto" as const,
-    global_price_cents: null,
-    global_currency: null,
-    display_order: 0,
-    active: true,
-  }
-
-  return (
-    <NewProductPicker
-      initial={blank}
-      subscriptions={subscriptions ?? []}
-      defaultMode={searchParams?.mode === "manual" ? "manual" : "quick"}
-    />
-  )
+// Reads ?mode= from the URL rather than a `searchParams` prop — see products/[id]/page.tsx.
+export default function NewProductPage() {
+  return <NewProduct mode={useSearchParams().get("mode") ?? undefined} />
 }

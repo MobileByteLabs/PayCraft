@@ -20,6 +20,8 @@ interface Props {
   /** True when the tenant already has a tree — the only case where "update" is meaningful. */
   hasExistingTree: boolean
   currentRevision: number | null
+  /** Called after a template is applied (e.g. to invalidate the cached paywall). */
+  onApplied?: () => void
 }
 
 /**
@@ -37,7 +39,7 @@ const SAMPLE: Record<string, PackagePrice> = {
 
 type Applying = { slug: string; mode: "create" | "update" } | null
 
-export function TemplateGallery({ templates, hasExistingTree, currentRevision }: Props) {
+export function TemplateGallery({ templates, hasExistingTree, currentRevision, onApplied }: Props) {
   const [applying, setApplying] = useState<Applying>(null)
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -68,6 +70,7 @@ export function TemplateGallery({ templates, hasExistingTree, currentRevision }:
         preserved_strings?: number
       }
       if (!res.ok) throw new Error(json.error ?? `request failed (${res.status})`)
+      onApplied?.()
       setResult(
         mode === "update"
           ? `Applied ${slug} — kept ${json.preserved_strings ?? 0} of your strings. Draft is now revision ${json.revision}.`

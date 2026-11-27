@@ -1,6 +1,8 @@
 "use client"
 
 import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { Loader2 } from "lucide-react"
 import { REFUND_PREFERENCES } from "@/lib/appstore-refunds"
 
 /**
@@ -11,15 +13,21 @@ export function AppStoreRefundsForm({ consent, refundPreference }: { consent: bo
   const [on, setOn] = useState(consent)
   const [pref, setPref] = useState(refundPreference)
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle")
+  const queryClient = useQueryClient()
 
   async function save() {
     setState("saving")
-    const res = await fetch("/api/appstore-refunds", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ consent: on, refundPreference: pref }),
-    })
-    setState(res.ok ? "saved" : "error")
+    try {
+      const res = await fetch("/api/appstore-refunds", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ consent: on, refundPreference: pref }),
+      })
+      setState(res.ok ? "saved" : "error")
+      if (res.ok) queryClient.invalidateQueries({ queryKey: ["providers"] })
+    } catch {
+      setState("error")
+    }
   }
 
   return (
@@ -53,12 +61,13 @@ export function AppStoreRefundsForm({ consent, refundPreference }: { consent: bo
           type="button"
           onClick={save}
           disabled={state === "saving"}
-          className="text-xs font-bold bg-brand-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 text-xs font-bold bg-brand-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-50"
         >
+          {state === "saving" && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
           {state === "saving" ? "Saving…" : "Save"}
         </button>
         {state === "saved" && <span className="text-xs text-emerald-700">Saved.</span>}
-        {state === "error" && <span className="text-xs text-red-700">Couldn&apos;t save — try again.</span>}
+        {state === "error" && <span role="alert" className="text-xs text-red-700">Couldn&apos;t save — try again.</span>}
       </div>
     </div>
   )

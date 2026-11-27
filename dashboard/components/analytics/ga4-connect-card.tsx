@@ -21,8 +21,18 @@ function ago(iso: string): string {
   return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} days ago`
 }
 
-export function Ga4ConnectCard({ saEmail, connection }: { saEmail: string | null; connection: Ga4ConnectionRow | null }) {
+export function Ga4ConnectCard({
+  saEmail,
+  connection,
+  onChanged,
+}: {
+  saEmail: string | null
+  connection: Ga4ConnectionRow | null
+  /** Called after connect / disconnect (e.g. to invalidate the analytics queries); defaults to router.refresh(). */
+  onChanged?: () => void
+}) {
   const router = useRouter()
+  const refresh = () => (onChanged ? onChanged() : router.refresh())
   const [propertyId, setPropertyId] = useState(connection?.property_id ?? "")
   const [streams, setStreams] = useState((connection?.stream_ids ?? []).join(", "))
   const streamIds = streams.split(/[\s,]+/).filter(Boolean)
@@ -32,20 +42,31 @@ export function Ga4ConnectCard({ saEmail, connection }: { saEmail: string | null
   async function connect(id = propertyId) {
     setBusy("connect")
     setError(null)
-    const res = await fetch("/api/ga4/connection", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ propertyId: id.trim(), streamIds }) })
-    const body = await res.json().catch(() => ({}))
-    setBusy(null)
-    if (!res.ok || body.ok === false) setError(String(body.error ?? `http_${res.status}`))
-    router.refresh()
+    try {
+      const res = await fetch("/api/ga4/connection", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ propertyId: id.trim(), streamIds }) })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok || body.ok === false) setError(String(body.error ?? `http_${res.status}`))
+      refresh()
+    } catch {
+      setError("network_error")
+    } finally {
+      setBusy(null)
+    }
   }
 
   async function disconnect() {
     setBusy("disconnect")
-    await fetch("/api/ga4/connection", { method: "DELETE" })
-    setBusy(null)
     setError(null)
-    setPropertyId("")
-    router.refresh()
+    try {
+      const res = await fetch("/api/ga4/connection", { method: "DELETE" })
+      if (!res.ok) throw new Error(`http_${res.status}`)
+      setPropertyId("")
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
   }
 
   if (!saEmail) {
@@ -64,6 +85,11 @@ export function Ga4ConnectCard({ saEmail, connection }: { saEmail: string | null
           <Button type="button" size="sm" variant="secondary" loading={busy === "connect"} onClick={() => connect(connection.property_id)}>Re-check</Button>
           <Button type="button" size="sm" variant="ghost" loading={busy === "disconnect"} onClick={disconnect}>Disconnect</Button>
         </div>
+        {error && error !== connection.last_error && (
+          <p className="w-full rounded-md bg-warning-50 px-3 py-2 text-sm text-warning-700" role="alert" data-testid="ga4-error">
+            {ga4ErrorMessage(error, saEmail)}
+          </p>
+        )}
       </div>
     )
   }

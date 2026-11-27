@@ -1,29 +1,13 @@
+// Kept as `middleware.ts` (edge) on purpose, despite Next 16's "use proxy instead" warning: `proxy.ts` runs on
+// the Node runtime, which @opennextjs/cloudflare 1.20 labels "experimental in cloudflare, and not officially
+// maintained". Rename once OpenNext supports Node proxy — the deprecated name still works meanwhile.
 import { createServerClient } from "@supabase/ssr"
+import { supabaseCookieOptions } from "@/lib/supabase-cookie"
 import { NextResponse, type NextRequest } from "next/server"
 import { checkEdgeRateLimit, extractIp, rateLimitHeaders } from "@/lib/edge-rate-limit"
+import { API_HOSTS, MCP_HOSTS } from "@/lib/hosts"
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"])
-
-/**
- * Hostnames that serve the machine API. On these, `/v1/*` is rewritten to `/api/v1/*` so the public
- * surface reads `https://api.paycraft.mobilebytesensei.com/v1/readiness` rather than leaking the
- * Next.js route layout into the documented URL.
- *
- * The host is a CNAME to the same Pages project as the dashboard. Pointing it at Supabase directly
- * — which is what it used to do — cannot work: Supabase serves custom hostnames only with the paid
- * Custom Domain add-on, so the record resolved and every TLS handshake failed.
- */
-const API_HOSTS = new Set(["api.paycraft.mobilebytesensei.com"])
-
-/**
- * The MCP host. Serves ONE thing: the Model Context Protocol endpoint at its root.
- *
- * A separate hostname rather than a path on the API host because an MCP endpoint is configured by
- * URL in a client's settings, and a bare origin is what people paste. It also keeps the blast radius
- * legible — anything else on this host 404s, so a misconfigured client cannot wander into the
- * dashboard.
- */
-const MCP_HOSTS = new Set(["mcp.paycraft.mobilebytesensei.com"])
 
 export async function middleware(request: NextRequest) {
   const host = request.headers.get("host")?.toLowerCase() ?? ""
@@ -100,6 +84,7 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: supabaseCookieOptions,
       cookies: {
         getAll() {
           return request.cookies.getAll()
@@ -126,6 +111,6 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     // Run on every path except static assets + favicon
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|_spa/|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 }

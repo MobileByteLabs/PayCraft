@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import { ChevronDown, Eye, Globe, Loader2 } from "lucide-react"
 import { SUPPORTED_COUNTRIES } from "@/lib/provider-recommendations"
 
@@ -33,6 +34,7 @@ export function CountryPicker({
   isPreview: boolean
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -56,7 +58,7 @@ export function CountryPicker({
       setOpen(false)
       // Drop any preview= param when explicitly setting a real country.
       router.push("/providers")
-      router.refresh()
+      queryClient.invalidateQueries({ queryKey: ["providers"] })
     } catch (e: any) {
       setError(e?.message ?? String(e))
     } finally {
@@ -160,7 +162,7 @@ export function CountryPicker({
               </div>
             )}
             {error && (
-              <div className="px-3 py-2 text-[11px] text-danger-700 border-t border-ink-100">
+              <div role="alert" className="px-3 py-2 text-[11px] text-danger-700 border-t border-ink-100">
                 {error}
               </div>
             )}

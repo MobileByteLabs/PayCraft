@@ -1,7 +1,7 @@
-export const runtime = "edge"
-
 import { createServerClient, type CookieOptions } from "@supabase/ssr"
 import { NextRequest, NextResponse } from "next/server"
+import { AFTER_LOGIN_COOKIE, safeAfterLogin } from "@/lib/spa-paths"
+import { supabaseCookieOptions } from "@/lib/supabase-cookie"
 
 /**
  * Expire every PKCE `code-verifier` cookie once the exchange has consumed it.
@@ -40,12 +40,15 @@ export async function GET(request: NextRequest) {
 
   // Create the redirect response FIRST so auth cookies land on this exact
   // response object — not on a separate cookieStore that won't transfer.
-  const response = NextResponse.redirect(new URL("/subscribers", origin))
+  const after = safeAfterLogin(decodeURIComponent(request.cookies.get(AFTER_LOGIN_COOKIE)?.value ?? ""))
+  const response = NextResponse.redirect(new URL(after ?? "/subscribers", origin))
+  response.cookies.delete(AFTER_LOGIN_COOKIE)
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: supabaseCookieOptions,
       cookies: {
         getAll() {
           return request.cookies.getAll()

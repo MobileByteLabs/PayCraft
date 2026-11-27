@@ -76,6 +76,15 @@ expect_missing "G2 wildcard alone covers staging → nothing to add" \
 expect_missing "G3 human-spaced list → trimmed, nothing to add" \
     "https://paycraft.mobilebytesensei.com/** , $SPECIFIC , $WILDCARD" ""
 
+# A Worker (deploy.sh since 2026-11-27): one fixed staging host, no per-deployment hash hosts — so no
+# pages.dev wildcard is proposed, only the host itself, and nothing once it is present.
+W_URL="https://paycraft-dashboard-staging.mobilebytesensei.workers.dev"
+got="$(auth_allowlist_missing "$PROD_ONLY" "$W_URL" "")"
+[[ "$got" == "$W_URL/**" ]] && ok "W1 worker staging → proposes its host only, no pages.dev wildcard" \
+  || bad "W1 worker staging" "$W_URL/**" "${got:-<none>}"
+got="$(auth_allowlist_missing "$PROD_ONLY,$W_URL/**" "$W_URL" "")"
+[[ -z "$got" ]] && ok "W2 worker staging host present → nothing to add" || bad "W2 worker staging present" "<none>" "$got"
+
 echo ""
 echo "─── parse_uri_allow_list ───────────────────────────────────────"
 

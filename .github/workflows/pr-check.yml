@@ -17,7 +17,8 @@ concurrency:
 
 jobs:
   pr-check:
-    uses: MobileByteLabs/mbl-actionhub/.github/workflows/ci-kmp-library.yml@v1.10.1
+    # v1.12.1: compile split into a Linux job (JVM/Android/Web) and an Apple compile-only job; actions on Node 24.
+    uses: MobileByteLabs/mbl-actionhub/.github/workflows/ci-kmp-library.yml@v1.12.1
     with:
       module-pattern: 'cmp-'
       java-version: '21'

@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import Link from "next/link"
 import { Sparkles } from "lucide-react"
 import { ButtonLink } from "@/components/ui/button"

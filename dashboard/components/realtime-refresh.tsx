@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase-browser"
 
@@ -35,6 +36,7 @@ export function RealtimeRefresh({
   tables?: string[]
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -53,7 +55,11 @@ export function RealtimeRefresh({
         },
         () => {
           if (timer.current) clearTimeout(timer.current)
-          timer.current = setTimeout(() => router.refresh(), 300)
+          timer.current = setTimeout(() => {
+            router.refresh()
+            // Pages that read in the browser (TanStack Query) refetch too.
+            void queryClient.invalidateQueries()
+          }, 300)
         }
       )
     }
@@ -64,7 +70,7 @@ export function RealtimeRefresh({
       void supabase.removeChannel(channel)
     }
     // tables is a stable module constant by default; join guards an inline array.
-  }, [tenantId, tables.join(","), router])
+  }, [tenantId, tables.join(","), router, queryClient])
 
   return null
 }

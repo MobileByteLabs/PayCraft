@@ -1,0 +1,150 @@
+// Klib ABI Dump
+// Targets: [js]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.mobilebytelabs:cmp-paycraft-web-ui>
+abstract interface com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions { // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions|null[0]
+    abstract val backUrl // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.backUrl|{}backUrl[0]
+        abstract fun <get-backUrl>(): kotlin/String? // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.backUrl.<get-backUrl>|<get-backUrl>(){}[0]
+    abstract val exitSurvey // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.exitSurvey|{}exitSurvey[0]
+        abstract fun <get-exitSurvey>(): kotlin/Boolean? // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.exitSurvey.<get-exitSurvey>|<get-exitSurvey>(){}[0]
+    abstract val features // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.features|{}features[0]
+        abstract fun <get-features>(): kotlin/Array<kotlin/String>? // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.features.<get-features>|<get-features>(){}[0]
+    abstract val refundUrl // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.refundUrl|{}refundUrl[0]
+        abstract fun <get-refundUrl>(): kotlin/String? // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.refundUrl.<get-refundUrl>|<get-refundUrl>(){}[0]
+    abstract val signInUrl // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.signInUrl|{}signInUrl[0]
+        abstract fun <get-signInUrl>(): kotlin/String? // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.signInUrl.<get-signInUrl>|<get-signInUrl>(){}[0]
+    abstract val successUrl // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.successUrl|{}successUrl[0]
+        abstract fun <get-successUrl>(): kotlin/String? // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.successUrl.<get-successUrl>|<get-successUrl>(){}[0]
+    abstract val termsUrl // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.termsUrl|{}termsUrl[0]
+        abstract fun <get-termsUrl>(): kotlin/String? // com.mobilebytelabs.paycraft.web.ui/CheckoutPageOptions.termsUrl.<get-termsUrl>|<get-termsUrl>(){}[0]
+}
+
+abstract interface com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi { // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi|null[0]
+    abstract fun activeOffer(): com.mobilebytelabs.paycraft.web.ui/WebOfferView? // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.activeOffer|activeOffer(){}[0]
+    abstract fun answerSurvey(kotlin/String, kotlin/String, kotlin/String?, kotlin/String?): kotlin.js/Promise<com.mobilebytelabs.paycraft.web.ui/WebWinbackView> // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.answerSurvey|answerSurvey(kotlin.String;kotlin.String;kotlin.String?;kotlin.String?){}[0]
+    abstract fun checkoutEvent(kotlin/String, kotlin/String, kotlin/String?, kotlin/String?, kotlin/String?) // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.checkoutEvent|checkoutEvent(kotlin.String;kotlin.String;kotlin.String?;kotlin.String?;kotlin.String?){}[0]
+    abstract fun checkoutUrlWith(kotlin/String, kotlin/String?, kotlin/String): kotlin.js/Promise<kotlin/String> // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.checkoutUrlWith|checkoutUrlWith(kotlin.String;kotlin.String?;kotlin.String){}[0]
+    abstract fun claimOffer(kotlin/String): kotlin/Boolean // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.claimOffer|claimOffer(kotlin.String){}[0]
+    abstract fun config(): kotlin.js/Promise<com.mobilebytelabs.paycraft.web.ui/WebConfigView> // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.config|config(){}[0]
+    abstract fun deviceCall(kotlin/String, kotlin/String, kotlin/String?): kotlin.js/Promise<kotlin/String> // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.deviceCall|deviceCall(kotlin.String;kotlin.String;kotlin.String?){}[0]
+    abstract fun devices(): kotlin.js/Promise<kotlin/Array<com.mobilebytelabs.paycraft.web.ui/WebDeviceView>> // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.devices|devices(){}[0]
+    abstract fun email(): kotlin/String? // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.email|email(){}[0]
+    abstract fun isPremium(): kotlin/Boolean // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.isPremium|isPremium(){}[0]
+    abstract fun maxDevices(): kotlin/Int // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.maxDevices|maxDevices(){}[0]
+    abstract fun paymentOptions(kotlin/String, kotlin/String?): kotlin/Array<com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView> // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.paymentOptions|paymentOptions(kotlin.String;kotlin.String?){}[0]
+    abstract fun premium(): kotlin.js/Promise<com.mobilebytelabs.paycraft.web.ui/WebPremiumView> // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.premium|premium(){}[0]
+    abstract fun surveyConfig(): kotlin.js/Promise<com.mobilebytelabs.paycraft.web.ui/WebExitSurveyView?> // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.surveyConfig|surveyConfig(){}[0]
+    abstract fun surveyShown(kotlin/String, kotlin/String?) // com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi.surveyShown|surveyShown(kotlin.String;kotlin.String?){}[0]
+}
+
+abstract interface com.mobilebytelabs.paycraft.web.ui/WebConfigView { // com.mobilebytelabs.paycraft.web.ui/WebConfigView|null[0]
+    abstract val products // com.mobilebytelabs.paycraft.web.ui/WebConfigView.products|{}products[0]
+        abstract fun <get-products>(): kotlin/Array<com.mobilebytelabs.paycraft.web.ui/WebProductView> // com.mobilebytelabs.paycraft.web.ui/WebConfigView.products.<get-products>|<get-products>(){}[0]
+}
+
+abstract interface com.mobilebytelabs.paycraft.web.ui/WebDeviceView { // com.mobilebytelabs.paycraft.web.ui/WebDeviceView|null[0]
+    abstract val maxDevices // com.mobilebytelabs.paycraft.web.ui/WebDeviceView.maxDevices|{}maxDevices[0]
+        abstract fun <get-maxDevices>(): kotlin/Int // com.mobilebytelabs.paycraft.web.ui/WebDeviceView.maxDevices.<get-maxDevices>|<get-maxDevices>(){}[0]
+}
+
+abstract interface com.mobilebytelabs.paycraft.web.ui/WebExitSurveyView { // com.mobilebytelabs.paycraft.web.ui/WebExitSurveyView|null[0]
+    abstract val reasons // com.mobilebytelabs.paycraft.web.ui/WebExitSurveyView.reasons|{}reasons[0]
+        abstract fun <get-reasons>(): kotlin/Array<com.mobilebytelabs.paycraft.web.ui/WebSurveyReasonView> // com.mobilebytelabs.paycraft.web.ui/WebExitSurveyView.reasons.<get-reasons>|<get-reasons>(){}[0]
+    abstract val title // com.mobilebytelabs.paycraft.web.ui/WebExitSurveyView.title|{}title[0]
+        abstract fun <get-title>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebExitSurveyView.title.<get-title>|<get-title>(){}[0]
+}
+
+abstract interface com.mobilebytelabs.paycraft.web.ui/WebOfferView { // com.mobilebytelabs.paycraft.web.ui/WebOfferView|null[0]
+    abstract val duration // com.mobilebytelabs.paycraft.web.ui/WebOfferView.duration|{}duration[0]
+        abstract fun <get-duration>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebOfferView.duration.<get-duration>|<get-duration>(){}[0]
+    abstract val durationInMonths // com.mobilebytelabs.paycraft.web.ui/WebOfferView.durationInMonths|{}durationInMonths[0]
+        abstract fun <get-durationInMonths>(): kotlin/Int? // com.mobilebytelabs.paycraft.web.ui/WebOfferView.durationInMonths.<get-durationInMonths>|<get-durationInMonths>(){}[0]
+    abstract val expiresAt // com.mobilebytelabs.paycraft.web.ui/WebOfferView.expiresAt|{}expiresAt[0]
+        abstract fun <get-expiresAt>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebOfferView.expiresAt.<get-expiresAt>|<get-expiresAt>(){}[0]
+    abstract val id // com.mobilebytelabs.paycraft.web.ui/WebOfferView.id|{}id[0]
+        abstract fun <get-id>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebOfferView.id.<get-id>|<get-id>(){}[0]
+    abstract val percentOff // com.mobilebytelabs.paycraft.web.ui/WebOfferView.percentOff|{}percentOff[0]
+        abstract fun <get-percentOff>(): kotlin/Int // com.mobilebytelabs.paycraft.web.ui/WebOfferView.percentOff.<get-percentOff>|<get-percentOff>(){}[0]
+}
+
+abstract interface com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView { // com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView|null[0]
+    abstract val cardBrands // com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView.cardBrands|{}cardBrands[0]
+        abstract fun <get-cardBrands>(): kotlin/Array<kotlin/String> // com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView.cardBrands.<get-cardBrands>|<get-cardBrands>(){}[0]
+    abstract val methodList // com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView.methodList|{}methodList[0]
+        abstract fun <get-methodList>(): kotlin/Array<kotlin/String> // com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView.methodList.<get-methodList>|<get-methodList>(){}[0]
+    abstract val methods // com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView.methods|{}methods[0]
+        abstract fun <get-methods>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView.methods.<get-methods>|<get-methods>(){}[0]
+    abstract val name // com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView.name|{}name[0]
+        abstract fun <get-name>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView.name.<get-name>|<get-name>(){}[0]
+    abstract val note // com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView.note|{}note[0]
+        abstract fun <get-note>(): kotlin/String? // com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView.note.<get-note>|<get-note>(){}[0]
+    abstract val provider // com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView.provider|{}provider[0]
+        abstract fun <get-provider>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebPaymentOptionView.provider.<get-provider>|<get-provider>(){}[0]
+}
+
+abstract interface com.mobilebytelabs.paycraft.web.ui/WebPremiumView { // com.mobilebytelabs.paycraft.web.ui/WebPremiumView|null[0]
+    abstract val isPremium // com.mobilebytelabs.paycraft.web.ui/WebPremiumView.isPremium|{}isPremium[0]
+        abstract fun <get-isPremium>(): kotlin/Boolean // com.mobilebytelabs.paycraft.web.ui/WebPremiumView.isPremium.<get-isPremium>|<get-isPremium>(){}[0]
+}
+
+abstract interface com.mobilebytelabs.paycraft.web.ui/WebProductView { // com.mobilebytelabs.paycraft.web.ui/WebProductView|null[0]
+    abstract val amountCents // com.mobilebytelabs.paycraft.web.ui/WebProductView.amountCents|{}amountCents[0]
+        abstract fun <get-amountCents>(): kotlin/Int // com.mobilebytelabs.paycraft.web.ui/WebProductView.amountCents.<get-amountCents>|<get-amountCents>(){}[0]
+    abstract val currency // com.mobilebytelabs.paycraft.web.ui/WebProductView.currency|{}currency[0]
+        abstract fun <get-currency>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebProductView.currency.<get-currency>|<get-currency>(){}[0]
+    abstract val interval // com.mobilebytelabs.paycraft.web.ui/WebProductView.interval|{}interval[0]
+        abstract fun <get-interval>(): kotlin/String? // com.mobilebytelabs.paycraft.web.ui/WebProductView.interval.<get-interval>|<get-interval>(){}[0]
+    abstract val name // com.mobilebytelabs.paycraft.web.ui/WebProductView.name|{}name[0]
+        abstract fun <get-name>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebProductView.name.<get-name>|<get-name>(){}[0]
+    abstract val sku // com.mobilebytelabs.paycraft.web.ui/WebProductView.sku|{}sku[0]
+        abstract fun <get-sku>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebProductView.sku.<get-sku>|<get-sku>(){}[0]
+    abstract val trialDays // com.mobilebytelabs.paycraft.web.ui/WebProductView.trialDays|{}trialDays[0]
+        abstract fun <get-trialDays>(): kotlin/Int? // com.mobilebytelabs.paycraft.web.ui/WebProductView.trialDays.<get-trialDays>|<get-trialDays>(){}[0]
+}
+
+abstract interface com.mobilebytelabs.paycraft.web.ui/WebSurveyReasonView { // com.mobilebytelabs.paycraft.web.ui/WebSurveyReasonView|null[0]
+    abstract val code // com.mobilebytelabs.paycraft.web.ui/WebSurveyReasonView.code|{}code[0]
+        abstract fun <get-code>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebSurveyReasonView.code.<get-code>|<get-code>(){}[0]
+    abstract val freeText // com.mobilebytelabs.paycraft.web.ui/WebSurveyReasonView.freeText|{}freeText[0]
+        abstract fun <get-freeText>(): kotlin/Boolean // com.mobilebytelabs.paycraft.web.ui/WebSurveyReasonView.freeText.<get-freeText>|<get-freeText>(){}[0]
+    abstract val label // com.mobilebytelabs.paycraft.web.ui/WebSurveyReasonView.label|{}label[0]
+        abstract fun <get-label>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebSurveyReasonView.label.<get-label>|<get-label>(){}[0]
+}
+
+abstract interface com.mobilebytelabs.paycraft.web.ui/WebWinbackView { // com.mobilebytelabs.paycraft.web.ui/WebWinbackView|null[0]
+    abstract val action // com.mobilebytelabs.paycraft.web.ui/WebWinbackView.action|{}action[0]
+        abstract fun <get-action>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebWinbackView.action.<get-action>|<get-action>(){}[0]
+    abstract val message // com.mobilebytelabs.paycraft.web.ui/WebWinbackView.message|{}message[0]
+        abstract fun <get-message>(): kotlin/String? // com.mobilebytelabs.paycraft.web.ui/WebWinbackView.message.<get-message>|<get-message>(){}[0]
+    abstract val offer // com.mobilebytelabs.paycraft.web.ui/WebWinbackView.offer|{}offer[0]
+        abstract fun <get-offer>(): com.mobilebytelabs.paycraft.web.ui/WebOfferView? // com.mobilebytelabs.paycraft.web.ui/WebWinbackView.offer.<get-offer>|<get-offer>(){}[0]
+}
+
+final class com.mobilebytelabs.paycraft.web.ui/WebAllowance { // com.mobilebytelabs.paycraft.web.ui/WebAllowance|null[0]
+    constructor <init>(kotlin/String, kotlin/Boolean, kotlin/Int, kotlin/Int, kotlin/Int, kotlin/Int, kotlin/String) // com.mobilebytelabs.paycraft.web.ui/WebAllowance.<init>|<init>(kotlin.String;kotlin.Boolean;kotlin.Int;kotlin.Int;kotlin.Int;kotlin.Int;kotlin.String){}[0]
+
+    final val credits // com.mobilebytelabs.paycraft.web.ui/WebAllowance.credits|{}credits[0]
+        final fun <get-credits>(): kotlin/Int // com.mobilebytelabs.paycraft.web.ui/WebAllowance.credits.<get-credits>|<get-credits>(){}[0]
+    final val freePerMonth // com.mobilebytelabs.paycraft.web.ui/WebAllowance.freePerMonth|{}freePerMonth[0]
+        final fun <get-freePerMonth>(): kotlin/Int // com.mobilebytelabs.paycraft.web.ui/WebAllowance.freePerMonth.<get-freePerMonth>|<get-freePerMonth>(){}[0]
+    final val isPro // com.mobilebytelabs.paycraft.web.ui/WebAllowance.isPro|{}isPro[0]
+        final fun <get-isPro>(): kotlin/Boolean // com.mobilebytelabs.paycraft.web.ui/WebAllowance.isPro.<get-isPro>|<get-isPro>(){}[0]
+    final val remaining // com.mobilebytelabs.paycraft.web.ui/WebAllowance.remaining|{}remaining[0]
+        final fun <get-remaining>(): kotlin/Int // com.mobilebytelabs.paycraft.web.ui/WebAllowance.remaining.<get-remaining>|<get-remaining>(){}[0]
+    final val resetsAt // com.mobilebytelabs.paycraft.web.ui/WebAllowance.resetsAt|{}resetsAt[0]
+        final fun <get-resetsAt>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebAllowance.resetsAt.<get-resetsAt>|<get-resetsAt>(){}[0]
+    final val sku // com.mobilebytelabs.paycraft.web.ui/WebAllowance.sku|{}sku[0]
+        final fun <get-sku>(): kotlin/String // com.mobilebytelabs.paycraft.web.ui/WebAllowance.sku.<get-sku>|<get-sku>(){}[0]
+    final val used // com.mobilebytelabs.paycraft.web.ui/WebAllowance.used|{}used[0]
+        final fun <get-used>(): kotlin/Int // com.mobilebytelabs.paycraft.web.ui/WebAllowance.used.<get-used>|<get-used>(){}[0]
+}
+
+final fun com.mobilebytelabs.paycraft.web.ui/allowance(com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi, kotlin/String): kotlin.js/Promise<com.mobilebytelabs.paycraft.web.ui/WebAllowance> // com.mobilebytelabs.paycraft.web.ui/allowance|allowance(com.mobilebytelabs.paycraft.web.ui.PayCraftWebApi;kotlin.String){}[0]
+final fun com.mobilebytelabs.paycraft.web.ui/creditBalance(com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi, kotlin/String): kotlin.js/Promise<kotlin/Int> // com.mobilebytelabs.paycraft.web.ui/creditBalance|creditBalance(com.mobilebytelabs.paycraft.web.ui.PayCraftWebApi;kotlin.String){}[0]
+final fun com.mobilebytelabs.paycraft.web.ui/mountCheckout(dynamic, dynamic, kotlin/String, dynamic): kotlin.js/Promise<kotlin/Boolean> // com.mobilebytelabs.paycraft.web.ui/mountCheckout|mountCheckout(<dynamic>;<dynamic>;kotlin.String;<dynamic>){}[0]
+final fun com.mobilebytelabs.paycraft.web.ui/showExitSurvey(dynamic, kotlin/String, kotlin/String?): kotlin.js/Promise<kotlin/String> // com.mobilebytelabs.paycraft.web.ui/showExitSurvey|showExitSurvey(<dynamic>;kotlin.String;kotlin.String?){}[0]
+final fun com.mobilebytelabs.paycraft.web.ui/spendAllowance(com.mobilebytelabs.paycraft.web.ui/PayCraftWebApi, kotlin/String, kotlin/String): kotlin.js/Promise<kotlin/String> // com.mobilebytelabs.paycraft.web.ui/spendAllowance|spendAllowance(com.mobilebytelabs.paycraft.web.ui.PayCraftWebApi;kotlin.String;kotlin.String){}[0]

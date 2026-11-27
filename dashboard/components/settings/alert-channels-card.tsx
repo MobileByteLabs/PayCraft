@@ -1,6 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useDashboard } from "@/components/app-providers"
 import { clsx } from "clsx"
 import { Bell, Check, CheckCircle2, Inbox, KeyRound, Loader2, Mail, MessageSquare, Send, Webhook, XCircle } from "lucide-react"
 import {
@@ -90,8 +92,19 @@ function newSecret(): string {
 }
 
 export function AlertChannelsCard() {
+  const { tenantId } = useDashboard()
+  const queryClient = useQueryClient()
+  const queryKey = ["alert-channels", tenantId]
+  const channelsQuery = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const res = await fetch("/api/alert-channels")
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(channelErrorMessage(body?.error ?? "Couldn't load alert channels."))
+      return body as PublicChannels
+    },
+  })
   const [saved, setSaved] = useState<PublicChannels | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [emailEnabled, setEmailEnabled] = useState(true)
   const [slackUrl, setSlackUrl] = useState("")
   const [webhookUrl, setWebhookUrl] = useState("")
@@ -112,29 +125,11 @@ export function AlertChannelsCard() {
     setKinds(p.kinds)
   }, [])
 
-  // Every load/save takes a ticket; only the newest one may adopt its answer. Without this a slow
-  // initial GET (React dev mounts effects twice) can land after a save and put "Not set" back.
-  const ticket = useRef(0)
-
-  const load = useCallback(async () => {
-    const mine = ++ticket.current
-    const res = await fetch("/api/alert-channels").catch(() => null)
-    if (mine !== ticket.current) return
-    if (!res?.ok) {
-      const body = await res?.json().catch(() => ({}))
-      if (mine === ticket.current) setLoadError(channelErrorMessage(body?.error ?? "Couldn't load alert channels."))
-      return
-    }
-    const fresh = (await res.json()) as PublicChannels
-    if (mine === ticket.current) adopt(fresh)
-  }, [adopt])
+  // The form adopts the server copy ONCE (first load), then only after its own saves — a background
+  // refetch (focus, realtime) must never wipe what the operator is typing.
   useEffect(() => {
-    const tickets = ticket // the ref object itself, so the cleanup voids whichever load is in flight
-    void load()
-    return () => {
-      tickets.current++
-    }
-  }, [load])
+    if (channelsQuery.data && !saved) adopt(channelsQuery.data)
+  }, [channelsQuery.data, saved, adopt])
 
   const dirty = useMemo(() => {
     if (!saved || !kinds) return false
@@ -155,7 +150,6 @@ export function AlertChannelsCard() {
   async function put(body: Record<string, unknown>, done: string) {
     setBusy(true)
     setNote(null)
-    const mine = ++ticket.current
     try {
       const res = await fetch("/api/alert-channels", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
       const out = await res.json().catch(() => ({}))
@@ -163,8 +157,11 @@ export function AlertChannelsCard() {
         setNote({ ok: false, text: channelErrorMessage(out?.error ?? "Couldn't save — try again.") })
         return
       }
-      if (mine === ticket.current) adopt(out as PublicChannels)
+      adopt(out as PublicChannels)
+      queryClient.setQueryData(queryKey, out)
       setNote({ ok: true, text: done })
+    } catch (e) {
+      setNote({ ok: false, text: (e as Error).message })
     } finally {
       setBusy(false)
     }
@@ -223,10 +220,15 @@ export function AlertChannelsCard() {
         </div>
       </div>
 
-      {loadError ? (
-        <p role="alert" className="m-6 rounded-lg bg-danger-50 px-4 py-3 text-sm text-danger-700">{loadError}</p>
+      {channelsQuery.isError && !saved ? (
+        <p role="alert" className="m-6 rounded-lg bg-danger-50 px-4 py-3 text-sm text-danger-700">
+          {channelsQuery.error.message}{" "}
+          <button type="button" onClick={() => channelsQuery.refetch()} className="font-semibold underline">
+            Retry
+          </button>
+        </p>
       ) : !saved || !kinds ? (
-        <div className="flex items-center justify-center gap-2 p-10 text-sm text-ink-400">
+        <div role="status" aria-busy="true" className="flex items-center justify-center gap-2 p-10 text-sm text-ink-400">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading alert channels…
         </div>
       ) : (
@@ -402,7 +404,7 @@ export function AlertChannelsCard() {
 
           <div className="flex items-center justify-end gap-2 pt-1">
             {note && (
-              <span role="status" className={clsx("mr-auto text-xs font-semibold", note.ok ? "text-success-700" : "text-danger-700")}>
+              <span role={note.ok ? "status" : "alert"} className={clsx("mr-auto text-xs font-semibold", note.ok ? "text-success-700" : "text-danger-700")}>
                 {note.text}
               </span>
             )}

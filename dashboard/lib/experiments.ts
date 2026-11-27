@@ -1,12 +1,13 @@
-// Paywall ▸ Experiments — A/B tests of which OFFERING a paywall sells.
+// Paywall ▸ Experiments — A/B tests of which OFFERING a paywall sells, and (221) which plan it pre-selects.
 //
-// The database owns the rules — migration 206's paywall_experiment_save() — and this mirrors them so the form can
+// The database owns the rules — paywall_experiment_save() (migrations 206, 221) — and this mirrors them so the form can
 // show an error before a round trip, with the SAME codes and the SAME regexes. Results come from
 // paywall_experiment_results(); the first variant is the control every other arm is compared with.
 
 export type ExperimentStatus = "draft" | "running" | "stopped"
 
-export type ExperimentVariant = { key: string; weight: number; offering_id: string }
+/** default_sku (221): the plan this variant's paywall opens on; absent / null / "" = the paywall's own default. */
+export type ExperimentVariant = { key: string; weight: number; offering_id: string; default_sku?: string | null }
 
 export type ExperimentDraft = { key: string; name: string; variants: ExperimentVariant[] }
 
@@ -34,10 +35,18 @@ export const EXPERIMENT_ERROR_CODES = [
   "experiment_bad_transition",
   "experiment_already_running",
   "experiment_offering_empty",
+  "experiment_default_sku_unknown",
 ] as const
 
-/** Null when [d] can be saved; otherwise the database's error code. [offeringIds]: the tenant's ACTIVE offerings. */
-export function validateExperiment(d: ExperimentDraft, offeringIds: readonly string[]): string | null {
+/**
+ * Null when [d] can be saved; otherwise the database's error code. [offeringIds]: the tenant's ACTIVE offerings.
+ * [skusByOffering]: offering id → the active SKUs it sells; without it a default_sku is left to the database.
+ */
+export function validateExperiment(
+  d: ExperimentDraft,
+  offeringIds: readonly string[],
+  skusByOffering?: Readonly<Record<string, readonly string[]>>,
+): string | null {
   if (typeof d.key !== "string" || !EXPERIMENT_KEY.test(d.key)) return "experiment_key_invalid"
   if (!Array.isArray(d.variants) || d.variants.length < 2 || d.variants.length > 4) return "experiment_variants_count"
   const seen = new Set<string>()
@@ -50,6 +59,11 @@ export function validateExperiment(d: ExperimentDraft, offeringIds: readonly str
       return "experiment_weight_invalid"
     }
     if (!offeringIds.includes(v.offering_id)) return "experiment_offering_unknown"
+    const sku: unknown = v.default_sku
+    if (sku != null && sku !== "" && skusByOffering
+        && (typeof sku !== "string" || !(skusByOffering[v.offering_id] ?? []).includes(sku))) {
+      return "experiment_default_sku_unknown"
+    }
   }
   return null
 }
@@ -68,6 +82,7 @@ export function experimentErrorMessage(code: string): string {
     case "experiment_bad_transition": return "An experiment goes draft → running → stopped, once."
     case "experiment_already_running": return "Another experiment is running — stop it first."
     case "experiment_offering_empty": return "Every variant's offering needs at least one product before the experiment can start."
+    case "experiment_default_sku_unknown": return "A variant's pre-selected plan must be an active plan its offering sells."
     default: return "The experiment couldn't be saved."
   }
 }

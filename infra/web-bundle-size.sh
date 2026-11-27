@@ -3,7 +3,7 @@
 # (paycraft-core-split GOAL AC-5 / D4: ≤ 150 KB; paycraft-paywall-analytics D5: per-entry budgets).
 #
 # Two entries, each held to its own budget:
-#   core  cmp-paycraft-web     every page that checks isAdFree() loads it        156000 B (152.3 KB; 151 KB until attempt-id + structured-failure plumbing, owner-approved 2026-11-25; 150 KB until verifyIdentity, 3.0.10)
+#   core  cmp-paycraft-web     every page that checks isAdFree() loads it        157000 B (153.3 KB; 152.3 KB until signInWithSession — consumer-Supabase identity, owner-approved 2026-11-26; 151 KB until attempt-id + structured-failure plumbing, owner-approved 2026-11-25; 150 KB until verifyIdentity, 3.0.10)
 #   ui    cmp-paycraft-web-ui  checkout page + exit survey, imported lazily       20480 B (20 KB)
 #         by buyers only (a separate dist with its own trimmed Kotlin stdlib)
 # Measured the way a site ships them: every `.mjs` of an entry minified with terser (the one Kotlin's npm
@@ -13,12 +13,12 @@
 #
 # Usage: bash infra/web-bundle-size.sh                         # build both entries, check both budgets
 #        bash infra/web-bundle-size.sh --entry DIR:BYTES ...   # check these dists (repeatable)
-#        bash infra/web-bundle-size.sh --dist DIR [--budget-bytes N]   # one dist (default budget 156000 B)
+#        bash infra/web-bundle-size.sh --dist DIR [--budget-bytes N]   # one dist (default budget 157000 B)
 # Exit 0 = every entry within budget · 1 = an entry over budget · 2 = nothing to measure / toolchain / usage.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CORE_BUDGET=156000
+CORE_BUDGET=157000
 UI_BUDGET=20480
 ENTRIES=()
 DIST=""

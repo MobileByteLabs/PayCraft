@@ -96,11 +96,14 @@ export function PaywallDesigner({
   products,
   canRemoveAttribution,
   plan,
+  onSaved,
 }: {
   initial: PaywallConfig
   products: Product[]
   canRemoveAttribution: boolean
   plan: string
+  /** Called after a successful save (e.g. to invalidate the cached paywall); defaults to router.refresh(). */
+  onSaved?: () => void
 }) {
   const router = useRouter()
   const [cfg, setCfg] = useState<PaywallConfig>(() => withPaywallDefaults(initial))
@@ -108,17 +111,25 @@ export function PaywallDesigner({
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<string | null>(null)
 
+  const [saveError, setSaveError] = useState<string | null>(null)
+
   async function save() {
     setSaving(true)
-    const res = await fetch("/api/paywall", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(cfg),
-    })
-    setSaving(false)
-    if (res.ok) {
+    setSaveError(null)
+    try {
+      const res = await fetch("/api/paywall", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(cfg),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? `Save failed (${res.status})`)
       setSavedAt(new Date().toLocaleTimeString())
-      router.refresh()
+      if (onSaved) onSaved()
+      else router.refresh()
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -128,9 +139,9 @@ export function PaywallDesigner({
   }
 
   return (
-    <div className="flex gap-8 overflow-hidden animate-fade-in" style={{ height: "calc(100vh - 13rem)" }}>
+    <div className="flex flex-col gap-8 animate-fade-in lg:h-[calc(100vh-13rem)] lg:flex-row lg:overflow-hidden">
       {/* Left column: Controls */}
-      <div className="w-[420px] flex-shrink-0 flex flex-col gap-6 overflow-y-auto pb-12" style={{ scrollbarWidth: "none" }}>
+      <div className="w-full lg:w-[420px] flex-shrink-0 flex flex-col gap-6 overflow-y-auto pb-12" style={{ scrollbarWidth: "none" }}>
         {/* Content — v2 dashboard-driven copy */}
         <section className="bg-white p-5 rounded-xl border border-ink-200 shadow-sm">
           <h3 className="text-[11px] font-bold text-ink-400 uppercase tracking-widest mb-4">
@@ -719,6 +730,11 @@ export function PaywallDesigner({
             Save paywall
           </Button>
         </div>
+        {saveError && (
+          <div role="alert" className="text-xs text-danger-700">
+            Couldn&rsquo;t save the paywall: {saveError}
+          </div>
+        )}
         {savedAt && (
           <div className="text-xs text-success-700 flex items-center gap-1.5">
             <Check className="w-3.5 h-3.5" strokeWidth={2.5} />
@@ -731,14 +747,14 @@ export function PaywallDesigner({
       {/* Right column: Live Preview */}
       <div className="flex-1 flex flex-col gap-6 min-w-0">
         {/* Toolbar */}
-        <div className="flex items-center justify-between flex-shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-[11px] font-bold text-ink-400 uppercase tracking-widest">
               Preview · {previewState} State
             </span>
           </div>
-          <div className="flex bg-white border border-ink-200 rounded-lg p-1 shadow-sm">
+          <div className="flex max-w-full overflow-x-auto bg-white border border-ink-200 rounded-lg p-1 shadow-sm">
             {STATES.map((s) => (
               <button
                 key={s}

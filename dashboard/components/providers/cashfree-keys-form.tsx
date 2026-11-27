@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import { Check, Eye, EyeOff, Loader2 } from "lucide-react"
 
 interface KeyPair {
@@ -30,7 +30,7 @@ export function CashfreeKeysForm({
   testKeyId: string | null
   liveKeyId: string | null
 }) {
-  const router = useRouter()
+  const queryClient = useQueryClient()
   const [test, setTest] = useState<KeyPair>(EMPTY)
   const [live, setLive] = useState<KeyPair>(EMPTY)
   const [accountLabel, setAccountLabel] = useState("")
@@ -75,7 +75,7 @@ export function CashfreeKeysForm({
       }
       setSharedWarning(null)
       setSaved(true)
-      router.refresh()
+      queryClient.invalidateQueries({ queryKey: ["providers"] })
       setTimeout(() => setSaved(false), 2500)
     } catch (e: any) {
       setError(e?.message ?? String(e))
@@ -193,7 +193,7 @@ export function CashfreeKeysForm({
       )}
 
       {error && (
-        <div className="text-xs text-danger-700 font-mono bg-danger-50 border border-danger-200 px-3 py-2 rounded-lg">
+        <div role="alert" className="text-xs text-danger-700 font-mono bg-danger-50 border border-danger-200 px-3 py-2 rounded-lg">
           {error}
         </div>
       )}

@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 export const metadata = {
   title: "Terms of Service · PayCraft",
   description:

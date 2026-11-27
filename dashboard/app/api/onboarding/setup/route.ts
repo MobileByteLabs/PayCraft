@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { NextRequest, NextResponse } from "next/server"
 import { skuFor } from "@/lib/sku"
 import { randomHex } from "@/lib/edge-crypto"

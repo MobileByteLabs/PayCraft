@@ -1,13 +1,8 @@
-export const runtime = "edge"
-
 import { Terminal } from "lucide-react"
 import { DeveloperApiClient } from "@/components/settings/developer-api-client"
-import { requireTenant } from "@/lib/tenant"
 
-export default async function DeveloperApiPage() {
-  // Gates the page on a real session before any key metadata is fetched.
-  await requireTenant()
-
+// The layout already enforces auth; the client reads its data in the browser.
+export default function DeveloperApiPage() {
   return (
     <div className="max-w-[860px] mx-auto">
       <div className="mb-8">

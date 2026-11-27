@@ -58,3 +58,14 @@ export function lanesFor(c: OfferCoupon, productId: string | null) {
     app_store: (productId && c.appstore_offer_ids?.[productId]) || null,
   }
 }
+
+const PRODUCT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Which `tenant_products` column the survey's `sku` names. The SDK's paywall sent the plan's product id instead of
+ * its SKU (fixed in the SDK, but every shipped app keeps sending it): looked up as a SKU it matched nothing, so the
+ * offer had no Play / App Store lane — Reels Downloader 2026-11, 107 of 123 "too expensive" answers.
+ */
+export function productLookupColumn(sku: string): "id" | "sku" {
+  return PRODUCT_UUID.test(sku) ? "id" : "sku"
+}

@@ -38,6 +38,8 @@ jest.mock("@/lib/stripe-client", () => ({
   getPlatformStripeClient: jest.fn(async () => ({
     oauth: { token: mockOauthToken },
   })),
+  // The connected-account client — built from the mocked `stripe` module below.
+  stripeClient: (key: string) => new (jest.requireMock("stripe") as jest.Mock)(key),
 }))
 
 // Mock the supabase-server createClient.
@@ -51,9 +53,11 @@ jest.mock("@/lib/supabase-server", () => ({
 // connected-account client. The route does `new Stripe(access_token, ...)`
 // AFTER getPlatformStripeClient — that path needs `webhookEndpoints.create`.
 jest.mock("stripe", () => {
-  return jest.fn().mockImplementation(() => ({
+  const Stripe = jest.fn().mockImplementation(() => ({
     webhookEndpoints: { create: mockWebhookCreate },
   }))
+  // lib/stripe-client.ts#stripeClient always passes the fetch HTTP client (Workers can't use Node's http).
+  return Object.assign(Stripe, { createFetchHttpClient: jest.fn() })
 })
 
 // Import AFTER mocks so the route picks up the mocked modules.

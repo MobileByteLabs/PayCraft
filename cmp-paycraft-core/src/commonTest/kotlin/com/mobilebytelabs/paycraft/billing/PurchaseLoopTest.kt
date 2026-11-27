@@ -114,7 +114,7 @@ class PurchaseLoopTest {
             "Cash/UPI and Ask-to-Buy purchases must surface as Pending. Reporting them as Failed " +
                 "tells a buyer their payment bounced while the money is still in flight.",
         )
-        assertTrue((result as NativePurchaseResult.Pending).purchase.isPending)
+        assertTrue(result.purchase.isPending)
         assertFalse(
             result.purchase.isAcknowledged,
             "A pending purchase is not acknowledged — there is nothing to acknowledge yet.",

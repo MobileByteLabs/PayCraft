@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   AlertCircle,
   Check,
@@ -42,7 +42,7 @@ export function UpiSetupForm({
   initial: UpiConfig | null
   enabled: boolean
 }) {
-  const router = useRouter()
+  const queryClient = useQueryClient()
   const [vpa, setVpa] = useState(initial?.vpa ?? "")
   const [displayName, setDisplayName] = useState(initial?.display_name ?? "")
   const [merchantCode, setMerchantCode] = useState(initial?.merchant_code ?? "")
@@ -84,7 +84,7 @@ export function UpiSetupForm({
         return
       }
       setStatus("saved")
-      router.refresh()
+      queryClient.invalidateQueries({ queryKey: ["providers"] })
       setTimeout(() => setStatus("idle"), 2500)
     } catch (e: any) {
       setError(e?.message ?? String(e))
@@ -245,7 +245,7 @@ export function UpiSetupForm({
 
       <div className="flex items-center justify-between pt-2 border-t border-ink-100">
         {error && (
-          <span className="text-xs text-danger-700 font-mono">{error}</span>
+          <span role="alert" className="text-xs text-danger-700 font-mono">{error}</span>
         )}
         {status === "saved" && (
           <span className="text-xs text-emerald-700 flex items-center gap-1">

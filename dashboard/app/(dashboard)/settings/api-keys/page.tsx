@@ -1,12 +1,8 @@
-export const runtime = "edge"
-
 import { Info } from "lucide-react"
 import { ApiKeysClient } from "@/components/settings/api-keys-client"
-import { requireTenant } from "@/lib/tenant"
 
-export default async function ApiKeysPage() {
-  const { tenant } = await requireTenant()
-
+// Keys are read in the browser (TanStack Query); the layout already enforces auth.
+export default function ApiKeysPage() {
   return (
     <div className="max-w-[768px] mx-auto">
       {/* Page Header */}
@@ -43,7 +39,7 @@ export default async function ApiKeysPage() {
         </div>
 
         {/* API Key Cards */}
-        <ApiKeysClient test={tenant.api_key_test} live={tenant.api_key_live} />
+        <ApiKeysClient />
 
         {/* Webhook signing secrets */}
         <div className="pt-8 mt-4 border-t border-ink-200">
@@ -73,9 +69,9 @@ export default async function ApiKeysPage() {
 function WebhookSecretRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between p-4 bg-white border border-ink-200 rounded-lg shadow-sm">
-      <div className="flex items-center gap-4">
-        <span className="text-sm font-bold text-ink-800 w-12">{label}</span>
-        <code className="font-mono text-xs text-ink-400">{value}</code>
+      <div className="flex min-w-0 items-center gap-4">
+        <span className="text-sm font-bold text-ink-800 w-12 shrink-0">{label}</span>
+        <code className="min-w-0 break-all font-mono text-xs text-ink-400">{value}</code>
       </div>
     </div>
   )

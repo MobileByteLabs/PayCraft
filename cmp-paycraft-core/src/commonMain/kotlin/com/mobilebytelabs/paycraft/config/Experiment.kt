@@ -14,9 +14,15 @@ import kotlinx.serialization.json.put
  */
 data class ExperimentDto(val key: String = "", val variants: List<ExperimentVariantDto> = emptyList())
 
-data class ExperimentVariantDto(val key: String = "", val weight: Int = 0, val offeringId: String = "")
+/** [defaultSku]: the plan this variant's paywall opens on (migration 221); null = the paywall's own default. */
+data class ExperimentVariantDto(
+    val key: String = "",
+    val weight: Int = 0,
+    val offeringId: String = "",
+    val defaultSku: String? = null,
+)
 
-/** The wire form `/config` serves: `{ key, variants: [{ key, weight, offering_id }] }`. */
+/** The wire form `/config` serves: `{ key, variants: [{ key, weight, offering_id, default_sku? }] }`. */
 fun ExperimentDto.toJson(): JsonObject = buildJsonObject {
     put("key", key)
     put(
@@ -28,6 +34,7 @@ fun ExperimentDto.toJson(): JsonObject = buildJsonObject {
                         put("key", v.key)
                         put("weight", v.weight)
                         put("offering_id", v.offeringId)
+                        v.defaultSku?.let { put("default_sku", it) }
                     },
                 )
             }
@@ -40,13 +47,21 @@ fun SuiteConfig.experimentOrNull(): ExperimentDto? {
     val o = experiment ?: return null
     fun JsonObject.str(k: String) = (get(k) as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
     val variants = (o["variants"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }.map {
-        ExperimentVariantDto(it.str("key"), (it["weight"] as? JsonPrimitive)?.intOrNull ?: 0, it.str("offering_id"))
+        ExperimentVariantDto(
+            it.str("key"),
+            (it["weight"] as? JsonPrimitive)?.intOrNull ?: 0,
+            it.str("offering_id"),
+            it.str("default_sku").ifBlank { null },
+        )
     }
     return ExperimentDto(o.str("key"), variants).takeIf { it.key.isNotBlank() }
 }
 
-/** Which variant of which experiment this device is in — tagged onto every paywall event. */
-data class ExperimentAssignment(val experiment: String, val variant: String)
+/**
+ * Which variant of which experiment this device is in — tagged onto every paywall event. [defaultSku]: the plan the
+ * paywall pre-selects for this variant, already checked to be one the variant sells; null = the paywall's default.
+ */
+data class ExperimentAssignment(val experiment: String, val variant: String, val defaultSku: String? = null)
 
 /**
  * The device's variant: FNV-1a of `key:unitId` into the weights. Deterministic, so a device keeps its variant
@@ -87,5 +102,6 @@ internal fun SuiteConfig.withExperimentAssigned(unitId: String): Pair<SuiteConfi
         offerings = offerings.map { it.copy(isCurrent = it.id == chosen.id) },
         products = products.filterNot { it.sku in others },
     )
-    return applied to ExperimentAssignment(exp.key, arm.key)
+    // An unknown default sku is dropped here, so the paywall falls back to its own default.
+    return applied to ExperimentAssignment(exp.key, arm.key, arm.defaultSku?.takeIf { it in kept })
 }

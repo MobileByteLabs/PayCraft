@@ -56,6 +56,9 @@ object PayCraftContract {
 
     fun identityVerifyUrl(base: String): String = "$base/functions/v1/identity-token/verify"
 
+    /** The consumer-session door: the app's own Supabase access token, verified against `tenants.auth_issuer_url`. */
+    fun consumerSessionVerifyUrl(base: String): String = "$base/functions/v1/identity-verify"
+
     fun checkoutInitiateUrl(base: String, apiKey: String): String =
         "$base/functions/v1/checkout-initiate?apiKey=${encodeUrlComponent(apiKey)}"
 
@@ -145,6 +148,30 @@ object PayCraftContract {
         put("id_token", idToken)
         if (nonce != null) put("nonce", nonce)
         if (deviceId != null) put("device_id", deviceId)
+    }
+
+    /**
+     * The `email` claim of a decoded JWT payload, read WITHOUT verifying it: it only names the account to register.
+     * `identity-verify` checks the signature and refuses a device registered for another account. Decoding is the
+     * caller's (the browser's `atob` on web — no Base64 code in the bundle).
+     */
+    fun emailClaim(payloadJson: String): String? = runCatching {
+        configJson.parseToJsonElement(payloadJson).jsonObject["email"]?.jsonPrimitive?.contentOrNull
+    }.getOrNull()?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+
+    /** `identity-verify` body — one shape for the KMP SDK and the web SDK. */
+    fun consumerSessionVerifyBody(
+        apiKey: String?,
+        accessToken: String,
+        deviceToken: String,
+        platform: String,
+        deviceName: String? = null,
+    ): JsonObject = buildJsonObject {
+        put("api_key", apiKey.orEmpty())
+        put("access_token", accessToken)
+        put("device_token", deviceToken)
+        put("platform", platform)
+        if (deviceName != null) put("device_name", deviceName)
     }
 
     // ── Exit survey / win-back ──────────────────────────────────────────────────────────────

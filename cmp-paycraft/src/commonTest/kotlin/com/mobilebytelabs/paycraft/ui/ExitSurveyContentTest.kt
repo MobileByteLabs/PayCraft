@@ -5,10 +5,11 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.v2.runComposeUiTest
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
 import com.mobilebytelabs.paycraft.analytics.PayCraftEventName
+import com.mobilebytelabs.paycraft.awaitText
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
 import com.mobilebytelabs.paycraft.winback.ExitSurveyConfig
@@ -23,6 +24,7 @@ import kotlinx.coroutines.test.setMain
 import org.koin.compose.KoinApplication
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.module.dsl.viewModelOf
+import org.koin.dsl.koinConfiguration
 import org.koin.dsl.module
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -78,14 +80,16 @@ class ExitSurveyContentTest {
             lateinit var vm: PayCraftPaywallViewModel
             val store = MapSettings()
             setContent {
-                KoinApplication(application = {
-                    modules(
-                        module {
-                            single<BillingManager> { FakeBillingManager(premium = false) }
-                            viewModelOf(::PayCraftPaywallViewModel)
-                        },
-                    )
-                }) {
+                KoinApplication(
+                    koinConfiguration {
+                        modules(
+                            module {
+                                single<BillingManager> { FakeBillingManager(premium = false) }
+                                viewModelOf(::PayCraftPaywallViewModel)
+                            },
+                        )
+                    },
+                ) {
                     vm = koinViewModel()
                     vmSetup(vm, store, WinbackResult.Offer(offer))
                     PayCraftPaywallComposable(onDismiss = { dismissed++ }, surfaceMode = PayCraftSurfaceMode.Sheet)
@@ -102,7 +106,7 @@ class ExitSurveyContentTest {
             onNodeWithTag(PayCraftTestTags.exitReason("too_expensive")).performClick()
             waitForIdle()
             onNodeWithTag(PayCraftTestTags.WINBACK_OFFER).assertIsDisplayed()
-            onNodeWithText("50% off").assertIsDisplayed()
+            awaitText("50% off").assertIsDisplayed()
 
             onNodeWithTag(PayCraftTestTags.WINBACK_CLAIM).performClick()
             waitForIdle()
@@ -127,14 +131,16 @@ class ExitSurveyContentTest {
         lateinit var vm: PayCraftPaywallViewModel
         val store = MapSettings()
         setContent {
-            KoinApplication(application = {
-                modules(
-                    module {
-                        single<BillingManager> { FakeBillingManager(premium = false) }
-                        viewModelOf(::PayCraftPaywallViewModel)
-                    },
-                )
-            }) {
+            KoinApplication(
+                koinConfiguration {
+                    modules(
+                        module {
+                            single<BillingManager> { FakeBillingManager(premium = false) }
+                            viewModelOf(::PayCraftPaywallViewModel)
+                        },
+                    )
+                },
+            ) {
                 vm = koinViewModel()
                 vmSetup(vm, store, WinbackResult.None)
                 PayCraftPaywallComposable(onDismiss = { dismissed++ }, surfaceMode = PayCraftSurfaceMode.Sheet)

@@ -19,7 +19,11 @@ agp = "9.4.0"
 kotlin = "2.4.20"
 # 1.12.0 — matches mbs/kmp-toolkit (and cappy). It pulls androidx.compose 1.12, whose AAR metadata
 # demands compileSdk 37 — hence android-compileSdk below. AGP 9.4.0 satisfies its 9.1+ floor.
-compose-multiplatform = "1.12.0"
+compose-multiplatform = "1.12.1"
+# Material 3 for Compose Multiplatform versions separately from Compose (1.12.0 ships material3 1.9.0).
+compose-material3 = "1.9.0"
+# material-icons-extended stopped at 1.7.3 — JetBrains pins it there and publishes no newer build.
+compose-material-icons-extended = "1.7.3"
 # JetBrains' KMP port of Navigation Compose. Used ONLY by :cmp-paycraft-navigation, never by
 # :cmp-paycraft — the core artifact must not force a navigation library on consumers who use
 # Voyager, Decompose, or their own. Held at the version cappy and the template already resolve,
@@ -34,7 +38,8 @@ android-targetSdk = "36"
 vanniktechMavenPublish = "0.36.0"
 
 # Code Quality
-detekt = "1.23.8"
+# detekt 2.0 line (dev.detekt) — the version the detekt README pairs with Gradle 9.6 / Kotlin 2.4 / AGP 9.3.
+detekt = "2.0.0-alpha.6"
 spotless = "7.0.4"
 ktlint = "1.5.0"
 
@@ -43,7 +48,7 @@ junit = "4.13.2"
 coroutines = "1.11.0"
 # Compottie — Lottie renderer for Compose Multiplatform (alexzhirkevich/compottie).
 # Renders the SDK's config-failure / offline states so a dead end still looks like a product.
-compottie = "2.2.4"
+compottie = "2.3.3"
 
 # AndroidX
 androidx-activityCompose = "1.12.2"
@@ -87,6 +92,10 @@ supabase = "3.8.0"
 # supabase compose-auth 3.8.0 resolves, so consumers that also use it see no upgrade from PayCraft.
 androidx-credentials = "1.6.0"
 googleid = "1.2.0"
+# kmp-supabase-auth — buyers sign in to the CONSUMER app's Supabase (PLAN paycraft-consumer-supabase-identity).
+# cmp-paycraft only (UI artifact); cmp-paycraft-core stays auth-free so the web bundle does not carry it.
+# Maven version; a local ../kmp-supabase-auth checkout substitutes source (settings.gradle.kts) for live development.
+kmp-supabase-auth = "0.3.6"
 # In-app sign-in browser (Chrome Custom Tabs) — PLAN-paycraft-verified-identity D2b.
 androidx-browser = "1.8.0"
 # Resume reminder (cmp-paycraft-core androidMain notify/) — one-time unique work survives process death and reboot.
@@ -145,7 +154,7 @@ kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.
 junit = { module = "junit:junit", version.ref = "junit" }
 
 # Detekt
-detekt-formatting = { module = "io.gitlab.arturbosch.detekt:detekt-formatting", version.ref = "detekt" }
+detekt-ktlint-wrapper = { module = "dev.detekt:detekt-rules-ktlint-wrapper", version.ref = "detekt" }
 
 # AndroidX
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activityCompose" }
@@ -153,6 +162,8 @@ androidx-activity-compose = { module = "androidx.activity:activity-compose", ver
 # Supabase
 supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt", version.ref = "supabase" }
 supabase-realtime  = { module = "io.github.jan-tennert.supabase:realtime-kt",  version.ref = "supabase" }
+kmp-supabase-auth         = { module = "io.github.mobilebytelabs:cmp-supabase-auth",         version.ref = "kmp-supabase-auth" }
+kmp-supabase-auth-compose = { module = "io.github.mobilebytelabs:cmp-supabase-auth-compose", version.ref = "kmp-supabase-auth" }
 
 # Credential Manager + Google ID (androidMain native Google sign-in)
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "androidx-credentials" }
@@ -177,6 +188,15 @@ koin-test-junit4 = { module = "io.insert-koin:koin-test-junit4", version.ref = "
 
 # Compose Testing (version aligned with CMP 1.7.3 → AndroidX Compose 1.7.6)
 # Held at 1.7.6 with compose-multiplatform — 1.12.0 requires AGP 9.1.0+.
+# Compose Multiplatform artifacts, named directly — the plugin's `compose.runtime` / `compose.ui` … aliases are deprecated.
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose-multiplatform" }
+compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose-multiplatform" }
+compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose-multiplatform" }
+compose-ui-test = { module = "org.jetbrains.compose.ui:ui-test", version.ref = "compose-multiplatform" }
+compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "compose-material3" }
+compose-material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "compose-material-icons-extended" }
+compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "compose-multiplatform" }
+compose-components-uiToolingPreview = { module = "org.jetbrains.compose.components:components-ui-tooling-preview", version.ref = "compose-multiplatform" }
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4", version = "1.7.6" }
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest", version = "1.7.6" }
 
@@ -221,7 +241,7 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 jetbrainsCompose = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 vanniktech-mavenPublish = { id = "com.vanniktech.maven.publish", version.ref = "vanniktechMavenPublish" }
-detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+detekt = { id = "dev.detekt", version.ref = "detekt" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 # Roborazzi Gradle plugin — generates record/verify tasks per target when applied to the module.
 # Applied to :cmp-paycraft only (jvm target consumes it via jvmTest deps); do not apply at root.

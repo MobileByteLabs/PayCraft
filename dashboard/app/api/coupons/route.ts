@@ -1,9 +1,7 @@
-export const runtime = "edge"
-
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
-import { syncCouponToAllProviders } from "@/lib/coupon-provider-sync"
+import { COUPON_SYNC_PROVIDERS } from "@/lib/coupon-provider-sync"
 
 export async function GET() {
   const { tenant } = await requireTenant()
@@ -38,21 +36,7 @@ export async function POST(req: NextRequest) {
     p_after: payload,
   })
 
-  // Generic fan-out — a coupon applies to EVERY connected provider by default
-  // (Stripe · Razorpay · Google Play · App Store). Each adapter is best-effort
-  // and self-skips when that provider isn't connected. See lib/coupon-provider-sync.
-  void syncCouponToAllProviders({
-    tenantId: tenant.id,
-    couponRowId: id as unknown as string,
-    code: payload.code,
-    name: payload.name ?? null,
-    percentOff: Number(payload.percent_off),
-    duration: payload.duration,
-    durationInMonths: payload.duration_in_months ?? null,
-    maxRedemptions: payload.max_redemptions ?? null,
-    redeemBy: payload.redeem_by ?? null,
-    appliesToProductIds: payload.applies_to_product_ids ?? null,
-  })
-
-  return NextResponse.json({ id })
+  // Provider sync is the caller's next step: POST /api/coupons/{id}/sync?provider=… once per entry in
+  // `providers`. A fan-out from here ran after the response and Cloudflare cut it off — no store got the coupon.
+  return NextResponse.json({ id, providers: COUPON_SYNC_PROVIDERS })
 }

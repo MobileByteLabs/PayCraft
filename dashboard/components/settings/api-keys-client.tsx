@@ -1,21 +1,38 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useDashboard } from "@/components/app-providers"
 import { Check, Copy, Eye, EyeOff, RefreshCw, History } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { clsx } from "clsx"
 
-export function ApiKeysClient({
-  test,
-  live,
-}: {
-  test: string
-  live: string
-}) {
-  const router = useRouter()
+export function ApiKeysClient() {
+  const { tenantId, supabase } = useDashboard()
+  const queryClient = useQueryClient()
+  const keysQuery = useQuery({
+    queryKey: ["api-keys", tenantId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tenants")
+        .select("api_key_test, api_key_live")
+        .eq("id", tenantId)
+        .single()
+      if (error) throw new Error(error.message)
+      return data as { api_key_test: string; api_key_live: string }
+    },
+  })
+  const rotateMutation = useMutation({
+    mutationFn: async (mode: "test" | "live") => {
+      const res = await fetch(`/api/api-keys/rotate?mode=${mode}`, { method: "POST" })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Rotate failed (${res.status})`)
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["api-keys", tenantId] }),
+  })
+  const rotating = rotateMutation.isPending ? rotateMutation.variables : null
+  const test = keysQuery.data?.api_key_test ?? ""
+  const live = keysQuery.data?.api_key_live ?? ""
   const [revealed, setRevealed] = useState({ test: false, live: false })
-  const [rotating, setRotating] = useState<"test" | "live" | null>(null)
   const [copied, setCopied] = useState<"test" | "live" | null>(null)
   const [showToast, setShowToast] = useState(false)
 
@@ -24,12 +41,7 @@ export function ApiKeysClient({
       `Rotate ${mode} key? The existing key will stop working immediately. Update your apps before rotating.`,
     )
     if (!ok) return
-    setRotating(mode)
-    const res = await fetch(`/api/api-keys/rotate?mode=${mode}`, {
-      method: "POST",
-    })
-    setRotating(null)
-    if (res.ok) router.refresh()
+    rotateMutation.mutate(mode)
   }
 
   async function copy(value: string, key: "test" | "live") {
@@ -42,8 +54,38 @@ export function ApiKeysClient({
     }, 2000)
   }
 
+  if (keysQuery.isPending) {
+    return (
+      <div role="status" aria-busy="true" className="space-y-4 animate-pulse">
+        <span className="sr-only">Loading API keys…</span>
+        {[0, 1].map((i) => (
+          <div key={i} className="bg-white border border-ink-200 rounded-xl p-6 shadow-sm space-y-4">
+            <div className="h-4 w-32 rounded bg-ink-200/70" />
+            <div className="h-3 w-2/3 rounded bg-ink-100" />
+            <div className="h-10 rounded-lg bg-ink-100" />
+          </div>
+        ))}
+      </div>
+    )
+  }
+  if (keysQuery.isError) {
+    return (
+      <div role="alert" className="bg-white border border-ink-200 rounded-xl p-8 text-center text-sm text-danger-700">
+        Couldn&rsquo;t load API keys: {keysQuery.error.message}{" "}
+        <button onClick={() => keysQuery.refetch()} className="font-semibold underline">
+          Retry
+        </button>
+      </div>
+    )
+  }
+
   return (
     <>
+      {rotateMutation.isError && (
+        <div role="alert" className="mb-4 rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700">
+          {rotateMutation.error.message}
+        </div>
+      )}
       <div className="space-y-4">
         <KeyCard
           label="Test mode"

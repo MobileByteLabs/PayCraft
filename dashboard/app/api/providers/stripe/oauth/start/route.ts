@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { NextResponse } from "next/server"
 import { requireTenant } from "@/lib/tenant"
 import { makeState } from "@/lib/stripe-oauth-state"

@@ -111,7 +111,8 @@ function parseRows(raw: unknown): { rows: PricingRow[] } | { error: string } {
  * scope — exactly the separation migration 150's comment asks for ("a reporting token can never
  * provision an app"). The caller writes, then syncs, and sees both verdicts.
  */
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
+export async function PUT(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   // Hoisted, and not only for readability: the `no endpoint reads a tenant id from the request`
   // guard (api-key-auth.test.ts) flags any line mentioning both "tenant" and `params`, and the
   // audit call below names the `tenant_pricing` TABLE. Using a local keeps the guard's predicate

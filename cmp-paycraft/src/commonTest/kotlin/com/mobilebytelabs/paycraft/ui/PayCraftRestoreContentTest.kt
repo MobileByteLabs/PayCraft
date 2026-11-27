@@ -5,7 +5,8 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.v2.runComposeUiTest
+import com.mobilebytelabs.paycraft.awaitText
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
@@ -137,7 +138,7 @@ class PayCraftRestoreContentTest {
         fake.emitState(BillingState.Free)
         waitForIdle()
         onNodeWithTag("paycraft_restore_error_message").assertExists()
-        onNodeWithText("maya@workmail.in", substring = true).assertExists()
+        awaitText("maya@workmail.in", substring = true).assertExists()
         onNodeWithTag("paycraft_restore_google_button").assertIsEnabled()
         onNodeWithTag("paycraft_restore_apple_button").assertIsEnabled()
         onNodeWithTag("paycraft_restore_retry_button").assertDoesNotExist()
@@ -178,7 +179,7 @@ class PayCraftRestoreContentTest {
                 alreadySubscribedEmail = "paid@buyer.test",
             )
         }
-        onNodeWithText("You're already subscribed").assertExists()
+        awaitText("You're already subscribed").assertExists()
         onNodeWithText("paid@buyer.test already has an active subscription", substring = true).assertExists()
         onNodeWithText("Restore Purchases").assertDoesNotExist()
     }

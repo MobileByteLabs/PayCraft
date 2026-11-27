@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
@@ -8,10 +6,8 @@ import { requireTenant } from "@/lib/tenant"
  * Mark a pending UPI intent as abandoned (operator cleanup — customer
  * cancelled, chose a different method, or just disappeared).
  */
-export async function POST(
-  _req: Request,
-  { params }: { params: { id: string } },
-) {
+export async function POST(_req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { tenant, userId } = await requireTenant()
   const supabase = createClient()
 

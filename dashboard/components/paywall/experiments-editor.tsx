@@ -1,6 +1,7 @@
 "use client"
 
-// Paywall ▸ Experiments (migration 206). A/B tests of which offering the paywall sells: create / edit a draft, start
+// Paywall ▸ Experiments (migrations 206, 221). A/B tests of which offering the paywall sells and which plan it
+// pre-selects: create / edit a draft, start
 // it, stop it, read its results. Saved through /api/experiments; the RPCs own the rules, lib/experiments mirrors them.
 
 import { useEffect, useState } from "react"
@@ -19,7 +20,8 @@ import {
   validateExperiment,
 } from "@/lib/experiments"
 
-export type EditorOffering = { id: string; identifier: string; display_name: string }
+/** [plans]: the offering's active plans — a variant may pre-select one of them (221). */
+export type EditorOffering = { id: string; identifier: string; display_name: string; plans?: { sku: string; display_name: string }[] }
 
 const STATUS_TONE = { draft: "neutral", running: "success", stopped: "info" } as const
 const pct = (x: number) => `${(x * 100).toFixed(2)}%`
@@ -84,7 +86,16 @@ function Results({ experimentKey }: { experimentKey: string }) {
   )
 }
 
-export function ExperimentsEditor({ initial, offerings }: { initial: Experiment[]; offerings: EditorOffering[] }) {
+export function ExperimentsEditor({
+  initial,
+  offerings,
+  onSaved,
+}: {
+  initial: Experiment[]
+  offerings: EditorOffering[]
+  /** Called after a successful save / status change (e.g. to invalidate the cached list). */
+  onSaved?: () => void
+}) {
   const [list, setList] = useState<Experiment[]>(initial)
   const [draft, setDraft] = useState<ExperimentDraft | null>(null)
   const [isNew, setIsNew] = useState(false)
@@ -92,7 +103,9 @@ export function ExperimentsEditor({ initial, offerings }: { initial: Experiment[
   const [error, setError] = useState<string | null>(null)
 
   const offeringIds = offerings.map((o) => o.id)
-  const problem = draft ? validateExperiment(draft, offeringIds) : null
+  const skusByOffering = Object.fromEntries(offerings.map((o) => [o.id, (o.plans ?? []).map((p) => p.sku)]))
+  const problem = draft ? validateExperiment(draft, offeringIds, skusByOffering) : null
+  const plansOf = (offeringId: string) => offerings.find((o) => o.id === offeringId)?.plans ?? []
   // A fresh form starts with an empty key: Save is already disabled, so the message waits for typing.
   const shownError = error ?? (draft?.key ? problem : null)
 
@@ -111,12 +124,19 @@ export function ExperimentsEditor({ initial, offerings }: { initial: Experiment[
   async function call(method: "PUT" | "POST", body: unknown): Promise<boolean> {
     setBusy(true)
     setError(null)
-    const res = await fetch("/api/experiments", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
-    const json = await res.json().catch(() => ({}))
-    setBusy(false)
-    if (!res.ok) { setError(String(json.error ?? "save_failed")); return false }
-    upsert(json.experiment as Experiment)
-    return true
+    try {
+      const res = await fetch("/api/experiments", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(String(json.error ?? "save_failed")); return false }
+      upsert(json.experiment as Experiment)
+      onSaved?.()
+      return true
+    } catch {
+      setError("save_failed")
+      return false
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function save() {
@@ -163,6 +183,7 @@ export function ExperimentsEditor({ initial, offerings }: { initial: Experiment[
                   <th className="py-2 pr-3">Variant key</th>
                   <th className="w-24 py-2 pr-3">Weight</th>
                   <th className="py-2 pr-3">Offering</th>
+                  <th className="py-2 pr-3">Pre-selected plan</th>
                   <th className="w-10" />
                 </tr>
               </thead>
@@ -177,9 +198,19 @@ export function ExperimentsEditor({ initial, offerings }: { initial: Experiment[
                         onChange={(e) => editVariant(i, { weight: Number(e.target.value) })} aria-label={`Variant ${i + 1} weight`} />
                     </td>
                     <td className="py-1.5 pr-3">
-                      <select className="input w-full" value={v.offering_id} onChange={(e) => editVariant(i, { offering_id: e.target.value })} aria-label={`Variant ${i + 1} offering`}>
+                      <select className="input w-full" value={v.offering_id} onChange={(e) => editVariant(i, { offering_id: e.target.value, default_sku: undefined })} aria-label={`Variant ${i + 1} offering`}>
                         <option value="">Pick an offering…</option>
                         {offerings.map((o) => <option key={o.id} value={o.id}>{o.display_name} ({o.identifier})</option>)}
+                      </select>
+                    </td>
+                    <td className="py-1.5 pr-3">
+                      <select className="input w-full" value={v.default_sku ?? ""} aria-label={`Variant ${i + 1} pre-selected plan`}
+                        onChange={(e) => editVariant(i, { default_sku: e.target.value || undefined })}>
+                        <option value="">Paywall default</option>
+                        {plansOf(v.offering_id).map((p) => <option key={p.sku} value={p.sku}>{p.display_name} ({p.sku})</option>)}
+                        {v.default_sku && !plansOf(v.offering_id).some((p) => p.sku === v.default_sku) && (
+                          <option value={v.default_sku}>{v.default_sku} (not sold by this offering)</option>
+                        )}
                       </select>
                     </td>
                     <td className="py-1.5">
@@ -229,7 +260,7 @@ export function ExperimentsEditor({ initial, offerings }: { initial: Experiment[
             }
           />
           <ul className="flex flex-wrap gap-x-5 gap-y-1 px-5 pb-3 text-xs text-ink-500">
-            {e.variants.map((v) => <li key={v.key}><code>{v.key}</code> · {v.weight} · {offeringName(v.offering_id)}</li>)}
+            {e.variants.map((v) => <li key={v.key}><code>{v.key}</code> · {v.weight} · {offeringName(v.offering_id)}{v.default_sku && <> · opens on <code>{v.default_sku}</code></>}</li>)}
           </ul>
           {e.status !== "draft" && <Results experimentKey={e.key} />}
         </Card>

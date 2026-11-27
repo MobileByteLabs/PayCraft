@@ -1,6 +1,5 @@
-export const runtime = "edge"
-
 import { NextRequest, NextResponse } from "next/server"
+import { ACTIVE_APP_HINT_COOKIE } from "@/lib/spa-paths"
 import { createClient } from "@/lib/supabase-server"
 
 export async function POST(req: NextRequest) {
@@ -30,6 +29,9 @@ export async function POST(req: NextRequest) {
     maxAge: 60 * 60 * 24 * 365,
     path: "/",
   })
+  // A readable copy for the Vite shell (spa/shell.tsx), which cannot see the httpOnly one. Only a hint: the shell
+  // still checks membership before using it, as every server route does with the httpOnly cookie.
+  resp.cookies.set(ACTIVE_APP_HINT_COOKIE, tenant_id, { sameSite: "lax", maxAge: 60 * 60 * 24 * 365, path: "/" })
   return resp
 }
 

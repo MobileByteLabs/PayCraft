@@ -2,7 +2,9 @@
 
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useDashboard } from "@/components/app-providers"
 import {
   AlertTriangle,
   ArrowRight,
@@ -47,44 +49,39 @@ interface KeyPair {
 }
 
 export default function StripeConnectPage() {
-  const router = useRouter()
+  const { tenantId } = useDashboard()
+  const queryClient = useQueryClient()
   const search = useSearchParams()
   const errParam = search.get("error")
   const connectedParam = search.get("connected")
 
   const [mode, setMode] = useState<Mode>("oauth")
-  const [status, setStatus] = useState<ConnectionStatus | null>(null)
-  const [statusLoading, setStatusLoading] = useState(true)
-  const [oauthAvailable, setOauthAvailable] = useState<boolean | null>(null)
+  // 1. Real connection status (re-read when the OAuth callback lands with ?connected=).
+  const statusQuery = useQuery({
+    queryKey: ["provider-status", "stripe", tenantId, connectedParam],
+    queryFn: async () => {
+      const res = await fetch("/api/providers/stripe/status")
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d?.error ?? `Status check failed (${res.status})`)
+      return d as ConnectionStatus
+    },
+  })
+  const status = statusQuery.data ?? null
+  const statusLoading = statusQuery.isPending
+  // 2. Probe whether OAuth platform credentials are wired server-side (never throws: unreachable = unavailable).
+  const oauthQuery = useQuery({
+    queryKey: ["stripe-oauth-available"],
+    queryFn: () =>
+      fetch("/api/providers/stripe/oauth/start", { method: "HEAD" })
+        .then((r) => r.ok || r.status === 405 || r.status === 302)
+        .catch(() => false),
+  })
+  const oauthAvailable = oauthQuery.data ?? null
   const [error, setError] = useState<string | null>(errParam)
   // When the user is already connected, default to the Connected status view
   // instead of the setup tabs. They can opt back into setup via "Update keys".
   const [forceSetup, setForceSetup] = useState(false)
-  const reload = () => {
-    setStatusLoading(true)
-    fetch("/api/providers/stripe/status")
-      .then((r) => r.json())
-      .then((d) => {
-        setStatus(d)
-        setStatusLoading(false)
-      })
-      .catch(() => setStatusLoading(false))
-  }
-
-  useEffect(() => {
-    // 1. Real connection status.
-    fetch("/api/providers/stripe/status")
-      .then((r) => r.json())
-      .then((d) => {
-        setStatus(d)
-        setStatusLoading(false)
-      })
-      .catch(() => setStatusLoading(false))
-    // 2. Probe whether OAuth platform credentials are wired server-side.
-    fetch("/api/providers/stripe/oauth/start", { method: "HEAD" })
-      .then((r) => setOauthAvailable(r.ok || r.status === 405 || r.status === 302))
-      .catch(() => setOauthAvailable(false))
-  }, [connectedParam])
+  const reload = () => queryClient.invalidateQueries({ queryKey: ["provider-status", "stripe", tenantId] })
 
   // Default to manual mode if OAuth isn't configured server-side.
   useEffect(() => {
@@ -116,6 +113,8 @@ export default function StripeConnectPage() {
             <h2 className="text-2xl font-bold text-ink-900 tracking-tight">Stripe</h2>
             {statusLoading ? (
               <Badge tone="neutral">Checking…</Badge>
+            ) : statusQuery.isError ? (
+              <Badge tone="danger">Status unknown</Badge>
             ) : status?.connected ? (
               <Badge tone="success" dot>
                 Connected ({status.mode === "oauth" ? "via OAuth" : "via API keys"})
@@ -127,6 +126,14 @@ export default function StripeConnectPage() {
         </div>
       </div>
 
+      {statusQuery.isError && (
+        <div role="alert" className="mb-6 rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700">
+          Couldn&rsquo;t check the Stripe connection: {statusQuery.error.message}{" "}
+          <button onClick={() => statusQuery.refetch()} className="font-semibold underline">
+            Retry
+          </button>
+        </div>
+      )}
       {status?.connected && !forceSetup ? (
         <ConnectedStatusView
           status={status}
@@ -234,9 +241,30 @@ function ConnectedStatusView({
   onUpdateKeys: () => void
   onDisconnected: () => void
 }) {
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<any | null>(null)
-  const [disconnecting, setDisconnecting] = useState(false)
+  const testMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/providers/stripe/test-webhook", { method: "POST" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok && !data?.results) throw new Error(data?.error ?? `Webhook test failed (${res.status})`)
+      return data
+    },
+  })
+  const testing = testMutation.isPending
+  const testResult: any | null = testMutation.data ?? null
+  const disconnectMutation = useMutation({
+    mutationFn: async () => {
+      // POST = OAuth deauth path, DELETE = manual keys path.
+      const res = await fetch("/api/providers/stripe/disconnect", {
+        method: status.mode === "oauth" ? "POST" : "DELETE",
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(`Disconnect failed: ${d.error ?? res.statusText}`)
+      }
+    },
+    onSuccess: onDisconnected,
+  })
+  const disconnecting = disconnectMutation.isPending
 
   // CLI tunnel preference — per-tenant + per-mode. When set, the webhook
   // status card renders a green "STRIPE CLI TUNNEL" badge instead of the
@@ -265,21 +293,11 @@ function ConnectedStatusView({
     } catch {}
   }
 
-  async function testWebhook() {
-    setTesting(true)
-    setTestResult(null)
-    try {
-      const res = await fetch("/api/providers/stripe/test-webhook", { method: "POST" })
-      const data = await res.json()
-      setTestResult(data)
-    } catch (e: any) {
-      setTestResult({ error: e.message })
-    } finally {
-      setTesting(false)
-    }
+  function testWebhook() {
+    testMutation.mutate()
   }
 
-  async function disconnect() {
+  function disconnect() {
     if (
       !confirm(
         `Disconnect Stripe?\n\nThis removes the saved ${
@@ -288,23 +306,7 @@ function ConnectedStatusView({
       )
     )
       return
-    setDisconnecting(true)
-    try {
-      const route =
-        status.mode === "oauth"
-          ? "/api/providers/stripe/disconnect" // POST (OAuth deauth path)
-          : "/api/providers/stripe/disconnect" // DELETE (manual keys path)
-      const method = status.mode === "oauth" ? "POST" : "DELETE"
-      const res = await fetch(route, { method })
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
-        alert(`Disconnect failed: ${d.error ?? res.statusText}`)
-        return
-      }
-      onDisconnected()
-    } finally {
-      setDisconnecting(false)
-    }
+    disconnectMutation.mutate()
   }
 
   return (
@@ -388,6 +390,12 @@ function ConnectedStatusView({
           </div>
         </CardBody>
       </Card>
+
+      {(testMutation.isError || disconnectMutation.isError) && (
+        <div role="alert" className="rounded-lg bg-danger-50 border border-danger-200 px-4 py-3 text-sm text-danger-700">
+          {(testMutation.error ?? disconnectMutation.error)?.message}
+        </div>
+      )}
 
       {/* Webhook test result */}
       {testResult && (
@@ -900,20 +908,11 @@ function ManualKeysPanel({
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [sharedWarning, setSharedWarning] = useState<number | null>(null)
-  const [tenantId, setTenantId] = useState<string | null>(null)
-  const [supabaseUrl, setSupabaseUrl] = useState<string>("")
+  // Same values /api/me returned, without the round trip: the tenant comes from the layout, the URL is public.
+  const { tenantId } = useDashboard()
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:54321"
   const [webhookCopied, setWebhookCopied] = useState(false)
   const [cliCopied, setCliCopied] = useState(false)
-
-  useEffect(() => {
-    fetch("/api/me")
-      .then((r) => r.json())
-      .then((d) => {
-        setTenantId(d.tenant_id)
-        setSupabaseUrl(d.supabase_url)
-      })
-      .catch(() => {})
-  }, [])
 
   const webhookUrl =
     tenantId && supabaseUrl

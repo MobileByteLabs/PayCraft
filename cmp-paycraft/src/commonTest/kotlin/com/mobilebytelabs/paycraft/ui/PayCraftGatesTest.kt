@@ -9,7 +9,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.v2.runComposeUiTest
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
 import com.mobilebytelabs.paycraft.core.PayCraftAdUnlock
@@ -19,6 +19,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.koin.compose.KoinApplication
 import org.koin.core.module.dsl.viewModelOf
+import org.koin.dsl.koinConfiguration
 import org.koin.dsl.module
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -53,14 +54,16 @@ class PayCraftGatesTest {
      */
     @Composable
     private fun WithPaywallGraph(entitled: Boolean, body: @Composable () -> Unit) {
-        KoinApplication(application = {
-            modules(
-                module {
-                    single<BillingManager> { FakeBillingManager(premium = entitled) }
-                    viewModelOf(::PayCraftPaywallViewModel)
-                },
-            )
-        }) {
+        KoinApplication(
+            koinConfiguration {
+                modules(
+                    module {
+                        single<BillingManager> { FakeBillingManager(premium = entitled) }
+                        viewModelOf(::PayCraftPaywallViewModel)
+                    },
+                )
+            },
+        ) {
             CompositionLocalProvider(
                 LocalPayCraftEntitlementOverride provides
                     if (entitled) PayCraftGateState.Entitled else PayCraftGateState.NotEntitled,

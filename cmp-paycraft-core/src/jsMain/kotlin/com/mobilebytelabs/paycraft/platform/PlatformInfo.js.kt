@@ -61,17 +61,44 @@ private fun detectBrowserName(): String = js(
 """,
 )
 
+/**
+ * Browser: `localStorage`. Node.js has no `localStorage` — reading it threw `ReferenceError`, which failed every
+ * `logIn` before `register_device` was called — so Node keeps the id in `~/.paycraft/device_id`, like
+ * [DeviceTokenStore] and [DeviceFingerprint]. If neither store is usable the id lives for the process.
+ */
 private fun loadOrCreateWebDeviceId(): String = js(
     """
     (function() {
         var key = 'paycraft_device_id';
-        var stored = localStorage.getItem(key);
-        if (stored) return stored;
-        var bytes = new Uint8Array(16);
-        crypto.getRandomValues(bytes);
-        var id = Array.from(bytes).map(function(b) { return ('0' + b.toString(16)).slice(-2); }).join('');
-        localStorage.setItem(key, id);
-        return id;
+        function newId() {
+            var bytes = new Uint8Array(16);
+            crypto.getRandomValues(bytes);
+            return Array.from(bytes).map(function(b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+        }
+        try {
+            if (typeof localStorage !== 'undefined') {
+                var stored = localStorage.getItem(key);
+                if (stored) return stored;
+                var id = newId();
+                localStorage.setItem(key, id);
+                return id;
+            }
+            var fs = require('fs');
+            var path = require('path');
+            var dir = path.join(require('os').homedir(), '.paycraft');
+            var file = path.join(dir, 'device_id');
+            if (fs.existsSync(file)) {
+                var saved = fs.readFileSync(file, 'utf8').trim();
+                if (saved) return saved;
+            }
+            var created = newId();
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(file, created, 'utf8');
+            return created;
+        } catch (e) {
+            if (!globalThis.__paycraftDeviceId) globalThis.__paycraftDeviceId = newId();
+            return globalThis.__paycraftDeviceId;
+        }
     })()
 """,
 )

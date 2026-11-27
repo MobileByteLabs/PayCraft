@@ -34,6 +34,13 @@ kotlin {
                 .get()
                 .toInt()
         androidResources.enable = true
+        // commonTest also runs on the Android JVM (testAndroidHostTest), not only jvm / iOS / web.
+        // android.util.Log (PlatformLog) returns defaults instead of throwing "not mocked"; Roborazzi wants
+        // the module's Android resources on the host-test classpath.
+        withHostTest {
+            isReturnDefaultValues = true
+            isIncludeAndroidResources = true
+        }
     }
 
     iosArm64()
@@ -90,13 +97,18 @@ kotlin {
     // not target macOS; no consumer ships macOS). Re-add macosX64()/macosArm64() + src/macosMain
     // once Store5 ships macOS artifacts, or move store5 into a non-macOS intermediate source set.
 
+    // binaries.executable(): Compose UI tests on js / wasmJs need a webpack bundle to load the Skiko runtime
+    // (CMP-4906); without it the Compose plugin refuses to run them. The published klib is unaffected.
     js {
         browser()
-        nodejs()
+        // Compose UI cannot render on Node (no DOM / canvas), so the js tests run in the browser only.
+        nodejs { testTask { enabled = false } }
+        binaries.executable()
     }
 
     wasmJs {
         browser()
+        binaries.executable()
     }
 
     compilerOptions {
@@ -113,12 +125,12 @@ kotlin {
             api(project(":cmp-paycraft-core"))
 
             // Compose
-            implementation(compose.runtime)
-            implementation(compose.foundation)
-            implementation(compose.material3)
-            implementation(compose.materialIconsExtended)
-            implementation(compose.ui)
-            implementation(compose.components.resources)
+            implementation(paycraftLibs.compose.runtime)
+            implementation(paycraftLibs.compose.foundation)
+            implementation(paycraftLibs.compose.material3)
+            implementation(paycraftLibs.compose.material.icons.extended)
+            implementation(paycraftLibs.compose.ui)
+            implementation(paycraftLibs.compose.components.resources)
 
             // Lottie for Compose Multiplatform. The SDK's terminal states (config unavailable /
             // offline) are the screens a user hits when billing is already broken — a bare line of
@@ -127,6 +139,11 @@ kotlin {
             // in exactly the offline case.
             implementation(paycraftLibs.compottie)
             implementation(paycraftLibs.compottie.resources)
+
+            // Buyer sign-in runs on the CONSUMER app's Supabase through its kmp-supabase-auth client
+            // (`PayCraft.useConsumerAuth(client)`); `api` because that client type is on the public signature.
+            api(paycraftLibs.kmp.supabase.auth)
+            implementation(paycraftLibs.kmp.supabase.auth.compose)
 
             // Koin UI + ViewModel (core carries Koin core only)
             implementation(paycraftLibs.koin.core.viewmodel)
@@ -149,10 +166,15 @@ kotlin {
             implementation(paycraftLibs.kotlinx.datetime)
         }
 
+        // runTest / advanceUntilIdle / UnconfinedTestDispatcher are ExperimentalCoroutinesApi — test code only.
+        // Every test source set: Kotlin/Native reads the opt-in from the target's own test source set, not commonTest.
+        matching { it.name.endsWith("Test") }.configureEach {
+            languageSettings.optIn("kotlinx.coroutines.ExperimentalCoroutinesApi")
+        }
+
         commonTest.dependencies {
             implementation(paycraftLibs.kotlin.test)
-            @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
-            implementation(compose.uiTest)
+            implementation(paycraftLibs.compose.ui.test)
             // ConfigClientTest — Ktor MockEngine for in-memory HTTP responses
             implementation("io.ktor:ktor-client-mock:3.1.1")
             // ConfigClientTest/ConfigCacheTest — coroutine test runner (runTest)
@@ -163,7 +185,7 @@ kotlin {
             implementation("com.russhwolf:multiplatform-settings:1.3.0")
         }
 
-        val jvmTest by getting {
+        getByName("jvmTest") {
             dependencies {
                 // Skiko native runtime — required for runComposeUiTest on the JVM target
                 implementation(compose.desktop.currentOs)
@@ -221,4 +243,23 @@ compose.resources {
     publicResClass = true
     generateResClass = always
     packageOfResClass = "com.mobilebytelabs.paycraft.generated.resources"
+}
+
+// Compose UI tests (runComposeUiTest) need a device or Robolectric on Android; on the Android JVM they
+// stop at a null host Activity. They run on jvm — so the Android host run takes every other common test.
+// The list is read from the sources, so a new UI test is excluded without touching this file.
+val composeUiTestClasses =
+    fileTree("src/commonTest/kotlin") { include("**/*.kt") }
+        .filter { it.readText().contains("runComposeUiTest") }
+        .map { it.nameWithoutExtension }
+
+// These need the app Context androidx-startup hands PayCraft on a device: no-arg Settings() (exit-survey
+// gate, purchase guard) and Compose resource loading (bundled seed trees). They run on jvm.
+val androidContextTestClasses =
+    listOf("AlreadySubscribedGuardTest", "BuiltInPaywallSeedsTest", "PaywallFunnelEventsTest")
+
+tasks.withType<Test>().matching { it.name == "testAndroidHostTest" }.configureEach {
+    filter {
+        (composeUiTestClasses + androidContextTestClasses).forEach { excludeTestsMatching("*.$it") }
+    }
 }
