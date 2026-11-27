@@ -1,5 +1,6 @@
 "use client"
 
+import { couponReach } from "@/lib/coupon-reach"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { CheckCircle2, Plus, Tag, Trash2, X } from "lucide-react"
@@ -26,6 +27,9 @@ interface Coupon {
    */
   stripe_coupon_id?: string | null
   stripe_promotion_code_id?: string | null
+  razorpay_offer_id?: string | null
+  googleplay_offer_ids?: Record<string, string> | null
+  appstore_offer_ids?: Record<string, string> | null
 }
 
 interface ProductRef {
@@ -398,16 +402,18 @@ export function CouponsManager({
                       {c.times_redeemed}
                       {c.max_redemptions !== null && ` / ${c.max_redemptions}`}
                     </td>
-                    {/* AT PROVIDER. A code with no stripe_coupon_id is inert at checkout: the
-                        customer types it, nothing happens, and no error is raised anywhere. An
-                        empty cell would hide that, so an unmapped coupon states it in words. It
-                        is NEUTRAL rather than red because an unsynced code is usually work not
-                        yet done rather than something broken. */}
+                    {/* AT PROVIDER. A code no provider knows is inert at checkout: the customer types it,
+                        nothing happens, and no error is raised anywhere — so it says so in words. NEUTRAL
+                        rather than red: an unsynced code is usually work not yet done, not something broken. */}
                     <td className="px-6 py-3">
-                      {c.stripe_coupon_id ? (
-                        <span className="inline-flex items-center gap-1.5 text-xs text-ink-700">
-                          <span className="h-1.5 w-1.5 rounded-full bg-success-500" />
-                          Stripe
+                      {couponReach(c).length > 0 ? (
+                        <span className="flex flex-wrap gap-x-3 gap-y-1">
+                          {couponReach(c).map((p) => (
+                            <span key={p} className="inline-flex items-center gap-1.5 text-xs text-ink-700">
+                              <span className="h-1.5 w-1.5 rounded-full bg-success-500" />
+                              {p}
+                            </span>
+                          ))}
                         </span>
                       ) : (
                         <span
