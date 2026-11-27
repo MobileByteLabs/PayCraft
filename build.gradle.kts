@@ -122,3 +122,17 @@ tasks.register("fix") {
 subprojects {
     tasks.withType<Test>().configureEach { systemProperty("paycraft.settings", "memory") }
 }
+
+// kotlin-js-store/*.lock must match what CI and consumers resolve: the PUBLISHED cmp-supabase-auth. With the local
+// kmp-supabase-auth source build swapped in (settings.gradle.kts), its npm graph differs (it pulls `ws`), so a
+// mismatch only warns here instead of failing every local JS build. CI has no local checkout and stays strict.
+if (gradle.includedBuilds.any { it.name == "kmp-supabase-auth" }) {
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin> {
+        the<org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootExtension>().yarnLockMismatchReport =
+            org.jetbrains.kotlin.gradle.targets.js.yarn.YarnLockMismatchReport.WARNING
+    }
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnPlugin> {
+        the<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnRootExtension>().yarnLockMismatchReport =
+            org.jetbrains.kotlin.gradle.targets.js.yarn.YarnLockMismatchReport.WARNING
+    }
+}
