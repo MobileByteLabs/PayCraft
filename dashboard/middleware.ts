@@ -1,3 +1,6 @@
+// Kept as `middleware.ts` (edge) on purpose, despite Next 16's "use proxy instead" warning: `proxy.ts` runs on
+// the Node runtime, which @opennextjs/cloudflare 1.20 labels "experimental in cloudflare, and not officially
+// maintained". Rename once OpenNext supports Node proxy — the deprecated name still works meanwhile.
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import { checkEdgeRateLimit, extractIp, rateLimitHeaders } from "@/lib/edge-rate-limit"

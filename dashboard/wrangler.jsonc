@@ -22,9 +22,10 @@
   // OpenNext calls back into its own Worker; must match "name".
   "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "paycraft-dashboard" }],
 
-  // Run next to the Supabase project (Tokyo) rather than at the visitor's edge: every /api route makes several
-  // sequential database calls, ~190 ms each from the Delhi edge. Smart Placement never engaged on Pages.
-  "placement": { "mode": "smart" },
+  // Run next to the Supabase project (AWS ap-northeast-1, Tokyo) rather than at the visitor's edge: every /api
+  // route makes several sequential database calls, ~190 ms each from the Delhi edge. Targeted, not "smart":
+  // Smart Placement reported INSUFFICIENT_INVOCATIONS — a dashboard never has the traffic it needs to learn.
+  "placement": { "mode": "targeted", "region": "aws:ap-northeast-1" },
 
   "observability": { "enabled": true },
 
