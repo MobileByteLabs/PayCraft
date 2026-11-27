@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import { AFTER_LOGIN_COOKIE, safeAfterLogin } from "@/lib/spa-paths"
 import { createClient } from "@/lib/supabase-browser"
 import { Button } from "@/components/ui/button"
 
@@ -98,6 +99,12 @@ export default function LoginPage() {
   async function signInWithGoogle() {
     setLoading(true)
     setError(null)
+    // Back to the page that sent them here (/auth/callback reads it) — a cookie, not a query on the OAuth
+    // redirect URL, which Supabase matches against its allow-list.
+    const after = safeAfterLogin(new URLSearchParams(location.search).get("next"))
+    document.cookie = after
+      ? `${AFTER_LOGIN_COOKIE}=${encodeURIComponent(after)}; path=/; max-age=600; samesite=lax`
+      : `${AFTER_LOGIN_COOKIE}=; path=/; max-age=0`
 
     // Idempotent re-purge right before kicking off OAuth — protects against
     // any state the user accumulated since the page first mounted (extensions,

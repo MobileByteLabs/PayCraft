@@ -9,12 +9,14 @@
     "lint": "next lint",
     "test": "jest",
     "pages:build": "npx @cloudflare/next-on-pages@1",
-    "pages:deploy": "npx @cloudflare/next-on-pages@1 && wrangler pages deploy .vercel/output/static --project-name=paycraft --branch=main"
+    "spa:build": "vite build --config spa/vite.config.ts",
+    "pages:deploy": "npm run spa:build && npx @cloudflare/next-on-pages@1 && wrangler pages deploy .vercel/output/static --project-name=paycraft --branch=main"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.0",
     "@supabase/supabase-js": "^2.45.0",
     "@tanstack/react-query": "^5.108.4",
+    "@tanstack/react-router": "^1.170.46",
     "clsx": "^2.1.1",
     "jose": "^5.9.6",
     "lucide-react": "^0.400.0",
@@ -34,6 +36,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.35",
@@ -43,6 +46,7 @@
     "tailwindcss": "^3.4.12",
     "ts-jest": "^29.4.11",
     "typescript": "^5.6.0",
+    "vite": "^6.4.6",
     "wrangler": "^4.59.2"
   }
 }

@@ -22,14 +22,18 @@ const Ctx = createContext<DashboardContext | null>(null)
 export function AppProviders({
   tenantId,
   mode,
+  client,
   children,
 }: {
   tenantId: string
   mode: "live" | "test"
+  /** The Vite shell passes its own client so its account queries and the pages' share one cache. */
+  client?: QueryClient
   children: React.ReactNode
 }) {
   const [queryClient] = useState(
     () =>
+      client ??
       new QueryClient({
         // 30 s fresh: navigating back and forth re-uses the data; realtime + focus refetch keep it current.
         defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },

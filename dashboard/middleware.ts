@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import { checkEdgeRateLimit, extractIp, rateLimitHeaders } from "@/lib/edge-rate-limit"
+import { ACTIVE_APP_HINT_COOKIE, isSpaPath } from "@/lib/spa-paths"
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"])
 
@@ -73,6 +74,22 @@ export async function middleware(request: NextRequest) {
   // their own server-side authoritative limit via supabase/functions/_shared
   // /rate-limit.ts; this is the cheap edge shed for abusive bursts before
   // they hit our application code.
+  // The signed-in dashboard is the Vite app (spa/): its shell is a static file, served straight away. The session
+  // refresh below is a round trip to Supabase Auth that every full page load waited on; the shell's own Supabase
+  // client keeps the session (and its cookies) fresh, and /api requests still pass through the refresh.
+  if (request.method === "GET" && isSpaPath(request.nextUrl.pathname)) {
+    const res = NextResponse.rewrite(new URL("/_spa/index.html", request.url))
+    const active = request.cookies.get("paycraft_active_app_id")?.value
+    const hint = request.cookies.get(ACTIVE_APP_HINT_COOKIE)?.value
+    if (active && hint !== active) {
+      res.cookies.set(ACTIVE_APP_HINT_COOKIE, active, { sameSite: "lax", maxAge: 60 * 60 * 24 * 365, path: "/" })
+    } else if (!active && hint) {
+      // No choice on the server (first app): the shell must not follow a stale hint to a different one.
+      res.cookies.delete(ACTIVE_APP_HINT_COOKIE)
+    }
+    return res
+  }
+
   if (
     request.nextUrl.pathname.startsWith("/api/") &&
     MUTATING_METHODS.has(request.method)
@@ -126,6 +143,6 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     // Run on every path except static assets + favicon
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|_spa/|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 }
