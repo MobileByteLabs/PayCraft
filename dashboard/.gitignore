@@ -16,3 +16,4 @@ playwright-report/
 .open-next/
 .wrangler/
 public/_spa
+.open-next

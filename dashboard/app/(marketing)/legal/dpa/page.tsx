@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 export const metadata = { title: "Data Processing Addendum · PayCraft" }
 
 export default function DpaPage() {

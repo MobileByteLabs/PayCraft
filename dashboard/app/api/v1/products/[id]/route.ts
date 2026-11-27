@@ -6,7 +6,8 @@ import { queryFailed } from "@/lib/api-security"
 export const dynamic = "force-dynamic"
 
 /** GET /v1/products/{id} — one product, with its pricing rows. */
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   return withApiKey(req, "products:read", async (ctx) => {
     const bad = badProductId(params.id)
     if (bad) return bad
@@ -61,7 +62,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
  * length its own catalogue entry disowns — and before this endpoint there was no way to empty it
  * through the API at all.
  */
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const productId = params.id
 
   return withApiKey(req, "products:write", async (ctx) => {

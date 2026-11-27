@@ -190,9 +190,9 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
                 // Preserve the user's pick (re-fetched from the refreshed list so the
                 // BillingPlan instance stays current); fall back if it vanished.
                 plans.firstOrNull { it.id == current.selectedPlan?.id }
-                    ?: resolveInitialSelectedPlan(plans, current.currentPlanRank)
+                    ?: initialSelectedPlan(plans, current.currentPlanRank, experimentDefaultSku())
             } else {
-                resolveInitialSelectedPlan(plans, current.currentPlanRank)
+                initialSelectedPlan(plans, current.currentPlanRank, experimentDefaultSku())
             }
             current.copy(
                 plans = plans,
@@ -204,16 +204,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
         }
     }
 
-    private fun resolveInitialSelectedPlan(plans: List<BillingPlan>, currentPlanRank: Int): BillingPlan? {
-        // If premium, default to the next rank above current; otherwise popular or first
-        if (currentPlanRank > 0) {
-            val nextUp = plans.filter { it.rank > currentPlanRank }.minByOrNull { it.rank }
-            if (nextUp != null) return nextUp
-            // Already on highest — keep current plan selected
-            return plans.firstOrNull { it.rank == currentPlanRank }
-        }
-        return plans.firstOrNull { it.isPopular } ?: plans.firstOrNull()
-    }
+    private fun experimentDefaultSku(): String? = runCatching { PayCraft.activeExperiment?.defaultSku }.getOrNull()
 
     private fun observeBillingState() {
         viewModelScope.launch {
@@ -248,7 +239,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
                     )
                     // Re-resolve selected plan when billing state changes
                     updatedState.copy(
-                        selectedPlan = resolveInitialSelectedPlan(updatedState.plans, currentPlanRank),
+                        selectedPlan = initialSelectedPlan(updatedState.plans, currentPlanRank, experimentDefaultSku()),
                     )
                 }
             }
@@ -306,7 +297,9 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
         // Held like a pick so a config refresh does not swap it for the "popular" plan (the ring and the charge
         // must agree) — only the analytics differ from onSelectPlan.
         userPickedPlan = true
-        _state.update { it.copy(selectedPlan = plan) }
+        // The A/B variant's pre-selected plan outranks the design's: it is what the experiment is testing.
+        val chosen = experimentDefaultPlan(_state.value.plans, experimentDefaultSku()) ?: plan
+        _state.update { it.copy(selectedPlan = chosen) }
     }
 
     private fun onSelectPlan(action: PayCraftPaywallAction.SelectPlan) {
@@ -726,3 +719,21 @@ internal fun checkoutProviderFor(lane: CheckoutLane, providers: List<ProviderDto
 /** The plan a win-back offer is for: matched by SKU (what the server speaks); a legacy plan-id value still matches. */
 internal fun planForOffer(plans: List<BillingPlan>, sku: String?): BillingPlan? =
     sku?.let { s -> plans.firstOrNull { it.sku == s } ?: plans.firstOrNull { it.id == s } }
+
+/** The plan of [sku] (the device's A/B variant `default_sku`), or null when there is none or no plan has it. */
+internal fun experimentDefaultPlan(plans: List<BillingPlan>, sku: String?): BillingPlan? =
+    sku?.let { s -> plans.firstOrNull { it.sku == s } }
+
+/**
+ * The plan the paywall opens on. Premium: the next rank up (else the current plan). Otherwise the A/B variant's
+ * [experimentSku] when it names a plan, else the popular plan, else the first.
+ */
+internal fun initialSelectedPlan(plans: List<BillingPlan>, currentPlanRank: Int, experimentSku: String?): BillingPlan? {
+    if (currentPlanRank > 0) {
+        val nextUp = plans.filter { it.rank > currentPlanRank }.minByOrNull { it.rank }
+        if (nextUp != null) return nextUp
+        // Already on highest — keep current plan selected
+        return plans.firstOrNull { it.rank == currentPlanRank }
+    }
+    return experimentDefaultPlan(plans, experimentSku) ?: plans.firstOrNull { it.isPopular } ?: plans.firstOrNull()
+}

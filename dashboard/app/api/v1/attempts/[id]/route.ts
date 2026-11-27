@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic"
  * (every stage transition; each failure's stage, class, code and message of at most 200 characters).
  * 404 when the attempt is not this key's tenant's — the id alone never reaches another app.
  */
-export async function GET(req: Request, { params }: { params: { id: string } }) {
-  return withApiKey(req, "subscribers:read", async (ctx) =>
-    (await attemptResponse(ctx.admin, ctx.tenantId, params?.id)) as NextResponse)
+export async function GET(req: Request, props: { params: Promise<{ id: string }> }) {
+ const params = await props.params;
+ return withApiKey(req, "subscribers:read", async (ctx) =>
+   (await attemptResponse(ctx.admin, ctx.tenantId, params?.id)) as NextResponse)
 }

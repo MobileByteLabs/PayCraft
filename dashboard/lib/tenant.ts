@@ -33,11 +33,16 @@ export const requireTenant = cache(async (): Promise<{ tenant: Tenant; userId: s
     redirect("/onboarding")
   }
 
-  const { tenantId } = pickActiveTenant(memberships.map((m) => m.tenant_id))
+  const { tenantId } = pickActiveTenant(memberships.map((m) => m.tenant_id), null, await activeAppCookie())
   return loadTenant(supabase, tenantId!, user!.id)
 })
 
 export type Membership = { tenant_id: string }
+
+/** The app the user switched to (/api/apps/switch), if any. */
+async function activeAppCookie(): Promise<string | undefined> {
+  return (await cookies()).get("paycraft_active_app_id")?.value
+}
 
 /** The membership lookup failed twice — the caller must surface an error, not treat it as zero apps. */
 export class MembershipLookupError extends Error {
@@ -80,13 +85,16 @@ export type TenantResolution =
  *   else the `paycraft_active_app_id` cookie, if it names a membership;
  *   else the first membership.
  */
-export function pickActiveTenant(tenantIds: string[], requested?: string | null): TenantResolution {
+export function pickActiveTenant(
+  tenantIds: string[],
+  requested?: string | null,
+  activeCookieId?: string | null,
+): TenantResolution {
   if (requested) {
     return tenantIds.includes(requested)
       ? { tenantId: requested, resolvedFrom: "query" }
       : { tenantId: null, resolvedFrom: "not_a_member" }
   }
-  const activeCookieId = cookies().get("paycraft_active_app_id")?.value
   if (activeCookieId && tenantIds.includes(activeCookieId)) {
     return { tenantId: activeCookieId, resolvedFrom: "cookie" }
   }
@@ -99,7 +107,7 @@ export async function resolveTenantForUser(
   requested?: string | null,
 ): Promise<TenantResolution> {
   const memberships = await listMemberships(supabase)
-  return pickActiveTenant(memberships.map((m) => m.tenant_id), requested)
+  return pickActiveTenant(memberships.map((m) => m.tenant_id), requested, await activeAppCookie())
 }
 
 async function loadTenant(

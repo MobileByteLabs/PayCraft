@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { NextRequest, NextResponse } from "next/server"
 import { ACTIVE_APP_HINT_COOKIE } from "@/lib/spa-paths"
 import { createClient } from "@/lib/supabase-server"

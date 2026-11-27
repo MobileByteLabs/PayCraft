@@ -1,30 +1,9 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import { checkEdgeRateLimit, extractIp, rateLimitHeaders } from "@/lib/edge-rate-limit"
-import { ACTIVE_APP_HINT_COOKIE, isSpaPath } from "@/lib/spa-paths"
+import { API_HOSTS, MCP_HOSTS } from "@/lib/hosts"
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"])
-
-/**
- * Hostnames that serve the machine API. On these, `/v1/*` is rewritten to `/api/v1/*` so the public
- * surface reads `https://api.paycraft.mobilebytesensei.com/v1/readiness` rather than leaking the
- * Next.js route layout into the documented URL.
- *
- * The host is a CNAME to the same Pages project as the dashboard. Pointing it at Supabase directly
- * — which is what it used to do — cannot work: Supabase serves custom hostnames only with the paid
- * Custom Domain add-on, so the record resolved and every TLS handshake failed.
- */
-const API_HOSTS = new Set(["api.paycraft.mobilebytesensei.com"])
-
-/**
- * The MCP host. Serves ONE thing: the Model Context Protocol endpoint at its root.
- *
- * A separate hostname rather than a path on the API host because an MCP endpoint is configured by
- * URL in a client's settings, and a bare origin is what people paste. It also keeps the blast radius
- * legible — anything else on this host 404s, so a misconfigured client cannot wander into the
- * dashboard.
- */
-const MCP_HOSTS = new Set(["mcp.paycraft.mobilebytesensei.com"])
 
 export async function middleware(request: NextRequest) {
   const host = request.headers.get("host")?.toLowerCase() ?? ""
@@ -74,22 +53,6 @@ export async function middleware(request: NextRequest) {
   // their own server-side authoritative limit via supabase/functions/_shared
   // /rate-limit.ts; this is the cheap edge shed for abusive bursts before
   // they hit our application code.
-  // The signed-in dashboard is the Vite app (spa/): its shell is a static file, served straight away. The session
-  // refresh below is a round trip to Supabase Auth that every full page load waited on; the shell's own Supabase
-  // client keeps the session (and its cookies) fresh, and /api requests still pass through the refresh.
-  if (request.method === "GET" && isSpaPath(request.nextUrl.pathname)) {
-    const res = NextResponse.rewrite(new URL("/_spa/index.html", request.url))
-    const active = request.cookies.get("paycraft_active_app_id")?.value
-    const hint = request.cookies.get(ACTIVE_APP_HINT_COOKIE)?.value
-    if (active && hint !== active) {
-      res.cookies.set(ACTIVE_APP_HINT_COOKIE, active, { sameSite: "lax", maxAge: 60 * 60 * 24 * 365, path: "/" })
-    } else if (!active && hint) {
-      // No choice on the server (first app): the shell must not follow a stale hint to a different one.
-      res.cookies.delete(ACTIVE_APP_HINT_COOKIE)
-    }
-    return res
-  }
-
   if (
     request.nextUrl.pathname.startsWith("/api/") &&
     MUTATING_METHODS.has(request.method)

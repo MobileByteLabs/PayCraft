@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { createServerClient, type CookieOptions } from "@supabase/ssr"
 import { NextRequest, NextResponse } from "next/server"
 import { AFTER_LOGIN_COOKIE, safeAfterLogin } from "@/lib/spa-paths"

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { detectCustomerCountry } from "@/lib/customer-geo"
 
-export const runtime = "edge"
 export const dynamic = "force-dynamic"
 
 // The visitor's country from the hosting edge's IP-geo header — what the web SDK prices by when the site has

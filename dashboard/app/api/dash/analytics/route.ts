@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
@@ -46,7 +44,7 @@ export async function GET(req: NextRequest) {
 
   // A read failure is reported as such, never as an empty (healthy-looking) report.
   try {
-    const joined = await joinedAnalytics(supabase, tenant.id, getMode(), { days: range.days, ...readFilters(search) }, { account: ga4Account })
+    const joined = await joinedAnalytics(supabase, tenant.id, await getMode(), { days: range.days, ...readFilters(search) }, { account: ga4Account })
     return NextResponse.json({
       joined,
       segments: {

@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic"
  * bulk drain acts on a set the caller has not enumerated, whereas this names its single subject in
  * the URL. Optional `?provider=` narrows it further.
  */
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   return withApiKey(req, "products:sync", async (ctx) => {
     const bad = badProductId(params.id)
     if (bad) return bad

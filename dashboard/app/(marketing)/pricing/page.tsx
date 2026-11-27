@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import type { Metadata } from "next"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase-server"

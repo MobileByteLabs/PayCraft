@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 export const metadata = {
   title: "Subprocessors · PayCraft",
   description: "The third-party subprocessors PayCraft (MobileByteSensei Pvt Ltd) uses to run the Service.",

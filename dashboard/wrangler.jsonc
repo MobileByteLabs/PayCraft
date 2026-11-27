@@ -1,0 +1,51 @@
+// PayCraft dashboard on Cloudflare Workers via OpenNext (@opennextjs/cloudflare) — replaces the deprecated
+// @cloudflare/next-on-pages build on the `paycraft` Pages project (2026-11-27).
+//
+//   npm run deploy    vite build (spa/) + OpenNext build + deploy        (infra/deploy/deploy.sh --prod)
+//   npm run preview   the same Worker locally
+//
+// Secrets are NOT declared here — they live on the Worker (`wrangler secret put`, from
+// cloudflare-secrets.map via infra/deploy/deploy.sh phase 2) and survive deploys.
+// NEXT_PUBLIC_* are inlined at build time (.env.production.local, written by deploy.sh).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "paycraft-dashboard",
+  "main": "worker.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS",
+  },
+
+  // OpenNext calls back into its own Worker; must match "name".
+  "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "paycraft-dashboard" }],
+
+  // Run next to the Supabase project (Tokyo) rather than at the visitor's edge: every /api route makes several
+  // sequential database calls, ~190 ms each from the Delhi edge. Smart Placement never engaged on Pages.
+  "placement": { "mode": "smart" },
+
+  "observability": { "enabled": true },
+
+  // The three hostnames are Worker routes on the proxied CNAMEs that still point at the old Pages project:
+  // a route takes the traffic before Pages sees it, so deleting a route hands that host straight back to
+  // Pages — the rollback. (mcp./api. are routed by middleware.ts on the Host header.)
+  // Production is reached only through these routes — no second public origin on workers.dev.
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "paycraft.mobilebytesensei.com/*", "zone_name": "mobilebytesensei.com" },
+    { "pattern": "api.paycraft.mobilebytesensei.com/*", "zone_name": "mobilebytesensei.com" },
+    { "pattern": "mcp.paycraft.mobilebytesensei.com/*", "zone_name": "mobilebytesensei.com" },
+  ],
+
+  "env": {
+    // infra/deploy/deploy.sh --staging: a separate Worker on workers.dev, no routes, its own secrets.
+    "staging": {
+      "name": "paycraft-dashboard-staging",
+      "workers_dev": true,
+      "routes": [],
+      "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "paycraft-dashboard-staging" }],
+    },
+  },
+}

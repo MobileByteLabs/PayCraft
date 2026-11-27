@@ -6,7 +6,6 @@ import DashboardLoading from "@/app/(dashboard)/loading"
 import { Shell } from "./shell"
 
 // Pages type their own props ({ params: { id } } etc.); the route hands every page both objects.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PageModule = { default: React.ComponentType<any> }
 
 const rootRoute = createRootRoute({

@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
@@ -19,10 +17,8 @@ import { runProductSync, type ProviderSyncEntry } from "@/lib/stripe-route-helpe
  * is the reason for any non-ok status (not connected / no pricing / type unsupported /
  * trial offer DRAFT-until-published / real error).
  */
-export async function POST(
-  _req: Request,
-  { params }: { params: { id: string } },
-) {
+export async function POST(_req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { tenant, userId } = await requireTenant()
   const supabase = createClient()
 

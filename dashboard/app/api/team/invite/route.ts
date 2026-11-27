@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { NextRequest, NextResponse } from "next/server"
 import { createClient as createServerSupabase } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"

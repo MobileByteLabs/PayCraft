@@ -24,7 +24,8 @@ export const dynamic = "force-dynamic"
  * even after a base plan is deactivated — that is the law, not a courtesy — but the operator still
  * owns the decision to stop new sales on a plan with a live cohort.
  */
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   // Hoisted for the same reason as the pricing route: the `no endpoint reads a tenant id from the
   // request` guard flags any line carrying both "tenant" and `params`, and the audit resource below
   // names the `tenant_products` table.

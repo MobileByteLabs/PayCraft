@@ -48,11 +48,11 @@ val="$(cat)"
 if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
   echo "✘ [ERROR] In a non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN" >&2; exit 1
 fi
-if [[ "$1 $2 $3" != "pages secret put" ]]; then
-  echo "✘ [ERROR] stub: not a Pages secret write: $*" >&2; exit 2
+if [[ "$1 $2" != "secret put" ]]; then
+  echo "✘ [ERROR] stub: not a Worker secret write: $*" >&2; exit 2
 fi
 for e in $STUB_FAIL_ENVS; do
-  if [[ "$4" == "$e" ]]; then
+  if [[ "$3" == "$e" ]]; then
     echo "✘ [ERROR] A request to the Cloudflare API failed. Authentication error [code: 10000]" >&2
     echo "value was: $val" >&2
     exit 1
@@ -122,8 +122,8 @@ write_map "${MAP_OK[@]}"; seed_vault framework-supabase-url framework-supabase-s
 STUB_FAIL_ENVS="" run_phase2
 [[ $RC -eq 0 ]] && grep -q "set: 3 · skipped(optional): 0 · failed: 0" <<<"$OUT" \
   && ok "G1 every put succeeds (vault CF token exported) → PASS" || bad "G1 all-success must pass" "rc=$RC out: $(echo "$OUT" | tail -3)"
-grep -q "^pages secret put NEXT_PUBLIC_SUPABASE_URL --project-name paycraft$" "$LOG" \
-  && ok "G1b the write is a PAGES secret on project 'paycraft' (not a Worker secret)" \
+grep -q "^secret put NEXT_PUBLIC_SUPABASE_URL$" "$LOG" \
+  && ok "G1b the write is a secret on the production Worker (wrangler.jsonc names it; no --env)" \
   || bad "G1b wrong wrangler command" "$(cat "$LOG")"
 
 write_map "${MAP_OK[@]}"; seed_vault framework-supabase-url framework-supabase-service-role-key

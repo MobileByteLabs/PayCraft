@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { cookies } from "next/headers"
 import { Sidebar } from "@/components/sidebar"
 import { AiBubble } from "@/components/ai-bubble"
@@ -21,8 +19,8 @@ export default async function DashboardLayout({
 }) {
   const [{ tenant }, apps] = await Promise.all([requireTenant(), getUserApps()])
   const activeTenantId =
-    cookies().get("paycraft_active_app_id")?.value ?? tenant.id
-  const mode = getMode()
+    (await cookies()).get("paycraft_active_app_id")?.value ?? tenant.id
+  const mode = await getMode()
 
   // Auto-claim platform ownership for the first user, then resolve whether the
   // current user is the platform owner. Drives the conditional Admin nav group.

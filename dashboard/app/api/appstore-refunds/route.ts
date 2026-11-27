@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 // Providers ▸ App Store ▸ Refund requests (migration 207). PUT { consent, refundPreference } sets whether PayCraft
 // answers Apple's CONSUMPTION_REQUEST for this app and with which refund preference. requireTenant() proves the
 // caller administers the tenant; the write goes through the service role because `tenants` is not user-writable.

@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 // Paywall ▸ Experiments (migration 206). GET: the tenant's experiments + active offerings, or `?results=<key>` for one
 // experiment's per-variant results. PUT: save a draft. POST { key, status }: start / stop. requireTenant() proves the
 // caller administers the tenant; the RPCs are service-role only and own the rules — their exception codes come back
@@ -75,6 +73,8 @@ export async function PUT(req: NextRequest) {
       key: isObj(v) && typeof v.key === "string" ? v.key : "",
       weight: isObj(v) && typeof v.weight === "number" ? v.weight : NaN,
       offering_id: isObj(v) && typeof v.offering_id === "string" ? v.offering_id : "",
+      // 221: passed through as sent; paywall_experiment_save checks it against the offering.
+      ...(isObj(v) && v.default_sku != null && v.default_sku !== "" ? { default_sku: v.default_sku as string } : {}),
     })),
   }
   const problem = validateExperiment(draft, await activeOfferingIds(tenant.id))

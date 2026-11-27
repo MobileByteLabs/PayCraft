@@ -90,7 +90,7 @@ jest.mock("@/lib/api-security", () => ({
 
 const retire = () =>
   POST(new Request(`https://x.test/api/v1/products/${PRODUCT}/retire`, { method: "POST" }), {
-    params: { id: PRODUCT },
+    params: Promise.resolve({ id: PRODUCT }),
   })
 
 beforeEach(() => {

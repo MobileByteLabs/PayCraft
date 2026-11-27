@@ -1,4 +1,3 @@
-export const runtime = "edge"
 export const dynamic = "force-dynamic"
 
 import type { Metadata } from "next"
@@ -14,7 +13,8 @@ export const metadata: Metadata = {
  * Public on purpose (outside the signed-in dashboard group): the BUYER lands here from a site's checkout.
  * See lib/razorpay-pay.ts for why it exists. Unknown or expired ids get a dead end, never a redirect.
  */
-export default async function RazorpayPayPage({ params }: { params: { id: string } }) {
+export default async function RazorpayPayPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const row = await loadRazorpayReturn(params.id)
   if (!row) {
     return (

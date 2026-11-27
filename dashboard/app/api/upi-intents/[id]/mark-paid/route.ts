@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
@@ -15,10 +13,8 @@ import { requireTenant } from "@/lib/tenant"
  * returns true on the next refresh. Idempotent: re-running on an
  * already-paid intent raises an error rather than silently double-counting.
  */
-export async function POST(
-  req: Request,
-  { params }: { params: { id: string } },
-) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { tenant, userId } = await requireTenant()
   const supabase = createClient()
   const body = await req.json().catch(() => ({}))

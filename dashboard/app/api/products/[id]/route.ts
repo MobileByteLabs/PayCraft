@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
@@ -11,10 +9,8 @@ import { runProductSync } from "@/lib/stripe-route-helper"
 //
 // Tenant scoping is on the query, not on trust in the URL: `.eq("tenant_id", tenant.id)` means a
 // merchant who guesses another tenant's product UUID gets 404, not their row.
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: { id: string } },
-) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { tenant } = await requireTenant()
   const supabase = createClient()
   const { data, error } = await supabase
@@ -33,10 +29,8 @@ export async function GET(
   return NextResponse.json(data, { status: 200 })
 }
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: { id: string } },
-) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { tenant, userId } = await requireTenant()
   const body = await req.json()
   const supabase = createClient()
@@ -113,10 +107,8 @@ export async function PATCH(
   return NextResponse.json({ id })
 }
 
-export async function DELETE(
-  _req: NextRequest,
-  { params }: { params: { id: string } },
-) {
+export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { tenant, userId } = await requireTenant()
   const supabase = createClient()
   const { data: existing } = await supabase

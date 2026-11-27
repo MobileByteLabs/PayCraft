@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
@@ -32,7 +32,7 @@ export default function NewAppPage() {
       return (Array.isArray(data) ? data : data.apps ?? []) as AppRow[]
     },
   })
-  const apps = appsQuery.data ?? []
+  const apps = useMemo(() => appsQuery.data ?? [], [appsQuery.data])
   // Provider setup choice. Default to reusing the account's existing connections
   // when the account already has another app — one provider secret serves many apps.
   const [providerMode, setProviderMode] = useState<"reuse" | "later">("later")

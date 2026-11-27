@@ -1,5 +1,4 @@
-export const runtime = "edge"
-
+import { stripeClient } from "@/lib/stripe-client"
 import { createClient } from "@/lib/supabase-server"
 import { NextRequest, NextResponse } from "next/server"
 
@@ -49,7 +48,7 @@ export async function POST(request: NextRequest) {
   }
 
   const Stripe = (await import("stripe")).default
-  const stripe = new Stripe(stripeKey)
+  const stripe = stripeClient(stripeKey, null)
 
   const checkoutSession = await stripe.checkout.sessions.create({
     mode: "subscription",

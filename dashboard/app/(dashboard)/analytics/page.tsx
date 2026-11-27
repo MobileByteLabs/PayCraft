@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { AnalyticsView } from "./analytics-view"
 
 // Data is read in the browser (TanStack Query); each section loads on its own and is cached between visits.

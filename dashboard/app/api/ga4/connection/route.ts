@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 // Analytics ▸ Google Analytics (paycraft-paywall-analytics T16). PUT { propertyId }: run a tiny test report with
 // PayCraft's Viewer account, then store the property with the result (verified, or why not). DELETE: disconnect.
 

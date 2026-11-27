@@ -70,7 +70,7 @@ const put = (rows: unknown) =>
       method: "PUT",
       body: JSON.stringify({ rows }),
     }),
-    { params: { id: PRODUCT } },
+    { params: Promise.resolve({ id: PRODUCT }) },
   )
 
 beforeEach(() => {
@@ -164,7 +164,7 @@ describe("PUT /v1/products/{id}/pricing", () => {
           method: "PUT",
           body: JSON.stringify({ rows: [{ locale: "IN", currency: "INR", amount_cents: 8999 }] }),
         }),
-        { params: { id } },
+        { params: Promise.resolve({ id }) },
       )
       expect(res.status).toBe(400)
       expect((await res.json()).error).toBe("invalid_product_id")

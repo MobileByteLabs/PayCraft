@@ -1,10 +1,8 @@
-export const runtime = "edge"
-
 import { NextRequest, NextResponse } from "next/server"
 import Stripe from "stripe"
 import { createClient } from "@/lib/supabase-server"
 import { verifyState } from "@/lib/stripe-oauth-state"
-import { getPlatformStripeClient } from "@/lib/stripe-client"
+import { getPlatformStripeClient, stripeClient } from "@/lib/stripe-client"
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const DASHBOARD_URL = process.env.NEXT_PUBLIC_PAYCRAFT_DASHBOARD_URL ?? "http://localhost:3000"
@@ -75,7 +73,7 @@ export async function GET(req: NextRequest) {
 
   // 3. Register webhook endpoint on the connected account.
   try {
-    const connected = new Stripe(tokenResp.access_token, { apiVersion: "2026-05-27.dahlia" as Stripe.LatestApiVersion })
+    const connected = stripeClient(tokenResp.access_token)
     const webhookUrl = `${SUPABASE_URL}/functions/v1/stripe-webhook/${verified.tenantId}`
     const we = await connected.webhookEndpoints.create({
       url: webhookUrl,

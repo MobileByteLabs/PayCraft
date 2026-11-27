@@ -336,11 +336,20 @@ export function ExperimentsView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tenant_offerings")
-        .select("id,identifier,display_name")
+        .select("id,identifier,display_name,tenant_packages(active,tenant_products(sku,display_name,active))")
         .eq("tenant_id", tenantId)
         .eq("active", true)
       if (error) throw new Error(error.message)
-      return (data ?? []) as EditorOffering[]
+      // Each offering's active plans — what a variant can pre-select (migration 221).
+      type Row = Omit<EditorOffering, "plans"> & {
+        tenant_packages?: { active: boolean; tenant_products?: { sku: string; display_name: string; active: boolean }[] }[]
+      }
+      return ((data ?? []) as Row[]).map(({ tenant_packages, ...o }): EditorOffering => ({
+        ...o,
+        plans: (tenant_packages ?? []).filter((p) => p.active)
+          .flatMap((p) => (p.tenant_products ?? []).filter((pr) => pr.active))
+          .map(({ sku, display_name }) => ({ sku, display_name })),
+      }))
     },
   })
   const failed = experimentsQuery.isError ? experimentsQuery : offeringsQuery.isError ? offeringsQuery : null

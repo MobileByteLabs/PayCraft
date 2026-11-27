@@ -1,10 +1,8 @@
-export const runtime = "edge"
-
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
 import { requireTenant } from "@/lib/tenant"
 import { createClient } from "@/lib/supabase-server"
-import { getPlatformStripeClient } from "@/lib/stripe-client"
+import { getPlatformStripeClient, stripeClient } from "@/lib/stripe-client"
 
 /**
  * DELETE — disconnect the Manual API keys row (tenant_providers).
@@ -50,7 +48,7 @@ export async function POST() {
   // 1. Revoke webhook endpoint on the connected account.
   if (data.webhook_endpoint_id) {
     try {
-      const connected = new Stripe(data.access_token, { apiVersion: "2026-05-27.dahlia" as Stripe.LatestApiVersion })
+      const connected = stripeClient(data.access_token)
       await connected.webhookEndpoints.del(data.webhook_endpoint_id)
     } catch (e: any) {
       console.error("[stripe-disconnect] webhook delete failed:", e.message)

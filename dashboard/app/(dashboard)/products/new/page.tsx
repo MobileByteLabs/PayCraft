@@ -1,8 +1,9 @@
-export const runtime = "edge"
+"use client"
 
+import { useSearchParams } from "next/navigation"
 import { NewProduct } from "@/components/products/product-form-pages"
 
-// Data is read in the browser (TanStack Query) — this page renders instantly and is cached between visits.
-export default function NewProductPage({ searchParams }: { searchParams?: { mode?: string } }) {
-  return <NewProduct mode={searchParams?.mode} />
+// Reads ?mode= from the URL rather than a `searchParams` prop — see products/[id]/page.tsx.
+export default function NewProductPage() {
+  return <NewProduct mode={useSearchParams().get("mode") ?? undefined} />
 }

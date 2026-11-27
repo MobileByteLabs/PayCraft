@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import Link from "next/link"
 import { ArrowLeft, Info } from "lucide-react"
 import { ProviderConnectionsManager } from "@/components/providers/provider-connections-manager"

@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { Terminal } from "lucide-react"
 import { DeveloperApiClient } from "@/components/settings/developer-api-client"
 

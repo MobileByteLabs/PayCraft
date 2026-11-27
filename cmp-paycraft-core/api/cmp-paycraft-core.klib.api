@@ -1443,8 +1443,10 @@ final class com.mobilebytelabs.paycraft.config/CouponDto { // com.mobilebytelabs
 }
 
 final class com.mobilebytelabs.paycraft.config/ExperimentAssignment { // com.mobilebytelabs.paycraft.config/ExperimentAssignment|null[0]
-    constructor <init>(kotlin/String, kotlin/String) // com.mobilebytelabs.paycraft.config/ExperimentAssignment.<init>|<init>(kotlin.String;kotlin.String){}[0]
+    constructor <init>(kotlin/String, kotlin/String, kotlin/String? = ...) // com.mobilebytelabs.paycraft.config/ExperimentAssignment.<init>|<init>(kotlin.String;kotlin.String;kotlin.String?){}[0]
 
+    final val defaultSku // com.mobilebytelabs.paycraft.config/ExperimentAssignment.defaultSku|{}defaultSku[0]
+        final fun <get-defaultSku>(): kotlin/String? // com.mobilebytelabs.paycraft.config/ExperimentAssignment.defaultSku.<get-defaultSku>|<get-defaultSku>(){}[0]
     final val experiment // com.mobilebytelabs.paycraft.config/ExperimentAssignment.experiment|{}experiment[0]
         final fun <get-experiment>(): kotlin/String // com.mobilebytelabs.paycraft.config/ExperimentAssignment.experiment.<get-experiment>|<get-experiment>(){}[0]
     final val variant // com.mobilebytelabs.paycraft.config/ExperimentAssignment.variant|{}variant[0]
@@ -1452,7 +1454,8 @@ final class com.mobilebytelabs.paycraft.config/ExperimentAssignment { // com.mob
 
     final fun component1(): kotlin/String // com.mobilebytelabs.paycraft.config/ExperimentAssignment.component1|component1(){}[0]
     final fun component2(): kotlin/String // com.mobilebytelabs.paycraft.config/ExperimentAssignment.component2|component2(){}[0]
-    final fun copy(kotlin/String = ..., kotlin/String = ...): com.mobilebytelabs.paycraft.config/ExperimentAssignment // com.mobilebytelabs.paycraft.config/ExperimentAssignment.copy|copy(kotlin.String;kotlin.String){}[0]
+    final fun component3(): kotlin/String? // com.mobilebytelabs.paycraft.config/ExperimentAssignment.component3|component3(){}[0]
+    final fun copy(kotlin/String = ..., kotlin/String = ..., kotlin/String? = ...): com.mobilebytelabs.paycraft.config/ExperimentAssignment // com.mobilebytelabs.paycraft.config/ExperimentAssignment.copy|copy(kotlin.String;kotlin.String;kotlin.String?){}[0]
     final fun equals(kotlin/Any?): kotlin/Boolean // com.mobilebytelabs.paycraft.config/ExperimentAssignment.equals|equals(kotlin.Any?){}[0]
     final fun hashCode(): kotlin/Int // com.mobilebytelabs.paycraft.config/ExperimentAssignment.hashCode|hashCode(){}[0]
     final fun toString(): kotlin/String // com.mobilebytelabs.paycraft.config/ExperimentAssignment.toString|toString(){}[0]
@@ -1475,8 +1478,10 @@ final class com.mobilebytelabs.paycraft.config/ExperimentDto { // com.mobilebyte
 }
 
 final class com.mobilebytelabs.paycraft.config/ExperimentVariantDto { // com.mobilebytelabs.paycraft.config/ExperimentVariantDto|null[0]
-    constructor <init>(kotlin/String = ..., kotlin/Int = ..., kotlin/String = ...) // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.<init>|<init>(kotlin.String;kotlin.Int;kotlin.String){}[0]
+    constructor <init>(kotlin/String = ..., kotlin/Int = ..., kotlin/String = ..., kotlin/String? = ...) // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.<init>|<init>(kotlin.String;kotlin.Int;kotlin.String;kotlin.String?){}[0]
 
+    final val defaultSku // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.defaultSku|{}defaultSku[0]
+        final fun <get-defaultSku>(): kotlin/String? // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.defaultSku.<get-defaultSku>|<get-defaultSku>(){}[0]
     final val key // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.key|{}key[0]
         final fun <get-key>(): kotlin/String // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.key.<get-key>|<get-key>(){}[0]
     final val offeringId // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.offeringId|{}offeringId[0]
@@ -1487,7 +1492,8 @@ final class com.mobilebytelabs.paycraft.config/ExperimentVariantDto { // com.mob
     final fun component1(): kotlin/String // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.component1|component1(){}[0]
     final fun component2(): kotlin/Int // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.component2|component2(){}[0]
     final fun component3(): kotlin/String // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.component3|component3(){}[0]
-    final fun copy(kotlin/String = ..., kotlin/Int = ..., kotlin/String = ...): com.mobilebytelabs.paycraft.config/ExperimentVariantDto // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.copy|copy(kotlin.String;kotlin.Int;kotlin.String){}[0]
+    final fun component4(): kotlin/String? // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.component4|component4(){}[0]
+    final fun copy(kotlin/String = ..., kotlin/Int = ..., kotlin/String = ..., kotlin/String? = ...): com.mobilebytelabs.paycraft.config/ExperimentVariantDto // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.copy|copy(kotlin.String;kotlin.Int;kotlin.String;kotlin.String?){}[0]
     final fun equals(kotlin/Any?): kotlin/Boolean // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.equals|equals(kotlin.Any?){}[0]
     final fun hashCode(): kotlin/Int // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.hashCode|hashCode(){}[0]
     final fun toString(): kotlin/String // com.mobilebytelabs.paycraft.config/ExperimentVariantDto.toString|toString(){}[0]

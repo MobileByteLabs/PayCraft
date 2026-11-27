@@ -21,7 +21,8 @@
 #                              None declared → WARN and SKIP phases 3/3.5; the target is never
 #                              redirected to the prod database.
 #             3 / 3.5          migrations + Edge Functions, against the STAGING project
-#             5 DEPLOY CLOUDFLARE  same Pages project, --branch=staging → staging.paycraft.pages.dev
+#             4 SECRETS SYNC   vault → the STAGING Worker's secrets (same map, `--env staging`)
+#             5 DEPLOY CLOUDFLARE  the staging Worker (wrangler env "staging") → paycraft-dashboard-staging.*.workers.dev
 #             6 SMOKE          on success writes .state/last-staging.json (the promote precondition)
 #
 #   --promote-to-prod  the prod chain, gated on: staging was deployed AND smoked AND HEAD has not
@@ -31,12 +32,12 @@
 #             1 PRE-FLIGHT     verify CLIs/vault/cloudflare/gh; warn on un-pushed dev commits;
 #                              TYPECHECK the dashboard (tsc --noEmit) so a broken build never
 #                              reaches main (--skip-build to bypass)
-#             2 SECRETS SYNC   vault → Cloudflare Pages secrets (any failed required secret FAILS)
+#             2 SECRETS SYNC   vault → Cloudflare Worker secrets (any failed required secret FAILS)
 #             3 MIGRATIONS     detect pending (db push --dry-run) → DESTRUCTIVE-op scan (gated by
 #                              --allow-destructive) → pre-push schema BACKUP → supabase db push →
 #                              POST-PUSH VERIFY (0 pending). Aborts the chain on any failure.
 #             3.5 FUNCTIONS DEPLOY  vault-mediated supabase functions deploy (Edge Functions)
-#             5 DEPLOY CLOUDFLARE  build + `npm run pages:deploy` → dashboard on Cloudflare Pages (next-on-pages)
+#             5 DEPLOY CLOUDFLARE  build + `npm run deploy` → the `paycraft-dashboard` Worker (Vite dashboard + OpenNext)
 #             6 SMOKE          curl /api/health + /auth/login + root + Edge Function /config reachability, then infra/deploy/e2e.sh (SDK paths, throwaway tenant)
 #
 # Dry-run by default — pass --apply --confirm-production for mutating prod phases. Dry-run still
@@ -69,7 +70,7 @@ LEDGER="$PAYCRAFT_SRC/infra/deploy/.deploy-ledger.jsonl"
 mkdir -p "$STATE_DIR"
 
 PROD_URL="https://paycraft.mobilebytesensei.com"
-CF_PAGES_PROJECT="paycraft"   # Cloudflare Pages project (next-on-pages, edge runtime + nodejs_compat)
+CF_WORKER="paycraft-dashboard"   # Cloudflare Worker (OpenNext; dashboard/wrangler.jsonc) — was the `paycraft` Pages project
 GITHUB_REPO="MobileByteLabs/PayCraft"
 SUPABASE_REF="mlwfgytjxlqyfxcgpysm"
 
@@ -78,13 +79,13 @@ SUPABASE_REF="mlwfgytjxlqyfxcgpysm"
 # dev. That is the point: you see the change running before deciding it deserves production. So the
 # staging chain has no PROMOTE phase; promotion is the separate, deliberate act.
 #
-# The dashboard rides the same Cloudflare Pages project on a different BRANCH, which gives a stable
-# preview host with no new infrastructure. The DATABASE does not get that luxury: a staging deploy
+# The dashboard deploys to a separate staging Worker (wrangler env "staging" in dashboard/wrangler.jsonc)
+# with its own secrets and a stable workers.dev host. The DATABASE does not get that luxury: a staging deploy
 # must never apply migrations to the production project, so the Supabase target is resolved from the
 # registry and the run HALTS if no staging project is declared — rather than falling back to prod,
 # which is the one failure mode that would make staging worse than useless.
-STAGING_BRANCH="staging"
-STAGING_URL="https://${STAGING_BRANCH}.${CF_PAGES_PROJECT}.pages.dev"
+STAGING_ENV="staging"
+STAGING_URL="https://${CF_WORKER}-${STAGING_ENV}.mobilebytesensei.workers.dev"
 STAGING_SUPABASE_REF=""       # resolved by resolve_staging_target(); empty = not configured
 STAGING_DB_READY=false        # true only when a staging project + db_url alias both resolve
 
@@ -226,8 +227,8 @@ run_phase() {
     fi
 }
 
-# (Vercel removed 2026-08-23 — dashboard deploys to Cloudflare Pages; the old
-#  vercel_api helper + VERCEL_* project vars are gone.)
+# (Vercel removed 2026-08-23; the Cloudflare Pages project replaced by the paycraft-dashboard Worker
+#  2026-11-27.)
 
 # ═══════════════════════════════════════════════════════════
 # Phase implementations
@@ -290,7 +291,7 @@ phase_1_preflight() {
         echo "  ✓ dashboard typecheck clean"
         rm -f "$tc_log"
     else
-        echo "  ✗ dashboard typecheck FAILED — fix before deploying (a broken build would fail the Pages deploy):"
+        echo "  ✗ dashboard typecheck FAILED — fix before deploying (a broken build would fail the Worker deploy):"
         grep -E "error TS" "$tc_log" | head -20 || tail -20 "$tc_log"
         rm -f "$tc_log"
         return 1
@@ -307,8 +308,8 @@ cf_pull_creds() {
 }
 
 phase_2_secrets_sync() {
-    # Runtime secrets → Cloudflare PAGES project secrets (`wrangler pages secret put --project-name`;
-    # the dashboard is a Pages project, not a Worker). The alias→env-NAME map is
+    # Runtime secrets → the dashboard WORKER's secrets (`wrangler secret put`; `--env staging` for the
+    # staging Worker). The alias→env-NAME map is
     # dashboard/cloudflare-secrets.map; the walk lives in lib-secrets-sync.sh (canary:
     # tests/secrets-sync-canary). Every entry is REQUIRED unless the map marks it
     # `| optional: <reason>`, and ANY failed write fails this phase — it used to print ✗ and PASS.
@@ -317,7 +318,7 @@ phase_2_secrets_sync() {
         echo "  ✗ dashboard/cloudflare-secrets.map not found — refusing to deploy with unknown runtime secrets"; return 1
     fi
     if [[ "$APPLY" != "true" ]]; then
-        echo "  [DRY] would set these Pages secrets on project '$CF_PAGES_PROJECT' (value from vault alias):"
+        echo "  [DRY] would set these secrets on Worker '$CF_WORKER'$([[ "$MODE" = "staging" ]] && echo " (env $STAGING_ENV)") (value from vault alias):"
         grep -vE '^[[:space:]]*(#|$)' "$map" | while IFS='=' read -r env alias; do
             printf "        %-34s ← %s\n" "$(echo "$env" | tr -d '[:space:]')" "$(echo "$alias" | sed -E 's/^[[:space:]]+//')"
         done
@@ -331,7 +332,7 @@ phase_2_secrets_sync() {
     cf_pull_creds "$tmpd" || return 1
     ( cd "$PAYCRAFT_SRC/dashboard" \
         && export CLOUDFLARE_ACCOUNT_ID="$(cat "$tmpd/acct")" CLOUDFLARE_API_TOKEN="$(cat "$tmpd/tok")" \
-        && cf_pages_secrets_sync "$map" "$CF_PAGES_PROJECT" )
+        && cf_worker_secrets_sync "$map" "$([[ "$MODE" = "staging" ]] && echo "$STAGING_ENV")" )
 }
 
 # ── Pre-migration schema snapshot ────────────────────────────────────────────────────────────────
@@ -600,34 +601,28 @@ phase_4_promote() {
     return 0
 }
 
-# Phase 5 — DIRECT deploy the dashboard to Cloudflare Pages (next-on-pages).
-# Migrated off Vercel auto-deploy (2026-08-23), then off Workers/OpenNext to
-# Pages/next-on-pages later the same day — prod deploy is a direct build+push we
-# own, with no external CI webhook to wait on. `npm run pages:deploy` =
-# `@cloudflare/next-on-pages` (emits the Build Output API tree at .vercel/output/,
-# which is NOT a Vercel deployment) then `wrangler pages deploy
-# .vercel/output/static --project-name=paycraft --branch=main` — where --branch is
-# the Pages PRODUCTION-BRANCH ALIAS, not a git branch (reads CLOUDFLARE_ACCOUNT_ID
-# + CLOUDFLARE_API_TOKEN, pulled SV32-safe from the vault).
+# Phase 5 — DIRECT deploy the dashboard to the `paycraft-dashboard` Cloudflare Worker.
+# History: Vercel → Workers/OpenNext → Pages/next-on-pages (2026-08-23) → Workers/OpenNext again
+# (2026-11-27): next-on-pages is deprecated and edge-only, and OpenNext needed Next 15.5+, which the
+# dashboard now is (16). `npm run deploy` = Vite build of the dashboard (spa/ → public/_spa) +
+# `opennextjs-cloudflare build` + `opennextjs-cloudflare deploy` (reads CLOUDFLARE_ACCOUNT_ID +
+# CLOUDFLARE_API_TOKEN, pulled SV32-safe from the vault). The three hostnames reach the Worker through
+# zone Worker routes; dashboard/wrangler.jsonc + worker.ts are the config.
 phase_5_deploy_cloudflare() {
     local dash="$PAYCRAFT_SRC/dashboard"
-    # One phase, two branches of the SAME Pages project. Staging used to have its own copy of this
-    # function, which is how it lost the vault creds and the NEXT_PUBLIC_* materialization below and
-    # would have shipped a bundle pointing at whatever .env.local the operator happened to have.
-    local deploy_branch="main" public_url="$PROD_URL" label="production"
+    # One phase, two Workers (production, and the wrangler env "staging"). Staging used to have its own
+    # copy of this function, which is how it lost the vault creds and the NEXT_PUBLIC_* materialization
+    # below and would have shipped a bundle pointing at whatever .env.local the operator happened to have.
+    local wenv="" public_url="$PROD_URL" label="production"
     if [[ "$MODE" = "staging" ]]; then
-        deploy_branch="$STAGING_BRANCH"; public_url="$STAGING_URL"; label="staging"
+        wenv="$STAGING_ENV"; public_url="$STAGING_URL"; label="staging"
     fi
     if [[ "$APPLY" != "true" ]]; then
-        echo "  [DRY] would build + deploy dashboard → Cloudflare Pages branch '$deploy_branch' ($public_url)"
+        echo "  [DRY] would build + deploy dashboard → Worker '$CF_WORKER'${wenv:+ (env $wenv)} ($public_url)"
         return 0
     fi
-    command -v npx >/dev/null 2>&1 || { echo "  ✗ node/npx required for pages:deploy"; return 1; }
-    # next-on-pages Pages deploys don't require a repo wrangler.jsonc — the
-    # `nodejs_compat` compatibility flag lives in the Cloudflare Pages project
-    # settings (the migration off OpenNext/Workers removed the Workers-format
-    # wrangler.jsonc on purpose). Treat its absence as informational, not fatal.
-    [[ -f "$dash/wrangler.jsonc" ]] || echo "  ↷ no dashboard/wrangler.jsonc — relying on Pages project settings (nodejs_compat)"
+    command -v npx >/dev/null 2>&1 || { echo "  ✗ node/npx required for the OpenNext deploy"; return 1; }
+    [[ -f "$dash/wrangler.jsonc" ]] || { echo "  ✗ dashboard/wrangler.jsonc missing — it names the Worker"; return 1; }
 
     # Pull Cloudflare creds from the vault (SV32-safe; tmpfiles shredded on return).
     local tmpd; tmpd=$(mktemp -d); trap 'rm -rf "$tmpd" 2>/dev/null' RETURN
@@ -653,25 +648,21 @@ phase_5_deploy_cloudflare() {
     } >> "$ep"
     echo "  ✓ ${label} build-time env materialized → .env.production.local ($TARGET_URL_ALIAS, $TARGET_ANON_ALIAS)"
 
-    echo "  Building + deploying dashboard → Cloudflare Pages branch '$deploy_branch' (next-on-pages, edge)…"
+    echo "  Building + deploying dashboard → Worker '$CF_WORKER'${wenv:+ (env $wenv)} (Vite + OpenNext)…"
     [[ -d "$dash/node_modules" ]] || ( cd "$dash" && npm install --no-audit --no-fund --legacy-peer-deps >/dev/null 2>&1 )
-    # `npm run pages:deploy` hardcodes --branch=main, so staging spells the two steps out rather
-    # than passing a branch the script would ignore. Same binaries, same artifact directory.
+    # Both builds read the NEXT_PUBLIC_* values from .env.production.local above (Next natively; the
+    # Vite config through loadEnv), so one materialization covers the Next pages and the dashboard.
     if ( cd "$dash" \
           && export CLOUDFLARE_ACCOUNT_ID="$(cat "$tmpd/acct")" \
                     CLOUDFLARE_API_TOKEN="$(cat "$tmpd/tok")" \
-          && if [[ "$deploy_branch" = "main" ]]; then
-                 npm run pages:deploy
-             else
-                 npx @cloudflare/next-on-pages@1 \
-                   && npx wrangler pages deploy .vercel/output/static \
-                        --project-name="$CF_PAGES_PROJECT" --branch="$deploy_branch"
-             fi ); then
-        echo "  ✓ Dashboard deployed to Cloudflare Pages ($CF_PAGES_PROJECT, branch $deploy_branch → $public_url)"
+          && npm run spa:build \
+          && npx opennextjs-cloudflare build \
+          && npx opennextjs-cloudflare deploy ${wenv:+--env "$wenv"} ); then
+        echo "  ✓ Dashboard deployed to Worker $CF_WORKER${wenv:+ (env $wenv)} → $public_url"
         [[ "$MODE" = "staging" ]] || echo "$PROD_URL" > "$STATE_DIR/last-deploy-url"
         return 0
     fi
-    echo "  ✗ pages:deploy failed — check next-on-pages/wrangler output above (edge-runtime on all routes? nodejs_compat set? token Pages-scope?)"
+    echo "  ✗ dashboard deploy failed — check the Vite / OpenNext / wrangler output above"
     return 1
 }
 
@@ -1253,7 +1244,7 @@ phase_s2_5_auth_allowlist() {
 
     local missing=()
     while IFS= read -r m; do [[ -n "$m" ]] && missing+=("$m"); done \
-        < <(auth_allowlist_missing "$cur" "$STAGING_URL" "$CF_PAGES_PROJECT")
+        < <(auth_allowlist_missing "$cur" "$STAGING_URL" "")   # a Worker: one fixed staging host
 
     if [[ ${#missing[@]} -eq 0 ]]; then
         echo "  ✓ staging origin already an allowed auth redirect"
@@ -1339,6 +1330,8 @@ if [[ "$MODE" = "staging" ]]; then
         phase_end 3   "MIGRATIONS"       "SKIP" "0" "no staging database"
         phase_end 3.5 "FUNCTIONS DEPLOY" "SKIP" "0" "no staging database"
     fi
+    # The staging Worker is a separate script with its own secrets (a Pages branch shared the project's).
+    run_phase 4   "SECRETS SYNC"      "phase_2_secrets_sync"              || exit 1
     run_phase 5   "DEPLOY CLOUDFLARE" "phase_5_deploy_cloudflare"        || exit 1
     run_phase 6   "SMOKE"             "phase_s6_smoke_staging"            || exit 1
 
@@ -1400,7 +1393,7 @@ run_phase 6   "SMOKE"            "phase_6_smoke"         || exit 1
 banner "PayCraft Deploy — done in $(($(date -u +%s) - START_TS))s"
 echo "  Live: $PROD_URL"
 
-# Stamp what SHIPPED, which is the CHECKOUT — phase 5 runs `npm run pages:deploy` inside
+# Stamp what SHIPPED, which is the CHECKOUT — phase 5 builds and deploys from inside
 # $PAYCRAFT_SRC/dashboard, so the bytes come from the working tree, not from origin/dev.
 # This line used to record origin/dev's sha, which made the ledger misattribute every deploy whose
 # checkout differed from it: on 2026-10-09 an uncommitted drift-detector fix went live while the

@@ -3,13 +3,13 @@ name: Deploy PayCraft — Supabase, dashboard, docs
 # ONE deploy unit for everything that ships from this repo to production:
 #
 #   supabase          → migrations + edge functions
-#   deploy-dashboard  → Pages project `paycraft`      — paycraft / api.paycraft / mcp.paycraft
-#   deploy-docs       → Pages project `paycraft-docs` — docs.paycraft
+#   deploy-dashboard  → Worker `paycraft-dashboard` (OpenNext) — paycraft / api.paycraft / mcp.paycraft
+#   deploy-docs       → Pages project `paycraft-docs`          — docs.paycraft
 #   smoke             → cloud-smoke.yml against the live dashboard
 #
-# api. and mcp. are CUSTOM DOMAINS on the `paycraft` project, not separate deploys — the same
-# Next.js app answers all three hostnames and routes by path. There is nothing to deploy for
-# them independently.
+# api. and mcp. are Worker ROUTES on the same Worker (dashboard/wrangler.jsonc), not separate
+# deploys — the same app answers all three hostnames and routes by Host header. There is nothing
+# to deploy for them independently.
 #
 # The docs job arrived here on 2026-09-24 from a standalone docs-deploy.yml. It was not merely
 # tidier: that site had THREE publishers racing on every push to dev (this repo's workflow, a
@@ -29,13 +29,11 @@ name: Deploy PayCraft — Supabase, dashboard, docs
 # only from `infra/deploy/deploy.sh` on a laptop — skipping the migrations-first
 # ordering below and the smoke job at the bottom.
 #
-# NOTE: the `--branch=main` in `dashboard/package.json#pages:deploy` is the
-# CLOUDFLARE PAGES production-branch alias, not a git branch. It must stay
-# `main` — changing it to `dev` would demote these to PREVIEW deployments and
-# paycraft.mobilebytesensei.com would stop updating.
+#
+# MANUAL ONLY (2026-11-27): Actions minutes are paid, and production ships from
+# `infra/deploy/deploy.sh --prod` on a workstation. Run this from the Actions tab when a CI-side
+# deploy is wanted; merging to dev no longer triggers it.
 on:
-  push:
-    branches: [dev]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -107,7 +105,7 @@ jobs:
         run: bash scripts/deploy-cloud.sh
 
   deploy-dashboard:
-    name: Deploy Next.js dashboard to Cloudflare Pages
+    name: Deploy dashboard to Cloudflare Workers (OpenNext)
     runs-on: ubuntu-latest
     needs: [supabase]
     if: github.event.inputs.dry_run != 'true'
@@ -117,25 +115,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Node 22, not 20: `pages:deploy` invokes wrangler directly, and wrangler enforces a hard
-      # floor — "Wrangler requires at least Node.js v22.0.0. You are using v20.20.2." The
-      # next-on-pages BUILD succeeds on 20 and the failure lands afterwards, on the upload, so the
-      # log reads as a deploy problem rather than a runtime-version one (2026-09-19 run 35447678934:
-      # "Build completed in 25.99s" immediately followed by exit 1).
+      # Node 22, not 20: wrangler enforces a hard floor — "Wrangler requires at least Node.js
+      # v22.0.0" — and the failure lands after the build, on the upload, so the log reads as a
+      # deploy problem rather than a runtime-version one (2026-09-19 run 35447678934).
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      # The dashboard is a STANDALONE Next.js app under dashboard/ (no root workspace).
-      # Deploy target moved twice on 2026-08-23: Vercel → Workers/OpenNext → Pages/next-on-pages.
-      # The second move deleted the cf:build/cf:preview/cf:deploy scripts and @opennextjs/cloudflare,
-      # but this workflow kept invoking the deleted cf:deploy script — so every CI deploy since
-      # has failed with `Missing script`, which also skipped the smoke job that depends on it.
-      # Only the local infra/deploy/deploy.sh path (which calls pages:deploy) has been shipping.
+      # The dashboard is a STANDALONE Next.js app under dashboard/ (no root workspace), with the
+      # signed-in dashboard built by Vite (spa/). Deploy target history: Vercel → Pages/next-on-pages
+      # (2026-08-23) → Workers/OpenNext (2026-11-27, Next 16).
       #
-      # pages:deploy = `npx @cloudflare/next-on-pages@1 && wrangler pages deploy .vercel/output/static
-      #                 --project-name=paycraft --branch=main`
-      # (reads CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN below).
+      # deploy = `vite build` (spa/ → public/_spa) + `opennextjs-cloudflare build` +
+      #          `opennextjs-cloudflare deploy` (reads CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN below).
+      # Runtime secrets live on the Worker (infra/deploy/deploy.sh phase 2) and survive deploys.
       - name: Install deps
         run: npm install
 
@@ -172,11 +165,11 @@ jobs:
             echo "::error::NEXT_PUBLIC_GA_ID '$NEXT_PUBLIC_GA_ID' is not a GA4 measurement id"; exit 1; }
           echo "browser env present: URL + ANON_KEY + GA4 $NEXT_PUBLIC_GA_ID"
 
-      - name: Build + deploy to Cloudflare Pages
-        run: npm run pages:deploy
+      - name: Build + deploy to Cloudflare Workers
+        run: npm run deploy
         env:
-          # NEXT_PUBLIC_* is inlined by `next build`, so this must be set HERE at
-          # build time — a Pages dashboard env var would be read too late. Without
+          # NEXT_PUBLIC_* is inlined by `next build` and the Vite build, so this must be set HERE at
+          # build time — a Worker env var would be read too late. Without
           # it /api/health reports env "local" in production (route.ts falls back),
           # which is why a live build could not be told apart from a local one.
           NEXT_PUBLIC_APP_ENV: production

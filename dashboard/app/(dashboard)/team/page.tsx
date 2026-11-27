@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { TeamClient } from "./team-client"
 
 /**

@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { ShieldAlert } from "lucide-react"
 import { AccountTokensClient } from "@/components/settings/account-tokens-client"
 

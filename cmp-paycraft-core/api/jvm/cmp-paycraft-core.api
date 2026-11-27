@@ -798,12 +798,15 @@ public final class com/mobilebytelabs/paycraft/config/CouponDto$Companion {
 }
 
 public final class com/mobilebytelabs/paycraft/config/ExperimentAssignment {
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lcom/mobilebytelabs/paycraft/config/ExperimentAssignment;
-	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/config/ExperimentAssignment;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/config/ExperimentAssignment;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lcom/mobilebytelabs/paycraft/config/ExperimentAssignment;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/config/ExperimentAssignment;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/config/ExperimentAssignment;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDefaultSku ()Ljava/lang/String;
 	public final fun getExperiment ()Ljava/lang/String;
 	public final fun getVariant ()Ljava/lang/String;
 	public fun hashCode ()I
@@ -832,14 +835,16 @@ public final class com/mobilebytelabs/paycraft/config/ExperimentKt {
 
 public final class com/mobilebytelabs/paycraft/config/ExperimentVariantDto {
 	public fun <init> ()V
-	public fun <init> (Ljava/lang/String;ILjava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/String;ILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component2 ()I
 	public final fun component3 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;ILjava/lang/String;)Lcom/mobilebytelabs/paycraft/config/ExperimentVariantDto;
-	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/config/ExperimentVariantDto;Ljava/lang/String;ILjava/lang/String;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/config/ExperimentVariantDto;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)Lcom/mobilebytelabs/paycraft/config/ExperimentVariantDto;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/config/ExperimentVariantDto;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/config/ExperimentVariantDto;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDefaultSku ()Ljava/lang/String;
 	public final fun getKey ()Ljava/lang/String;
 	public final fun getOfferingId ()Ljava/lang/String;
 	public final fun getWeight ()I

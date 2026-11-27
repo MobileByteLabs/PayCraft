@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
@@ -10,7 +8,8 @@ import { COUPON_SYNC_PROVIDERS, couponSyncArgsFromRow, syncCouponToProvider } fr
  * sub-requests per invocation and the Google Play / App Store adapters iterate every product, so the old
  * fire-and-forget fan-out from the save route was cut off and reached no store.
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { tenant } = await requireTenant()
   const provider = req.nextUrl.searchParams.get("provider") ?? ""
   if (!COUPON_SYNC_PROVIDERS.includes(provider)) {

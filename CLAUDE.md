@@ -152,9 +152,13 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
   `config/Experiment.kt` hashes `key:deviceId` (FNV-1a) into the weights and `PayCraft.applySuiteConfig` — the one
   door every config passes through — makes the variant's offering current and drops products only OTHER variants
   sell. A missing offering or no experiment leaves the paywall unchanged.
+- **Pre-selected plan (221):** a variant may carry `default_sku` (inside `variants`; checked on save to be an active
+  plan its offering sells — `experiment_default_sku_unknown`). It rides on `ExperimentAssignment.defaultSku` (dropped
+  when the variant doesn't sell it) and `PayCraftPaywallViewModel` (`initialSelectedPlan` / `applyDefaultPlan`) opens
+  on it ahead of `popular_plan_sku` and the workflow's `is_selected_by_default`. The web SDK doesn't apply experiments.
 - **Results:** every paywall event carries `experiment` + `variant` (`PayCraft.activeExperiment` → `PayCraftEvent` →
   `events` → `paywall_events`); `paywall_experiment_results` counts distinct devices per step, live mode only, inside
-  the run window. Tests: `ExperimentAssignmentTest`, `supabase/tests/206_paywall_experiments_test.sql`.
+  the run window. Tests: `ExperimentAssignmentTest`, `ExperimentDefaultPlanTest`, `supabase/tests/206_paywall_experiments_test.sql`, `221_experiment_default_plan_test.sql`.
 
 ## App Store refund requests
 

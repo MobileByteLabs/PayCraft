@@ -1,5 +1,3 @@
-export const runtime = "edge"
-
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase-server"
 import { requireTenant } from "@/lib/tenant"
@@ -13,7 +11,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  * Marks one alert of the ACTIVE app read. RLS (211) already limits an admin to their own apps' rows and to the
  * read_at column; the tenant filter keeps an admin of several apps from marking another app's alert by id.
  */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!UUID.test(params.id)) return NextResponse.json({ error: "bad_id" }, { status: 400 })
   const { tenant } = await requireTenant()
   const sb = createClient()
