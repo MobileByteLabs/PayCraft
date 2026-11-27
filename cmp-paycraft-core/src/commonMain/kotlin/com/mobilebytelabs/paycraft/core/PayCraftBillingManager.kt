@@ -1279,7 +1279,10 @@ class PayCraftBillingManager(
             if (afterVerifiedSignIn) {
                 // This registration IS the verified sign-in's — ownership is already proven, so the buyer goes
                 // straight to picking a device to remove. DeviceConflict would ask them to sign in again.
-                PayCraftLogger.onFlow("performRegisterAndLogin", "→ verified sign-in at the device limit → OwnershipVerified")
+                PayCraftLogger.onFlow(
+                    "performRegisterAndLogin",
+                    "→ verified sign-in at the device limit → OwnershipVerified",
+                )
                 _billingState.value = BillingState.OwnershipVerified(
                     email = email,
                     pendingToken = reg.deviceToken,
