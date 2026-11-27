@@ -8,7 +8,7 @@
   issuer (recorded once per app — migration 219's `tenant_set_auth_issuer`, service role only); a refused token
   rolls the link back, and signing out of the app signs out of PayCraft. The restore / device-limit / link screens
   sign in the same way. Web: `PayCraftWeb.signInWithSession(accessToken)`. Adds a dependency on
-  `io.github.mobilebytelabs:cmp-supabase-auth` (0.3.5; its JVM artifacts need Java 21 until 0.3.6).
+  `io.github.mobilebytelabs:cmp-supabase-auth` 0.3.6.
 - **Win-back offers reach Android.** The exit survey sent the plan's id where `winback` looks products up by SKU,
   so the Google Play offer came back empty; it now sends the SKU (and the server accepts either, for apps already
   shipped).

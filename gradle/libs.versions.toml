@@ -95,7 +95,7 @@ googleid = "1.2.0"
 # kmp-supabase-auth — buyers sign in to the CONSUMER app's Supabase (PLAN paycraft-consumer-supabase-identity).
 # cmp-paycraft only (UI artifact); cmp-paycraft-core stays auth-free so the web bundle does not carry it.
 # Maven version; a local ../kmp-supabase-auth checkout substitutes source (settings.gradle.kts) for live development.
-kmp-supabase-auth = "0.3.5"
+kmp-supabase-auth = "0.3.6"
 # In-app sign-in browser (Chrome Custom Tabs) — PLAN-paycraft-verified-identity D2b.
 androidx-browser = "1.8.0"
 # Resume reminder (cmp-paycraft-core androidMain notify/) — one-time unique work survives process death and reboot.
