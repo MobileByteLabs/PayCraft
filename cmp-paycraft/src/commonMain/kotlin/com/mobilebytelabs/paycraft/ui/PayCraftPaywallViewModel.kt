@@ -65,7 +65,9 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
         if (abandonedAt != null && surveyState.value == null && gate.shouldShow(cfg, _state.value.isPremium)) {
             gate.markShown()
             funnel.surveyShown(abandonedAt)
-            surveyState.value = ExitSurveyUi.Asking(cfg!!, abandonedAt, _state.value.selectedPlan?.id)
+            // The SKU, not the plan id: winback looks the product up by sku (Reels Downloader answers carried
+            // product ids, so the Play lane came back empty and an Android buyer could not get the offer).
+            surveyState.value = ExitSurveyUi.Asking(cfg!!, abandonedAt, _state.value.selectedPlan?.sku)
             return
         }
         surveyState.value = null
@@ -80,12 +82,12 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
             when (val r = winback(code, asking.step.wire, asking.sku, freeText)) {
                 is WinbackResult.Offer -> {
                     funnel.offerShown(r.offer.percentOff)
-                    val plan =
-                        _state.value.plans.firstOrNull { it.id == (r.offer.sku ?: asking.sku) }
-                            ?: _state.value.selectedPlan
+                    val plan = planForOffer(_state.value.plans, r.offer.sku ?: asking.sku) ?: _state.value.selectedPlan
                     surveyState.value = ExitSurveyUi.OfferShown(r.offer, plan)
                 }
+
                 is WinbackResult.Message -> surveyState.value = ExitSurveyUi.MessageShown(r.text)
+
                 WinbackResult.None -> closeSurvey()
             }
         }
@@ -720,3 +722,7 @@ internal fun checkoutProviderFor(lane: CheckoutLane, providers: List<ProviderDto
     is CheckoutLane.NativeStoreKit -> "app_store"
     else -> providers.singleOrNull()?.provider
 }
+
+/** The plan a win-back offer is for: matched by SKU (what the server speaks); a legacy plan-id value still matches. */
+internal fun planForOffer(plans: List<BillingPlan>, sku: String?): BillingPlan? =
+    sku?.let { s -> plans.firstOrNull { it.sku == s } ?: plans.firstOrNull { it.id == s } }

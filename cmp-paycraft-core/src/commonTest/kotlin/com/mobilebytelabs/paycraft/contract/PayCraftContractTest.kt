@@ -279,6 +279,30 @@ class PayCraftContractTest {
         assertEquals("v@x", PayCraftContract.parseVerifiedEmail(obj("""{"email":"v@x"}""")))
     }
 
+    // identity-verify reads exactly these names (supabase/functions/identity-verify) — KMP and web share the shape.
+    @Test
+    fun consumer_session_body_matches_identity_verify() {
+        assertEquals(
+            """{"api_key":"pk","access_token":"at","device_token":"dt","platform":"android","device_name":"Pixel"}""",
+            PayCraftContract.consumerSessionVerifyBody("pk", "at", "dt", "android", "Pixel").toString(),
+        )
+        assertEquals(
+            """{"api_key":"pk","access_token":"at","device_token":"dt","platform":"web"}""",
+            PayCraftContract.consumerSessionVerifyBody("pk", "at", "dt", "web").toString(),
+        )
+        assertEquals(
+            "https://x.supabase.co/functions/v1/identity-verify",
+            PayCraftContract.consumerSessionVerifyUrl("https://x.supabase.co"),
+        )
+    }
+
+    @Test
+    fun email_claim_is_read_from_a_decoded_payload() {
+        assertEquals("ana@example.com", PayCraftContract.emailClaim("""{"sub":"u-1","email":" Ana@Example.com "}"""))
+        assertNull(PayCraftContract.emailClaim("""{"sub":"u-1"}"""))
+        assertNull(PayCraftContract.emailClaim("not json"))
+    }
+
     @Test
     fun headers_and_urls_are_the_ones_both_sdks_send() {
         assertEquals(

@@ -92,6 +92,10 @@ supabase = "3.8.0"
 # supabase compose-auth 3.8.0 resolves, so consumers that also use it see no upgrade from PayCraft.
 androidx-credentials = "1.6.0"
 googleid = "1.2.0"
+# kmp-supabase-auth — buyers sign in to the CONSUMER app's Supabase (PLAN paycraft-consumer-supabase-identity).
+# cmp-paycraft only (UI artifact); cmp-paycraft-core stays auth-free so the web bundle does not carry it.
+# Maven version; a local ../kmp-supabase-auth checkout substitutes source (settings.gradle.kts) for live development.
+kmp-supabase-auth = "0.3.5"
 # In-app sign-in browser (Chrome Custom Tabs) — PLAN-paycraft-verified-identity D2b.
 androidx-browser = "1.8.0"
 # Resume reminder (cmp-paycraft-core androidMain notify/) — one-time unique work survives process death and reboot.
@@ -158,6 +162,8 @@ androidx-activity-compose = { module = "androidx.activity:activity-compose", ver
 # Supabase
 supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt", version.ref = "supabase" }
 supabase-realtime  = { module = "io.github.jan-tennert.supabase:realtime-kt",  version.ref = "supabase" }
+kmp-supabase-auth         = { module = "io.github.mobilebytelabs:cmp-supabase-auth",         version.ref = "kmp-supabase-auth" }
+kmp-supabase-auth-compose = { module = "io.github.mobilebytelabs:cmp-supabase-auth-compose", version.ref = "kmp-supabase-auth" }
 
 # Credential Manager + Google ID (androidMain native Google sign-in)
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "androidx-credentials" }

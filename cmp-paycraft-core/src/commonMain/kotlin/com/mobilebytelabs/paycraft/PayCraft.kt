@@ -29,6 +29,10 @@ import com.mobilebytelabs.paycraft.core.MonetizationModeResolver
 import com.mobilebytelabs.paycraft.core.PaywallPresentation
 import com.mobilebytelabs.paycraft.core.SessionDebounce
 import com.mobilebytelabs.paycraft.core.TrialSnapshot
+import com.mobilebytelabs.paycraft.core.identity.ConsumerAuth
+import com.mobilebytelabs.paycraft.core.identity.ConsumerIdentityLink
+import com.mobilebytelabs.paycraft.core.identity.ConsumerLinkFailure
+import com.mobilebytelabs.paycraft.core.identity.ConsumerSessionVerifier
 import com.mobilebytelabs.paycraft.core.identity.VerifiedSignIn
 import com.mobilebytelabs.paycraft.debug.PayCraftError
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
@@ -619,6 +623,42 @@ object PayCraft {
      */
     internal val billingManager: BillingManager?
         get() = KoinPlatform.getKoinOrNull()?.getOrNull<BillingManager>()
+
+    private val _consumerIdentity = MutableStateFlow<ConsumerIdentityLink?>(null)
+
+    /** The consumer-session link bound by [useConsumerAuth]; null until an app binds its sign-in. */
+    val consumerIdentity: StateFlow<ConsumerIdentityLink?> = _consumerIdentity.asStateFlow()
+
+    /**
+     * Signs buyers in through the APP's own Supabase (PLAN paycraft-consumer-supabase-identity). Call once,
+     * after [initialize], with the app's sign-in — `cmp-paycraft` adapts a kmp-supabase-auth client
+     * (`PayCraft.useConsumerAuth(kmpSupabaseAuthClient)`). From then on a signed-in app user is linked to
+     * PayCraft silently (`identity-verify`), sign-out unlinks, and PayCraft's sign-in buttons drive the app's
+     * sign-in. The tenant must carry `auth_issuer_url`; without it the link reports
+     * [ConsumerLinkFailure.NotConfigured].
+     */
+    fun useConsumerAuth(auth: ConsumerAuth) {
+        check(isConfigured) { "PayCraft.initialize must run before useConsumerAuth" }
+        if (_consumerIdentity.value != null) return
+        val koin = KoinPlatform.getKoin()
+        val billing = koin.get<BillingManager>()
+        val verifier = ConsumerSessionVerifier(koin.get(), backend, apiKey)
+        val link = ConsumerIdentityLink(
+            auth = auth,
+            register = { email ->
+                billing.onVerifiedSignIn(email)
+                DeviceTokenStore.getToken()
+            },
+            verify = { access, device ->
+                verifier.verify(access, device, PlatformInfo.platform, PlatformInfo.deviceName)
+            },
+            onLinked = { billing.refreshStatus(force = true) },
+            onUnlinked = { billing.logOut() },
+            scope = payCraftScope(),
+        )
+        _consumerIdentity.value = link
+        link.start()
+    }
 
     /** Platform foreground signal (Android: first Activity started after all were stopped). */
     internal fun onAppForegrounded() {

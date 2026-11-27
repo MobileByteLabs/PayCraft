@@ -3,13 +3,25 @@ package com.mobilebytelabs.paycraft.ui.components
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.core.identity.ConsumerIdentityLink
+import com.mobilebytelabs.paycraft.core.identity.ConsumerLinkFailure
+import com.mobilebytelabs.paycraft.core.identity.ConsumerLinkState
+import com.mobilebytelabs.paycraft.core.identity.SignInFailure
 import com.mobilebytelabs.paycraft.core.identity.SignInState
 import com.mobilebytelabs.paycraft.core.identity.VerifiedSignIn
 import com.mobilebytelabs.paycraft.core.identity.availableProviders
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
+import com.mobilebytelabs.paycraft.ui.ConsumerSupabaseAuth
+import io.github.mobilebytelabs.supabaseauth.KmpSupabaseAuthClient
+import io.github.mobilebytelabs.supabaseauth.KmpSupabaseAuthError
+import io.github.mobilebytelabs.supabaseauth.compose.rememberKmpSupabaseAppleSignIn
+import io.github.mobilebytelabs.supabaseauth.compose.rememberKmpSupabaseGoogleSignIn
 import org.koin.mp.KoinPlatform
 
 /**
@@ -61,10 +73,82 @@ internal fun rememberPayCraftSignIn(): PayCraftSignIn? {
     LocalPayCraftOAuthHandler.current?.let { host ->
         return remember(host) { PayCraftSignIn(host, OAuthProvider.entries.toSet()) }
     }
+    ConsumerSupabaseAuth.client?.let { client ->
+        val link = PayCraft.consumerIdentity.collectAsState().value ?: return null
+        return rememberConsumerSignIn(client, link)
+    }
     val signIn = remember { KoinPlatform.getKoinOrNull()?.getOrNull<VerifiedSignIn>() } ?: return null
     val suite = PayCraft.suiteConfigFlow.collectAsState().value
     val providers = remember(suite) { availableProviders(PlatformInfo.platform, suite) }
     if (providers.isEmpty()) return null
     val state = signIn.state.collectAsState().value
     return remember(signIn, providers, state) { PayCraftSignIn(signIn::launch, providers, state, signIn::reset) }
+}
+
+/**
+ * Sign-in through the APP's Supabase (PLAN paycraft-consumer-supabase-identity D4): the buttons run the app's
+ * kmp-supabase-auth launchers; the session that lands is linked by [ConsumerIdentityLink], whose state drives
+ * the screen. A launcher error (cancelled, not configured) is shown until the next tap.
+ */
+@Composable
+private fun rememberConsumerSignIn(client: KmpSupabaseAuthClient, link: ConsumerIdentityLink): PayCraftSignIn {
+    var tapped by remember { mutableStateOf<OAuthProvider?>(null) }
+    var launchError by remember { mutableStateOf<KmpSupabaseAuthError?>(null) }
+    val google = rememberKmpSupabaseGoogleSignIn(client = client, onError = { launchError = it })
+    val apple = rememberKmpSupabaseAppleSignIn(client = client, onError = { launchError = it })
+    val linkState = link.state.collectAsState().value
+    val state = consumerSignInState(tapped, launchError, linkState)
+    return PayCraftSignIn(
+        launch = { provider ->
+            tapped = provider
+            launchError = null
+            (if (provider == OAuthProvider.APPLE) apple else google).launch()
+        },
+        providers = setOf(OAuthProvider.GOOGLE, OAuthProvider.APPLE),
+        state = state,
+        reset = {
+            tapped = null
+            launchError = null
+        },
+    )
+}
+
+/** What the identity screens show for a consumer sign-in: nothing tapped is Idle; the link decides the rest. */
+internal fun consumerSignInState(
+    tapped: OAuthProvider?,
+    launchError: KmpSupabaseAuthError?,
+    link: ConsumerLinkState,
+): SignInState {
+    val provider = tapped ?: return if (link is ConsumerLinkState.Linked) {
+        SignInState.Linked(link.email, OAuthProvider.GOOGLE)
+    } else {
+        SignInState.Idle
+    }
+    return launchError?.let { launcherState(provider, it) } ?: linkState(provider, link)
+}
+
+/** The launcher's own outcome wins: a cancelled sheet is "cancelled", not a spinner waiting on the link. */
+private fun launcherState(provider: OAuthProvider, error: KmpSupabaseAuthError): SignInState = when (error) {
+    is KmpSupabaseAuthError.Cancelled -> SignInState.Cancelled(provider)
+    is KmpSupabaseAuthError.NotConfigured -> SignInState.Failed(provider, SignInFailure.NotConfigured)
+    is KmpSupabaseAuthError.Network -> SignInState.Failed(provider, SignInFailure.Network)
+    else -> SignInState.Failed(provider, SignInFailure.Unknown)
+}
+
+private fun linkState(provider: OAuthProvider, link: ConsumerLinkState): SignInState = when (link) {
+    ConsumerLinkState.Idle -> SignInState.Launching(provider)
+
+    ConsumerLinkState.Linking -> SignInState.Verifying(provider)
+
+    is ConsumerLinkState.Linked -> SignInState.Linked(link.email, provider)
+
+    is ConsumerLinkState.Failed -> SignInState.Failed(
+        provider,
+        when (link.reason) {
+            ConsumerLinkFailure.NotConfigured -> SignInFailure.NotConfigured
+            ConsumerLinkFailure.Rejected, ConsumerLinkFailure.NoEmail -> SignInFailure.Rejected
+            ConsumerLinkFailure.Network -> SignInFailure.Network
+            ConsumerLinkFailure.Unknown -> SignInFailure.Unknown
+        },
+    )
 }

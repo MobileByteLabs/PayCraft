@@ -81,6 +81,14 @@ export function CouponsManager({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? "save failed")
+      // One request per store (Cloudflare caps sub-requests per invocation). A store that fails is reported, the
+      // coupon itself is already saved.
+      const failed: string[] = []
+      for (const provider of (data.providers ?? []) as string[]) {
+        const sync = await fetch(`/api/coupons/${data.id}/sync?provider=${provider}`, { method: "POST" })
+        if (!sync.ok) failed.push(provider)
+      }
+      if (failed.length) setError(`Saved, but syncing to ${failed.join(", ")} failed — save again to retry.`)
       const refresh = await fetch("/api/coupons")
       const refreshed = await refresh.json()
       setCoupons(refreshed.coupons ?? [])

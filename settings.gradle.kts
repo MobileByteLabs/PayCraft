@@ -36,6 +36,19 @@ dependencyResolutionManagement {
 
 rootProject.name = "paycraft"
 
+// Local kmp-supabase-auth (sibling workspace project) when it is checked out — PayCraft develops against
+// unreleased cmp-supabase-auth fixes. A clone without it (CI, consumers) resolves Maven Central.
+val localSupabaseAuth = file("../../../kmp-supabase-auth/source/kmp-supabase-auth")
+if (localSupabaseAuth.resolve("settings.gradle.kts").isFile) {
+    includeBuild(localSupabaseAuth) {
+        dependencySubstitution {
+            substitute(module("io.github.mobilebytelabs:cmp-supabase-auth")).using(project(":cmp-supabase-auth"))
+            substitute(module("io.github.mobilebytelabs:cmp-supabase-auth-compose"))
+                .using(project(":cmp-supabase-auth-compose"))
+        }
+    }
+}
+
 include(":cmp-paycraft-core")
 include(":cmp-paycraft")
 // Optional companion. Ships the paywall as a Navigation Compose destination, so the

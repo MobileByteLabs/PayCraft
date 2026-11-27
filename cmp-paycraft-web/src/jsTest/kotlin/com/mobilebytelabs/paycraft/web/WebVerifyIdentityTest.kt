@@ -51,4 +51,35 @@ class WebVerifyIdentityTest {
         assertEquals("http_409", e.code)
         assertEquals("verified_identity_not_configured", e.message)
     }
+
+    // {"sub":"u-1","email":"Ana@Example.com"} — the site's Supabase session, no provider sign-in first.
+    private val session = "h.eyJzdWIiOiJ1LTEiLCJlbWFpbCI6IkFuYUBFeGFtcGxlLmNvbSJ9.s"
+
+    @Test
+    fun signInWithSession_registersThenVerifiesThenKeepsTheSignIn() = runTest {
+        val net = FakeTransport()
+            .on("/rest/v1/rpc/register_device") { """{"server_token":"srv_1","conflict":false}""" }
+            .on("/functions/v1/identity-verify") { """{"subject_id":"s-1","verified":true}""" }
+        val pc = sdk(net)
+
+        val result = pc.signInWithSession(session).await()
+
+        assertEquals("ana@example.com", result.email)
+        assertEquals("ana@example.com", pc.email())
+        val verify = Json.parseToJsonElement(net.calls.last().body!!).jsonObject
+        assertEquals(session, verify["access_token"]!!.jsonPrimitive.content)
+        assertEquals("srv_1", verify["device_token"]!!.jsonPrimitive.content)
+    }
+
+    // A refused session must leave this browser signed out.
+    @Test
+    fun signInWithSession_keepsNothingWhenTheServerRefuses() = runTest {
+        val net = FakeTransport()
+            .on("/rest/v1/rpc/register_device") { """{"server_token":"srv_1","conflict":false}""" }
+            .on("/functions/v1/identity-verify", 409) { """{"error":"verified_identity_not_configured"}""" }
+        val pc = sdk(net)
+
+        assertFailsWith<PayCraftWebError> { pc.signInWithSession(session).await() }
+        assertEquals(null, pc.email())
+    }
 }

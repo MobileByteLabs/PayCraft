@@ -79,6 +79,7 @@ public final class com/mobilebytelabs/paycraft/PayCraft {
 	public final fun getAnalytics ()Lcom/mobilebytelabs/paycraft/analytics/PayCraftAnalytics;
 	public final fun getAnalyticsListener ()Lcom/mobilebytelabs/paycraft/analytics/PayCraftAnalyticsListener;
 	public final fun getConfigResultFlow ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun getConsumerIdentity ()Lkotlinx/coroutines/flow/StateFlow;
 	public final fun getDeviceId ()Ljava/lang/String;
 	public final fun getExitSurvey ()Lkotlinx/coroutines/flow/StateFlow;
 	public final fun getExitSurveyGate ()Lcom/mobilebytelabs/paycraft/winback/ExitSurveyGate;
@@ -114,6 +115,7 @@ public final class com/mobilebytelabs/paycraft/PayCraft {
 	public final fun setAttributionIds (Ljava/lang/String;Ljava/lang/String;)V
 	public static synthetic fun setAttributionIds$default (Lcom/mobilebytelabs/paycraft/PayCraft;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)V
 	public final fun setPaywallPlacement (Ljava/lang/String;)V
+	public final fun useConsumerAuth (Lcom/mobilebytelabs/paycraft/core/identity/ConsumerAuth;)V
 }
 
 public final class com/mobilebytelabs/paycraft/PayCraft$Mode : java/lang/Enum {
@@ -1481,6 +1483,114 @@ public final class com/mobilebytelabs/paycraft/core/TrialSnapshot$Companion {
 	public final fun getNone ()Lcom/mobilebytelabs/paycraft/core/TrialSnapshot;
 }
 
+public abstract interface class com/mobilebytelabs/paycraft/core/identity/ConsumerAuth {
+	public abstract fun accessToken ()Ljava/lang/String;
+	public abstract fun getUser ()Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class com/mobilebytelabs/paycraft/core/identity/ConsumerIdentityLink {
+	public fun <init> (Lcom/mobilebytelabs/paycraft/core/identity/ConsumerAuth;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function0;Lkotlinx/coroutines/CoroutineScope;)V
+	public final fun getState ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun start ()V
+}
+
+public final class com/mobilebytelabs/paycraft/core/identity/ConsumerLinkFailure : java/lang/Enum {
+	public static final field Network Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkFailure;
+	public static final field NoEmail Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkFailure;
+	public static final field NotConfigured Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkFailure;
+	public static final field Rejected Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkFailure;
+	public static final field Unknown Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkFailure;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkFailure;
+	public static fun values ()[Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkFailure;
+}
+
+public abstract interface class com/mobilebytelabs/paycraft/core/identity/ConsumerLinkState {
+}
+
+public final class com/mobilebytelabs/paycraft/core/identity/ConsumerLinkState$Failed : com/mobilebytelabs/paycraft/core/identity/ConsumerLinkState {
+	public fun <init> (Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkFailure;)V
+	public final fun component1 ()Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkFailure;
+	public final fun copy (Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkFailure;)Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkState$Failed;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkState$Failed;Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkFailure;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkState$Failed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkFailure;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/mobilebytelabs/paycraft/core/identity/ConsumerLinkState$Idle : com/mobilebytelabs/paycraft/core/identity/ConsumerLinkState {
+	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkState$Idle;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/mobilebytelabs/paycraft/core/identity/ConsumerLinkState$Linked : com/mobilebytelabs/paycraft/core/identity/ConsumerLinkState {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkState$Linked;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkState$Linked;Ljava/lang/String;ILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkState$Linked;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEmail ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/mobilebytelabs/paycraft/core/identity/ConsumerLinkState$Linking : com/mobilebytelabs/paycraft/core/identity/ConsumerLinkState {
+	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/core/identity/ConsumerLinkState$Linking;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/mobilebytelabs/paycraft/core/identity/ConsumerUser {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Z)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Z
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Z)Lcom/mobilebytelabs/paycraft/core/identity/ConsumerUser;
+	public static synthetic fun copy$default (Lcom/mobilebytelabs/paycraft/core/identity/ConsumerUser;Ljava/lang/String;Ljava/lang/String;ZILjava/lang/Object;)Lcom/mobilebytelabs/paycraft/core/identity/ConsumerUser;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEmail ()Ljava/lang/String;
+	public final fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun isAnonymous ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class com/mobilebytelabs/paycraft/core/identity/ConsumerVerifyOutcome {
+}
+
+public final class com/mobilebytelabs/paycraft/core/identity/ConsumerVerifyOutcome$Network : com/mobilebytelabs/paycraft/core/identity/ConsumerVerifyOutcome {
+	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/core/identity/ConsumerVerifyOutcome$Network;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/mobilebytelabs/paycraft/core/identity/ConsumerVerifyOutcome$NotConfigured : com/mobilebytelabs/paycraft/core/identity/ConsumerVerifyOutcome {
+	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/core/identity/ConsumerVerifyOutcome$NotConfigured;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/mobilebytelabs/paycraft/core/identity/ConsumerVerifyOutcome$Rejected : com/mobilebytelabs/paycraft/core/identity/ConsumerVerifyOutcome {
+	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/core/identity/ConsumerVerifyOutcome$Rejected;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/mobilebytelabs/paycraft/core/identity/ConsumerVerifyOutcome$Verified : com/mobilebytelabs/paycraft/core/identity/ConsumerVerifyOutcome {
+	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/core/identity/ConsumerVerifyOutcome$Verified;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class com/mobilebytelabs/paycraft/core/identity/SignInFailure : java/lang/Enum {
 	public static final field Network Lcom/mobilebytelabs/paycraft/core/identity/SignInFailure;
 	public static final field NotConfigured Lcom/mobilebytelabs/paycraft/core/identity/SignInFailure;
@@ -2378,6 +2488,33 @@ public final class com/mobilebytelabs/paycraft/network/EntitlementDto$Companion 
 	public final fun serializer ()Lkotlinx/serialization/KSerializer;
 }
 
+public final class com/mobilebytelabs/paycraft/network/MockPayCraftService : com/mobilebytelabs/paycraft/network/PayCraftService {
+	public fun <init> ()V
+	public fun activeDevices (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun balanceOf (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun cancelSubscription (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun checkPremiumWithDevice (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun earnBalance (Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getEntitlements (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getSubscription (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun hasActiveSubscription (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun isPremium (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun isTrialEligible (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun owns (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun recordStoreAttempt (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun registerAppStorePurchase (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun registerAppStorePurchase (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun registerDevice (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun registerPlayPurchase (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun registerPlayPurchase (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun revokeDevice (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun signOutDevice (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun spendBalance (Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun transferToDevice (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun transferToDevice (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun verifyOAuthToken (Lcom/mobilebytelabs/paycraft/model/OAuthProvider;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
 public final class com/mobilebytelabs/paycraft/network/PayCraftRealtime {
 	public fun <init> (Lio/github/jan/supabase/SupabaseClient;)V
 	public final fun ensureConfigChannel (Ljava/lang/String;Lkotlin/jvm/functions/Function0;)V
@@ -2767,6 +2904,7 @@ public final class com/mobilebytelabs/paycraft/platform/DeviceTokenStore {
 public final class com/mobilebytelabs/paycraft/platform/PlatformInfo {
 	public static final field INSTANCE Lcom/mobilebytelabs/paycraft/platform/PlatformInfo;
 	public final fun getAppId ()Ljava/lang/String;
+	public final fun getAppVersion ()Ljava/lang/String;
 	public final fun getBuildKind ()Lcom/mobilebytelabs/paycraft/platform/BuildKind;
 	public final fun getBuildKindEvidence ()Ljava/lang/String;
 	public final fun getCountry ()Ljava/lang/String;

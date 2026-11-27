@@ -87,6 +87,20 @@ final enum class com.mobilebytelabs.paycraft.billing/NativeProductType : kotlin/
     final fun values(): kotlin/Array<com.mobilebytelabs.paycraft.billing/NativeProductType> // com.mobilebytelabs.paycraft.billing/NativeProductType.values|values#static(){}[0]
 }
 
+final enum class com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure : kotlin/Enum<com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure> { // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure|null[0]
+    enum entry Network // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure.Network|null[0]
+    enum entry NoEmail // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure.NoEmail|null[0]
+    enum entry NotConfigured // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure.NotConfigured|null[0]
+    enum entry Rejected // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure.Rejected|null[0]
+    enum entry Unknown // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure.Unknown|null[0]
+
+    final val entries // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure> // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure> // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure.values|values#static(){}[0]
+}
+
 final enum class com.mobilebytelabs.paycraft.core.identity/SignInFailure : kotlin/Enum<com.mobilebytelabs.paycraft.core.identity/SignInFailure> { // com.mobilebytelabs.paycraft.core.identity/SignInFailure|null[0]
     enum entry Network // com.mobilebytelabs.paycraft.core.identity/SignInFailure.Network|null[0]
     enum entry NotConfigured // com.mobilebytelabs.paycraft.core.identity/SignInFailure.NotConfigured|null[0]
@@ -263,6 +277,13 @@ abstract interface com.mobilebytelabs.paycraft.billing/NativeBillingClient { // 
     abstract suspend fun storefrontCountry(): kotlin/String? // com.mobilebytelabs.paycraft.billing/NativeBillingClient.storefrontCountry|storefrontCountry(){}[0]
     abstract suspend fun sync() // com.mobilebytelabs.paycraft.billing/NativeBillingClient.sync|sync(){}[0]
     open suspend fun purchase(kotlin/String, kotlin/String?, com.mobilebytelabs.paycraft.billing/NativeProductType, kotlin/String?): com.mobilebytelabs.paycraft.billing/NativePurchaseResult // com.mobilebytelabs.paycraft.billing/NativeBillingClient.purchase|purchase(kotlin.String;kotlin.String?;com.mobilebytelabs.paycraft.billing.NativeProductType;kotlin.String?){}[0]
+}
+
+abstract interface com.mobilebytelabs.paycraft.core.identity/ConsumerAuth { // com.mobilebytelabs.paycraft.core.identity/ConsumerAuth|null[0]
+    abstract val user // com.mobilebytelabs.paycraft.core.identity/ConsumerAuth.user|{}user[0]
+        abstract fun <get-user>(): kotlinx.coroutines.flow/Flow<com.mobilebytelabs.paycraft.core.identity/ConsumerUser?> // com.mobilebytelabs.paycraft.core.identity/ConsumerAuth.user.<get-user>|<get-user>(){}[0]
+
+    abstract fun accessToken(): kotlin/String? // com.mobilebytelabs.paycraft.core.identity/ConsumerAuth.accessToken|accessToken(){}[0]
 }
 
 abstract interface com.mobilebytelabs.paycraft.network/PayCraftService { // com.mobilebytelabs.paycraft.network/PayCraftService|null[0]
@@ -626,6 +647,72 @@ sealed interface com.mobilebytelabs.paycraft.config/ConfigResult { // com.mobile
         final fun equals(kotlin/Any?): kotlin/Boolean // com.mobilebytelabs.paycraft.config/ConfigResult.Loading.equals|equals(kotlin.Any?){}[0]
         final fun hashCode(): kotlin/Int // com.mobilebytelabs.paycraft.config/ConfigResult.Loading.hashCode|hashCode(){}[0]
         final fun toString(): kotlin/String // com.mobilebytelabs.paycraft.config/ConfigResult.Loading.toString|toString(){}[0]
+    }
+}
+
+sealed interface com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState { // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState|null[0]
+    final class Failed : com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState { // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Failed|null[0]
+        constructor <init>(com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure) // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Failed.<init>|<init>(com.mobilebytelabs.paycraft.core.identity.ConsumerLinkFailure){}[0]
+
+        final val reason // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Failed.reason|{}reason[0]
+            final fun <get-reason>(): com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Failed.reason.<get-reason>|<get-reason>(){}[0]
+
+        final fun component1(): com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Failed.component1|component1(){}[0]
+        final fun copy(com.mobilebytelabs.paycraft.core.identity/ConsumerLinkFailure = ...): com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Failed // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Failed.copy|copy(com.mobilebytelabs.paycraft.core.identity.ConsumerLinkFailure){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Failed.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Failed.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Failed.toString|toString(){}[0]
+    }
+
+    final class Linked : com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState { // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linked|null[0]
+        constructor <init>(kotlin/String) // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linked.<init>|<init>(kotlin.String){}[0]
+
+        final val email // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linked.email|{}email[0]
+            final fun <get-email>(): kotlin/String // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linked.email.<get-email>|<get-email>(){}[0]
+
+        final fun component1(): kotlin/String // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linked.component1|component1(){}[0]
+        final fun copy(kotlin/String = ...): com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linked // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linked.copy|copy(kotlin.String){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linked.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linked.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linked.toString|toString(){}[0]
+    }
+
+    final object Idle : com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState { // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Idle|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Idle.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Idle.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Idle.toString|toString(){}[0]
+    }
+
+    final object Linking : com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState { // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linking|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linking.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linking.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState.Linking.toString|toString(){}[0]
+    }
+}
+
+sealed interface com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome { // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome|null[0]
+    final object Network : com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome { // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.Network|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.Network.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.Network.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.Network.toString|toString(){}[0]
+    }
+
+    final object NotConfigured : com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome { // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.NotConfigured|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.NotConfigured.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.NotConfigured.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.NotConfigured.toString|toString(){}[0]
+    }
+
+    final object Rejected : com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome { // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.Rejected|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.Rejected.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.Rejected.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.Rejected.toString|toString(){}[0]
+    }
+
+    final object Verified : com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome { // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.Verified|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.Verified.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.Verified.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome.Verified.toString|toString(){}[0]
     }
 }
 
@@ -1905,6 +1992,34 @@ final class com.mobilebytelabs.paycraft.config/ValuePropTriple { // com.mobileby
     }
 }
 
+final class com.mobilebytelabs.paycraft.core.identity/ConsumerIdentityLink { // com.mobilebytelabs.paycraft.core.identity/ConsumerIdentityLink|null[0]
+    constructor <init>(com.mobilebytelabs.paycraft.core.identity/ConsumerAuth, kotlin.coroutines/SuspendFunction1<kotlin/String, kotlin/String?>, kotlin.coroutines/SuspendFunction2<kotlin/String, kotlin/String, com.mobilebytelabs.paycraft.core.identity/ConsumerVerifyOutcome>, kotlin.coroutines/SuspendFunction1<kotlin/String, kotlin/Unit>, kotlin/Function0<kotlin/Unit>, kotlinx.coroutines/CoroutineScope) // com.mobilebytelabs.paycraft.core.identity/ConsumerIdentityLink.<init>|<init>(com.mobilebytelabs.paycraft.core.identity.ConsumerAuth;kotlin.coroutines.SuspendFunction1<kotlin.String,kotlin.String?>;kotlin.coroutines.SuspendFunction2<kotlin.String,kotlin.String,com.mobilebytelabs.paycraft.core.identity.ConsumerVerifyOutcome>;kotlin.coroutines.SuspendFunction1<kotlin.String,kotlin.Unit>;kotlin.Function0<kotlin.Unit>;kotlinx.coroutines.CoroutineScope){}[0]
+
+    final val state // com.mobilebytelabs.paycraft.core.identity/ConsumerIdentityLink.state|{}state[0]
+        final fun <get-state>(): kotlinx.coroutines.flow/StateFlow<com.mobilebytelabs.paycraft.core.identity/ConsumerLinkState> // com.mobilebytelabs.paycraft.core.identity/ConsumerIdentityLink.state.<get-state>|<get-state>(){}[0]
+
+    final fun start() // com.mobilebytelabs.paycraft.core.identity/ConsumerIdentityLink.start|start(){}[0]
+}
+
+final class com.mobilebytelabs.paycraft.core.identity/ConsumerUser { // com.mobilebytelabs.paycraft.core.identity/ConsumerUser|null[0]
+    constructor <init>(kotlin/String, kotlin/String?, kotlin/Boolean = ...) // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.<init>|<init>(kotlin.String;kotlin.String?;kotlin.Boolean){}[0]
+
+    final val email // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.email|{}email[0]
+        final fun <get-email>(): kotlin/String? // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.email.<get-email>|<get-email>(){}[0]
+    final val id // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.id|{}id[0]
+        final fun <get-id>(): kotlin/String // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.id.<get-id>|<get-id>(){}[0]
+    final val isAnonymous // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.isAnonymous|{}isAnonymous[0]
+        final fun <get-isAnonymous>(): kotlin/Boolean // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.isAnonymous.<get-isAnonymous>|<get-isAnonymous>(){}[0]
+
+    final fun component1(): kotlin/String // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.component1|component1(){}[0]
+    final fun component2(): kotlin/String? // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.component2|component2(){}[0]
+    final fun component3(): kotlin/Boolean // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.component3|component3(){}[0]
+    final fun copy(kotlin/String = ..., kotlin/String? = ..., kotlin/Boolean = ...): com.mobilebytelabs.paycraft.core.identity/ConsumerUser // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.copy|copy(kotlin.String;kotlin.String?;kotlin.Boolean){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // com.mobilebytelabs.paycraft.core.identity/ConsumerUser.toString|toString(){}[0]
+}
+
 final class com.mobilebytelabs.paycraft.core/EntitlementRepository { // com.mobilebytelabs.paycraft.core/EntitlementRepository|null[0]
     constructor <init>(com.mobilebytelabs.paycraft.persistence/EntitlementCache, com.mobilebytelabs.paycraft.billing/NativeBillingClient, com.mobilebytelabs.paycraft.network/PayCraftService, kotlin/Function0<kotlin/String> = ...) // com.mobilebytelabs.paycraft.core/EntitlementRepository.<init>|<init>(com.mobilebytelabs.paycraft.persistence.EntitlementCache;com.mobilebytelabs.paycraft.billing.NativeBillingClient;com.mobilebytelabs.paycraft.network.PayCraftService;kotlin.Function0<kotlin.String>){}[0]
 
@@ -2531,6 +2646,19 @@ final class com.mobilebytelabs.paycraft.network/EntitlementDto { // com.mobileby
     final object Companion { // com.mobilebytelabs.paycraft.network/EntitlementDto.Companion|null[0]
         final fun serializer(): kotlinx.serialization/KSerializer<com.mobilebytelabs.paycraft.network/EntitlementDto> // com.mobilebytelabs.paycraft.network/EntitlementDto.Companion.serializer|serializer(){}[0]
     }
+}
+
+final class com.mobilebytelabs.paycraft.network/MockPayCraftService : com.mobilebytelabs.paycraft.network/PayCraftService { // com.mobilebytelabs.paycraft.network/MockPayCraftService|null[0]
+    constructor <init>() // com.mobilebytelabs.paycraft.network/MockPayCraftService.<init>|<init>(){}[0]
+
+    final suspend fun checkPremiumWithDevice(kotlin/String): com.mobilebytelabs.paycraft.network/PremiumCheckResult // com.mobilebytelabs.paycraft.network/MockPayCraftService.checkPremiumWithDevice|checkPremiumWithDevice(kotlin.String){}[0]
+    final suspend fun getSubscription(kotlin/String): com.mobilebytelabs.paycraft.network/SubscriptionDto? // com.mobilebytelabs.paycraft.network/MockPayCraftService.getSubscription|getSubscription(kotlin.String){}[0]
+    final suspend fun isPremium(kotlin/String): kotlin/Boolean // com.mobilebytelabs.paycraft.network/MockPayCraftService.isPremium|isPremium(kotlin.String){}[0]
+    final suspend fun isTrialEligible(kotlin/String): kotlin/Boolean // com.mobilebytelabs.paycraft.network/MockPayCraftService.isTrialEligible|isTrialEligible(kotlin.String){}[0]
+    final suspend fun registerDevice(kotlin/String, kotlin/String, kotlin/String, kotlin/String, kotlin/String): com.mobilebytelabs.paycraft.network/RegisterDeviceResult // com.mobilebytelabs.paycraft.network/MockPayCraftService.registerDevice|registerDevice(kotlin.String;kotlin.String;kotlin.String;kotlin.String;kotlin.String){}[0]
+    final suspend fun revokeDevice(kotlin/String, kotlin/String): kotlin/Boolean // com.mobilebytelabs.paycraft.network/MockPayCraftService.revokeDevice|revokeDevice(kotlin.String;kotlin.String){}[0]
+    final suspend fun transferToDevice(kotlin/String, kotlin/String): kotlin/Boolean // com.mobilebytelabs.paycraft.network/MockPayCraftService.transferToDevice|transferToDevice(kotlin.String;kotlin.String){}[0]
+    final suspend fun verifyOAuthToken(com.mobilebytelabs.paycraft.model/OAuthProvider, kotlin/String): kotlin/String? // com.mobilebytelabs.paycraft.network/MockPayCraftService.verifyOAuthToken|verifyOAuthToken(com.mobilebytelabs.paycraft.model.OAuthProvider;kotlin.String){}[0]
 }
 
 final class com.mobilebytelabs.paycraft.network/PayCraftRealtime { // com.mobilebytelabs.paycraft.network/PayCraftRealtime|null[0]
@@ -3474,6 +3602,8 @@ final object com.mobilebytelabs.paycraft.platform/DeviceTokenStore { // com.mobi
 final object com.mobilebytelabs.paycraft.platform/PlatformInfo { // com.mobilebytelabs.paycraft.platform/PlatformInfo|null[0]
     final val appId // com.mobilebytelabs.paycraft.platform/PlatformInfo.appId|{}appId[0]
         final fun <get-appId>(): kotlin/String // com.mobilebytelabs.paycraft.platform/PlatformInfo.appId.<get-appId>|<get-appId>(){}[0]
+    final val appVersion // com.mobilebytelabs.paycraft.platform/PlatformInfo.appVersion|{}appVersion[0]
+        final fun <get-appVersion>(): kotlin/String? // com.mobilebytelabs.paycraft.platform/PlatformInfo.appVersion.<get-appVersion>|<get-appVersion>(){}[0]
     final val buildKind // com.mobilebytelabs.paycraft.platform/PlatformInfo.buildKind|{}buildKind[0]
         final fun <get-buildKind>(): com.mobilebytelabs.paycraft.platform/BuildKind // com.mobilebytelabs.paycraft.platform/PlatformInfo.buildKind.<get-buildKind>|<get-buildKind>(){}[0]
     final val buildKindEvidence // com.mobilebytelabs.paycraft.platform/PlatformInfo.buildKindEvidence|{}buildKindEvidence[0]
@@ -3525,6 +3655,8 @@ final object com.mobilebytelabs.paycraft/PayCraft { // com.mobilebytelabs.paycra
         final fun <get-analytics>(): com.mobilebytelabs.paycraft.analytics/PayCraftAnalytics // com.mobilebytelabs.paycraft/PayCraft.analytics.<get-analytics>|<get-analytics>(){}[0]
     final val configResultFlow // com.mobilebytelabs.paycraft/PayCraft.configResultFlow|{}configResultFlow[0]
         final fun <get-configResultFlow>(): kotlinx.coroutines.flow/StateFlow<com.mobilebytelabs.paycraft.config/ConfigResult> // com.mobilebytelabs.paycraft/PayCraft.configResultFlow.<get-configResultFlow>|<get-configResultFlow>(){}[0]
+    final val consumerIdentity // com.mobilebytelabs.paycraft/PayCraft.consumerIdentity|{}consumerIdentity[0]
+        final fun <get-consumerIdentity>(): kotlinx.coroutines.flow/StateFlow<com.mobilebytelabs.paycraft.core.identity/ConsumerIdentityLink?> // com.mobilebytelabs.paycraft/PayCraft.consumerIdentity.<get-consumerIdentity>|<get-consumerIdentity>(){}[0]
     final val deviceId // com.mobilebytelabs.paycraft/PayCraft.deviceId|{}deviceId[0]
         final fun <get-deviceId>(): kotlin/String // com.mobilebytelabs.paycraft/PayCraft.deviceId.<get-deviceId>|<get-deviceId>(){}[0]
     final val exitSurvey // com.mobilebytelabs.paycraft/PayCraft.exitSurvey|{}exitSurvey[0]
@@ -3577,6 +3709,7 @@ final object com.mobilebytelabs.paycraft/PayCraft { // com.mobilebytelabs.paycra
     final fun requireConfig(): com.mobilebytelabs.paycraft/PayCraftConfig // com.mobilebytelabs.paycraft/PayCraft.requireConfig|requireConfig(){}[0]
     final fun setAppliedCoupon(kotlin/String, com.mobilebytelabs.paycraft.config/CouponDto?) // com.mobilebytelabs.paycraft/PayCraft.setAppliedCoupon|setAppliedCoupon(kotlin.String;com.mobilebytelabs.paycraft.config.CouponDto?){}[0]
     final fun setAttributionIds(kotlin/String? = ..., kotlin/String? = ...) // com.mobilebytelabs.paycraft/PayCraft.setAttributionIds|setAttributionIds(kotlin.String?;kotlin.String?){}[0]
+    final fun useConsumerAuth(com.mobilebytelabs.paycraft.core.identity/ConsumerAuth) // com.mobilebytelabs.paycraft/PayCraft.useConsumerAuth|useConsumerAuth(com.mobilebytelabs.paycraft.core.identity.ConsumerAuth){}[0]
     final suspend fun answerExitSurvey(kotlin/String, kotlin/String, kotlin/String?, kotlin/String?): com.mobilebytelabs.paycraft.winback/WinbackResult // com.mobilebytelabs.paycraft/PayCraft.answerExitSurvey|answerExitSurvey(kotlin.String;kotlin.String;kotlin.String?;kotlin.String?){}[0]
     final suspend fun applyCoupon(kotlin/String, kotlin/String): com.mobilebytelabs.paycraft.network/CouponClient.Result // com.mobilebytelabs.paycraft/PayCraft.applyCoupon|applyCoupon(kotlin.String;kotlin.String){}[0]
     final suspend fun prefetchProducts() // com.mobilebytelabs.paycraft/PayCraft.prefetchProducts|prefetchProducts(){}[0]

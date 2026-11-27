@@ -105,6 +105,16 @@ class PayCraftWeb(
         scope.promise { doSignIn(provider, idToken, nonce) }
 
     /**
+     * Signs in with the SITE's own Supabase session — the way every app's buyers sign in (the page signs in to
+     * its Supabase with `supabase-js`, e.g. `signInWithIdToken` from Google/Apple, then passes
+     * `session.access_token`). One call: registers this browser for the session's email, then `identity-verify`
+     * checks the token against the tenant's `auth_issuer_url`. Nothing is kept locally unless that check passes.
+     * Rejects `verified_identity_not_configured` until the tenant sets its issuer.
+     */
+    fun signInWithSession(accessToken: String): Promise<SignInResult> =
+        scope.promise { doSignInWithSession(accessToken) }
+
+    /**
      * Binds this browser's signed-in PayCraft device to the site's own auth user — e.g. its Supabase
      * session's `access_token`, verified server-side against the tenant's `auth_issuer_url` JWKS. Call after
      * [signIn]; resolves with the server reply (`{"subject_id","verified":true}`). Rejects `sign_in_required` when nobody is signed in here, and with
@@ -114,15 +124,8 @@ class PayCraftWeb(
         val token = store.token() ?: return Promise.reject(PayCraftWebError("sign_in_required", "Sign in first"))
         // Through [post]: no suspend lambda of its own (bundle budget).
         return post(
-            "$base/functions/v1/identity-verify",
-            JsonObject(
-                mapOf(
-                    "api_key" to JsonPrimitive(apiKey),
-                    "access_token" to JsonPrimitive(accessToken),
-                    "device_token" to JsonPrimitive(token),
-                    "platform" to JsonPrimitive("web"),
-                ),
-            ).toString(),
+            PayCraftContract.consumerSessionVerifyUrl(base),
+            PayCraftContract.consumerSessionVerifyBody(apiKey, accessToken, token, "web").toString(),
         )
     }
 
@@ -576,6 +579,36 @@ class PayCraftWeb(
         maxDevicesSeen = reg.maxDevices
         return SignInResult(email, reg.conflict, reg.conflictingDeviceName)
     }
+
+    internal suspend fun doSignInWithSession(accessToken: String): SignInResult {
+        val email = sessionEmail(accessToken)
+            ?: throw PayCraftWebError("identity_unverified", "The session carries no email")
+        val params = PayCraftContract.registerDeviceParams(email, "web", deviceName(), myDeviceId(), mode, apiKey)
+        val reg = PayCraftContract.parseRegister(
+            obj(rpc("register_device", params)),
+        ) ?: throw PayCraftWebError("register_failed", "register_device returned no token")
+        val verify = PayCraftContract.consumerSessionVerifyBody(
+            apiKey,
+            accessToken,
+            reg.deviceToken,
+            "web",
+            deviceName(),
+        )
+        call("POST", PayCraftContract.consumerSessionVerifyUrl(base), verify.toString())
+        store.saveSignIn(reg.deviceToken, email)
+        conflictDevices = if (reg.conflict) reg.activeDevices else emptyList()
+        maxDevicesSeen = reg.maxDevices
+        return SignInResult(email, reg.conflict, reg.conflictingDeviceName)
+    }
+
+    /** The session's email claim — base64url-decoded with the browser's `atob` (no Base64 code in the bundle). */
+    private fun sessionEmail(accessToken: String): String? = runCatching {
+        val b64 = accessToken.split('.')[1].replace('-', '+').replace('_', '/')
+        val padded = b64 + "=".repeat((base64Block - b64.length % base64Block) % base64Block)
+        PayCraftContract.emailClaim(js("atob")(padded) as String)
+    }.getOrNull()
+
+    private val base64Block = 4 // base64 decodes in 4-character blocks; a JWT segment drops the `=` padding
 
     private var conflictDevices: List<ActiveDevice> = emptyList()
     private var maxDevicesSeen: Int = 1

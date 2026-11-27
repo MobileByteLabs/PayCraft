@@ -140,6 +140,11 @@ kotlin {
             implementation(paycraftLibs.compottie)
             implementation(paycraftLibs.compottie.resources)
 
+            // Buyer sign-in runs on the CONSUMER app's Supabase through its kmp-supabase-auth client
+            // (`PayCraft.useConsumerAuth(client)`); `api` because that client type is on the public signature.
+            api(paycraftLibs.kmp.supabase.auth)
+            implementation(paycraftLibs.kmp.supabase.auth.compose)
+
             // Koin UI + ViewModel (core carries Koin core only)
             implementation(paycraftLibs.koin.core.viewmodel)
             implementation(paycraftLibs.koin.compose)
