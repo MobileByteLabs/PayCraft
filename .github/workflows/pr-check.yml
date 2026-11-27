@@ -17,7 +17,9 @@ concurrency:
 
 jobs:
   pr-check:
-    uses: MobileByteLabs/mbl-actionhub/.github/workflows/ci-kmp-library.yml@v1.10.1
+    # TEMP: mbl-actionhub PR 22 (compile split into Linux + Apple jobs, actions on Node 24) — pin to its release
+    # tag once that PR is merged and tagged.
+    uses: MobileByteLabs/mbl-actionhub/.github/workflows/ci-kmp-library.yml@session-mbl-actionhub-20261127184702177
     with:
       module-pattern: 'cmp-'
       java-version: '21'
