@@ -1,6 +1,7 @@
 package com.mobilebytelabs.paycraft.core.identity
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -16,6 +17,7 @@ class ConsumerIdentityLinkTest {
         override val user = MutableStateFlow<ConsumerUser?>(null)
         var token: String? = "access-1"
         override fun accessToken(): String? = token
+        override val signIns = MutableSharedFlow<ConsumerUser>(extraBufferCapacity = 4)
     }
 
     private class Harness(scope: TestScope, var outcome: ConsumerVerifyOutcome = ConsumerVerifyOutcome.Verified) {
@@ -129,5 +131,39 @@ class ConsumerIdentityLinkTest {
         assertTrue(h.verified.isEmpty())
         assertEquals(1, h.unlinked)
         assertEquals(ConsumerLinkState.Failed(ConsumerLinkFailure.Unknown), h.link.state.value)
+    }
+
+    // Restore → "Continue with Google" with the account already linked: the user id does not change, so the user
+    // flow says nothing — the sign-in itself must re-run the link, or the screen never gets an answer.
+    @Test
+    fun explicitSignInBySameUser_relinks() = runTest(UnconfinedTestDispatcher()) {
+        val h = Harness(this)
+        h.auth.user.value = ana
+        h.auth.signIns.emit(ana)
+
+        assertEquals(2, h.registered.size)
+        assertEquals(2, h.verified.size)
+        assertEquals(listOf("ana@example.com", "ana@example.com"), h.linked)
+    }
+
+    // A different account's sign-in is the user flow's to link — the sign-in signal must not link it twice.
+    @Test
+    fun signInByAnotherUser_isLinkedOnceByTheUserFlow() = runTest(UnconfinedTestDispatcher()) {
+        val h = Harness(this)
+        val ben = ConsumerUser(id = "u-2", email = "ben@example.com")
+        h.auth.user.value = ana
+        h.auth.signIns.emit(ben)
+        h.auth.user.value = ben
+
+        assertEquals(listOf("ana@example.com", "ben@example.com"), h.linked)
+    }
+
+    // Nothing linked yet (cold start): a sign-in signal alone does not link — the user flow does.
+    @Test
+    fun signInBeforeAnyLink_isLeftToTheUserFlow() = runTest(UnconfinedTestDispatcher()) {
+        val h = Harness(this)
+        h.auth.signIns.emit(ana)
+
+        assertTrue(h.registered.isEmpty())
     }
 }

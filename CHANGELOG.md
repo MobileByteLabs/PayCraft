@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **A signed-in buyer at the device limit picks a device to remove.** A sign-in that was already verified
+  (the app's own sign-in, or PayCraft's) and then hit the device limit showed the "Verify ownership here" sheet,
+  asking the buyer to sign in again. It now goes straight to the confirmation that lists the subscription's
+  devices, so the buyer removes one and this device takes its place.
+- **Signing in again with the same account answers.** On Restore, signing in with the account the app was
+  already signed in to did nothing: PayCraft only reacted when the signed-in user changed, so it re-used a cached
+  status and the screen never showed a result. A new sign-in now re-registers the device and re-checks the
+  subscription for the same account too. `ConsumerAuth` gains `signIns` (default empty), which the
+  kmp-supabase-auth adapter feeds from the app's new sessions.
 - **kmp-supabase-auth 0.3.7.** Apps whose Supabase sits behind a proxy can send buyer sign-in through it:
   `kmpSupabaseAuthInstall(config) { authUrl("https://<your-proxy>/auth/v1") }`. Without it the ID-token exchange
   goes to the project directly, and an app that ships no Supabase key fails with
