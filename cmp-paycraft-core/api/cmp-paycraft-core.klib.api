@@ -282,6 +282,8 @@ abstract interface com.mobilebytelabs.paycraft.billing/NativeBillingClient { // 
 abstract interface com.mobilebytelabs.paycraft.core.identity/ConsumerAuth { // com.mobilebytelabs.paycraft.core.identity/ConsumerAuth|null[0]
     abstract val user // com.mobilebytelabs.paycraft.core.identity/ConsumerAuth.user|{}user[0]
         abstract fun <get-user>(): kotlinx.coroutines.flow/Flow<com.mobilebytelabs.paycraft.core.identity/ConsumerUser?> // com.mobilebytelabs.paycraft.core.identity/ConsumerAuth.user.<get-user>|<get-user>(){}[0]
+    open val signIns // com.mobilebytelabs.paycraft.core.identity/ConsumerAuth.signIns|{}signIns[0]
+        open fun <get-signIns>(): kotlinx.coroutines.flow/Flow<com.mobilebytelabs.paycraft.core.identity/ConsumerUser> // com.mobilebytelabs.paycraft.core.identity/ConsumerAuth.signIns.<get-signIns>|<get-signIns>(){}[0]
 
     abstract fun accessToken(): kotlin/String? // com.mobilebytelabs.paycraft.core.identity/ConsumerAuth.accessToken|accessToken(){}[0]
 }

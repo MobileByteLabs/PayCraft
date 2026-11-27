@@ -3,9 +3,15 @@ package com.mobilebytelabs.paycraft.ui
 import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.core.identity.ConsumerAuth
 import com.mobilebytelabs.paycraft.core.identity.ConsumerUser
+import io.github.jan.supabase.auth.status.SessionSource
+import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.mobilebytelabs.supabaseauth.KmpSupabaseAuthClient
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 
 /**
  * Buyers sign in through the APP's own Supabase: hand PayCraft the app's kmp-supabase-auth client — the one
@@ -34,4 +40,11 @@ internal class KmpSupabaseConsumerAuth(private val client: KmpSupabaseAuthClient
         client.currentUser.map { u -> u?.let { ConsumerUser(it.id, it.email, it.isAnonymous) } }
 
     override fun accessToken(): String? = client.currentAccessToken()
+
+    // SignIn = native ID token / email; External = the web OAuth callback. Refresh and Storage are not new sign-ins.
+    override val signIns: Flow<ConsumerUser> =
+        (client.sessionStatus ?: emptyFlow())
+            .filterIsInstance<SessionStatus.Authenticated>()
+            .filter { it.source is SessionSource.SignIn || it.source is SessionSource.External }
+            .mapNotNull { status -> status.session.user?.let { ConsumerUser(it.id, it.email) } }
 }

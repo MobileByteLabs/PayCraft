@@ -1490,7 +1490,12 @@ public final class com/mobilebytelabs/paycraft/core/TrialSnapshot$Companion {
 
 public abstract interface class com/mobilebytelabs/paycraft/core/identity/ConsumerAuth {
 	public abstract fun accessToken ()Ljava/lang/String;
+	public fun getSignIns ()Lkotlinx/coroutines/flow/Flow;
 	public abstract fun getUser ()Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class com/mobilebytelabs/paycraft/core/identity/ConsumerAuth$DefaultImpls {
+	public static fun getSignIns (Lcom/mobilebytelabs/paycraft/core/identity/ConsumerAuth;)Lkotlinx/coroutines/flow/Flow;
 }
 
 public final class com/mobilebytelabs/paycraft/core/identity/ConsumerIdentityLink {

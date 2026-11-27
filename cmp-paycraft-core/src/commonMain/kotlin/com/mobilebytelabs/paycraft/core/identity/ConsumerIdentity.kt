@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -34,6 +35,12 @@ interface ConsumerAuth {
 
     /** The current session's access token, or null without a session. */
     fun accessToken(): String?
+
+    /**
+     * The user of each NEW sign-in (not a token refresh, not a session loaded from storage). [user] cannot tell
+     * a same-account re-sign-in apart from nothing happening; this can. Empty by default.
+     */
+    val signIns: Flow<ConsumerUser> get() = emptyFlow()
 }
 
 data class ConsumerUser(val id: String, val email: String?, val isAnonymous: Boolean = false)
@@ -84,6 +91,12 @@ class ConsumerIdentityLink(
                     user.id != linkedUserId -> link(user)
                 }
             }
+        }
+        // The buyer signed in again as the account already linked (Restore → the same Google account): the user
+        // flow stays silent, so without this nothing re-checks and the screen never gets an answer. Another
+        // account's sign-in is left to the user flow above, which links it once.
+        scope.launch {
+            auth.signIns.collect { user -> if (user.id == linkedUserId) link(user) }
         }
     }
 
