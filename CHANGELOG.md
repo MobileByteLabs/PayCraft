@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **kmp-supabase-auth 0.3.7.** Apps whose Supabase sits behind a proxy can send buyer sign-in through it:
+  `kmpSupabaseAuthInstall(config) { authUrl("https://<your-proxy>/auth/v1") }`. Without it the ID-token exchange
+  goes to the project directly, and an app that ships no Supabase key fails with
+  `401 "No API key found in request"`.
 - **Buyers sign in through your app's own Supabase.** `PayCraft.useConsumerAuth(client)` (with a
   `KmpSupabaseAuthClient` from kmp-supabase-auth) links whoever is signed in to the app — no second PayCraft
   sign-in. The device is registered, then `identity-verify` checks the app's Supabase token against the app's
