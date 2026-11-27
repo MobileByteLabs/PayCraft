@@ -28,19 +28,24 @@ export default async function DashboardLayout({
   // supabase.rpc() returns a PostgrestBuilder which is awaitable but NOT a
   // Promise — `.catch()` isn't on it. Wrap in try/catch instead.
   const supabase = createClient()
-  let isPlatformOwner = false
-  try {
-    await supabase.rpc("claim_platform_owner")
-    const { data } = await supabase.rpc("is_platform_owner")
-    isPlatformOwner = data === true
-  } catch {
-    isPlatformOwner = false
-  }
-  // The Alerts nav pill. A failed count hides the pill rather than breaking every page.
-  const alertsUnread = await unreadCounts(supabase, tenant.id).then(
-    (c) => ({ count: c.total, critical: c.critical }),
-    () => ({ count: 0, critical: 0 }),
-  )
+  // Independent round trips, so in parallel: each one crosses to the Tokyo project.
+  const [isPlatformOwner, alertsUnread] = await Promise.all([
+    (async () => {
+      // supabase.rpc() returns a PostgrestBuilder — awaitable but NOT a Promise, so no `.catch()`.
+      try {
+        await supabase.rpc("claim_platform_owner")
+        const { data } = await supabase.rpc("is_platform_owner")
+        return data === true
+      } catch {
+        return false
+      }
+    })(),
+    // The Alerts nav pill. A failed count hides the pill rather than breaking every page.
+    unreadCounts(supabase, tenant.id).then(
+      (c) => ({ count: c.total, critical: c.critical }),
+      () => ({ count: 0, critical: 0 }),
+    ),
+  ])
 
   return (
     <div className="min-h-screen bg-ink-50 antialiased">
