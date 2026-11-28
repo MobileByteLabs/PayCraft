@@ -162,6 +162,16 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
   plan its offering sells — `experiment_default_sku_unknown`). It rides on `ExperimentAssignment.defaultSku` (dropped
   when the variant doesn't sell it) and `PayCraftPaywallViewModel` (`initialSelectedPlan` / `applyDefaultPlan`) opens
   on it ahead of `popular_plan_sku` and the workflow's `is_selected_by_default`. The web SDK doesn't apply experiments.
+- **Exit offer + design per variant, templates, promote (227):** a variant may also carry `exit_offer` (false = off),
+  `exit_offer_coupon_id` (its own exit coupon) and `paywall_template` (branded-stack | minimal | premium | dark); errors
+  `experiment_exit_offer_invalid` / `experiment_exit_coupon_unknown` / `experiment_template_unknown`. The SDK applies the
+  design in `withExperimentAssigned` (template seed replaces the published tree) and the exit offer via
+  `ExitSurveyConfig.forVariant`; `winback` gets `experiment`+`variant` and picks the arm's coupon (`exitOfferCoupon`).
+  Results add `offer_views`, `offer_accepts` and `revenue` (catalogue price of what each buyer bought, per currency).
+  `paywall_experiment_promote` makes an arm the default (current offering, popular plan, exit offer, template — the
+  published tree is unpublished, the draft kept) and stops the test. Dashboard templates: `EXPERIMENT_TEMPLATES` in
+  `lib/experiments.ts` (every arm keeps the exit offer on unless the test is about it). Tests:
+  `ExperimentVariantOverridesTest`, `__tests__/lib/experiment-templates.test.ts`, `supabase/tests/227_experiment_templates_test.sql`.
 - **Results:** every paywall event carries `experiment` + `variant` (`PayCraft.activeExperiment` → `PayCraftEvent` →
   `events` → `paywall_events`); `paywall_experiment_results` counts distinct devices per step, live mode only, inside
   the run window. Tests: `ExperimentAssignmentTest`, `ExperimentDefaultPlanTest`, `supabase/tests/206_paywall_experiments_test.sql`, `221_experiment_default_plan_test.sql`.

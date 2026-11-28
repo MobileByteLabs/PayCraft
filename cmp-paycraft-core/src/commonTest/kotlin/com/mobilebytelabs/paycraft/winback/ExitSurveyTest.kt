@@ -158,12 +158,15 @@ class ExitSurveyTest {
         assertEquals(50, cfg.exitOffer!!.percentOff)
         assertEquals(3, cfg.exitOffer!!.durationInMonths)
         assertTrue(exitSurveyDue(cfg, isPremium = false, lastShownAtMs = null, nowMs = 1L))
-        assertFalse(exitSurveyDue(ExitSurveyConfig(enabled = true), isPremium = false, lastShownAtMs = null, nowMs = 1L))
+        assertFalse(
+            exitSurveyDue(ExitSurveyConfig(enabled = true), isPremium = false, lastShownAtMs = null, nowMs = 1L),
+        )
     }
 
     @Test fun an_offer_moved_to_another_plan_carries_the_server_sku() {
-        val raw = """{"action":"offer","offer":{"id":"o","percentOff":50,"duration":"repeating","durationInMonths":3,""" +
-            """"expiresAt":"2099-01-01T00:00:00Z","sku":"pro-monthly","lanes":{"google_play":"exit50"}}}"""
+        val raw =
+            """{"action":"offer","offer":{"id":"o","percentOff":50,"duration":"repeating","durationInMonths":3,""" +
+                """"expiresAt":"2099-01-01T00:00:00Z","sku":"pro-monthly","lanes":{"google_play":"exit50"}}}"""
         val r = PayCraftContract.decodeWinback(raw, "pro-annual") as WinbackResult.Offer
         assertEquals("pro-monthly", r.offer.sku)
         assertEquals("exit50", r.offer.googlePlayOfferId)

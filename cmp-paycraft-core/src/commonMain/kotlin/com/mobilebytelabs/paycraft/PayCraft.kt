@@ -420,6 +420,8 @@ object PayCraft {
                 platform,
                 sku,
                 freeText,
+                activeExperiment?.experiment,
+                activeExperiment?.variant,
             )
             if (platform == "ios") {
                 val appUserId = billingManager?.userEmail?.value?.trim()?.lowercase()?.ifBlank { null } ?: deviceId

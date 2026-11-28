@@ -1,32 +1,62 @@
 "use client"
 
-// Paywall ▸ Experiments (migrations 206, 221). A/B tests of which offering the paywall sells and which plan it
-// pre-selects: create / edit a draft, start
-// it, stop it, read its results. Saved through /api/experiments; the RPCs own the rules, lib/experiments mirrors them.
+// Paywall ▸ Experiments (migrations 206, 221, 227). A/B tests of which offering the paywall sells, which plan it
+// pre-selects, the exit offer and the design: start from a template or from scratch, start it, stop it, read its
+// results and make the winner the default. Saved through /api/experiments; the RPCs own the rules, lib/experiments
+// mirrors them.
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2, Trophy, FlaskConical } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardBody, CardHeader } from "@/components/ui/card"
 import {
+  EXPERIMENT_TEMPLATES,
+  PAYWALL_TEMPLATES,
   type Experiment,
   type ExperimentDraft,
+  type ExperimentVariant,
   type ResultRow,
+  confidence,
   experimentErrorMessage,
+  mainCurrency,
+  revenuePerViewer,
   significance,
   uplift,
   validateExperiment,
+  winner,
 } from "@/lib/experiments"
 
 /** [plans]: the offering's active plans — a variant may pre-select one of them (221). */
-export type EditorOffering = { id: string; identifier: string; display_name: string; plans?: { sku: string; display_name: string }[] }
+export type EditorOffering = {
+  id: string
+  identifier: string
+  display_name: string
+  is_current?: boolean
+  plans?: { sku: string; display_name: string; interval?: string | null }[]
+}
+
+/** A percent-off coupon a variant can use as its exit offer (227). */
+export type EditorCoupon = { id: string; code: string; percent_off: number; duration: string; duration_in_months: number | null }
+
+const couponTerm = (c: EditorCoupon) =>
+  `${c.percent_off}% off ${c.duration === "repeating" ? `for ${c.duration_in_months ?? "?"} mo` : c.duration === "forever" ? "forever" : "first payment"}`
+
+/** The exit-offer select's value for a variant: "" = the tenant's, "off", or a coupon id. */
+const exitChoice = (v: ExperimentVariant) => (v.exit_offer === false ? "off" : v.exit_offer_coupon_id ?? "")
+const exitPatch = (value: string): Partial<ExperimentVariant> =>
+  value === "off" ? { exit_offer: false, exit_offer_coupon_id: undefined }
+    : value ? { exit_offer: undefined, exit_offer_coupon_id: value } : { exit_offer: undefined, exit_offer_coupon_id: undefined }
 
 const STATUS_TONE = { draft: "neutral", running: "success", stopped: "info" } as const
 const pct = (x: number) => `${(x * 100).toFixed(2)}%`
 
-function Results({ experimentKey }: { experimentKey: string }) {
+function Results({ experimentKey, canPromote, onPromote }: {
+  experimentKey: string
+  canPromote: boolean
+  onPromote: (variant: string) => void
+}) {
   const [rows, setRows] = useState<ResultRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -43,36 +73,53 @@ function Results({ experimentKey }: { experimentKey: string }) {
   if (error) return <p className="px-5 py-3 text-sm text-danger-700" role="alert">Results couldn't be loaded.</p>
   if (!rows) return <p className="px-5 py-3 text-sm text-ink-500">Loading results…</p>
   const control = rows[0]
+  const currency = mainCurrency(rows)
+  const best = winner(rows)
+  const money = (x: number) => (currency ? new Intl.NumberFormat(undefined, { style: "currency", currency }).format(x) : "—")
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] text-sm" data-testid={`results-${experimentKey}`}>
+      <table className="w-full min-w-[860px] text-sm" data-testid={`results-${experimentKey}`}>
         <thead>
           <tr className="border-b border-ink-100 text-left text-xs font-semibold uppercase tracking-wide text-ink-500 dark:border-ink-800">
             <th className="px-5 py-2.5">Variant</th>
             <th className="px-3 py-2.5 text-right">Viewers</th>
-            <th className="px-3 py-2.5 text-right">Checkouts</th>
             <th className="px-3 py-2.5 text-right">Buyers</th>
             <th className="px-3 py-2.5 text-right">Conversion</th>
-            <th className="px-3 py-2.5 text-right">Uplift vs control</th>
-            <th className="px-5 py-2.5">Significance</th>
+            <th className="px-3 py-2.5 text-right">Revenue / viewer</th>
+            <th className="px-3 py-2.5 text-right">Exit offer taken</th>
+            <th className="px-3 py-2.5 text-right">Uplift</th>
+            <th className="px-3 py-2.5">Confidence</th>
+            <th className="px-5 py-2.5" />
           </tr>
         </thead>
         <tbody className="tabular-nums">
           {rows.map((r, i) => {
             const up = i === 0 ? null : uplift(Number(control.conversion), Number(r.conversion))
             const sig = i === 0 ? null : significance(control, r)
+            const conf = i === 0 ? null : confidence(control, r)
+            const views = Number(r.offer_views ?? 0)
             return (
               <tr key={r.variant} className="border-b border-ink-100 last:border-0 dark:border-ink-800">
-                <td className="px-5 py-2.5 font-medium"><code>{r.variant}</code>{i === 0 && <span className="ml-2 text-xs text-ink-400">control</span>}</td>
+                <td className="px-5 py-2.5 font-medium">
+                  <code>{r.variant}</code>{i === 0 && <span className="ml-2 text-xs text-ink-400">control</span>}
+                  {best === r.variant && i > 0 && <Badge tone="success" className="ml-2"><Trophy className="mr-1 inline h-3 w-3" />Winner</Badge>}
+                </td>
                 <td className="px-3 py-2.5 text-right">{r.viewers}</td>
-                <td className="px-3 py-2.5 text-right">{r.checkouts}</td>
                 <td className="px-3 py-2.5 text-right">{r.buyers}</td>
                 <td className="px-3 py-2.5 text-right">{pct(Number(r.conversion))}</td>
+                <td className="px-3 py-2.5 text-right">{money(revenuePerViewer(r, currency))}</td>
+                <td className="px-3 py-2.5 text-right">{views ? `${r.offer_accepts ?? 0} of ${views}` : "—"}</td>
                 <td className="px-3 py-2.5 text-right">{i === 0 ? "—" : up === null ? "n/a" : `${up >= 0 ? "+" : ""}${(up * 100).toFixed(1)}%`}</td>
-                <td className="px-5 py-2.5">
-                  {sig && (sig.significant
-                    ? <Badge tone="success">Significant · p={sig.p!.toFixed(3)}</Badge>
-                    : <Badge tone="neutral">{sig.p === null ? "No data" : `Not yet · p=${sig.p.toFixed(3)}`}</Badge>)}
+                <td className="px-3 py-2.5">
+                  {sig && (conf === null
+                    ? <Badge tone="neutral">No data</Badge>
+                    : <Badge tone={sig.significant ? "success" : "neutral"}>{(conf * 100).toFixed(0)}%{sig.significant ? " · significant" : ""}</Badge>)}
+                </td>
+                <td className="px-5 py-2.5 text-right">
+                  {canPromote && (
+                    <Button type="button" size="sm" variant={best === r.variant ? "primary" : "ghost"} onClick={() => onPromote(r.variant)}
+                      data-testid={`promote-${experimentKey}-${r.variant}`}>Make default</Button>
+                  )}
                 </td>
               </tr>
             )
@@ -80,7 +127,8 @@ function Results({ experimentKey }: { experimentKey: string }) {
         </tbody>
       </table>
       <p className="border-t border-ink-100 px-5 py-2 text-xs text-ink-500 dark:border-ink-800">
-        Distinct devices, live mode only. Significant = two-proportion z-test p &lt; 0.05 with at least 100 viewers in each arm.
+        Distinct devices, live mode only. Revenue = catalogue price of what each buyer bought{currency ? ` (${currency})` : ""}.
+        Confidence = how sure the difference from the control is real (two-proportion z-test); significant at 95% with at least 100 viewers per arm.
       </p>
     </div>
   )
@@ -89,10 +137,16 @@ function Results({ experimentKey }: { experimentKey: string }) {
 export function ExperimentsEditor({
   initial,
   offerings,
+  coupons = [],
+  exitCouponId = null,
   onSaved,
 }: {
   initial: Experiment[]
   offerings: EditorOffering[]
+  /** Percent-off coupons a variant can use as its exit offer (227). */
+  coupons?: EditorCoupon[]
+  /** The tenant's exit-offer coupon (226); templates keep it on. */
+  exitCouponId?: string | null
   /** Called after a successful save / status change (e.g. to invalidate the cached list). */
   onSaved?: () => void
 }) {
@@ -119,6 +173,22 @@ export function ExperimentsEditor({
     setDraft({ key: "", name: "", variants: [{ key: "control", weight: 50, offering_id: first }, { key: "variant-b", weight: 50, offering_id: first }] })
     setIsNew(true)
     setError(null)
+  }
+
+  const templateCtx = { offerings, coupons, exitCouponId, today: new Date().toISOString().slice(0, 10) }
+  function applyTemplate(id: string) {
+    const t = EXPERIMENT_TEMPLATES.find((x) => x.id === id)
+    if (!t || t.needs(templateCtx)) return
+    setDraft(t.build(templateCtx))
+    setIsNew(true)
+    setError(null)
+  }
+
+  async function promote(e: Experiment, variant: string) {
+    const msg = `Make “${variant}” the default for everyone?${e.status === "running" ? " The experiment stops." : ""} Its offering, `
+      + "pre-selected plan, exit offer and design become your paywall's settings."
+    if (!confirm(msg)) return
+    await call("POST", { key: e.key, promote: variant })
   }
 
   async function call(method: "PUT" | "POST", body: unknown): Promise<boolean> {
@@ -184,6 +254,8 @@ export function ExperimentsEditor({
                   <th className="w-24 py-2 pr-3">Weight</th>
                   <th className="py-2 pr-3">Offering</th>
                   <th className="py-2 pr-3">Pre-selected plan</th>
+                  <th className="py-2 pr-3">Exit offer</th>
+                  <th className="py-2 pr-3">Design</th>
                   <th className="w-10" />
                 </tr>
               </thead>
@@ -213,6 +285,21 @@ export function ExperimentsEditor({
                         )}
                       </select>
                     </td>
+                    <td className="py-1.5 pr-3">
+                      <select className="input w-full" value={exitChoice(v)} aria-label={`Variant ${i + 1} exit offer`}
+                        onChange={(e) => editVariant(i, exitPatch(e.target.value))}>
+                        <option value="">Your exit offer</option>
+                        <option value="off">Off</option>
+                        {coupons.map((c) => <option key={c.id} value={c.id}>{c.code} — {couponTerm(c)}</option>)}
+                      </select>
+                    </td>
+                    <td className="py-1.5 pr-3">
+                      <select className="input w-full" value={v.paywall_template ?? ""} aria-label={`Variant ${i + 1} design`}
+                        onChange={(e) => editVariant(i, { paywall_template: e.target.value || undefined })}>
+                        <option value="">Your paywall</option>
+                        {PAYWALL_TEMPLATES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                      </select>
+                    </td>
                     <td className="py-1.5">
                       <Button type="button" variant="ghost" size="sm" disabled={draft.variants.length <= 2} aria-label={`Remove variant ${i + 1}`}
                         onClick={() => edit({ variants: draft.variants.filter((_, j) => j !== i) })}><Trash2 className="h-4 w-4" /></Button>
@@ -233,7 +320,26 @@ export function ExperimentsEditor({
           </CardBody>
         </Card>
       ) : (
-        <div><Button type="button" onClick={startNew} leading={<Plus className="h-4 w-4" />} data-testid="experiment-new">New experiment</Button></div>
+        <Card>
+          <CardHeader title="Start from a template" subtitle="The tests subscription apps run first. Every arm keeps your exit offer on unless the test is about it." />
+          <CardBody className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="experiment-templates">
+            {EXPERIMENT_TEMPLATES.map((t) => {
+              const needs = t.needs(templateCtx)
+              return (
+                <div key={t.id} className="flex flex-col gap-2 rounded-lg border border-ink-200 p-4 dark:border-ink-700">
+                  <p className="flex items-center gap-2 text-sm font-semibold"><FlaskConical className="h-4 w-4 text-brand-600" />{t.name}</p>
+                  <p className="flex-1 text-xs text-ink-500">{t.question}</p>
+                  {needs && <p className="text-xs text-warning-700">{needs}</p>}
+                  <Button type="button" size="sm" variant="secondary" disabled={!!needs} onClick={() => applyTemplate(t.id)}
+                    data-testid={`template-${t.id}`}>Use template</Button>
+                </div>
+              )
+            })}
+          </CardBody>
+          <div className="border-t border-ink-100 px-5 py-3 dark:border-ink-800">
+            <Button type="button" variant="ghost" size="sm" onClick={startNew} leading={<Plus className="h-4 w-4" />} data-testid="experiment-new">Blank experiment</Button>
+          </div>
+        </Card>
       )}
 
       {list.length === 0 && !draft && <p className="text-sm text-ink-500">No experiments yet.</p>}
@@ -260,9 +366,17 @@ export function ExperimentsEditor({
             }
           />
           <ul className="flex flex-wrap gap-x-5 gap-y-1 px-5 pb-3 text-xs text-ink-500">
-            {e.variants.map((v) => <li key={v.key}><code>{v.key}</code> · {v.weight} · {offeringName(v.offering_id)}{v.default_sku && <> · opens on <code>{v.default_sku}</code></>}</li>)}
+            {e.variants.map((v) => (
+              <li key={v.key}>
+                <code>{v.key}</code> · {v.weight} · {offeringName(v.offering_id)}
+                {v.default_sku && <> · opens on <code>{v.default_sku}</code></>}
+                {v.exit_offer === false && <> · no exit offer</>}
+                {v.exit_offer_coupon_id && <> · exit offer {coupons.find((c) => c.id === v.exit_offer_coupon_id)?.code ?? "coupon"}</>}
+                {v.paywall_template && <> · design {v.paywall_template}</>}
+              </li>
+            ))}
           </ul>
-          {e.status !== "draft" && <Results experimentKey={e.key} />}
+          {e.status !== "draft" && <Results experimentKey={e.key} canPromote={!busy} onPromote={(variant) => promote(e, variant)} />}
         </Card>
       ))}
     </div>

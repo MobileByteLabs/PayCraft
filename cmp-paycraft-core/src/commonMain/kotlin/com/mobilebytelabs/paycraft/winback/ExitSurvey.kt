@@ -63,7 +63,8 @@ public class ExitSurveyGate(private val settings: Settings, private val now: () 
  * buyer is not premium, and [ExitSurveyConfig.capDays] (at least one) have passed since it was last shown.
  */
 public fun exitSurveyDue(cfg: ExitSurveyConfig?, isPremium: Boolean, lastShownAtMs: Long?, nowMs: Long): Boolean {
-    if (cfg == null || !cfg.enabled || isPremium || (cfg.reasons.isEmpty() && cfg.exitOffer == null)) return false
+    if (cfg == null || !cfg.enabled || isPremium) return false
+    if (cfg.reasons.isEmpty() && cfg.exitOffer == null) return false
     val last = lastShownAtMs ?: return true
     return nowMs - last >= cfg.capDays.coerceAtLeast(1) * 86_400_000L
 }

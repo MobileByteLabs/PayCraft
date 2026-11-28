@@ -20,7 +20,15 @@ import { preflight, withCors } from "../_shared/cors.ts"
 import { redeemableNow } from "../_shared/exit-survey.ts"
 import { recordedCountry } from "../_shared/geo.ts"
 import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/rate-limit.ts"
-import { buyerRef, lanesFor, pickOfferPlan, productLookupColumn, type OfferCoupon } from "../_shared/winback-offer.ts"
+import {
+  buyerRef,
+  exitOfferCoupon,
+  lanesFor,
+  pickOfferPlan,
+  productLookupColumn,
+  type OfferCoupon,
+  type VariantExitOffer,
+} from "../_shared/winback-offer.ts"
 import { signPromotionalOffer } from "../_shared/appstore-offer.ts"
 
 const CODE = /^[a-z][a-z_]{0,30}$/
@@ -64,10 +72,11 @@ serve(async (req: Request): Promise<Response> => {
   const reasons = (survey?.reasons ?? []) as Array<{ code: string; enabled?: boolean; action?: string; message?: string; coupon_id?: string; free_text?: boolean }>
   // "exit_offer": the discount shown first on close (migration 226) — not a survey answer, nothing is recorded.
   const isExitOffer = reasonCode === EXIT_OFFER
+  // An A/B variant (227) may turn the exit offer off or give it its own coupon.
+  const arm = isExitOffer ? await runningVariant(supabase, tenantId, str(body.experiment, 48), str(body.variant, 32)) : null
+  const exitCoupon = exitOfferCoupon(survey, arm)
   const reason = isExitOffer
-    ? (survey?.exit_offer_enabled !== false && survey?.exit_offer_coupon_id
-      ? { code: EXIT_OFFER, action: "offer", coupon_id: survey.exit_offer_coupon_id as string }
-      : undefined)
+    ? (exitCoupon ? { code: EXIT_OFFER, action: "offer", coupon_id: exitCoupon } : undefined)
     : reasons.find((r) => r?.code === reasonCode && r.enabled !== false)
   if (!survey?.enabled || !reason) return json(400, { error: "unknown_reason" })
 
@@ -167,4 +176,19 @@ async function signedAppStoreOffer(
     console.warn(`winback: App Store offer signing failed for tenant ${tenantId}: ${(e as Error).message}`)
     return null
   }
+}
+
+/** The device's arm of the RUNNING experiment [key], or null (no experiment, another one, unknown arm). */
+async function runningVariant(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  tenantId: string,
+  key: string | null,
+  variant: string | null,
+): Promise<VariantExitOffer | null> {
+  if (!key || !variant) return null
+  const { data } = await supabase.from("paywall_experiments").select("variants")
+    .eq("tenant_id", tenantId).eq("key", key).eq("status", "running").maybeSingle()
+  const arms = (data?.variants ?? []) as Array<VariantExitOffer & { key?: string }>
+  return arms.find((a) => a?.key === variant) ?? null
 }

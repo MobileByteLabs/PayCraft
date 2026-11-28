@@ -222,6 +222,8 @@ object PayCraftContract {
         platform: String,
         sku: String?,
         freeText: String?,
+        experiment: String? = null,
+        variant: String? = null,
     ): JsonObject = buildJsonObject {
         put("apiKey", apiKey)
         put("deviceRef", deviceRef)
@@ -231,6 +233,11 @@ object PayCraftContract {
         put("platform", platform)
         if (sku != null) put("sku", sku)
         if (!freeText.isNullOrBlank()) put("freeText", freeText.take(500))
+        // The A/B arm, so the server applies its exit offer (227).
+        if (experiment != null && variant != null) {
+            put("experiment", experiment)
+            put("variant", variant)
+        }
     }
 
     /** The `winback` answer; anything unreadable is [WinbackResult.None] (close the survey, never crash). */
@@ -250,6 +257,7 @@ object PayCraftContract {
         val o = configJson.parseToJsonElement(raw).jsonObject
         when (o.string("action")) {
             "message" -> o.string("message")?.let { WinbackResult.Message(it) } ?: WinbackResult.None
+
             "offer" -> {
                 val offer = o["offer"]!!.jsonObject
                 val lanes = offer["lanes"] as? JsonObject
@@ -261,7 +269,7 @@ object PayCraftContract {
                         duration = offer.string("duration") ?: "once",
                         durationInMonths = offer["durationInMonths"]?.jsonPrimitive?.intOrNull,
                         expiresAtIso = offer.string("expiresAt").orEmpty(),
-                        // The server may move the offer to a plan that can carry it (an annual plan can't do "3 months").
+                        // The server may move the offer to a plan that can carry it (annual can't do "3 months").
                         sku = offer.string("sku") ?: sku,
                         stripe = lanes?.get("stripe")?.jsonPrimitive?.booleanOrNull == true,
                         razorpay = lanes?.get("razorpay")?.jsonPrimitive?.booleanOrNull == true,
@@ -270,6 +278,7 @@ object PayCraftContract {
                     ),
                 )
             }
+
             else -> WinbackResult.None
         }
     }.getOrDefault(WinbackResult.None)

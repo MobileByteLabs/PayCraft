@@ -48,8 +48,10 @@ class ExitOfferFlowTest {
             dispatch(PayCraftPaywallAction.Dismiss)
         }
 
-    private fun cfg(reasons: List<ExitSurveyConfig.Reason> = listOf(reason), exit: ExitSurveyConfig.Offer? = exitOffer) =
-        ExitSurveyConfig(enabled = true, title = "Why?", reasons = reasons, exitOffer = exit)
+    private fun cfg(
+        reasons: List<ExitSurveyConfig.Reason> = listOf(reason),
+        exit: ExitSurveyConfig.Offer? = exitOffer,
+    ) = ExitSurveyConfig(enabled = true, title = "Why?", reasons = reasons, exitOffer = exit)
 
     @Test fun close_shows_the_exit_offer_first_then_the_survey_on_no_thanks() {
         val vm = closed(cfg())
@@ -61,7 +63,10 @@ class ExitOfferFlowTest {
         val names = captured.map { it.name }
         assertEquals(
             listOf(PayCraftEventName.OfferView, PayCraftEventName.OfferDecline, PayCraftEventName.SurveyView),
-            names.filter { it in setOf(PayCraftEventName.OfferView, PayCraftEventName.OfferDecline, PayCraftEventName.SurveyView) },
+            names.filter {
+                it in
+                    setOf(PayCraftEventName.OfferView, PayCraftEventName.OfferDecline, PayCraftEventName.SurveyView)
+            },
         )
     }
 

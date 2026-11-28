@@ -3,7 +3,7 @@
 // a Stripe promotion code (or the coupon), a Razorpay offer id — and an unusable one never blocks checkout.
 // Run: deno test --no-check supabase/functions/__tests__/winback-offer.test.ts
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts"
-import { buyerRef, lanesFor, offerUsable, pickOfferPlan, productLookupColumn, type OfferRow, type OfferCoupon } from "../_shared/winback-offer.ts"
+import { buyerRef, exitOfferCoupon, lanesFor, offerUsable, pickOfferPlan, productLookupColumn, type OfferRow, type OfferCoupon } from "../_shared/winback-offer.ts"
 import { stripeSessionForm } from "../checkout-initiate/stripe-session.ts"
 
 const coupon = (over: Partial<OfferCoupon> = {}): OfferCoupon => ({
@@ -63,4 +63,13 @@ Deno.test("pickOfferPlan: the shortest billing period carries the discount", () 
   assertEquals(pickOfferPlan(plans)?.sku, "pro-monthly")
   assertEquals(pickOfferPlan([{ sku: "x", interval: null }, { sku: "pro-annual", interval: "year" }])?.sku, "pro-annual")
   assertEquals(pickOfferPlan([]), null)
+})
+
+Deno.test("exitOfferCoupon: tenant off or variant off → none; a variant's coupon wins over the tenant's", () => {
+  const on = { exit_offer_enabled: true, exit_offer_coupon_id: "t1" }
+  assertEquals(exitOfferCoupon(on, null), "t1")
+  assertEquals(exitOfferCoupon(on, { exit_offer: false }), null)
+  assertEquals(exitOfferCoupon(on, { exit_offer_coupon_id: "v1" }), "v1")
+  assertEquals(exitOfferCoupon({ ...on, exit_offer_enabled: false }, { exit_offer_coupon_id: "v1" }), null)
+  assertEquals(exitOfferCoupon({ exit_offer_enabled: true, exit_offer_coupon_id: null }, null), null)
 })

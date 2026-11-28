@@ -9,6 +9,7 @@ import com.mobilebytelabs.paycraft.analytics.PayCraftFailureStage
 import com.mobilebytelabs.paycraft.billing.CheckoutLane
 import com.mobilebytelabs.paycraft.billing.resolveCheckoutLane
 import com.mobilebytelabs.paycraft.config.ProviderDto
+import com.mobilebytelabs.paycraft.config.forVariant
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
 import com.mobilebytelabs.paycraft.debug.platformLog
@@ -48,7 +49,9 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
     // ── Exit survey + win-back offer (paycraft-paywall-analytics, GOAL D6/D7) ────────────────────
     // Seams: replaced in tests; production reads the live config, the device-persisted cap and the network.
-    internal var surveyConfig: () -> ExitSurveyConfig? = { PayCraft.exitSurvey.value }
+    internal var surveyConfig: () -> ExitSurveyConfig? = {
+        PayCraft.exitSurvey.value.forVariant(PayCraft.activeExperiment)
+    }
     internal var surveyGate: ExitSurveyGate? = null
     internal var winback: suspend (code: String, step: String, sku: String?, freeText: String?) -> WinbackResult =
         { code, step, sku, text -> PayCraft.answerExitSurvey(code, step, sku, text) }
@@ -111,9 +114,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
         viewModelScope.launch {
             when (val r = winback(code, asking.step.wire, asking.sku, freeText)) {
                 is WinbackResult.Offer -> showOffer(r.offer, asking.sku)
-
                 is WinbackResult.Message -> surveyState.value = ExitSurveyUi.MessageShown(r.text)
-
                 WinbackResult.None -> closeSurvey()
             }
         }
