@@ -222,8 +222,6 @@ object PayCraftContract {
         platform: String,
         sku: String?,
         freeText: String?,
-        experiment: String? = null,
-        variant: String? = null,
     ): JsonObject = buildJsonObject {
         put("apiKey", apiKey)
         put("deviceRef", deviceRef)
@@ -233,11 +231,6 @@ object PayCraftContract {
         put("platform", platform)
         if (sku != null) put("sku", sku)
         if (!freeText.isNullOrBlank()) put("freeText", freeText.take(500))
-        // The A/B arm, so the server applies its exit offer (227).
-        if (experiment != null && variant != null) {
-            put("experiment", experiment)
-            put("variant", variant)
-        }
     }
 
     /** The `winback` answer; anything unreadable is [WinbackResult.None] (close the survey, never crash). */

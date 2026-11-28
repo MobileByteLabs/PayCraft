@@ -47,6 +47,9 @@ export type ResultRow = {
   offer_views?: number
   offer_accepts?: number
   revenue?: Record<string, number>
+  /** (228) buyers who started on a free trial, and how many of those trials turned paid. */
+  trial_starts?: number
+  trial_paid?: number
 }
 
 export const EXPERIMENT_KEY = /^[a-z0-9][a-z0-9-]{1,47}$/
@@ -294,3 +297,9 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ]),
   },
 ]
+
+/** Share of this arm's trials that turned paid (0.4 = 40%); null when nobody started a trial. */
+export function trialToPaid(r: Pick<ResultRow, "trial_starts" | "trial_paid">): number | null {
+  const starts = Number(r.trial_starts ?? 0)
+  return starts > 0 ? Number(r.trial_paid ?? 0) / starts : null
+}

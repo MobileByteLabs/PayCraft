@@ -128,7 +128,17 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
   reasonCode `exit_offer` — no survey answer recorded), the survey only if declined; same `survey_cap_days`. Play counts
   a discount in the base plan's periods (`playRecurrenceCount`): "3 months" fits monthly/quarterly only; `winback`
   moves an Android buyer on a plan the coupon can't reach to the shortest plan it can (`pickOfferPlan`) and returns
-  that `sku`. Tests: `ExitOfferFlowTest`, `supabase/tests/226_exit_offer_test.sql`.
+  that `sku`. Tests: `ExitOfferFlowTest`, `supabase/tests/226_exit_offer_test.sql`. Web: `WebExitSurvey.exitOffer`
+  → `showExitSurvey` asks `answerSurvey("exit_offer")` first (starts the cap, not an answer) and shows the survey on
+  No thanks (`ExitSurveyDialogTest`).
+- **Store coupon periods:** `dashboard/lib/coupon-periods.ts#couponPeriodCount` is the one rule for both stores (Play
+  `recurrenceCount`, App Store `numberOfPeriods`): counted in the plan's own period, a plan the duration doesn't fit is
+  skipped. App Store coupons are PROMOTIONAL offers (`appstore-coupon-sync.ts`, `subscriptionPromotionalOffers`,
+  offer code `cpn.<code>` stored in `appstore_offer_ids` = what `winback` signs) — never introductory offers, which
+  Apple gives every new subscriber.
+- **Trial → paid (228):** `entitlement_records.trial_started_at` / `trial_converted_at`, stamped by the
+  `entitlement_trial_stamps` trigger on every write path; experiment results add `trial_starts` / `trial_paid`
+  (buyer linked by device id or by `user_ref` = hash of tenant + email). Test `supabase/tests/228_trial_conversion_test.sql`.
 - **GA4 on the dashboard:** tenants add PayCraft's service account — the org Firebase account
   (`firebase-adminsdk-fbsvc@prod-applications-c7f87.iam.gserviceaccount.com`; alias `paycraft-ga4-service-account` →
   vault `mbs-firebase-service-account`, env `PAYCRAFT_GA4_SA_JSON`, raw or base64 JSON) — as a Viewer on their property; `tenant_ga4_connections` (184) stores only the property id, plus (190) the `stream_ids` that are the tenant's when one property holds several apps — every report (`ga4Overview`) is then filtered by `streamId`.

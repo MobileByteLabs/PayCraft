@@ -1,11 +1,8 @@
 /**
- * `playRecurrenceCount` — Play counts a discount offer's phase in the BASE PLAN's own billing period. "50% off for
+ * `couponPeriodCount` — both stores count a discount offer's phase in the BASE PLAN's own billing period. "50% off for
  * 3 months" used to become 3 periods on every plan: 9 months on quarterly, 3 years on annual.
  */
-jest.mock("@/lib/supabase-server", () => ({ createClient: jest.fn() }))
-jest.mock("@/lib/store-jwt", () => ({ playAccessToken: jest.fn() }))
-
-import { playRecurrenceCount } from "@/lib/googleplay-coupon-sync"
+import { couponPeriodCount as playRecurrenceCount } from "@/lib/coupon-periods"
 
 describe("playRecurrenceCount", () => {
   it("3 months is 3 monthly periods but 1 quarterly period", () => {

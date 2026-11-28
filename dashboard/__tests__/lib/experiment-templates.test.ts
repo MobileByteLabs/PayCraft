@@ -4,6 +4,7 @@ import {
   confidence,
   mainCurrency,
   revenuePerViewer,
+  trialToPaid,
   validateExperiment,
   winner,
   type ResultRow,
@@ -86,5 +87,13 @@ describe("results (227)", () => {
     expect(winner([control, better])).toBe("b")
     expect(winner([control, row("b", 1000, 22)])).toBe("control")
     expect(winner([row("control", 0, 0), row("b", 0, 0)])).toBeNull()
+  })
+})
+
+describe("trial → paid (228)", () => {
+  it("is the share of trials that turned paid, null without trials", () => {
+    expect(trialToPaid({ trial_starts: 4, trial_paid: 1 })).toBe(0.25)
+    expect(trialToPaid({ trial_starts: 0, trial_paid: 0 })).toBeNull()
+    expect(trialToPaid({})).toBeNull()
   })
 })

@@ -23,6 +23,7 @@ import {
   mainCurrency,
   revenuePerViewer,
   significance,
+  trialToPaid,
   uplift,
   validateExperiment,
   winner,
@@ -78,7 +79,7 @@ function Results({ experimentKey, canPromote, onPromote }: {
   const money = (x: number) => (currency ? new Intl.NumberFormat(undefined, { style: "currency", currency }).format(x) : "—")
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[860px] text-sm" data-testid={`results-${experimentKey}`}>
+      <table className="w-full min-w-[960px] text-sm" data-testid={`results-${experimentKey}`}>
         <thead>
           <tr className="border-b border-ink-100 text-left text-xs font-semibold uppercase tracking-wide text-ink-500 dark:border-ink-800">
             <th className="px-5 py-2.5">Variant</th>
@@ -87,6 +88,7 @@ function Results({ experimentKey, canPromote, onPromote }: {
             <th className="px-3 py-2.5 text-right">Conversion</th>
             <th className="px-3 py-2.5 text-right">Revenue / viewer</th>
             <th className="px-3 py-2.5 text-right">Exit offer taken</th>
+            <th className="px-3 py-2.5 text-right">Trial → paid</th>
             <th className="px-3 py-2.5 text-right">Uplift</th>
             <th className="px-3 py-2.5">Confidence</th>
             <th className="px-5 py-2.5" />
@@ -109,6 +111,9 @@ function Results({ experimentKey, canPromote, onPromote }: {
                 <td className="px-3 py-2.5 text-right">{pct(Number(r.conversion))}</td>
                 <td className="px-3 py-2.5 text-right">{money(revenuePerViewer(r, currency))}</td>
                 <td className="px-3 py-2.5 text-right">{views ? `${r.offer_accepts ?? 0} of ${views}` : "—"}</td>
+                <td className="px-3 py-2.5 text-right">
+                  {trialToPaid(r) === null ? "—" : `${pct(trialToPaid(r)!)} (${r.trial_paid} of ${r.trial_starts})`}
+                </td>
                 <td className="px-3 py-2.5 text-right">{i === 0 ? "—" : up === null ? "n/a" : `${up >= 0 ? "+" : ""}${(up * 100).toFixed(1)}%`}</td>
                 <td className="px-3 py-2.5">
                   {sig && (conf === null
@@ -128,6 +133,7 @@ function Results({ experimentKey, canPromote, onPromote }: {
       </table>
       <p className="border-t border-ink-100 px-5 py-2 text-xs text-ink-500 dark:border-ink-800">
         Distinct devices, live mode only. Revenue = catalogue price of what each buyer bought{currency ? ` (${currency})` : ""}.
+        Trial → paid = buyers who started on a free trial and were later charged (a trial still running counts as not yet).
         Confidence = how sure the difference from the control is real (two-proportion z-test); significant at 95% with at least 100 viewers per arm.
       </p>
     </div>

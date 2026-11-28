@@ -85,4 +85,22 @@ class ExitSurveyDialogTest {
             assertFalse(shown, "a survey that is not due is never marked shown")
         }
     }
+
+    @Test
+    fun the_exit_offer_is_asked_for_first_and_nothing_shows_without_one_or_a_survey(): Promise<*> {
+        val pc: dynamic = fakePc().asDynamic()
+        val asked = mutableListOf<String>()
+        var shown = false
+        pc.surveyConfig = { Promise.resolve<Any?>(survey("""{"title":"Why?","reasons":[],"exitOffer":true}""")) }
+        pc.answerSurvey = { code: String, _: String, _: String?, _: String? ->
+            asked += code
+            Promise.resolve<Any?>(js("({action:'none'})"))
+        }
+        pc.surveyShown = { _: String, _: String? -> shown = true }
+        return showExitSurvey(pc, "paywall", "pro-monthly").then { outcome ->
+            assertEquals(listOf("exit_offer"), asked)
+            assertEquals("none", outcome, "no offer and no reasons: nothing to show")
+            assertFalse(shown)
+        }
+    }
 }

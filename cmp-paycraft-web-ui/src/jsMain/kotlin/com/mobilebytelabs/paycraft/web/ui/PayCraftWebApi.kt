@@ -61,6 +61,7 @@ external interface WebPaymentOptionView {
 external interface WebExitSurveyView {
     val title: String
     val reasons: Array<WebSurveyReasonView>
+    val exitOffer: Boolean
 }
 
 external interface WebSurveyReasonView {
