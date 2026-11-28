@@ -1,7 +1,8 @@
 "use client"
 
-// Paywall ▸ Exit survey (paycraft-paywall-analytics T15, GOAL D6). What a buyer is asked when they close the paywall
-// or leave checkout without paying, and what each answer does: a win-back coupon, a message, or nothing. Saved
+// Paywall ▸ Exit survey (paycraft-paywall-analytics T15, GOAL D6). The exit offer shown first on close (migration
+// 226), then what a buyer is asked when they leave without paying and what each answer does: a win-back coupon, a
+// message, or nothing. Saved
 // through /api/exit-survey (tenant_exit_survey_save owns the rules); apps pick it up with their next /config.
 
 import { useMemo, useState } from "react"
@@ -97,10 +98,46 @@ export function ExitSurveyEditor({
   }
 
   const live = s.reasons.filter((r) => r.enabled !== false)
+  const exitCoupon = coupons.find((c) => c.id === s.exit_offer_coupon_id)
+  const exitOn = s.exit_offer_enabled !== false && !!exitCoupon
 
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]" data-testid="exit-survey-editor">
       <div className="flex min-w-0 flex-col gap-6">
+        <Card>
+          <CardHeader
+            title="Exit offer"
+            subtitle="Shown first when a buyer closes the paywall — the survey follows only if they say no thanks. Same cap as the survey."
+            action={
+              <label className="flex items-center gap-2 text-sm font-medium text-ink-700 dark:text-ink-200">
+                {exitOn ? "On" : "Off"}
+                <Toggle on={exitOn} onChange={(v) => edit({ exit_offer_enabled: v })} label="Exit offer enabled" testId="exit-offer-enabled" />
+              </label>
+            }
+          />
+          <CardBody className="grid gap-2">
+            <select className="input" value={s.exit_offer_coupon_id ?? ""} onChange={(e) => edit({ exit_offer_coupon_id: e.target.value || null })}
+              aria-label="Exit offer coupon" data-testid="exit-offer-coupon">
+              <option value="">No exit offer</option>
+              {coupons.map((c) => <option key={c.id} value={c.id}>{couponLabel(c)}</option>)}
+            </select>
+            {exitCoupon && (
+              <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs" aria-label="Where the exit offer applies">
+                {laneReadiness(exitCoupon, productCount).map((l) => (
+                  <li key={l.lane} className={`inline-flex items-center gap-1 ${l.ready ? "text-success-700" : "text-warning-700"}`}>
+                    {l.ready ? <Check className="h-3 w-3" strokeWidth={2.5} /> : <AlertTriangle className="h-3 w-3" />}
+                    {l.lane}{l.note ? ` · ${l.note}` : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-xs text-ink-500">
+              On Google Play a discount runs in the plan&apos;s own billing periods: “3 months” fits Monthly and Quarterly. A buyer on a
+              plan it can&apos;t fit (6-month, yearly) is offered it on Monthly instead.
+            </p>
+          </CardBody>
+        </Card>
+
         <Card>
           <CardHeader
             title="Survey"
@@ -234,7 +271,15 @@ export function ExitSurveyEditor({
           </div>
         </div>
         <div className={`relative overflow-hidden rounded-2xl bg-ink-800/80 ${preview === "mobile" ? "flex h-[460px] items-end" : "flex h-[340px] items-center p-4"}`} data-testid="survey-preview">
-          {!s.enabled || live.length === 0 ? (
+          {s.enabled && exitOn && exitCoupon ? (
+            <div className={`w-full bg-white p-5 text-center text-ink-900 ${preview === "mobile" ? "rounded-t-2xl" : "rounded-xl"}`} data-testid="exit-offer-preview">
+              <p className="text-3xl font-extrabold text-brand-600">{exitCoupon.percent_off}% off</p>
+              <p className="mt-1 text-[15px] font-bold">A better price, just for you</p>
+              <p className="mt-1 text-[13px] text-ink-500">{couponLabel(exitCoupon).split(" — ")[1]}</p>
+              <p className="mt-4 rounded-full bg-brand-600 py-2 text-[13px] font-semibold text-white">Claim {exitCoupon.percent_off}% off</p>
+              <p className="mt-2 text-xs text-ink-500">No thanks{live.length ? " → the survey" : ""}</p>
+            </div>
+          ) : !s.enabled || live.length === 0 ? (
             <p className="m-auto px-6 text-center text-sm text-ink-200">The survey is off — buyers simply leave.</p>
           ) : (
             <div className={`w-full bg-white p-4 text-ink-900 ${preview === "mobile" ? "rounded-t-2xl" : "rounded-xl"}`}>

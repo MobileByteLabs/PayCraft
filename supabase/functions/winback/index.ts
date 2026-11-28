@@ -20,10 +20,11 @@ import { preflight, withCors } from "../_shared/cors.ts"
 import { redeemableNow } from "../_shared/exit-survey.ts"
 import { recordedCountry } from "../_shared/geo.ts"
 import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/rate-limit.ts"
-import { buyerRef, lanesFor, productLookupColumn, type OfferCoupon } from "../_shared/winback-offer.ts"
+import { buyerRef, lanesFor, pickOfferPlan, productLookupColumn, type OfferCoupon } from "../_shared/winback-offer.ts"
 import { signPromotionalOffer } from "../_shared/appstore-offer.ts"
 
 const CODE = /^[a-z][a-z_]{0,30}$/
+const EXIT_OFFER = "exit_offer"
 const PLATFORMS = new Set(["android", "ios", "web", "desktop"])
 
 const json = (status: number, body: unknown) =>
@@ -59,9 +60,15 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   const { data: survey } = await supabase.from("tenant_exit_survey")
-    .select("enabled,reasons,offer_hours").eq("tenant_id", tenantId).maybeSingle()
+    .select("enabled,reasons,offer_hours,exit_offer_enabled,exit_offer_coupon_id").eq("tenant_id", tenantId).maybeSingle()
   const reasons = (survey?.reasons ?? []) as Array<{ code: string; enabled?: boolean; action?: string; message?: string; coupon_id?: string; free_text?: boolean }>
-  const reason = reasons.find((r) => r?.code === reasonCode && r.enabled !== false)
+  // "exit_offer": the discount shown first on close (migration 226) — not a survey answer, nothing is recorded.
+  const isExitOffer = reasonCode === EXIT_OFFER
+  const reason = isExitOffer
+    ? (survey?.exit_offer_enabled !== false && survey?.exit_offer_coupon_id
+      ? { code: EXIT_OFFER, action: "offer", coupon_id: survey.exit_offer_coupon_id as string }
+      : undefined)
+    : reasons.find((r) => r?.code === reasonCode && r.enabled !== false)
   if (!survey?.enabled || !reason) return json(400, { error: "unknown_reason" })
 
   // The buyer: their account when the device token is signed in, else the device.
@@ -85,7 +92,7 @@ serve(async (req: Request): Promise<Response> => {
   }
   const sku = product?.sku ?? sentSku
 
-  await supabase.from("exit_survey_responses").insert({
+  if (!isExitOffer) await supabase.from("exit_survey_responses").insert({
     tenant_id: tenantId, user_ref: userRef, device_ref: deviceRef, step, reason_code: reasonCode,
     free_text: reason.free_text ? str(body.freeText, 500) : null,
     platform, country: recordedCountry(req), sku, mode,
@@ -99,9 +106,22 @@ serve(async (req: Request): Promise<Response> => {
     .eq("tenant_id", tenantId).eq("id", reason.coupon_id).maybeSingle()
   if (!coupon || !redeemableNow(coupon as OfferCoupon)) return json(200, { action: "none" })
 
+  // The buyer's plan can't carry this discount on Play (e.g. "3 months" on an annual plan): offer it on a plan that
+  // can — the honest offer, never a longer discount than promised. Monthly first.
+  if (platform === "android" && !(product && (coupon as OfferCoupon).googleplay_offer_ids?.[product.id])) {
+    const ids = Object.keys((coupon as OfferCoupon).googleplay_offer_ids ?? {})
+    if (ids.length) {
+      const { data: alts } = await supabase.from("tenant_products").select("id,sku,app_store_product_id,interval")
+        .eq("tenant_id", tenantId).in("id", ids)
+      const alt = pickOfferPlan(alts ?? [])
+      if (alt) product = alt
+    }
+  }
+  const offerSku = product?.sku ?? sku
+
   const expiresAt = new Date(Date.now() + Number(survey.offer_hours ?? 48) * 3600 * 1000).toISOString()
   const { data: offer, error: offerErr } = await supabase.from("winback_offers")
-    .insert({ tenant_id: tenantId, user_ref: userRef, coupon_id: coupon.id, reason_code: reasonCode, sku, expires_at: expiresAt })
+    .insert({ tenant_id: tenantId, user_ref: userRef, coupon_id: coupon.id, reason_code: reasonCode, sku: offerSku, expires_at: expiresAt })
     .select("id,expires_at").single()
   // A unique violation means this buyer already had this offer (GOAL D7): nothing more to give.
   if (offerErr || !offer) return json(200, { action: "none" })
@@ -120,6 +140,7 @@ serve(async (req: Request): Promise<Response> => {
       duration: coupon.duration ?? "once",
       ...(coupon.duration_in_months != null ? { durationInMonths: coupon.duration_in_months } : {}),
       expiresAt: offer.expires_at,
+      ...(offerSku ? { sku: offerSku } : {}),
       lanes,
     },
   })

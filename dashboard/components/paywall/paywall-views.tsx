@@ -252,7 +252,7 @@ export function ExitSurveyView() {
     queryFn: async (): Promise<SurveyDraft> => {
       const { data, error } = await supabase
         .from("tenant_exit_survey")
-        .select("enabled,title,reasons,survey_cap_days,offer_hours")
+        .select("enabled,title,reasons,survey_cap_days,offer_hours,exit_offer_enabled,exit_offer_coupon_id")
         .eq("tenant_id", tenantId)
         .maybeSingle()
       if (error) throw new Error(error.message)
@@ -264,8 +264,10 @@ export function ExitSurveyView() {
             reasons: data.reasons ?? DEFAULT_REASONS,
             survey_cap_days: data.survey_cap_days,
             offer_hours: data.offer_hours,
+            exit_offer_enabled: data.exit_offer_enabled ?? true,
+            exit_offer_coupon_id: data.exit_offer_coupon_id ?? null,
           }
-        : { enabled: true, title: "Before you go — what stopped you?", reasons: DEFAULT_REASONS, survey_cap_days: 7, offer_hours: 48 }
+        : { enabled: true, title: "Before you go — what stopped you?", reasons: DEFAULT_REASONS, survey_cap_days: 7, offer_hours: 48, exit_offer_enabled: true, exit_offer_coupon_id: null }
     },
   })
   // Same key + query as the Coupons page, so either page warms the other.

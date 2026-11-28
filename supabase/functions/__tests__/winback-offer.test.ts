@@ -3,7 +3,7 @@
 // a Stripe promotion code (or the coupon), a Razorpay offer id — and an unusable one never blocks checkout.
 // Run: deno test --no-check supabase/functions/__tests__/winback-offer.test.ts
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts"
-import { buyerRef, lanesFor, offerUsable, productLookupColumn, type OfferRow, type OfferCoupon } from "../_shared/winback-offer.ts"
+import { buyerRef, lanesFor, offerUsable, pickOfferPlan, productLookupColumn, type OfferRow, type OfferCoupon } from "../_shared/winback-offer.ts"
 import { stripeSessionForm } from "../checkout-initiate/stripe-session.ts"
 
 const coupon = (over: Partial<OfferCoupon> = {}): OfferCoupon => ({
@@ -56,4 +56,11 @@ Deno.test("the survey's sku resolves a product whether apps sent the SKU or the 
   assertEquals(productLookupColumn("pro-quarterly"), "sku")
   assertEquals(productLookupColumn("35515f32-a5db-4b2e-b159-72e0ce4becda"), "id")
   assertEquals(productLookupColumn("com.sensei.social.proquarterly"), "sku")
+})
+
+Deno.test("pickOfferPlan: the shortest billing period carries the discount", () => {
+  const plans = [{ sku: "pro-annual", interval: "year" }, { sku: "pro-monthly", interval: "month" }, { sku: "pro-quarterly", interval: "quarter" }]
+  assertEquals(pickOfferPlan(plans)?.sku, "pro-monthly")
+  assertEquals(pickOfferPlan([{ sku: "x", interval: null }, { sku: "pro-annual", interval: "year" }])?.sku, "pro-annual")
+  assertEquals(pickOfferPlan([]), null)
 })

@@ -30,6 +30,26 @@ import {
 
 const COUPON_OFFER_CAP = 12 // "forever" cap — Play phases are finite
 
+const MONTHS_PER_PERIOD: Record<string, number> = { month: 1, quarter: 3, semiannual: 6, year: 12 }
+
+/**
+ * How many of THIS plan's billing periods the discount lasts — Play counts the offer phase in the base plan's own
+ * period, so "3 months" is 3 periods on a monthly plan but must be 1 on a quarterly one (it was 3 → 9 months).
+ * Null when the plan can't carry the duration exactly (3 months on a semi-annual or annual plan): the coupon is not
+ * offered on that plan rather than over-discounted.
+ */
+export function playRecurrenceCount(
+  duration: "once" | "repeating" | "forever",
+  durationInMonths: number | null,
+  interval: string | null,
+): number | null {
+  if (duration === "once") return 1
+  if (duration === "forever") return COUPON_OFFER_CAP
+  const months = durationInMonths ?? 1
+  const per = MONTHS_PER_PERIOD[interval ?? "month"] ?? 1
+  return months % per === 0 ? months / per : null
+}
+
 function couponOfferIdFor(basePlanId: string, code: string): string {
   return `${basePlanId}-cpn-${code}`.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 63).replace(/-+$/g, "")
 }
@@ -97,13 +117,15 @@ export async function syncCouponToGooglePlay(opts: {
 
   const token = await playAccessToken(JSON.parse(decrypted.credential) as PlayServiceAccountJson)
 
-  const recurrenceCount =
-    opts.duration === "once" ? 1 : opts.duration === "repeating" ? opts.durationInMonths ?? 1 : COUPON_OFFER_CAP
-
   // 3. One discount offer per applicable product.
   const offerIdsByProduct: Record<string, string> = {}
   const errors: string[] = []
   for (const prod of applicable) {
+    const recurrenceCount = playRecurrenceCount(opts.duration, opts.durationInMonths, prod.interval)
+    if (recurrenceCount === null) {
+      errors.push(`${prod.playProductId}: a ${opts.durationInMonths}-month discount doesn't fit a ${prod.interval} plan`)
+      continue
+    }
     if (prod.prices.length === 0) { errors.push(`${prod.playProductId}: no prices`); continue }
     const regions = resolveRegions(prod.prices)
     if (regions.length === 0) { errors.push(`${prod.playProductId}: no mappable regions`); continue }

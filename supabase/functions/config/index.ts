@@ -829,12 +829,13 @@ async function loadExitSurvey(
 ): Promise<ExitSurveyWire> {
   const { data: row } = await supabase
     .from("tenant_exit_survey")
-    .select("enabled,title,reasons,survey_cap_days")
+    .select("enabled,title,reasons,survey_cap_days,exit_offer_enabled,exit_offer_coupon_id")
     .eq("tenant_id", tenantId)
     .maybeSingle()
   if (!row?.enabled) return { enabled: false }
   const couponIds = ((row.reasons ?? []) as Array<{ coupon_id?: string | null }>)
     .map((r) => r?.coupon_id)
+    .concat(row.exit_offer_coupon_id ? [row.exit_offer_coupon_id] : [])
     .filter((id): id is string => typeof id === "string" && id.length > 0)
   const { data: coupons } = couponIds.length
     ? await supabase

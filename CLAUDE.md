@@ -123,6 +123,12 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
   `cmp-paycraft-web-ui` (≤ 20 KB, imported lazily by buyers), which depends on the stdlib only and calls the page's
   `PayCraftWeb` through `PayCraftWebApi` — `infra/web-ui-api-check.sh` keeps the two in step,
   `infra/web-bundle-size.sh` holds both budgets.
+- **Exit offer (226):** `tenant_exit_survey.exit_offer_{enabled,coupon_id}` (saved by `tenant_exit_offer_save`; the
+  Exit survey page's first card). Served as `exit_survey.exit_offer`; on close the paywall shows it FIRST (`winback`
+  reasonCode `exit_offer` — no survey answer recorded), the survey only if declined; same `survey_cap_days`. Play counts
+  a discount in the base plan's periods (`playRecurrenceCount`): "3 months" fits monthly/quarterly only; `winback`
+  moves an Android buyer on a plan the coupon can't reach to the shortest plan it can (`pickOfferPlan`) and returns
+  that `sku`. Tests: `ExitOfferFlowTest`, `supabase/tests/226_exit_offer_test.sql`.
 - **GA4 on the dashboard:** tenants add PayCraft's service account — the org Firebase account
   (`firebase-adminsdk-fbsvc@prod-applications-c7f87.iam.gserviceaccount.com`; alias `paycraft-ga4-service-account` →
   vault `mbs-firebase-service-account`, env `PAYCRAFT_GA4_SA_JSON`, raw or base64 JSON) — as a Viewer on their property; `tenant_ga4_connections` (184) stores only the property id, plus (190) the `stream_ids` that are the tenant's when one property holds several apps — every report (`ga4Overview`) is then filtered by `streamId`.

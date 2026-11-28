@@ -69,3 +69,14 @@ const PRODUCT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 export function productLookupColumn(sku: string): "id" | "sku" {
   return PRODUCT_UUID.test(sku) ? "id" : "sku"
 }
+
+const INTERVAL_ORDER = ["month", "quarter", "semiannual", "year"]
+
+/** The plan to offer a discount on when the buyer's own can't carry it: the shortest billing period first. */
+export function pickOfferPlan<T extends { interval?: string | null }>(plans: T[]): T | null {
+  const rank = (p: T) => {
+    const i = INTERVAL_ORDER.indexOf(p.interval ?? "")
+    return i < 0 ? INTERVAL_ORDER.length : i
+  }
+  return [...plans].sort((a, b) => rank(a) - rank(b))[0] ?? null
+}

@@ -23,6 +23,9 @@ export type SurveyDraft = {
   reasons: SurveyReason[]
   survey_cap_days: number
   offer_hours: number
+  /** Exit offer (migration 226): shown first on close; the survey follows if declined. On once a coupon is set. */
+  exit_offer_enabled?: boolean
+  exit_offer_coupon_id?: string | null
 }
 
 /** What a new tenant starts with (migration 181's column default). */
@@ -92,6 +95,8 @@ export function surveyErrorMessage(code: string, reasons: readonly SurveyReason[
     case "offer_needs_coupon": return `“${label}” gives an offer — pick a coupon, or switch the reason off.`
     case "unknown_coupon": return `“${label}” uses a coupon that no longer exists — pick another.`
     case "message_1_to_200_chars": return `“${label}” shows a message — write one (up to 200 characters).`
+    case "exit_offer_coupon_unknown": return "The exit offer uses a coupon that no longer exists — pick another."
+    case "exit_offer_coupon_not_percent": return "The exit offer needs a percent-off coupon."
     default: return "The survey couldn't be saved."
   }
 }

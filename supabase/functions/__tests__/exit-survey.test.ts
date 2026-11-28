@@ -47,3 +47,19 @@ Deno.test("off, missing or empty → enabled false", () => {
   assertEquals(buildExitSurvey(null, []), { enabled: false })
   assertEquals(buildExitSurvey(row({ reasons: [{ code: "x", label: "X", enabled: false }] }), []), { enabled: false })
 })
+
+Deno.test("exit offer (226): served with its discount when on and the coupon is live", () => {
+  const ex = coupon({ id: "x1", percent_off: 50, duration: "repeating", duration_in_months: 3 })
+  const s = buildExitSurvey(row({ exit_offer_coupon_id: "x1" }), [coupon(), ex])
+  assertEquals(s.exit_offer, { percent_off: 50, duration: "repeating", duration_in_months: 3 })
+  assertEquals(buildExitSurvey(row({ exit_offer_coupon_id: "x1", exit_offer_enabled: false }), [ex]).exit_offer, undefined)
+  assertEquals(buildExitSurvey(row({ exit_offer_coupon_id: "x1" }), [{ ...ex, active: false }]).exit_offer, undefined)
+})
+
+Deno.test("exit offer alone keeps the survey on; nothing at all turns it off", () => {
+  const ex = coupon({ id: "x1" })
+  const s = buildExitSurvey(row({ reasons: [], exit_offer_coupon_id: "x1" }), [ex])
+  assertEquals(s.enabled, true)
+  assertEquals(s.reasons, [])
+  assertEquals(buildExitSurvey(row({ reasons: [] }), []).enabled, false)
+})

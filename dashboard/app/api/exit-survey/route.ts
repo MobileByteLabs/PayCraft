@@ -13,7 +13,7 @@ export async function GET() {
   const supabase = createClient()
   const [survey, coupons, products] = await Promise.all([
     supabase.from("tenant_exit_survey")
-      .select("enabled,title,reasons,survey_cap_days,offer_hours,updated_at")
+      .select("enabled,title,reasons,survey_cap_days,offer_hours,exit_offer_enabled,exit_offer_coupon_id,updated_at")
       .eq("tenant_id", tenant.id)
       .maybeSingle(),
     supabase.rpc("tenant_coupons_list", { p_tenant_id: tenant.id }),
@@ -54,13 +54,29 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  let after = saved
+  if (body.exit_offer_coupon_id !== undefined || body.exit_offer_enabled !== undefined) {
+    const { data: withOffer, error: offerErr } = await supabase.rpc("tenant_exit_offer_save", {
+      p_tenant_id: tenant.id,
+      p_enabled: body.exit_offer_enabled !== false,
+      p_coupon_id: body.exit_offer_coupon_id || null,
+    })
+    if (offerErr) {
+      if (offerErr.code === "22023") {
+        return NextResponse.json({ error: offerErr.message.replace(/^invalid_exit_offer: /, "exit_offer_") }, { status: 400 })
+      }
+      return NextResponse.json({ error: offerErr.message }, { status: 500 })
+    }
+    after = withOffer
+  }
+
   await supabase.rpc("audit_log_emit", {
     p_tenant_id: tenant.id,
     p_actor_user_id: userId,
     p_actor_type: "user",
     p_action: "exit_survey.update",
     p_resource: `tenant_exit_survey:tenant_id=${tenant.id}`,
-    p_after: saved,
+    p_after: after,
   })
-  return NextResponse.json({ survey: saved })
+  return NextResponse.json({ survey: after })
 }

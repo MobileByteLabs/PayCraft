@@ -22,6 +22,8 @@ export type SurveyRow = {
     free_text?: boolean
   }>
   survey_cap_days: number
+  exit_offer_enabled?: boolean
+  exit_offer_coupon_id?: string | null
 }
 
 export type CouponRow = {
@@ -47,6 +49,8 @@ export type ExitSurveyWire = {
     free_text?: boolean
     offer?: { percent_off: number; duration: string; duration_in_months?: number }
   }>
+  /** Shown first when the buyer closes the paywall (migration 226); the survey follows only if declined. */
+  exit_offer?: { percent_off: number; duration: string; duration_in_months?: number }
 }
 
 export function redeemableNow(c: CouponRow, now = Date.now()): boolean {
@@ -54,6 +58,15 @@ export function redeemableNow(c: CouponRow, now = Date.now()): boolean {
   if (c.redeem_by && Date.parse(c.redeem_by) <= now) return false
   if (c.max_redemptions != null && (c.times_redeemed ?? 0) >= c.max_redemptions) return false
   return true
+}
+
+function offerOf(c: CouponRow) {
+  const o: { percent_off: number; duration: string; duration_in_months?: number } = {
+    percent_off: c.percent_off!,
+    duration: c.duration ?? "once",
+  }
+  if (c.duration_in_months != null) o.duration_in_months = c.duration_in_months
+  return o
 }
 
 export function buildExitSurvey(row: SurveyRow | null, coupons: CouponRow[], now = Date.now()): ExitSurveyWire {
@@ -69,14 +82,21 @@ export function buildExitSurvey(row: SurveyRow | null, coupons: CouponRow[], now
       if (action === "offer") {
         const c = r.coupon_id ? byId.get(r.coupon_id) : undefined
         if (c && redeemableNow(c, now)) {
-          out.offer = { percent_off: c.percent_off!, duration: c.duration ?? "once" }
-          if (c.duration_in_months != null) out.offer.duration_in_months = c.duration_in_months
+          out.offer = offerOf(c)
         } else {
           out.action = "none" // no live coupon: the reason is still asked, nothing is promised
         }
       }
       return out
     })
-  if (reasons.length === 0) return { enabled: false }
-  return { enabled: true, title: row.title, cap_days: row.survey_cap_days, reasons }
+  const exit = row.exit_offer_enabled !== false && row.exit_offer_coupon_id ? byId.get(row.exit_offer_coupon_id) : undefined
+  const exitOffer = exit && redeemableNow(exit, now) ? offerOf(exit) : undefined
+  if (reasons.length === 0 && !exitOffer) return { enabled: false }
+  return {
+    enabled: true,
+    title: row.title,
+    cap_days: row.survey_cap_days,
+    reasons,
+    ...(exitOffer ? { exit_offer: exitOffer } : {}),
+  }
 }

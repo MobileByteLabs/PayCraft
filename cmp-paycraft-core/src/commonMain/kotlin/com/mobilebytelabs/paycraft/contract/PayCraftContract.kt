@@ -195,18 +195,19 @@ object PayCraftContract {
                     action = r.string("action") ?: "none",
                     message = r.string("message"),
                     freeText = r.bool("free_text") ?: false,
-                    offer = (r["offer"] as? JsonObject)?.let {
-                        ExitSurveyConfig.Offer(
-                            percentOff = it["percent_off"]!!.jsonPrimitive.intOrNull!!,
-                            duration = it.string("duration") ?: "once",
-                            durationInMonths = it["duration_in_months"]?.jsonPrimitive?.intOrNull,
-                        )
-                    },
+                    offer = (r["offer"] as? JsonObject)?.let(::surveyOffer),
                 )
             },
             capDays = s["cap_days"]?.jsonPrimitive?.intOrNull ?: 7,
+            exitOffer = (s["exit_offer"] as? JsonObject)?.let(::surveyOffer),
         )
     }.getOrNull()
+
+    private fun surveyOffer(it: JsonObject) = ExitSurveyConfig.Offer(
+        percentOff = it["percent_off"]!!.jsonPrimitive.intOrNull!!,
+        duration = it.string("duration") ?: "once",
+        durationInMonths = it["duration_in_months"]?.jsonPrimitive?.intOrNull,
+    )
 
     /**
      * `winback` body: the buyer's answer. The buyer is the device token's account (resolved server-side to a
@@ -260,7 +261,8 @@ object PayCraftContract {
                         duration = offer.string("duration") ?: "once",
                         durationInMonths = offer["durationInMonths"]?.jsonPrimitive?.intOrNull,
                         expiresAtIso = offer.string("expiresAt").orEmpty(),
-                        sku = sku,
+                        // The server may move the offer to a plan that can carry it (an annual plan can't do "3 months").
+                        sku = offer.string("sku") ?: sku,
                         stripe = lanes?.get("stripe")?.jsonPrimitive?.booleanOrNull == true,
                         razorpay = lanes?.get("razorpay")?.jsonPrimitive?.booleanOrNull == true,
                         googlePlayOfferId = (lanes?.get("google_play") as? JsonPrimitive)?.contentOrNull,

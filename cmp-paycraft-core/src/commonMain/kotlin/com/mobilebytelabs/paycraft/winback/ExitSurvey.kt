@@ -6,9 +6,6 @@ import com.russhwolf.settings.Settings
 // Plain classes, not data classes: the web SDK ships every class it instantiates, and a data class's generated
 // toString/equals/hashCode for these six cost ~1 KB gzip of its 150 KB budget (paycraft-paywall-analytics T14).
 
-// Plain classes, not data classes: the web SDK ships every class it instantiates, and the generated
-// toString/equals/hashCode of these six cost ~1 KB gzip of its 150 KB budget (paycraft-paywall-analytics T14).
-
 /**
  * The tenant's exit survey, as `/config` serves it (`exit_survey`; dashboard ▸ Paywall ▸ Exit survey).
  * Shown when a buyer closes the paywall or leaves checkout: why didn't you buy? Each [Reason] says what
@@ -20,6 +17,8 @@ public class ExitSurveyConfig(
     val reasons: List<Reason> = emptyList(),
     /** Ask a buyer at most once in this many days (GOAL D7). */
     val capDays: Int = 7,
+    /** Offered first when the buyer closes the paywall; the survey follows only if they decline (migration 226). */
+    val exitOffer: Offer? = null,
 ) {
     public class Reason(
         val code: String,
@@ -64,7 +63,7 @@ public class ExitSurveyGate(private val settings: Settings, private val now: () 
  * buyer is not premium, and [ExitSurveyConfig.capDays] (at least one) have passed since it was last shown.
  */
 public fun exitSurveyDue(cfg: ExitSurveyConfig?, isPremium: Boolean, lastShownAtMs: Long?, nowMs: Long): Boolean {
-    if (cfg == null || !cfg.enabled || isPremium || cfg.reasons.isEmpty()) return false
+    if (cfg == null || !cfg.enabled || isPremium || (cfg.reasons.isEmpty() && cfg.exitOffer == null)) return false
     val last = lastShownAtMs ?: return true
     return nowMs - last >= cfg.capDays.coerceAtLeast(1) * 86_400_000L
 }
