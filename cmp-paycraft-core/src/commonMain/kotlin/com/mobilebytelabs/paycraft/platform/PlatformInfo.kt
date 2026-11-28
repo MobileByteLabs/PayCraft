@@ -41,6 +41,12 @@ expect object PlatformInfo {
      */
     val appVersion: String?
 
+    /** The host app's build number — Android `longVersionCode`, iOS `CFBundleVersion` as a number; null elsewhere. */
+    val appBuild: Long?
+
+    /** The OS version — Android `Build.VERSION.RELEASE`, iOS `UIDevice.systemVersion`; null elsewhere. */
+    val osVersion: String?
+
     /** Human-readable name shown in conflict dialog, e.g. "Rajan's Pixel 8", "iPhone 15 Pro" */
     val deviceName: String
 
@@ -103,3 +109,9 @@ expect object PlatformInfo {
      */
     val isDebugBuild: Boolean
 }
+
+/** [PlatformInfo.appBuild], or null when the platform read throws (odd test harnesses, no Context yet). */
+internal fun PlatformInfo.appBuildOrNull(): Long? = runCatching { appBuild }.getOrNull()
+
+/** [PlatformInfo.osVersion], or null when the platform read throws. */
+internal fun PlatformInfo.osVersionOrNull(): String? = runCatching { osVersion }.getOrNull()

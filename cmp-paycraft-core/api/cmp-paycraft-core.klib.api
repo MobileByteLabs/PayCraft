@@ -15,10 +15,12 @@ final enum class com.mobilebytelabs.paycraft.analytics/PayCraftEventName : kotli
     enum entry CheckoutReturn // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.CheckoutReturn|null[0]
     enum entry CheckoutStart // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.CheckoutStart|null[0]
     enum entry DeviceLimitView // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.DeviceLimitView|null[0]
+    enum entry DeviceTransfer // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.DeviceTransfer|null[0]
     enum entry NudgeOpen // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.NudgeOpen|null[0]
     enum entry NudgeScheduled // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.NudgeScheduled|null[0]
     enum entry NudgeSkipped // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.NudgeSkipped|null[0]
     enum entry OfferAccept // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.OfferAccept|null[0]
+    enum entry OfferDecline // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.OfferDecline|null[0]
     enum entry OfferView // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.OfferView|null[0]
     enum entry PaywallView // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.PaywallView|null[0]
     enum entry PlanSelect // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.PlanSelect|null[0]
@@ -26,7 +28,9 @@ final enum class com.mobilebytelabs.paycraft.analytics/PayCraftEventName : kotli
     enum entry ProviderView // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.ProviderView|null[0]
     enum entry PurchaseFail // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.PurchaseFail|null[0]
     enum entry PurchaseSuccess // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.PurchaseSuccess|null[0]
+    enum entry RestoreResult // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.RestoreResult|null[0]
     enum entry SignInComplete // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.SignInComplete|null[0]
+    enum entry SignInFail // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.SignInFail|null[0]
     enum entry SignInView // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.SignInView|null[0]
     enum entry StepAbandon // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.StepAbandon|null[0]
     enum entry SurveyAnswer // com.mobilebytelabs.paycraft.analytics/PayCraftEventName.SurveyAnswer|null[0]
@@ -64,6 +68,7 @@ final enum class com.mobilebytelabs.paycraft.analytics/PayCraftStep : kotlin/Enu
     enum entry Paywall // com.mobilebytelabs.paycraft.analytics/PayCraftStep.Paywall|null[0]
     enum entry Plan // com.mobilebytelabs.paycraft.analytics/PayCraftStep.Plan|null[0]
     enum entry Provider // com.mobilebytelabs.paycraft.analytics/PayCraftStep.Provider|null[0]
+    enum entry Restore // com.mobilebytelabs.paycraft.analytics/PayCraftStep.Restore|null[0]
     enum entry SignIn // com.mobilebytelabs.paycraft.analytics/PayCraftStep.SignIn|null[0]
     enum entry Survey // com.mobilebytelabs.paycraft.analytics/PayCraftStep.Survey|null[0]
 
@@ -1185,8 +1190,12 @@ final class com.mobilebytelabs.paycraft.analytics/PayCraftAnalytics { // com.mob
 }
 
 final class com.mobilebytelabs.paycraft.analytics/PayCraftEvent { // com.mobilebytelabs.paycraft.analytics/PayCraftEvent|null[0]
-    constructor <init>(com.mobilebytelabs.paycraft.analytics/PayCraftEventName, com.mobilebytelabs.paycraft.analytics/PayCraftStep, kotlin/String, kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/Long, kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., com.mobilebytelabs.paycraft.analytics/PayCraftFailure? = ...) // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.<init>|<init>(com.mobilebytelabs.paycraft.analytics.PayCraftEventName;com.mobilebytelabs.paycraft.analytics.PayCraftStep;kotlin.String;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.Long;kotlin.String?;kotlin.String?;kotlin.String?;com.mobilebytelabs.paycraft.analytics.PayCraftFailure?){}[0]
+    constructor <init>(com.mobilebytelabs.paycraft.analytics/PayCraftEventName, com.mobilebytelabs.paycraft.analytics/PayCraftStep, kotlin/String, kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/Long, kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., com.mobilebytelabs.paycraft.analytics/PayCraftFailure? = ..., kotlin/String? = ..., kotlin/Long? = ..., kotlin/String? = ...) // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.<init>|<init>(com.mobilebytelabs.paycraft.analytics.PayCraftEventName;com.mobilebytelabs.paycraft.analytics.PayCraftStep;kotlin.String;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.Long;kotlin.String?;kotlin.String?;kotlin.String?;com.mobilebytelabs.paycraft.analytics.PayCraftFailure?;kotlin.String?;kotlin.Long?;kotlin.String?){}[0]
 
+    final val appBuild // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.appBuild|{}appBuild[0]
+        final fun <get-appBuild>(): kotlin/Long? // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.appBuild.<get-appBuild>|<get-appBuild>(){}[0]
+    final val appVersion // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.appVersion|{}appVersion[0]
+        final fun <get-appVersion>(): kotlin/String? // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.appVersion.<get-appVersion>|<get-appVersion>(){}[0]
     final val atMs // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.atMs|{}atMs[0]
         final fun <get-atMs>(): kotlin/Long // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.atMs.<get-atMs>|<get-atMs>(){}[0]
     final val attemptId // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.attemptId|{}attemptId[0]
@@ -1201,6 +1210,8 @@ final class com.mobilebytelabs.paycraft.analytics/PayCraftEvent { // com.mobileb
         final fun <get-failure>(): com.mobilebytelabs.paycraft.analytics/PayCraftFailure? // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.failure.<get-failure>|<get-failure>(){}[0]
     final val name // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.name|{}name[0]
         final fun <get-name>(): com.mobilebytelabs.paycraft.analytics/PayCraftEventName // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.name.<get-name>|<get-name>(){}[0]
+    final val osVersion // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.osVersion|{}osVersion[0]
+        final fun <get-osVersion>(): kotlin/String? // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.osVersion.<get-osVersion>|<get-osVersion>(){}[0]
     final val platform // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.platform|{}platform[0]
         final fun <get-platform>(): kotlin/String // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.platform.<get-platform>|<get-platform>(){}[0]
     final val provider // com.mobilebytelabs.paycraft.analytics/PayCraftEvent.provider|{}provider[0]
@@ -3608,6 +3619,8 @@ final object com.mobilebytelabs.paycraft.platform/DeviceTokenStore { // com.mobi
 }
 
 final object com.mobilebytelabs.paycraft.platform/PlatformInfo { // com.mobilebytelabs.paycraft.platform/PlatformInfo|null[0]
+    final val appBuild // com.mobilebytelabs.paycraft.platform/PlatformInfo.appBuild|{}appBuild[0]
+        final fun <get-appBuild>(): kotlin/Long? // com.mobilebytelabs.paycraft.platform/PlatformInfo.appBuild.<get-appBuild>|<get-appBuild>(){}[0]
     final val appId // com.mobilebytelabs.paycraft.platform/PlatformInfo.appId|{}appId[0]
         final fun <get-appId>(): kotlin/String // com.mobilebytelabs.paycraft.platform/PlatformInfo.appId.<get-appId>|<get-appId>(){}[0]
     final val appVersion // com.mobilebytelabs.paycraft.platform/PlatformInfo.appVersion|{}appVersion[0]
@@ -3624,6 +3637,8 @@ final object com.mobilebytelabs.paycraft.platform/PlatformInfo { // com.mobileby
         final fun <get-deviceName>(): kotlin/String // com.mobilebytelabs.paycraft.platform/PlatformInfo.deviceName.<get-deviceName>|<get-deviceName>(){}[0]
     final val isDebugBuild // com.mobilebytelabs.paycraft.platform/PlatformInfo.isDebugBuild|{}isDebugBuild[0]
         final fun <get-isDebugBuild>(): kotlin/Boolean // com.mobilebytelabs.paycraft.platform/PlatformInfo.isDebugBuild.<get-isDebugBuild>|<get-isDebugBuild>(){}[0]
+    final val osVersion // com.mobilebytelabs.paycraft.platform/PlatformInfo.osVersion|{}osVersion[0]
+        final fun <get-osVersion>(): kotlin/String? // com.mobilebytelabs.paycraft.platform/PlatformInfo.osVersion.<get-osVersion>|<get-osVersion>(){}[0]
     final val platform // com.mobilebytelabs.paycraft.platform/PlatformInfo.platform|{}platform[0]
         final fun <get-platform>(): kotlin/String // com.mobilebytelabs.paycraft.platform/PlatformInfo.platform.<get-platform>|<get-platform>(){}[0]
 }
@@ -3706,7 +3721,7 @@ final object com.mobilebytelabs.paycraft/PayCraft { // com.mobilebytelabs.paycra
 
     final fun checkout(com.mobilebytelabs.paycraft.model/BillingPlan, kotlin/String? = ...) // com.mobilebytelabs.paycraft/PayCraft.checkout|checkout(com.mobilebytelabs.paycraft.model.BillingPlan;kotlin.String?){}[0]
     final fun dismissPaywall() // com.mobilebytelabs.paycraft/PayCraft.dismissPaywall|dismissPaywall(){}[0]
-    final fun initialize(kotlin/String, com.mobilebytelabs.paycraft/PayCraftBackend = ..., com.mobilebytelabs.paycraft/InitOptions = ..., com.mobilebytelabs.paycraft.core/MonetizationMode = ..., kotlin/String? = ...) // com.mobilebytelabs.paycraft/PayCraft.initialize|initialize(kotlin.String;com.mobilebytelabs.paycraft.PayCraftBackend;com.mobilebytelabs.paycraft.InitOptions;com.mobilebytelabs.paycraft.core.MonetizationMode;kotlin.String?){}[0]
+    final fun initialize(kotlin/String, com.mobilebytelabs.paycraft/PayCraftBackend = ..., com.mobilebytelabs.paycraft/InitOptions = ..., com.mobilebytelabs.paycraft.core/MonetizationMode = ..., kotlin/String? = ..., kotlin/String? = ...) // com.mobilebytelabs.paycraft/PayCraft.initialize|initialize(kotlin.String;com.mobilebytelabs.paycraft.PayCraftBackend;com.mobilebytelabs.paycraft.InitOptions;com.mobilebytelabs.paycraft.core.MonetizationMode;kotlin.String?;kotlin.String?){}[0]
     final fun manageSubscription(kotlin/String? = ...) // com.mobilebytelabs.paycraft/PayCraft.manageSubscription|manageSubscription(kotlin.String?){}[0]
     final fun manageSubscriptionUrl(kotlin/String? = ...): kotlin/String? // com.mobilebytelabs.paycraft/PayCraft.manageSubscriptionUrl|manageSubscriptionUrl(kotlin.String?){}[0]
     final fun onAppOpen(com.mobilebytelabs.paycraft.core/EntitlementSnapshot, com.mobilebytelabs.paycraft.core/TrialSnapshot) // com.mobilebytelabs.paycraft/PayCraft.onAppOpen|onAppOpen(com.mobilebytelabs.paycraft.core.EntitlementSnapshot;com.mobilebytelabs.paycraft.core.TrialSnapshot){}[0]

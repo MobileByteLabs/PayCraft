@@ -111,6 +111,7 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
     /** Skip / No thanks / close: the paywall closes. */
     fun closeSurvey() {
+        if (surveyState.value is ExitSurveyUi.OfferShown) funnel.offerDeclined()
         surveyState.value = null
         viewModelScope.launch { _events.send(PayCraftPaywallEvent.Dismissed) }
     }

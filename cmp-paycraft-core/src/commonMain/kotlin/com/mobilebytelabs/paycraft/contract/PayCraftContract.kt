@@ -3,6 +3,9 @@ package com.mobilebytelabs.paycraft.contract
 import com.mobilebytelabs.paycraft.CurrencyResolver
 import com.mobilebytelabs.paycraft.PayCraftInternalApi
 import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
+import com.mobilebytelabs.paycraft.analytics.sentAppBuild
+import com.mobilebytelabs.paycraft.analytics.sentAppVersion
+import com.mobilebytelabs.paycraft.analytics.sentOsVersion
 import com.mobilebytelabs.paycraft.config.AuthClientsDto
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
@@ -314,6 +317,10 @@ object PayCraftContract {
                         e.experiment?.let { put("experiment", it) }
                         e.variant?.let { put("variant", it) }
                         e.attemptId?.let { put("attempt_id", it) }
+                        // Release dimensions (realtime analytics): the dashboard compares app versions live.
+                        e.sentAppVersion?.let { put("app_version", it) }
+                        e.sentAppBuild?.let { put("app_build", it) }
+                        e.sentOsVersion?.let { put("os_version", it) }
                         // The server refuses a failure with no attempt to file it under, so one is only sent
                         // with its attempt id — every SDK emitter that builds a failure also has one.
                         val failure = e.failure

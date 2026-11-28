@@ -13,6 +13,7 @@ export const SPA_SEGMENTS: ReadonlySet<string> = new Set([
   "billing",
   "coupons",
   "dashboard",
+  "live",
   "paywall",
   "products",
   "providers",

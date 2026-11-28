@@ -1,5 +1,6 @@
 package com.mobilebytelabs.paycraft.core.identity
 
+import com.mobilebytelabs.paycraft.PayCraft
 import com.mobilebytelabs.paycraft.PayCraftBackend
 import com.mobilebytelabs.paycraft.PayCraftInternalApi
 import com.mobilebytelabs.paycraft.config.SuiteConfig
@@ -49,6 +50,23 @@ sealed interface SignInState {
 }
 
 enum class SignInFailure { NotConfigured, Network, Rejected, Unknown }
+
+/**
+ * `(provider, reason)` of `paycraft_sign_in_fail` for a terminal unsuccessful [state] — provider `google` / `apple`,
+ * reason `cancelled` / `not_configured` / `network` / `rejected` / `unknown`; null for any other state.
+ */
+internal fun signInFailure(state: SignInState): Pair<String, String>? = when (state) {
+    is SignInState.Cancelled -> state.provider.name.lowercase() to "cancelled"
+
+    is SignInState.Failed -> state.provider.name.lowercase() to when (state.reason) {
+        SignInFailure.NotConfigured -> "not_configured"
+        SignInFailure.Network -> "network"
+        SignInFailure.Rejected -> "rejected"
+        SignInFailure.Unknown -> "unknown"
+    }
+
+    else -> null
+}
 
 /** What a platform's native sign-in sheet produced. */
 internal sealed interface NativeTokenResult {
@@ -197,8 +215,16 @@ class VerifiedSignIn internal constructor(
         InAppAuthBrowser.open(url, onReturn)
     },
     private val scope: CoroutineScope = payCraftScope(),
+    /** Told once per attempt that ends cancelled or failed — `paycraft_sign_in_fail`. */
+    private val onUnsuccessful: (SignInState) -> Unit = { PayCraft.reportSignInFailure(it) },
 ) {
     private val _state = MutableStateFlow<SignInState>(SignInState.Idle)
+
+    /** Every state change goes through here, so a failure is reported exactly once, where it is produced. */
+    private fun setState(next: SignInState) {
+        _state.value = next
+        if (next is SignInState.Cancelled || next is SignInState.Failed) runCatching { onUnsuccessful(next) }
+    }
     val state: StateFlow<SignInState> = _state.asStateFlow()
 
     /** Serialises browser-result polls: `/result` is one-time, so two concurrent reads would lose it. */
@@ -213,12 +239,12 @@ class VerifiedSignIn internal constructor(
 
     suspend fun signIn(provider: OAuthProvider) {
         if (!client.isConfigured) {
-            _state.value = SignInState.Failed(provider, SignInFailure.NotConfigured)
+            setState(SignInState.Failed(provider, SignInFailure.NotConfigured))
             return
         }
         browserPoll?.cancel()
         session = null
-        _state.value = SignInState.Launching(provider)
+        setState(SignInState.Launching(provider))
         val nonce = randomUrlSafe()
         when (
             val native = runCatching {
@@ -226,11 +252,14 @@ class VerifiedSignIn internal constructor(
             }.getOrElse { NativeTokenResult.Failed(it.message) }
         ) {
             is NativeTokenResult.Token -> verify(provider, native.idToken, nonce)
-            NativeTokenResult.Cancelled -> _state.value = SignInState.Cancelled(provider)
+
+            NativeTokenResult.Cancelled -> setState(SignInState.Cancelled(provider))
+
             is NativeTokenResult.Failed -> {
                 PayCraftLogger.onError("signIn", "native $provider: ${native.message}")
-                _state.value = SignInState.Failed(provider, SignInFailure.Unknown)
+                setState(SignInState.Failed(provider, SignInFailure.Unknown))
             }
+
             NativeTokenResult.Unavailable -> startBrowser(provider)
         }
     }
@@ -238,7 +267,7 @@ class VerifiedSignIn internal constructor(
     fun reset() {
         browserPoll?.cancel()
         session = null
-        _state.value = SignInState.Idle
+        setState(SignInState.Idle)
     }
 
     /** App returned to the foreground — the browser flow may have finished. A few quick tries. */
@@ -253,32 +282,32 @@ class VerifiedSignIn internal constructor(
             val waiting = _state.value as? SignInState.WaitingForBrowser ?: return@launch
             browserPoll?.cancel()
             session = null
-            _state.value = SignInState.Cancelled(waiting.provider)
+            setState(SignInState.Cancelled(waiting.provider))
         }
     }
 
     private suspend fun verify(provider: OAuthProvider, idToken: String, nonce: String?) {
-        _state.value = SignInState.Verifying(provider)
+        setState(SignInState.Verifying(provider))
         when (val outcome = client.verify(provider, idToken, nonce)) {
             is VerifyOutcome.Verified -> linked(outcome.email, provider)
-            VerifyOutcome.Rejected -> _state.value = SignInState.Failed(provider, SignInFailure.Rejected)
-            VerifyOutcome.Network -> _state.value = SignInState.Failed(provider, SignInFailure.Network)
+            VerifyOutcome.Rejected -> setState(SignInState.Failed(provider, SignInFailure.Rejected))
+            VerifyOutcome.Network -> setState(SignInState.Failed(provider, SignInFailure.Network))
         }
     }
 
     private suspend fun linked(email: String, provider: OAuthProvider) {
-        _state.value = SignInState.Linked(email, provider)
+        setState(SignInState.Linked(email, provider))
         runCatching { onVerified(email) }.onFailure { PayCraftLogger.onError("signIn", "onVerified: ${it.message}") }
     }
 
     private fun startBrowser(provider: OAuthProvider) {
         val id = randomUrlSafe()
         session = id
-        _state.value = SignInState.WaitingForBrowser(provider)
+        setState(SignInState.WaitingForBrowser(provider))
         runCatching { openBrowser(client.startUrl(provider, id)) { onBrowserReturned(id, it) } }.onFailure {
             PayCraftLogger.onError("signIn", "openBrowser: ${it.message}")
             session = null
-            _state.value = SignInState.Failed(provider, SignInFailure.Unknown)
+            setState(SignInState.Failed(provider, SignInFailure.Unknown))
             return
         }
         // Desktop/web have no foreground signal, so poll slowly until the server session expires.
@@ -315,6 +344,7 @@ class VerifiedSignIn internal constructor(
         val provider = waiting.provider
         when (val r = client.result(id)) {
             BrowserResult.Pending, BrowserResult.Network -> false
+
             // Not created yet (browser hasn't loaded /start) — or already consumed/expired.
             BrowserResult.NotFound -> if (notFoundIsPending) {
                 false
@@ -322,13 +352,15 @@ class VerifiedSignIn internal constructor(
                 finish(SignInState.Failed(provider, SignInFailure.Unknown))
                 true
             }
+
             BrowserResult.Failed -> {
                 finish(SignInState.Failed(provider, SignInFailure.Rejected))
                 true
             }
+
             is BrowserResult.Verified -> {
                 session = null
-                _state.value = SignInState.Verifying(provider)
+                setState(SignInState.Verifying(provider))
                 linked(r.email, provider)
                 true
             }
@@ -337,7 +369,7 @@ class VerifiedSignIn internal constructor(
 
     private fun finish(state: SignInState) {
         session = null
-        _state.value = state
+        setState(state)
     }
 
     internal companion object {

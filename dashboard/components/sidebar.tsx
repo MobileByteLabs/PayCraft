@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 import { clsx } from "clsx"
 import {
+  Activity,
   BarChart3,
   Bell,
   CreditCard,
@@ -70,6 +71,7 @@ const groups: NavGroup[] = [
     items: [
       { href: "/subscribers", label: "Subscribers", icon: Users },
       { href: "/analytics", label: "Analytics", icon: BarChart3 },
+      { href: "/live", label: "Live", icon: Activity },
       { href: "/webhooks", label: "Webhooks", icon: Webhook },
       { href: "/alerts", label: "Alerts", icon: Bell, badge: "unread-alerts" },
       { href: "/audit", label: "Audit log", icon: History },

@@ -29,3 +29,23 @@ Deno.test("replaces X-Forwarded-For with the address Cloudflare saw", () => {
   assertEquals(upstreamRequest(req, "203.0.113.7").headers.get("x-forwarded-for"), "203.0.113.7")
   assertEquals(upstreamRequest(req, null).headers.get("x-forwarded-for"), null)
 })
+
+// The country the functions record comes from Cloudflare only (realtime-analytics design, "Country").
+Deno.test("x-paycraft-country is Cloudflare's country, never the client's", () => {
+  const spoofed = new Request("https://edge.paycraft.mobilebytesensei.com/functions/v1/events", {
+    method: "POST",
+    headers: { "x-paycraft-country": "US" },
+    body: "{}",
+  })
+  assertEquals(upstreamRequest(spoofed, null, "in").headers.get("x-paycraft-country"), "IN")
+  assertEquals(upstreamRequest(spoofed, null, null).headers.get("x-paycraft-country"), null)
+  assertEquals(upstreamRequest(spoofed, null).headers.get("x-paycraft-country"), null)
+  for (const bad of ["T1", "XYZ", "", " "]) {
+    assertEquals(upstreamRequest(spoofed, null, bad).headers.get("x-paycraft-country"), null, bad)
+  }
+})
+
+Deno.test("cf country is forwarded when the client sent none", () => {
+  const req = new Request("https://edge.paycraft.mobilebytesensei.com/rest/v1/x")
+  assertEquals(upstreamRequest(req, "203.0.113.7", "DE").headers.get("x-paycraft-country"), "DE")
+})

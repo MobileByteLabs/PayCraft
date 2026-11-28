@@ -209,6 +209,9 @@ internal class PaywallFunnelTracker(
         step = PayCraftStep.Checkout
     }
 
+    /** The buyer turned the win-back offer down ("No thanks"). */
+    fun offerDeclined() = send(PayCraftEventName.OfferDecline, PayCraftStep.Offer)
+
     /** The buyer cancelled the device-limit choice: an abandon there. */
     fun deviceLimitCancelled() = send(PayCraftEventName.StepAbandon, PayCraftStep.DeviceLimit)
 

@@ -10,6 +10,7 @@
 //              X-PayCraft-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>
 //              X-PayCraft-Alert-Id:  <alert id>   (receivers de-duplicate retries on it)
 //   inbox    the dashboard inbox reads tenant_alerts itself; the ledger row records it was offered there
+//   telegram POST https://api.telegram.org/bot<token>/sendMessage {chat_id, text, parse_mode: "HTML"} (migration 224)
 //
 // Every alert is STORED FIRST (tenant_alert_record: 24 h dedupe + the tenant's per-kind toggle), then every
 // enabled channel is sent in parallel and each result lands on the alert_deliveries ledger
@@ -26,8 +27,8 @@ import { type EmailParams, escapeHtml, type SendResult, sendEmail as resendSendE
 // deno-lint-ignore no-explicit-any
 type Any = any
 
-export type Channel = "email" | "slack" | "webhook" | "inbox"
-export const CHANNELS: readonly Channel[] = ["email", "slack", "webhook", "inbox"]
+export type Channel = "email" | "slack" | "webhook" | "inbox" | "telegram"
+export const CHANNELS: readonly Channel[] = ["email", "slack", "webhook", "inbox", "telegram"]
 
 export type AlertSeverity = "critical" | "digest"
 export type AlertKind =
@@ -43,6 +44,9 @@ export type AlertKind =
   | "sub_expiry"
   | "ai_insight"
   | "channel_test"
+  | "release_regression"
+  | "sign_in_failing"
+  | "paywall_silent"
 
 /** An alert to store and deliver. */
 export interface AlertDraft {
@@ -104,6 +108,9 @@ interface Targets {
   slack_url: string | null
   webhook_url: string | null
   webhook_secret: string | null
+  /** Migration 224 — both set or both null. */
+  telegram_bot_token?: string | null
+  telegram_chat_id?: string | null
 }
 
 interface SendAttempt {
@@ -191,6 +198,29 @@ export function emailHtml(alert: StoredAlert, appName?: string | null): string {
         <p style="margin-top: 24px;"><a href="${DASHBOARD_URL}/alerts" style="color: #4f46e5;">Open PayCraft alerts</a></p>
         <p style="color: #94a3b8; font-size: 12px;">You receive this because alerts are on for ${app ?? "your PayCraft app"}. Change channels and alert kinds in Settings.</p>
       </div>`
+}
+
+export const TELEGRAM_API = "https://api.telegram.org"
+/** The kinds about the live funnel link to the Live page; everything else to the alerts inbox. */
+const LIVE_KINDS = new Set(["release_regression", "sign_in_failing", "paywall_silent"])
+const TELEGRAM_BODY_MAX = 3500 // Telegram caps a message at 4096 characters, after entity parsing
+
+/** The message text (parse_mode HTML): app, title, the numbers in the body, and a link to look. */
+export function telegramText(alert: StoredAlert, appName?: string | null): string {
+  const icon = alert.severity === "critical" ? "\u{1F6A8}" : "\u{1F4CA}"
+  const app = appName ? `${escapeHtml(appName)} · ` : ""
+  const body = alert.body.length > TELEGRAM_BODY_MAX ? `${alert.body.slice(0, TELEGRAM_BODY_MAX - 1)}…` : alert.body
+  const link = LIVE_KINDS.has(alert.kind) ? `${DASHBOARD_URL}/live` : `${DASHBOARD_URL}/alerts`
+  const label = LIVE_KINDS.has(alert.kind) ? "Open PayCraft Live" : "Open PayCraft alerts"
+  return `${icon} <b>${app}${escapeHtml(alert.title)}</b>\n${escapeHtml(body)}\n<a href="${link}">${label}</a>`
+}
+
+/** The Bot API sendMessage call. The URL carries the token — it is never logged (errors pass redactUrls). */
+export function telegramRequest(token: string, chatId: string, alert: StoredAlert, appName?: string | null): { url: string; body: string } {
+  return {
+    url: `${TELEGRAM_API}/bot${token}/sendMessage`,
+    body: JSON.stringify({ chat_id: chatId, text: telegramText(alert, appName), parse_mode: "HTML", disable_web_page_preview: true }),
+  }
 }
 
 export function webhookBody(alert: StoredAlert): string {
@@ -331,6 +361,10 @@ export async function dispatchAlert(
         : Promise.resolve<SendAttempt>({ ok: false, httpStatus: null, error: "webhook_secret_missing" }))
         .then((r) => recordDelivery(db, alert.id, "webhook", r, now)),
     )
+  }
+  if (wants("telegram") && targets.telegram_bot_token && targets.telegram_chat_id) {
+    const req = telegramRequest(targets.telegram_bot_token, targets.telegram_chat_id, alert, targets.app_name)
+    add("telegram", postJson(deps, req.url, req.body, {}).then((r) => recordDelivery(db, alert.id, "telegram", r, now)))
   }
   if (wants("inbox") && targets.inbox_enabled) {
     add("inbox", recordDelivery(db, alert.id, "inbox", { ok: true, httpStatus: null, error: null }, now))

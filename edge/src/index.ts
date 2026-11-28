@@ -13,7 +13,8 @@ const worker = {
     if (!isForwarded(pathname)) {
       return Response.json({ error: "not_found", detail: "This host serves the PayCraft API only." }, { status: 404 })
     }
-    return fetch(upstreamRequest(request, request.headers.get("cf-connecting-ip")))
+    const cf = (request as Request & { cf?: { country?: string } }).cf
+    return fetch(upstreamRequest(request, request.headers.get("cf-connecting-ip"), cf?.country))
   },
 }
 

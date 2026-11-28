@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- **Every paywall event says which release it came from.** Each event now carries the app's version name
+  (`app_version`), build number (`app_build`) and OS version (`os_version`). Your app's analytics get them as
+  event params, and PayCraft's dashboard uses them to compare releases side by side. Android and iOS read them
+  from the app, so you set nothing. Desktop and web report no version unless you pass one:
+  `PayCraft.initialize(apiKey, appVersion = "2.4.1")`. None of these values can identify a person.
+- **Four more buyer moments are reported:** `paycraft_restore_result` (the restore found a purchase, found none,
+  or failed: `found` / `not_found` / `failed`), `paycraft_sign_in_fail` (a Google or Apple sign-in was cancelled,
+  rejected, hit a network error, or isn't set up for the app), `paycraft_device_transfer` (moving the subscription
+  to this device at the device limit worked or failed) and `paycraft_offer_decline` (the buyer tapped "No thanks"
+  on the win-back offer). Each one is reported once per occurrence, to your listener and to the dashboard.
+  **Binary change:** `PayCraftEvent`'s constructor gains three trailing optional parameters, and
+  `PayCraft.initialize` gains a trailing optional `appVersion`. Source that compiled before still compiles;
+  recompile code built against the previous version.
+
+- **Release alerts + Telegram (migration 224).** Three new owner alerts, checked every 5 minutes on live events:
+  `release_regression` (the newest app version, once 30+ devices saw the paywall, converts at under half the previous
+  version or its sign-in fail share doubled — once per version), `sign_in_failing` (5+ sign-in failures and over 30%
+  failing in the last hour) and `paywall_silent` (no paywall views in the last hour when the same hour averaged 5+
+  over the past week). Each has a toggle (on by default). Alerts can now also go to Telegram: Settings ▸ Alert channels
+  takes a bot token (stored encrypted, never shown again) and a chat id, with a Send test; messages name the app,
+  carry the numbers and link to the Live page.
+- **Release analytics on the server (migration 223).** `paywall_events` stores `app_version` (≤ 40), `app_build`
+  (≥ 0) and `os_version` (≤ 20), sent per event or per batch; an invalid value is dropped, never a refused event.
+  Two RPCs for the dashboard's Live page — `paywall_live_minutes` (per-minute events and devices by name and version)
+  and `paywall_version_compare` (funnel, sign-in, restore and device-limit devices per version) — callable by a
+  tenant's admins for that tenant only. `paywall_events` joins the Realtime publication (RLS keeps each tenant to its
+  own rows). The paycraft-edge Worker now sets `x-paycraft-country` from Cloudflare's country and drops any copy the
+  client sent; the functions read it before every other geo header, so events get a server country again.
 - **A signed-in buyer at the device limit picks a device to remove.** A sign-in that was already verified
   (the app's own sign-in, or PayCraft's) and then hit the device limit showed the "Verify ownership here" sheet,
   asking the buyer to sign in again. It now goes straight to the confirmation that lists the subscription's

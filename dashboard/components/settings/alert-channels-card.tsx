@@ -11,6 +11,8 @@ import {
   channelErrorMessage,
   isHttpsUrl,
   isSlackUrl,
+  isTelegramChatId,
+  isTelegramToken,
   validateWebhookSecret,
   type AlertKind,
   type ChannelKind,
@@ -20,7 +22,8 @@ import {
 /**
  * Settings ▸ Alert channels (migration 211) — where PayCraft sends owner alerts, and which kinds it sends.
  *
- * Persisted through /api/alert-channels. The Slack URL and the webhook URL + signing secret are encrypted on save
+ * Persisted through /api/alert-channels. The Slack URL, the webhook URL + signing secret and the Telegram bot token
+ * (migration 224) are encrypted on save
  * and never sent back: a configured channel shows "Connected" / "Secret set", and an empty field means "keep".
  * Each channel has a "Send test" that delivers a real test alert through the same sender real alerts use.
  */
@@ -33,6 +36,7 @@ const CHANNEL_META: Record<ChannelKind, { label: string; icon: typeof Mail }> = 
   email: { label: "Email", icon: Mail },
   slack: { label: "Slack", icon: MessageSquare },
   webhook: { label: "Webhook", icon: Webhook },
+  telegram: { label: "Telegram", icon: Send },
   inbox: { label: "Inbox", icon: Inbox },
 }
 
@@ -109,6 +113,8 @@ export function AlertChannelsCard() {
   const [slackUrl, setSlackUrl] = useState("")
   const [webhookUrl, setWebhookUrl] = useState("")
   const [webhookSecret, setWebhookSecret] = useState("")
+  const [telegramToken, setTelegramToken] = useState("")
+  const [telegramChatId, setTelegramChatId] = useState("")
   const [kinds, setKinds] = useState<Record<AlertKind, boolean> | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
@@ -122,6 +128,8 @@ export function AlertChannelsCard() {
     setSlackUrl("")
     setWebhookUrl("")
     setWebhookSecret("")
+    setTelegramToken("")
+    setTelegramChatId("")
     setKinds(p.kinds)
   }, [])
 
@@ -138,14 +146,18 @@ export function AlertChannelsCard() {
       slackUrl.trim() !== "" ||
       webhookUrl.trim() !== "" ||
       webhookSecret.trim() !== "" ||
+      telegramToken.trim() !== "" ||
+      telegramChatId.trim() !== "" ||
       ALERT_KINDS.some((k) => kinds[k.key] !== saved.kinds[k.key])
     )
-  }, [saved, kinds, emailEnabled, slackUrl, webhookUrl, webhookSecret])
+  }, [saved, kinds, emailEnabled, slackUrl, webhookUrl, webhookSecret, telegramToken, telegramChatId])
 
   // Inline checks mirror the RPC, so a typo is caught before Save.
   const slackError = slackUrl.trim() && !isSlackUrl(slackUrl.trim()) ? channelErrorMessage("slack_url_invalid") : null
   const webhookUrlError = webhookUrl.trim() && !isHttpsUrl(webhookUrl.trim()) ? channelErrorMessage("webhook_url_invalid") : null
   const secretError = webhookSecret.trim() && validateWebhookSecret(webhookSecret.trim()) !== "ok" ? channelErrorMessage("webhook_secret_length") : null
+  const telegramTokenError = telegramToken.trim() && !isTelegramToken(telegramToken.trim()) ? channelErrorMessage("telegram_token_invalid") : null
+  const telegramChatError = telegramChatId.trim() && !isTelegramChatId(telegramChatId.trim()) ? channelErrorMessage("telegram_chat_id_invalid") : null
 
   async function put(body: Record<string, unknown>, done: string) {
     setBusy(true)
@@ -173,6 +185,8 @@ export function AlertChannelsCard() {
     if (slackUrl.trim()) body.slack_url = slackUrl.trim()
     if (webhookUrl.trim()) body.webhook_url = webhookUrl.trim()
     if (webhookSecret.trim()) body.webhook_secret = webhookSecret.trim()
+    if (telegramToken.trim()) body.telegram_bot_token = telegramToken.trim()
+    if (telegramChatId.trim()) body.telegram_chat_id = telegramChatId.trim()
     const changedKinds = Object.fromEntries(ALERT_KINDS.filter((k) => kinds[k.key] !== saved.kinds[k.key]).map((k) => [k.key, kinds[k.key]]))
     if (Object.keys(changedKinds).length) body.kinds = changedKinds
     void put(body, "Saved.")
@@ -201,6 +215,7 @@ export function AlertChannelsCard() {
     email: emailEnabled && !!saved?.email.to,
     slack: !!saved?.slack.configured,
     webhook: !!saved?.webhook.configured,
+    telegram: !!saved?.telegram.configured,
     inbox: true,
   }
 
@@ -342,6 +357,55 @@ export function AlertChannelsCard() {
             <TestButton channel="webhook" enabled={saved.webhook.configured} state={tests.webhook} onTest={test} />
           </div>
 
+          {/* Telegram */}
+          <div className="space-y-3 rounded-lg border border-ink-100 p-4" data-testid="alert-channel-telegram">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Send className="h-4 w-4 text-ink-400" strokeWidth={2} />
+                <p className="text-sm font-bold text-ink-900">Telegram</p>
+                <StatusPill on={saved.telegram.configured} onText="Connected" offText="Not set" />
+              </div>
+              {saved.telegram.configured && (
+                <button type="button" disabled={busy} onClick={() => put({ telegram_bot_token: "" }, "Telegram removed.")} className="text-xs font-semibold text-ink-500 hover:text-danger-600 disabled:opacity-60">
+                  Remove
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label htmlFor="alert-telegram-token" className={labelClass}>Bot token</label>
+                <input
+                  id="alert-telegram-token"
+                  type="password"
+                  className={clsx(inputClass, telegramTokenError && "border-danger-500")}
+                  value={telegramToken}
+                  autoComplete="off"
+                  placeholder={saved.telegram.configured ? "•••••••• set — leave blank to keep" : "123456789:AA…"}
+                  onChange={(e) => setTelegramToken(e.target.value)}
+                />
+                {telegramTokenError && <p className="mt-1 text-[11px] text-danger-600">{telegramTokenError}</p>}
+              </div>
+              <div>
+                <label htmlFor="alert-telegram-chat" className={labelClass}>Chat id</label>
+                <input
+                  id="alert-telegram-chat"
+                  className={clsx(inputClass, telegramChatError && "border-danger-500")}
+                  value={telegramChatId}
+                  autoComplete="off"
+                  placeholder={saved.telegram.configured ? "Saved — enter a new id to re-point" : "-1001234567890"}
+                  onChange={(e) => setTelegramChatId(e.target.value)}
+                />
+                {telegramChatError && <p className="mt-1 text-[11px] text-danger-600">{telegramChatError}</p>}
+              </div>
+            </div>
+            <p className="text-[11px] text-ink-500" data-testid="alert-telegram-help">
+              Create a bot with <span className="font-mono text-ink-700">@BotFather</span> and paste its token, add the bot to the group or chat
+              that should get alerts, then enter that chat&apos;s id (groups start with <span className="font-mono">-</span>; a public channel can use
+              its <span className="font-mono">@name</span>). The token is stored encrypted and never shown again.
+            </p>
+            <TestButton channel="telegram" enabled={saved.telegram.configured} state={tests.telegram} onTest={test} />
+          </div>
+
           {/* Inbox */}
           <div className="space-y-3 rounded-lg border border-ink-100 p-4" data-testid="alert-channel-inbox">
             <div className="flex items-center justify-between gap-3">
@@ -418,7 +482,7 @@ export function AlertChannelsCard() {
             </button>
             <button
               type="button"
-              disabled={!dirty || busy || !!slackError || !!webhookUrlError || !!secretError}
+              disabled={!dirty || busy || !!slackError || !!webhookUrlError || !!secretError || !!telegramTokenError || !!telegramChatError}
               onClick={save}
               className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-6 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
             >

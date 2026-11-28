@@ -46,6 +46,21 @@ public enum class PayCraftEventName(public val wire: String) {
 
     /** The buyer tapped the resume reminder and the paywall was raised. */
     NudgeOpen("paycraft_nudge_open"),
+
+    /** A restore concluded — [PayCraftEvent.reason] `found` / `not_found` / `failed`. */
+    RestoreResult("paycraft_restore_result"),
+
+    /**
+     * A sign-in on an identity screen did not finish — [PayCraftEvent.reason] `cancelled` / `rejected` / `network` /
+     * `not_configured` / `unknown`, [PayCraftEvent.provider] `google` / `apple`.
+     */
+    SignInFail("paycraft_sign_in_fail"),
+
+    /** The buyer moved the subscription to this device at the device limit — reason `done` / `failed`. */
+    DeviceTransfer("paycraft_device_transfer"),
+
+    /** The buyer turned down the win-back offer ("No thanks"). */
+    OfferDecline("paycraft_offer_decline"),
 }
 
 /** Where in the buying path an event happened — the funnel's stages and the abandon points. */
@@ -58,6 +73,7 @@ public enum class PayCraftStep(public val wire: String) {
     DeviceLimit("device_limit"),
     Survey("survey"),
     Offer("offer"),
+    Restore("restore"),
 }
 
 /**
@@ -92,6 +108,15 @@ public class PayCraftEvent(
     public val attemptId: String? = null,
     /** What went wrong, when this event reports a failure ([PayCraftFailure] — already scrubbed and capped). */
     public val failure: PayCraftFailure? = null,
+    /**
+     * The host app's version name (Android `versionName`, iOS `CFBundleShortVersionString`, else what the app passed
+     * to `PayCraft.initialize`), its build number and the OS version — filled by the SDK for every event, so the
+     * dashboard compares releases. Sent cut to [MAX_APP_VERSION] / [MAX_OS_VERSION] characters; a negative build is
+     * dropped.
+     */
+    public val appVersion: String? = null,
+    public val appBuild: Long? = null,
+    public val osVersion: String? = null,
 ) {
     /** GA4-shaped parameters: only what is set, ≤ 25 keys, values cut to GA4's 100-character limit. */
     public fun params(): Map<String, String> = buildMap {
@@ -106,6 +131,9 @@ public class PayCraftEvent(
         experiment?.let { put("experiment", it.take(MAX_VALUE)) }
         variant?.let { put("variant", it.take(MAX_VALUE)) }
         attemptId?.let { put("attempt_id", it.take(MAX_VALUE)) }
+        sentAppVersion?.let { put("app_version", it) }
+        sentAppBuild?.let { put("app_build", it.toString()) }
+        sentOsVersion?.let { put("os_version", it) }
         // The failure's groupable fields only — its message stays first-party (PayCraft's ingest), never GA4.
         failure?.let {
             put("stage", it.stage.wire)
@@ -114,10 +142,33 @@ public class PayCraftEvent(
         }
     }
 
-    private companion object {
+    /** A copy carrying the app/OS dimensions this event does not already have (the emitter fills every event). */
+    internal fun withApp(appVersion: String?, appBuild: Long?, osVersion: String?): PayCraftEvent = PayCraftEvent(
+        name = name, step = step, platform = platform, trigger = trigger, sku = sku, currency = currency,
+        country = country, provider = provider, reason = reason, atMs = atMs, experiment = experiment,
+        variant = variant, attemptId = attemptId, failure = failure,
+        appVersion = this.appVersion ?: appVersion,
+        appBuild = this.appBuild ?: appBuild,
+        osVersion = this.osVersion ?: osVersion,
+    )
+
+    internal companion object {
         const val MAX_VALUE = 100
+        const val MAX_APP_VERSION = 40
+        const val MAX_OS_VERSION = 20
     }
 }
+
+/** [PayCraftEvent.appVersion] as it is sent: trimmed, blank dropped, ≤ 40 characters. */
+internal val PayCraftEvent.sentAppVersion: String?
+    get() = appVersion?.trim()?.takeIf { it.isNotEmpty() }?.take(PayCraftEvent.MAX_APP_VERSION)
+
+/** [PayCraftEvent.appBuild] as it is sent: a negative build number is dropped. */
+internal val PayCraftEvent.sentAppBuild: Long? get() = appBuild?.takeIf { it >= 0 }
+
+/** [PayCraftEvent.osVersion] as it is sent: trimmed, blank dropped, ≤ 20 characters. */
+internal val PayCraftEvent.sentOsVersion: String?
+    get() = osVersion?.trim()?.takeIf { it.isNotEmpty() }?.take(PayCraftEvent.MAX_OS_VERSION)
 
 // Extensions, not members: a member is kept in every bundle that has the class; these are dropped where unused (D16).
 

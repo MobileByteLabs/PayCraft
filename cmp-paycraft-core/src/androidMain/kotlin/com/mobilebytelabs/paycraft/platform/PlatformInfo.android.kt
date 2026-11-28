@@ -17,6 +17,16 @@ actual object PlatformInfo {
         get() = DeviceTokenStore.applicationContext?.let { ctx ->
             runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull()
         }
+
+    @Suppress("DEPRECATION")
+    actual val appBuild: Long?
+        get() = DeviceTokenStore.applicationContext?.let { ctx ->
+            runCatching {
+                val info = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode else info.versionCode.toLong()
+            }.getOrNull()
+        }
+    actual val osVersion: String? get() = Build.VERSION.RELEASE?.takeIf { it.isNotBlank() }
     actual val deviceName: String
         get() = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}"
     actual val deviceId: String

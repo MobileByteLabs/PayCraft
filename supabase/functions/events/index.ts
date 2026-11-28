@@ -7,8 +7,10 @@
 //   "events": [{ "name": "paycraft_paywall_view", "step": "paywall", "platform": "android",
 //                "trigger"?, "sku"?, "currency"?, "provider"?, "reason"?, "experiment"?, "variant"?,
 //                "attempt_id"?, "failure"?: { "stage", "error_class", "error_code"?, "error_message"? },
+//                "app_version"?, "app_build"?, "os_version"?,
 //                "at": <epoch ms> }],
-//   "attempt_id"? }                       ← the batch's attempt, for events that carry none of their own
+//   "attempt_id"?,                        ← the batch's attempt, for events that carry none of their own
+//   "app_version"?, "app_build"?, "os_version"?, "appVersion"? }  ← batch defaults for the release dimensions
 //
 // 202 { stored: N } · 400 unknown_event / bad_event / bad_body · 401 invalid_apiKey · 413 too_large · 429
 //
@@ -24,12 +26,15 @@
 //     paywall_events row and the event is appended to that attempt's timeline (`attempt_events`, stage
 //     `sdk`); a `failure` lands there with its stage, class, code and a sanitised message ≤ 200 chars (D6).
 //     A malformed id or failure refuses the batch, like any other bad field.
+//   · Release dimensions (migration 223): app_version (≤ 40), app_build (int ≥ 0), os_version (≤ 20), per event or
+//     per batch (events/release-dims.ts). An invalid one is dropped — never a reason to refuse the event.
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.1"
 import { preflight, withCors } from "../_shared/cors.ts"
 import { EVENT_CATALOG } from "../_shared/event-catalog.ts"
 import { eventCountry } from "../_shared/geo.ts"
+import { releaseDims } from "./release-dims.ts"
 import { RateLimitError, rateLimitResponse, requireRateLimit } from "../_shared/rate-limit.ts"
 import {
   appendEvents,
@@ -58,6 +63,7 @@ type InEvent = {
   currency?: unknown; provider?: unknown; reason?: unknown; at?: unknown
   experiment?: unknown; variant?: unknown
   attempt_id?: unknown; failure?: unknown
+  app_version?: unknown; app_build?: unknown; os_version?: unknown
   /** The device's region (alpha-2) — stored only when the edge has no geo (migration 215). */
   deviceCountry?: unknown
 }
@@ -169,6 +175,7 @@ serve(async (req: Request): Promise<Response> => {
       experiment: inExperiment ? experiment : null,
       variant: inExperiment ? variant : null,
       attempt_id: attemptId,
+      ...releaseDims(e as Record<string, unknown>, body as Record<string, unknown>),
       occurred_at: new Date(at).toISOString(),
     })
     if (attemptId) timeline.push({ attemptId, event: name, failure, at: new Date(at).toISOString() })
@@ -188,10 +195,8 @@ serve(async (req: Request): Promise<Response> => {
   const mode = (req.headers.get("x-paycraft-mode") ?? (body as { mode?: string }).mode ?? "").toLowerCase() === "test"
     ? "test"
     : "live"
-  // The app's version, once per batch (migration 215) — what PayCraft's analytics segment by beside GA4's appVersion.
-  const appVersion = str((body as { appVersion?: unknown }).appVersion, 32)
   const { error } = await supabase.from("paywall_events").insert(
-    rows.map((r) => ({ ...r, tenant_id: tenantId, user_ref: userRef, device_ref: deviceRef, app_version: appVersion, mode })),
+    rows.map((r) => ({ ...r, tenant_id: tenantId, user_ref: userRef, device_ref: deviceRef, mode })),
   )
   if (error) return json(500, { error: "store_failed" })
 

@@ -53,6 +53,8 @@ public class PayCraftAnalytics internal constructor(
     /** Where the queue lives between launches; null keeps it in memory only. */
     private val settings: Settings? = null,
     private val now: () -> Long = ::currentTimeMillis,
+    /** Fills what every event carries regardless of who emits it — the app version, build and OS version. */
+    private val stamp: (PayCraftEvent) -> PayCraftEvent = { it },
 ) {
     /** The app's analytics forwarder; null = none. A throwing listener is ignored — it never breaks the paywall. */
     @Volatile
@@ -90,9 +92,10 @@ public class PayCraftAnalytics internal constructor(
     }
 
     public fun emit(event: PayCraftEvent) {
-        runCatching { listener?.onEvent(event.name.wire, event.params()) }
+        val stamped = runCatching { stamp(event) }.getOrDefault(event)
+        runCatching { listener?.onEvent(stamped.name.wire, stamped.params()) }
         if (ingestEnabled) {
-            inbox.trySend(event)
+            inbox.trySend(stamped)
             kick()
         }
     }
@@ -228,6 +231,9 @@ public class PayCraftAnalytics internal constructor(
             e.experiment?.let { put("experiment", it) }
             e.variant?.let { put("variant", it) }
             e.attemptId?.let { put("attempt_id", it) }
+            e.appVersion?.let { put("app_version", it) }
+            e.appBuild?.let { put("app_build", it) }
+            e.osVersion?.let { put("os_version", it) }
             e.failure?.let { f ->
                 put("f_stage", f.stage.wire)
                 put("f_class", f.errorClass)
@@ -255,6 +261,9 @@ public class PayCraftAnalytics internal constructor(
                 experiment = str("experiment"),
                 variant = str("variant"),
                 attemptId = str("attempt_id"),
+                appVersion = str("app_version"),
+                appBuild = o["app_build"]?.jsonPrimitive?.longOrNull,
+                osVersion = str("os_version"),
                 failure = stage?.let {
                     PayCraftFailure(it, str("f_class").orEmpty(), str("f_code").orEmpty(), str("f_message").orEmpty())
                 },
