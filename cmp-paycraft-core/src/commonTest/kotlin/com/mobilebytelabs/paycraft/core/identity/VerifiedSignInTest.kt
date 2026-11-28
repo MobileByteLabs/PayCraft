@@ -70,6 +70,7 @@ class VerifiedSignInTest {
         apiKey: String? = "pk_test_1",
         platform: String = "desktop",
         returns: MutableList<(BrowserReturn) -> Unit> = mutableListOf(),
+        unsuccessful: MutableList<SignInState> = mutableListOf(),
     ) = VerifiedSignIn(
         client = IdentityTokenClient(
             HttpClient(server.engine) { install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) } },
@@ -86,6 +87,7 @@ class VerifiedSignInTest {
             returns += onReturn
         },
         scope = this, // foreground: advanceUntilIdle drives the polls; every browser test ends terminal
+        onUnsuccessful = { unsuccessful += it },
     )
 
     @Test
@@ -109,10 +111,31 @@ class VerifiedSignInTest {
     @Test
     fun native_cancel_is_cancelled_and_calls_nothing() = runTest {
         val server = Server(StandardTestDispatcher(testScheduler))
-        val sut = signIn(server, NativeTokenResult.Cancelled)
+        val unsuccessful = mutableListOf<SignInState>()
+        val sut = signIn(server, NativeTokenResult.Cancelled, unsuccessful = unsuccessful)
         sut.signIn(OAuthProvider.APPLE)
         assertEquals(SignInState.Cancelled(OAuthProvider.APPLE), sut.state.value)
         assertTrue(server.requests.isEmpty())
+        assertEquals(listOf<SignInState>(SignInState.Cancelled(OAuthProvider.APPLE)), unsuccessful, "reported once")
+    }
+
+    @Test
+    fun a_failed_attempt_is_reported_once_and_a_linked_one_never() = runTest {
+        val server = Server(StandardTestDispatcher(testScheduler)).apply {
+            verify = HttpStatusCode.Unauthorized to """{"error":"invalid_identity_token"}"""
+        }
+        val unsuccessful = mutableListOf<SignInState>()
+        val sut = signIn(server, NativeTokenResult.Token("id-tok"), unsuccessful = unsuccessful)
+        sut.signIn(OAuthProvider.GOOGLE)
+        assertEquals(
+            listOf<SignInState>(SignInState.Failed(OAuthProvider.GOOGLE, SignInFailure.Rejected)),
+            unsuccessful,
+        )
+
+        val ok = mutableListOf<SignInState>()
+        signIn(Server(StandardTestDispatcher(testScheduler)), NativeTokenResult.Token("id-tok"), unsuccessful = ok)
+            .signIn(OAuthProvider.GOOGLE)
+        assertTrue(ok.isEmpty(), ok.toString())
     }
 
     @Test

@@ -1,5 +1,8 @@
 package com.mobilebytelabs.paycraft.core
 
+import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.analytics.PayCraftAnalyticsListener
+import com.mobilebytelabs.paycraft.analytics.PayCraftEventName
 import com.mobilebytelabs.paycraft.model.BillingState
 import com.mobilebytelabs.paycraft.model.OAuthProvider
 import com.mobilebytelabs.paycraft.network.ActiveDevice
@@ -30,13 +33,13 @@ class VerifiedSignInDeviceLimitTest {
 
     private val devices = listOf(ActiveDevice(ref = "d1", name = "Chrome on macOS", platform = "web", lastSeen = null))
 
-    private inner class LimitService : PayCraftService {
+    private inner class LimitService(private val transferOk: Boolean = false) : PayCraftService {
         override suspend fun isPremium(serverToken: String): Boolean = false
         override suspend fun getSubscription(serverToken: String): SubscriptionDto? = null
         override suspend fun isTrialEligible(serverToken: String): Boolean = false
         override suspend fun checkPremiumWithDevice(serverToken: String): PremiumCheckResult =
             PremiumCheckResult(isPremium = false, tokenValid = true)
-        override suspend fun transferToDevice(serverToken: String, newDeviceToken: String): Boolean = false
+        override suspend fun transferToDevice(serverToken: String, newDeviceToken: String): Boolean = transferOk
         override suspend fun revokeDevice(serverToken: String, targetToken: String): Boolean = false
         override suspend fun verifyOAuthToken(provider: OAuthProvider, idToken: String): String? = null
         override suspend fun registerDevice(
@@ -84,6 +87,32 @@ class VerifiedSignInDeviceLimitTest {
         assertEquals(PENDING, state.pendingToken)
         assertEquals(devices, state.activeDevices)
         assertEquals(1, state.maxDevices)
+    }
+
+    @Test
+    fun confirming_the_transfer_reports_done_or_failed_once() = runTest {
+        val seen = mutableListOf<Pair<String, String?>>()
+        PayCraft.analyticsListener = PayCraftAnalyticsListener { name, p ->
+            if (name == PayCraftEventName.DeviceTransfer.wire) seen += p["step"].orEmpty() to p["reason"]
+        }
+        try {
+            for (ok in listOf(true, false)) {
+                DeviceTokenStore.clearToken()
+                val manager = PayCraftBillingManager(
+                    service = LimitService(transferOk = ok),
+                    store = Store(),
+                    dispatcher = StandardTestDispatcher(testScheduler),
+                )
+                advanceUntilIdle()
+                manager.onVerifiedSignIn("buyer@example.com")
+                advanceUntilIdle()
+                manager.confirmDeviceTransfer("d1")
+                advanceUntilIdle()
+            }
+        } finally {
+            PayCraft.analyticsListener = null
+        }
+        assertEquals(listOf<Pair<String, String?>>("device_limit" to "done", "device_limit" to "failed"), seen)
     }
 
     private companion object {

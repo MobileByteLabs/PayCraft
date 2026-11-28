@@ -3,6 +3,9 @@ package com.mobilebytelabs.paycraft.contract
 import com.mobilebytelabs.paycraft.CurrencyResolver
 import com.mobilebytelabs.paycraft.PayCraftInternalApi
 import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
+import com.mobilebytelabs.paycraft.analytics.sentAppBuild
+import com.mobilebytelabs.paycraft.analytics.sentAppVersion
+import com.mobilebytelabs.paycraft.analytics.sentOsVersion
 import com.mobilebytelabs.paycraft.config.AuthClientsDto
 import com.mobilebytelabs.paycraft.config.ProductDto
 import com.mobilebytelabs.paycraft.config.ProviderDto
@@ -192,18 +195,19 @@ object PayCraftContract {
                     action = r.string("action") ?: "none",
                     message = r.string("message"),
                     freeText = r.bool("free_text") ?: false,
-                    offer = (r["offer"] as? JsonObject)?.let {
-                        ExitSurveyConfig.Offer(
-                            percentOff = it["percent_off"]!!.jsonPrimitive.intOrNull!!,
-                            duration = it.string("duration") ?: "once",
-                            durationInMonths = it["duration_in_months"]?.jsonPrimitive?.intOrNull,
-                        )
-                    },
+                    offer = (r["offer"] as? JsonObject)?.let(::surveyOffer),
                 )
             },
             capDays = s["cap_days"]?.jsonPrimitive?.intOrNull ?: 7,
+            exitOffer = (s["exit_offer"] as? JsonObject)?.let(::surveyOffer),
         )
     }.getOrNull()
+
+    private fun surveyOffer(it: JsonObject) = ExitSurveyConfig.Offer(
+        percentOff = it["percent_off"]!!.jsonPrimitive.intOrNull!!,
+        duration = it.string("duration") ?: "once",
+        durationInMonths = it["duration_in_months"]?.jsonPrimitive?.intOrNull,
+    )
 
     /**
      * `winback` body: the buyer's answer. The buyer is the device token's account (resolved server-side to a
@@ -246,6 +250,7 @@ object PayCraftContract {
         val o = configJson.parseToJsonElement(raw).jsonObject
         when (o.string("action")) {
             "message" -> o.string("message")?.let { WinbackResult.Message(it) } ?: WinbackResult.None
+
             "offer" -> {
                 val offer = o["offer"]!!.jsonObject
                 val lanes = offer["lanes"] as? JsonObject
@@ -257,7 +262,8 @@ object PayCraftContract {
                         duration = offer.string("duration") ?: "once",
                         durationInMonths = offer["durationInMonths"]?.jsonPrimitive?.intOrNull,
                         expiresAtIso = offer.string("expiresAt").orEmpty(),
-                        sku = sku,
+                        // The server may move the offer to a plan that can carry it (annual can't do "3 months").
+                        sku = offer.string("sku") ?: sku,
                         stripe = lanes?.get("stripe")?.jsonPrimitive?.booleanOrNull == true,
                         razorpay = lanes?.get("razorpay")?.jsonPrimitive?.booleanOrNull == true,
                         googlePlayOfferId = (lanes?.get("google_play") as? JsonPrimitive)?.contentOrNull,
@@ -265,6 +271,7 @@ object PayCraftContract {
                     ),
                 )
             }
+
             else -> WinbackResult.None
         }
     }.getOrDefault(WinbackResult.None)
@@ -314,6 +321,10 @@ object PayCraftContract {
                         e.experiment?.let { put("experiment", it) }
                         e.variant?.let { put("variant", it) }
                         e.attemptId?.let { put("attempt_id", it) }
+                        // Release dimensions (realtime analytics): the dashboard compares app versions live.
+                        e.sentAppVersion?.let { put("app_version", it) }
+                        e.sentAppBuild?.let { put("app_build", it) }
+                        e.sentOsVersion?.let { put("os_version", it) }
                         // The server refuses a failure with no attempt to file it under, so one is only sent
                         // with its attempt id — every SDK emitter that builds a failure also has one.
                         val failure = e.failure

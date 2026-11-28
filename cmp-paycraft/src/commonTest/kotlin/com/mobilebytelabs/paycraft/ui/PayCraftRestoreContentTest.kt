@@ -6,6 +6,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
+import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.analytics.PayCraftAnalyticsListener
+import com.mobilebytelabs.paycraft.analytics.PayCraftEventName
 import com.mobilebytelabs.paycraft.awaitText
 import com.mobilebytelabs.paycraft.core.FakeBillingManager
 import com.mobilebytelabs.paycraft.model.BillingState
@@ -167,6 +170,36 @@ class PayCraftRestoreContentTest {
         assertEquals(2, fake.restoreStorePurchasesCallCount)
         // Still failing (nothing changed server-side in the fake) → the error comes back, retryable.
         onNodeWithTag("paycraft_restore_retry_button").assertExists()
+    }
+
+    @Test
+    fun each_restore_conclusion_is_reported_once() = runComposeUiTest {
+        val reasons = mutableListOf<String?>()
+        PayCraft.analyticsListener = PayCraftAnalyticsListener { name, p ->
+            if (name == PayCraftEventName.RestoreResult.wire) reasons += p["reason"]
+        }
+        try {
+            val fake = FakeBillingManager()
+            setContent {
+                ProvidePayCraftOAuthHandler(handler = { _: OAuthProvider -> }) {
+                    PayCraftRestoreContent(billingManager = fake, onCancel = {}, onSuccess = {})
+                }
+            }
+            onNodeWithTag("paycraft_restore_google_button").performClick()
+            fake.emitState(BillingState.Loading)
+            waitForIdle()
+            fake.emitState(BillingState.Free)
+            waitForIdle()
+            onNodeWithTag("paycraft_restore_error_message").assertExists() // recomposed; still one event
+            onNodeWithTag("paycraft_restore_google_button").performClick()
+            fake.emitState(BillingState.Loading)
+            waitForIdle()
+            fake.emitState(BillingState.Error("timeout"))
+            waitForIdle()
+            assertEquals(listOf<String?>("not_found", "failed"), reasons)
+        } finally {
+            PayCraft.analyticsListener = null
+        }
     }
 
     @Test

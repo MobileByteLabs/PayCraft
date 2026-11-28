@@ -17,82 +17,124 @@ import kotlin.js.Promise
 fun showExitSurvey(pc: dynamic, step: String, sku: String?): Promise<String> {
     val api = pc.unsafeCast<PayCraftWebApi>()
     return api.surveyConfig().then({ it }, { null }).then { cfg ->
-        if (cfg == null || cfg.reasons.isEmpty()) Promise.resolve("none") else openSurvey(api, cfg, step, sku)
+        when {
+            cfg == null -> Promise.resolve("none")
+
+            // The exit offer first (migration 226); the survey follows only if the buyer says no thanks.
+            cfg.exitOffer -> api.answerSurvey(EXIT_OFFER, step, sku, null).then({ it }, { null }).then { w ->
+                val offer = w?.offer?.takeIf { w.action == "offer" }
+                when {
+                    offer != null -> openSurvey(api, cfg, step, sku, offer)
+                    cfg.reasons.isEmpty() -> Promise.resolve("none")
+                    else -> openSurvey(api, cfg, step, sku)
+                }
+            }
+
+            cfg.reasons.isEmpty() -> Promise.resolve("none")
+
+            else -> openSurvey(api, cfg, step, sku)
+        }
     }.unsafeCast<Promise<String>>()
 }
 
+private const val EXIT_OFFER = "exit_offer"
+
 private const val SURVEY_STYLE_ID = "paycraft-survey-style"
 
-private fun openSurvey(pc: PayCraftWebApi, cfg: WebExitSurveyView, step: String, sku: String?): Promise<String> =
-    Promise {
-            resolve,
-            _,
-        ->
-        val doc: dynamic = js("document")
-        addStyleOnce(doc, SURVEY_STYLE_ID, SURVEY_CSS)
-        val dialog = doc.createElement("dialog")
-        dialog.className = "pcx-s"
-        dialog.setAttribute("aria-labelledby", "pcx-s-h")
+/** [exitOffer]: shown first; "No thanks" then asks the survey (when it has reasons) instead of closing. */
+private fun openSurvey(
+    pc: PayCraftWebApi,
+    cfg: WebExitSurveyView,
+    step: String,
+    sku: String?,
+    exitOffer: WebOfferView? = null,
+): Promise<String> = Promise {
+        resolve,
+        _,
+    ->
+    val doc: dynamic = js("document")
+    addStyleOnce(doc, SURVEY_STYLE_ID, SURVEY_CSS)
+    val dialog = doc.createElement("dialog")
+    dialog.className = "pcx-s"
+    dialog.setAttribute("aria-labelledby", "pcx-s-h")
+    var askAfterDecline = exitOffer != null && cfg.reasons.isNotEmpty()
+    doc.body.appendChild(dialog)
+    var outcome = "dismissed"
+    var timer: dynamic = null
+    dialog.addEventListener("close", { _: dynamic ->
+        if (timer != null) js("clearInterval")(timer)
+        dialog.remove()
+        resolve(outcome)
+    })
+    val close = { result: String ->
+        outcome = result
+        dialog.close()
+    }
+    fun showOffer(o: WebOfferView) {
+        pc.config().then({ c -> c.products.firstOrNull { it.sku == sku } }, { null }).then { product ->
+            val render = { dialog.innerHTML = offerHtml(o, product, offerTimeLeft(o.expiresAt, nowMs())) }
+            render()
+            timer = js("setInterval")(render, 30_000)
+        }
+    }
+    dialog.addEventListener("change", { _: dynamic ->
+        val send = dialog.querySelector("[data-pcx-s-send]")
+        if (send != null) send.disabled = dialog.querySelector("input[name=pcx-s-r]:checked") == null
+    })
+    dialog.addEventListener("click", { e: dynamic ->
+        val target = e.target.closest("[data-pcx-s]") ?: return@addEventListener
+        when (target.getAttribute("data-pcx-s") as String) {
+            "decline" -> if (askAfterDecline) {
+                askAfterDecline = false
+                if (timer != null) js("clearInterval")(timer)
+                timer = null
+                dialog.innerHTML = surveyHtml(cfg)
+                pc.surveyShown(step, sku)
+            } else {
+                close("dismissed")
+            }
+
+            "x", "skip" -> close("dismissed")
+
+            "back" -> close("answered")
+
+            "claim" -> {
+                val id = target.getAttribute("data-offer") as String
+                close(if (pc.claimOffer(id)) "claimed" else "dismissed")
+            }
+
+            "send" -> {
+                val chosen = dialog.querySelector("input[name=pcx-s-r]:checked") ?: return@addEventListener
+                val code = chosen.value as String
+                val text = (
+                    dialog.querySelector(
+                        "[data-pcx-s-text=\"$code\"]",
+                    )?.value as String?
+                    )?.trim()?.ifEmpty {
+                    null
+                }
+                target.disabled = true
+                target.textContent = "Sending…"
+                pc.answerSurvey(code, step, sku, text).then({ it }, { null }).then { w ->
+                    when {
+                        w?.action == "offer" && w.offer != null -> showOffer(w.offer!!)
+                        w?.action == "message" && !w.message.isNullOrBlank() ->
+                            dialog.innerHTML =
+                                messageHtml(w.message!!)
+                        else -> close("answered")
+                    }
+                }
+            }
+        }
+    })
+    if (exitOffer != null) {
+        showOffer(exitOffer)
+    } else {
         dialog.innerHTML = surveyHtml(cfg)
-        doc.body.appendChild(dialog)
-        var outcome = "dismissed"
-        var timer: dynamic = null
-        dialog.addEventListener("close", { _: dynamic ->
-            if (timer != null) js("clearInterval")(timer)
-            dialog.remove()
-            resolve(outcome)
-        })
-        val close = { result: String ->
-            outcome = result
-            dialog.close()
-        }
-        fun showOffer(o: WebOfferView) {
-            pc.config().then({ c -> c.products.firstOrNull { it.sku == sku } }, { null }).then { product ->
-                val render = { dialog.innerHTML = offerHtml(o, product, offerTimeLeft(o.expiresAt, nowMs())) }
-                render()
-                timer = js("setInterval")(render, 30_000)
-            }
-        }
-        dialog.addEventListener("change", { _: dynamic ->
-            val send = dialog.querySelector("[data-pcx-s-send]")
-            if (send != null) send.disabled = dialog.querySelector("input[name=pcx-s-r]:checked") == null
-        })
-        dialog.addEventListener("click", { e: dynamic ->
-            val target = e.target.closest("[data-pcx-s]") ?: return@addEventListener
-            when (target.getAttribute("data-pcx-s") as String) {
-                "x", "skip", "decline" -> close("dismissed")
-                "back" -> close("answered")
-                "claim" -> {
-                    val id = target.getAttribute("data-offer") as String
-                    close(if (pc.claimOffer(id)) "claimed" else "dismissed")
-                }
-                "send" -> {
-                    val chosen = dialog.querySelector("input[name=pcx-s-r]:checked") ?: return@addEventListener
-                    val code = chosen.value as String
-                    val text = (
-                        dialog.querySelector(
-                            "[data-pcx-s-text=\"$code\"]",
-                        )?.value as String?
-                        )?.trim()?.ifEmpty {
-                        null
-                    }
-                    target.disabled = true
-                    target.textContent = "Sending…"
-                    pc.answerSurvey(code, step, sku, text).then({ it }, { null }).then { w ->
-                        when {
-                            w?.action == "offer" && w.offer != null -> showOffer(w.offer!!)
-                            w?.action == "message" && !w.message.isNullOrBlank() ->
-                                dialog.innerHTML =
-                                    messageHtml(w.message!!)
-                            else -> close("answered")
-                        }
-                    }
-                }
-            }
-        })
-        dialog.showModal()
         pc.surveyShown(step, sku)
     }
+    dialog.showModal()
+}
 
 private fun nowMs(): Double = js("Date.now()").unsafeCast<Double>()
 

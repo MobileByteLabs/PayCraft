@@ -1,5 +1,6 @@
 // Paywall ▸ Experiments (migration 206). GET: the tenant's experiments + active offerings, or `?results=<key>` for one
-// experiment's per-variant results. PUT: save a draft. POST { key, status }: start / stop. requireTenant() proves the
+// experiment's per-variant results. PUT: save a draft. POST { key, status }: start / stop; POST { key, promote }: make
+// a variant the default (227). requireTenant() proves the
 // caller administers the tenant; the RPCs are service-role only and own the rules — their exception codes come back
 // as 400 { error: <code> }.
 
@@ -75,6 +76,12 @@ export async function PUT(req: NextRequest) {
       offering_id: isObj(v) && typeof v.offering_id === "string" ? v.offering_id : "",
       // 221: passed through as sent; paywall_experiment_save checks it against the offering.
       ...(isObj(v) && v.default_sku != null && v.default_sku !== "" ? { default_sku: v.default_sku as string } : {}),
+      // 227: passed through as sent; paywall_experiment_save checks each.
+      ...(isObj(v) && v.exit_offer != null ? { exit_offer: v.exit_offer as boolean } : {}),
+      ...(isObj(v) && typeof v.exit_offer_coupon_id === "string" && v.exit_offer_coupon_id
+        ? { exit_offer_coupon_id: v.exit_offer_coupon_id } : {}),
+      ...(isObj(v) && typeof v.paywall_template === "string" && v.paywall_template
+        ? { paywall_template: v.paywall_template } : {}),
     })),
   }
   const problem = validateExperiment(draft, await activeOfferingIds(tenant.id))
@@ -94,6 +101,17 @@ export async function PUT(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const { tenant, userId } = await requireTenant()
   const body: unknown = await req.json().catch(() => null)
+  // { key, promote: <variant> } — make that arm the default (227): offering, plan, exit offer, design; stops the test.
+  if (isObj(body) && typeof body.key === "string" && typeof body.promote === "string") {
+    const { data, error } = await service().rpc("paywall_experiment_promote", {
+      p_tenant_id: tenant.id,
+      p_key: body.key,
+      p_variant: body.promote,
+    })
+    if (error) return rpcError(error)
+    await audit(tenant.id, userId, "paywall_experiment.promote", body.key, { variant: body.promote, experiment: data })
+    return NextResponse.json({ experiment: data })
+  }
   if (!isObj(body) || typeof body.key !== "string" || (body.status !== "running" && body.status !== "stopped")) {
     return NextResponse.json({ error: "bad_body" }, { status: 400 })
   }

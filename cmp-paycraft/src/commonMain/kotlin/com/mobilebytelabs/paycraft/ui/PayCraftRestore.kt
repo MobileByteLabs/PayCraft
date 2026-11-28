@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.mobilebytelabs.paycraft.PayCraft
+import com.mobilebytelabs.paycraft.analytics.PayCraftEventName
+import com.mobilebytelabs.paycraft.analytics.PayCraftStep
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.core.identity.SignInState
 import com.mobilebytelabs.paycraft.generated.resources.Res
@@ -106,7 +108,7 @@ private const val TAG_RESTORE_GOOGLE = "paycraft_restore_google_button"
 private const val TAG_RESTORE_APPLE = "paycraft_restore_apple_button"
 
 /** What the last restore lookup concluded. Free and Error are distinct BillingStates, so no new signal. */
-private enum class RestoreOutcome { Restored, NotFound, Failed }
+private enum class RestoreOutcome(val wire: String) { Restored("found"), NotFound("not_found"), Failed("failed") }
 
 /**
  * Full-screen restore surface (same Dialog shape as the paywall) that lets a user restore their subscription.
@@ -264,8 +266,9 @@ internal fun PayCraftRestoreContent(
         if (billingManager.restoreStorePurchases()) outcome = RestoreOutcome.Restored
     }
 
-    // Auto-dismiss 1.5s after success
+    // Each conclusion is reported once (`paycraft_restore_result`); success auto-dismisses after 1.5 s.
     LaunchedEffect(outcome) {
+        outcome?.let { PayCraft.reportEvent(PayCraftEventName.RestoreResult, PayCraftStep.Restore, it.wire) }
         if (outcome == RestoreOutcome.Restored) {
             delay(1_500)
             onSuccess()

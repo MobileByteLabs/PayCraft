@@ -150,4 +150,25 @@ class ExitSurveyTest {
         assertEquals("checkout", b["step"].toString().trim('"'))
         assertNull(b["email"])
     }
+
+    @Test fun decodes_the_exit_offer_and_shows_it_without_reasons() {
+        val raw = """{"exit_survey":{"enabled":true,"title":"Why?","cap_days":7,"reasons":[],""" +
+            """"exit_offer":{"percent_off":50,"duration":"repeating","duration_in_months":3}}}"""
+        val cfg = PayCraftContract.decodeExitSurvey(raw)!!
+        assertEquals(50, cfg.exitOffer!!.percentOff)
+        assertEquals(3, cfg.exitOffer!!.durationInMonths)
+        assertTrue(exitSurveyDue(cfg, isPremium = false, lastShownAtMs = null, nowMs = 1L))
+        assertFalse(
+            exitSurveyDue(ExitSurveyConfig(enabled = true), isPremium = false, lastShownAtMs = null, nowMs = 1L),
+        )
+    }
+
+    @Test fun an_offer_moved_to_another_plan_carries_the_server_sku() {
+        val raw =
+            """{"action":"offer","offer":{"id":"o","percentOff":50,"duration":"repeating","durationInMonths":3,""" +
+                """"expiresAt":"2099-01-01T00:00:00Z","sku":"pro-monthly","lanes":{"google_play":"exit50"}}}"""
+        val r = PayCraftContract.decodeWinback(raw, "pro-annual") as WinbackResult.Offer
+        assertEquals("pro-monthly", r.offer.sku)
+        assertEquals("exit50", r.offer.googlePlayOfferId)
+    }
 }

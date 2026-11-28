@@ -9,6 +9,8 @@
 //     webhook_proc_fail   webhooks verified but the handler could not process them  key: error class
 //     failure_rate_spike  last hour's failures at a stage >= 3x the trailing 7-day hourly rate AND >= 5
 //                                                                                    key: stage
+//     release_regression / sign_in_failing / paywall_silent — the live funnel per app version (migration 224;
+//                         thresholds and keys in analytics-rules.ts)
 //   digest — bundled once per tenant per hour (the hourly cron):
 //     abandon_digest / decline_digest  the previous whole UTC hour                  key: hour-YYYY-MM-DDTHH
 //
@@ -28,6 +30,17 @@ import {
   recordAlert,
   retryDueDeliveries,
 } from "../_shared/alert-channels.ts"
+import {
+  paywallSilentDraft,
+  RELEASE_MIN_DEVICES,
+  RELEASE_WINDOW_DAYS,
+  releaseRegressionDraft,
+  SIGN_IN_MIN_FAILS,
+  SIGN_IN_WINDOW_MINUTES,
+  signInFailingDraft,
+  SILENT_MIN_BASELINE,
+  SILENT_WINDOW_MINUTES,
+} from "./analytics-rules.ts"
 
 // deno-lint-ignore no-explicit-any
 type Any = any
@@ -230,6 +243,20 @@ export async function runCritical(db: Any, now: Date, deps: ChannelDeps = {}): P
       await raise(db, result, spikeDraft(r, now), d)
     }
   })
+  const analytics = async (name: string, fn: string, args: Record<string, unknown>, draft: (r: Any, now: Date) => AlertDraft | null) => {
+    await rule(result, name, async () => {
+      for (const r of await rpcRows(db, fn, { p_now: iso, ...args })) {
+        const a = draft(r, now)
+        if (a) await raise(db, result, a, d)
+      }
+    })
+  }
+  await analytics("release_regression", "analytics_alert_release_regression",
+    { p_window_days: RELEASE_WINDOW_DAYS, p_min_devices: RELEASE_MIN_DEVICES }, releaseRegressionDraft)
+  await analytics("sign_in_failing", "analytics_alert_sign_in_failing",
+    { p_window_minutes: SIGN_IN_WINDOW_MINUTES, p_min_fails: SIGN_IN_MIN_FAILS }, signInFailingDraft)
+  await analytics("paywall_silent", "analytics_alert_paywall_silent",
+    { p_window_minutes: SILENT_WINDOW_MINUTES, p_min_baseline: SILENT_MIN_BASELINE }, paywallSilentDraft)
   await retryInto(db, result, d)
   return result
 }

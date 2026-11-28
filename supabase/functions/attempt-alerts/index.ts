@@ -4,7 +4,8 @@
 // — the owner alert engine for purchase attempts (paycraft-attempt-observability D8 / D9; rules in engine.ts,
 // delivery in _shared/alert-channels.ts):
 //
-//   critical  paid_not_granted · webhook signature / processing failures · failure-rate spike, then due
+//   critical  paid_not_granted · webhook signature / processing failures · failure-rate spike · release_regression ·
+//             sign_in_failing · paywall_silent (224), then due
 //             retries. attempt-stitch runs the same rules in-process after every 5-minute stitch.
 //   digest    the abandon + decline digests of the previous UTC hour, then due retries (hourly cron, 211).
 //   retry     only the deliveries whose next_retry_at has come.

@@ -12,6 +12,9 @@ actual object PlatformInfo {
     actual val appId: String get() = NSBundle.mainBundle.bundleIdentifier.orEmpty()
     actual val appVersion: String?
         get() = NSBundle.mainBundle.objectForInfoDictionaryKey("CFBundleShortVersionString") as? String
+    actual val appBuild: Long?
+        get() = (NSBundle.mainBundle.objectForInfoDictionaryKey("CFBundleVersion") as? String)?.trim()?.toLongOrNull()
+    actual val osVersion: String? get() = UIDevice.currentDevice.systemVersion.takeIf { it.isNotBlank() }
 
     // ── Build kind, from the APP BUNDLE's provisioning identity ───────────────────────────────
     //

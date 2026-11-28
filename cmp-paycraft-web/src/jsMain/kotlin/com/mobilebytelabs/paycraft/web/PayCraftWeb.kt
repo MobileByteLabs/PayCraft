@@ -432,6 +432,7 @@ class PayCraftWeb(
             cfg.reasons.map {
                 WebSurveyReason(it.code, it.label, it.freeText)
             }.toTypedArray(),
+            cfg.exitOffer != null,
         )
     }
 
@@ -447,7 +448,12 @@ class PayCraftWeb(
      * Never rejects — a failed call is `none`, and the buyer simply leaves.
      */
     fun answerSurvey(reasonCode: String, step: String, sku: String?, freeText: String?): Promise<WebWinback> {
-        track(PayCraftEventName.SurveyAnswer, PayCraftStep.Survey, sku, null, null, reasonCode, null)
+        // "exit_offer" is not an answer: it asks for the discount shown before the survey, and starts the cap.
+        if (reasonCode == EXIT_OFFER) {
+            store.saveSurveyShownAt(now())
+        } else {
+            track(PayCraftEventName.SurveyAnswer, PayCraftStep.Survey, sku, null, null, reasonCode, null)
+        }
         val deviceRef = myDeviceId()
         val body = PayCraftContract.winbackBody(
             apiKey,
@@ -858,3 +864,6 @@ private val setTimeoutJs: (() -> Unit, Int) -> Unit =
 private val sendBeaconJs: (String, String) -> Boolean = js(
     "(function (u, b) { var n = globalThis.navigator; return n && n.sendBeacon ? n.sendBeacon(u, b) : false; })",
 )
+
+/** The `winback` reason code of the exit offer (migration 226). */
+private const val EXIT_OFFER = "exit_offer"

@@ -14,7 +14,7 @@ import { PaywallDesigner } from "@/components/paywall/paywall-designer"
 import { PaywallTreeEditor } from "@/components/paywall/tree/PaywallTreeEditor"
 import type { Json } from "@/components/paywall/tree/edit"
 import { type EditorCoupon, ExitSurveyEditor } from "@/components/paywall/exit-survey-editor"
-import { type EditorOffering, ExperimentsEditor } from "@/components/paywall/experiments-editor"
+import { type EditorCoupon as ExperimentCoupon, type EditorOffering, ExperimentsEditor } from "@/components/paywall/experiments-editor"
 import { TemplateGallery, type GalleryTemplate } from "@/components/paywall/template-gallery"
 import { DEFAULT_REASONS, type SurveyDraft } from "@/lib/exit-survey-config"
 import type { Experiment } from "@/lib/experiments"
@@ -252,7 +252,7 @@ export function ExitSurveyView() {
     queryFn: async (): Promise<SurveyDraft> => {
       const { data, error } = await supabase
         .from("tenant_exit_survey")
-        .select("enabled,title,reasons,survey_cap_days,offer_hours")
+        .select("enabled,title,reasons,survey_cap_days,offer_hours,exit_offer_enabled,exit_offer_coupon_id")
         .eq("tenant_id", tenantId)
         .maybeSingle()
       if (error) throw new Error(error.message)
@@ -264,8 +264,10 @@ export function ExitSurveyView() {
             reasons: data.reasons ?? DEFAULT_REASONS,
             survey_cap_days: data.survey_cap_days,
             offer_hours: data.offer_hours,
+            exit_offer_enabled: data.exit_offer_enabled ?? true,
+            exit_offer_coupon_id: data.exit_offer_coupon_id ?? null,
           }
-        : { enabled: true, title: "Before you go — what stopped you?", reasons: DEFAULT_REASONS, survey_cap_days: 7, offer_hours: 48 }
+        : { enabled: true, title: "Before you go — what stopped you?", reasons: DEFAULT_REASONS, survey_cap_days: 7, offer_hours: 48, exit_offer_enabled: true, exit_offer_coupon_id: null }
     },
   })
   // Same key + query as the Coupons page, so either page warms the other.
@@ -336,38 +338,60 @@ export function ExperimentsView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tenant_offerings")
-        .select("id,identifier,display_name,tenant_packages(active,tenant_products(sku,display_name,active))")
+        .select("id,identifier,display_name,is_current,tenant_packages(active,tenant_products(sku,display_name,active,interval))")
         .eq("tenant_id", tenantId)
         .eq("active", true)
       if (error) throw new Error(error.message)
       // Each offering's active plans — what a variant can pre-select (migration 221).
       type Row = Omit<EditorOffering, "plans"> & {
-        tenant_packages?: { active: boolean; tenant_products?: { sku: string; display_name: string; active: boolean }[] }[]
+        tenant_packages?: {
+          active: boolean
+          tenant_products?: { sku: string; display_name: string; active: boolean; interval: string | null }[]
+        }[]
       }
       return ((data ?? []) as Row[]).map(({ tenant_packages, ...o }): EditorOffering => ({
         ...o,
         plans: (tenant_packages ?? []).filter((p) => p.active)
           .flatMap((p) => (p.tenant_products ?? []).filter((pr) => pr.active))
-          .map(({ sku, display_name }) => ({ sku, display_name })),
+          .map(({ sku, display_name, interval }) => ({ sku, display_name, interval })),
       }))
     },
   })
-  const failed = experimentsQuery.isError ? experimentsQuery : offeringsQuery.isError ? offeringsQuery : null
+  // Percent-off coupons + the tenant's exit-offer coupon: a variant's exit offer and the templates (227).
+  const exitQuery = useQuery({
+    queryKey: ["experiment-exit-offers", tenantId],
+    queryFn: async () => {
+      const [coupons, survey] = await Promise.all([
+        supabase.from("tenant_coupons").select("id,code,percent_off,duration,duration_in_months")
+          .eq("tenant_id", tenantId).eq("active", true).gt("percent_off", 0),
+        supabase.from("tenant_exit_survey").select("exit_offer_enabled,exit_offer_coupon_id").eq("tenant_id", tenantId).maybeSingle(),
+      ])
+      if (coupons.error) throw new Error(coupons.error.message)
+      return {
+        coupons: (coupons.data ?? []) as ExperimentCoupon[],
+        exitCouponId: survey.data?.exit_offer_enabled === false ? null : (survey.data?.exit_offer_coupon_id ?? null),
+      }
+    },
+  })
+  const failed = experimentsQuery.isError ? experimentsQuery : offeringsQuery.isError ? offeringsQuery
+    : exitQuery.isError ? exitQuery : null
 
   return (
     <div>
       <PageHeader
         title="Experiments"
-        subtitle="Test which offering your paywall sells. The SDK assigns each device a variant by weight and keeps it; a stopped experiment can't be restarted."
+        subtitle="Test what your paywall sells and how: plans, the pre-selected plan, the exit offer and the design. Each device keeps its variant; make the winner your default in one click."
       />
       {failed ? (
         <LoadError what="experiments" error={failed.error!} retry={() => failed.refetch()} />
-      ) : experimentsQuery.isPending || offeringsQuery.isPending ? (
+      ) : experimentsQuery.isPending || offeringsQuery.isPending || exitQuery.isPending ? (
         <LoadingCard label="Loading experiments…" />
       ) : (
         <ExperimentsEditor
           initial={experimentsQuery.data ?? []}
           offerings={offeringsQuery.data ?? []}
+          coupons={exitQuery.data?.coupons ?? []}
+          exitCouponId={exitQuery.data?.exitCouponId ?? null}
           onSaved={() => queryClient.invalidateQueries({ queryKey: ["experiments", tenantId] })}
         />
       )}

@@ -5,7 +5,7 @@ import { Check, CheckCircle2, Loader2, XCircle, Clock } from "lucide-react"
 import { STAGE_LABEL, type AttemptStage } from "@/lib/attempts"
 import { alertKindLabel, type AlertDelivery, type AlertRow as Alert } from "@/lib/alerts"
 
-const CHANNEL_LABEL: Record<AlertDelivery["channel"], string> = { email: "Email", slack: "Slack", webhook: "Webhook", inbox: "Inbox" }
+const CHANNEL_LABEL: Record<AlertDelivery["channel"], string> = { email: "Email", slack: "Slack", webhook: "Webhook", telegram: "Telegram", inbox: "Inbox" }
 
 const fmt = (iso: string) =>
   new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) + " UTC"

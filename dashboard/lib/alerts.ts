@@ -11,7 +11,7 @@ export type AlertFilter = "all" | "critical" | "digest" | "unread"
 export const ALERT_FILTERS: readonly AlertFilter[] = ["all", "unread", "critical", "digest"]
 
 export type AlertDelivery = {
-  channel: "email" | "slack" | "webhook" | "inbox"
+  channel: "email" | "slack" | "webhook" | "inbox" | "telegram"
   status: "pending" | "sent" | "failed"
   attempts: number
   http_status: number | null
@@ -49,6 +49,9 @@ export const ALERT_KIND_LABEL: Record<string, string> = {
   sub_expiry: "Subscriptions expiring",
   ai_insight: "Weekly insight",
   channel_test: "Channel test",
+  release_regression: "Release regression",
+  sign_in_failing: "Sign-in failing",
+  paywall_silent: "Paywall silent",
 }
 export const alertKindLabel = (kind: string) => ALERT_KIND_LABEL[kind] ?? kind.replace(/_/g, " ")
 

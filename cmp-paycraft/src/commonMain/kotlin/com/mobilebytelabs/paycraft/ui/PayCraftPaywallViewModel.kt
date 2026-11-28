@@ -9,6 +9,7 @@ import com.mobilebytelabs.paycraft.analytics.PayCraftFailureStage
 import com.mobilebytelabs.paycraft.billing.CheckoutLane
 import com.mobilebytelabs.paycraft.billing.resolveCheckoutLane
 import com.mobilebytelabs.paycraft.config.ProviderDto
+import com.mobilebytelabs.paycraft.config.forVariant
 import com.mobilebytelabs.paycraft.core.BillingManager
 import com.mobilebytelabs.paycraft.debug.PayCraftLogLevel
 import com.mobilebytelabs.paycraft.debug.platformLog
@@ -18,6 +19,7 @@ import com.mobilebytelabs.paycraft.network.CheckoutInitiateClient
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
 import com.mobilebytelabs.paycraft.winback.ExitSurveyConfig
 import com.mobilebytelabs.paycraft.winback.ExitSurveyGate
+import com.mobilebytelabs.paycraft.winback.WinbackOffer
 import com.mobilebytelabs.paycraft.winback.WinbackResult
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -47,7 +49,9 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
 
     // ── Exit survey + win-back offer (paycraft-paywall-analytics, GOAL D6/D7) ────────────────────
     // Seams: replaced in tests; production reads the live config, the device-persisted cap and the network.
-    internal var surveyConfig: () -> ExitSurveyConfig? = { PayCraft.exitSurvey.value }
+    internal var surveyConfig: () -> ExitSurveyConfig? = {
+        PayCraft.exitSurvey.value.forVariant(PayCraft.activeExperiment)
+    }
     internal var surveyGate: ExitSurveyGate? = null
     internal var winback: suspend (code: String, step: String, sku: String?, freeText: String?) -> WinbackResult =
         { code, step, sku, text -> PayCraft.answerExitSurvey(code, step, sku, text) }
@@ -57,19 +61,48 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
     /** What the survey surface shows instead of the paywall body; null = the paywall. */
     internal val survey: StateFlow<ExitSurveyUi?> = surveyState.asStateFlow()
 
-    /** Closing: offer the survey once (cap, not premium, enabled), else tell the host to close. */
+    /**
+     * Closing: once per cap (not premium, enabled) offer the exit discount first, then the survey if it's declined
+     * or there is none; otherwise tell the host to close.
+     */
     private fun closeOrAsk() {
         val abandonedAt = funnel.abandoned()
         val cfg = surveyConfig()
         val gate = surveyGate ?: PayCraft.exitSurveyGate.also { surveyGate = it }
         if (abandonedAt != null && surveyState.value == null && gate.shouldShow(cfg, _state.value.isPremium)) {
             gate.markShown()
-            funnel.surveyShown(abandonedAt)
             // The SKU, not the plan id: winback looks the product up by sku (Reels Downloader answers carried
             // product ids, so the Play lane came back empty and an Android buyer could not get the offer).
-            surveyState.value = ExitSurveyUi.Asking(cfg!!, abandonedAt, _state.value.selectedPlan?.sku)
+            val asking = ExitSurveyUi.Asking(cfg!!, abandonedAt, _state.value.selectedPlan?.sku)
+            if (cfg.exitOffer == null) {
+                askOrClose(asking)
+            } else {
+                // The paywall stays up while the offer is fetched; a second close simply closes (the cap is spent).
+                viewModelScope.launch {
+                    when (val r = winback(EXIT_OFFER, asking.step.wire, asking.sku, null)) {
+                        is WinbackResult.Offer -> showOffer(r.offer, asking.sku, then = asking)
+                        else -> askOrClose(asking)
+                    }
+                }
+            }
             return
         }
+        dismiss()
+    }
+
+    private fun askOrClose(asking: ExitSurveyUi.Asking) {
+        if (asking.cfg.reasons.isEmpty()) return dismiss()
+        funnel.surveyShown(asking.step)
+        surveyState.value = asking
+    }
+
+    private fun showOffer(offer: WinbackOffer, sku: String?, then: ExitSurveyUi.Asking? = null) {
+        funnel.offerShown(offer.percentOff)
+        val plan = planForOffer(_state.value.plans, offer.sku ?: sku) ?: _state.value.selectedPlan
+        surveyState.value = ExitSurveyUi.OfferShown(offer, plan, then)
+    }
+
+    private fun dismiss() {
         surveyState.value = null
         viewModelScope.launch { _events.send(PayCraftPaywallEvent.Dismissed) }
     }
@@ -80,14 +113,8 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
         funnel.surveyAnswered(code)
         viewModelScope.launch {
             when (val r = winback(code, asking.step.wire, asking.sku, freeText)) {
-                is WinbackResult.Offer -> {
-                    funnel.offerShown(r.offer.percentOff)
-                    val plan = planForOffer(_state.value.plans, r.offer.sku ?: asking.sku) ?: _state.value.selectedPlan
-                    surveyState.value = ExitSurveyUi.OfferShown(r.offer, plan)
-                }
-
+                is WinbackResult.Offer -> showOffer(r.offer, asking.sku)
                 is WinbackResult.Message -> surveyState.value = ExitSurveyUi.MessageShown(r.text)
-
                 WinbackResult.None -> closeSurvey()
             }
         }
@@ -109,10 +136,12 @@ internal class PayCraftPaywallViewModel(private val billingManager: BillingManag
         funnel.shown()
     }
 
-    /** Skip / No thanks / close: the paywall closes. */
+    /** Skip / No thanks / close: the paywall closes — after an exit offer, the survey asks why first. */
     fun closeSurvey() {
-        surveyState.value = null
-        viewModelScope.launch { _events.send(PayCraftPaywallEvent.Dismissed) }
+        val shown = surveyState.value as? ExitSurveyUi.OfferShown
+        if (shown != null) funnel.offerDeclined()
+        shown?.then?.let { return askOrClose(it) }
+        dismiss()
     }
 
     init {
@@ -691,6 +720,9 @@ private inline fun logW(tag: String, message: () -> String) = platformLog(PayCra
 
 private inline fun logE(tag: String, message: () -> String) = platformLog(PayCraftLogLevel.ERROR, tag, message())
 
+/** The `winback` reason code of the exit offer (migration 226) — not a survey answer. */
+internal const val EXIT_OFFER = "exit_offer"
+
 /** The exit-survey surface's state. */
 internal sealed interface ExitSurveyUi {
     data class Asking(
@@ -700,8 +732,8 @@ internal sealed interface ExitSurveyUi {
         val sending: Boolean = false,
     ) : ExitSurveyUi
 
-    data class OfferShown(val offer: com.mobilebytelabs.paycraft.winback.WinbackOffer, val plan: BillingPlan?) :
-        ExitSurveyUi
+    /** [then]: the survey to ask if this offer (the exit offer) is declined; null closes the paywall. */
+    data class OfferShown(val offer: WinbackOffer, val plan: BillingPlan?, val then: Asking? = null) : ExitSurveyUi
 
     data class MessageShown(val text: String) : ExitSurveyUi
 }

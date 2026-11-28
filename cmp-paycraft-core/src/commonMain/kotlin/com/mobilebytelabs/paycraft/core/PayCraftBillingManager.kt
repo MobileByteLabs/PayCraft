@@ -957,6 +957,7 @@ class PayCraftBillingManager(
         }
 
         PayCraftLogger.onFlow("confirmDeviceTransfer", "transferResult=$ok")
+        PayCraft.reportEvent(PayCraftEventName.DeviceTransfer, PayCraftStep.DeviceLimit, if (ok) "done" else "failed")
         if (ok) {
             lastConflict = null
             DeviceTokenStore.saveToken(pendingToken) // token is now ACTIVE

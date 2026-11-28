@@ -123,6 +123,22 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
   `cmp-paycraft-web-ui` (≤ 20 KB, imported lazily by buyers), which depends on the stdlib only and calls the page's
   `PayCraftWeb` through `PayCraftWebApi` — `infra/web-ui-api-check.sh` keeps the two in step,
   `infra/web-bundle-size.sh` holds both budgets.
+- **Exit offer (226):** `tenant_exit_survey.exit_offer_{enabled,coupon_id}` (saved by `tenant_exit_offer_save`; the
+  Exit survey page's first card). Served as `exit_survey.exit_offer`; on close the paywall shows it FIRST (`winback`
+  reasonCode `exit_offer` — no survey answer recorded), the survey only if declined; same `survey_cap_days`. Play counts
+  a discount in the base plan's periods (`playRecurrenceCount`): "3 months" fits monthly/quarterly only; `winback`
+  moves an Android buyer on a plan the coupon can't reach to the shortest plan it can (`pickOfferPlan`) and returns
+  that `sku`. Tests: `ExitOfferFlowTest`, `supabase/tests/226_exit_offer_test.sql`. Web: `WebExitSurvey.exitOffer`
+  → `showExitSurvey` asks `answerSurvey("exit_offer")` first (starts the cap, not an answer) and shows the survey on
+  No thanks (`ExitSurveyDialogTest`).
+- **Store coupon periods:** `dashboard/lib/coupon-periods.ts#couponPeriodCount` is the one rule for both stores (Play
+  `recurrenceCount`, App Store `numberOfPeriods`): counted in the plan's own period, a plan the duration doesn't fit is
+  skipped. App Store coupons are PROMOTIONAL offers (`appstore-coupon-sync.ts`, `subscriptionPromotionalOffers`,
+  offer code `cpn.<code>` stored in `appstore_offer_ids` = what `winback` signs) — never introductory offers, which
+  Apple gives every new subscriber.
+- **Trial → paid (228):** `entitlement_records.trial_started_at` / `trial_converted_at`, stamped by the
+  `entitlement_trial_stamps` trigger on every write path; experiment results add `trial_starts` / `trial_paid`
+  (buyer linked by device id or by `user_ref` = hash of tenant + email). Test `supabase/tests/228_trial_conversion_test.sql`.
 - **GA4 on the dashboard:** tenants add PayCraft's service account — the org Firebase account
   (`firebase-adminsdk-fbsvc@prod-applications-c7f87.iam.gserviceaccount.com`; alias `paycraft-ga4-service-account` →
   vault `mbs-firebase-service-account`, env `PAYCRAFT_GA4_SA_JSON`, raw or base64 JSON) — as a Viewer on their property; `tenant_ga4_connections` (184) stores only the property id, plus (190) the `stream_ids` that are the tenant's when one property holds several apps — every report (`ga4Overview`) is then filtered by `streamId`.
@@ -156,6 +172,16 @@ tiers; `__tests__/lib/sku.test.ts` fails if the mirror drifts from the migration
   plan its offering sells — `experiment_default_sku_unknown`). It rides on `ExperimentAssignment.defaultSku` (dropped
   when the variant doesn't sell it) and `PayCraftPaywallViewModel` (`initialSelectedPlan` / `applyDefaultPlan`) opens
   on it ahead of `popular_plan_sku` and the workflow's `is_selected_by_default`. The web SDK doesn't apply experiments.
+- **Exit offer + design per variant, templates, promote (227):** a variant may also carry `exit_offer` (false = off),
+  `exit_offer_coupon_id` (its own exit coupon) and `paywall_template` (branded-stack | minimal | premium | dark); errors
+  `experiment_exit_offer_invalid` / `experiment_exit_coupon_unknown` / `experiment_template_unknown`. The SDK applies the
+  design in `withExperimentAssigned` (template seed replaces the published tree) and the exit offer via
+  `ExitSurveyConfig.forVariant`; `winback` gets `experiment`+`variant` and picks the arm's coupon (`exitOfferCoupon`).
+  Results add `offer_views`, `offer_accepts` and `revenue` (catalogue price of what each buyer bought, per currency).
+  `paywall_experiment_promote` makes an arm the default (current offering, popular plan, exit offer, template — the
+  published tree is unpublished, the draft kept) and stops the test. Dashboard templates: `EXPERIMENT_TEMPLATES` in
+  `lib/experiments.ts` (every arm keeps the exit offer on unless the test is about it). Tests:
+  `ExperimentVariantOverridesTest`, `__tests__/lib/experiment-templates.test.ts`, `supabase/tests/227_experiment_templates_test.sql`.
 - **Results:** every paywall event carries `experiment` + `variant` (`PayCraft.activeExperiment` → `PayCraftEvent` →
   `events` → `paywall_events`); `paywall_experiment_results` counts distinct devices per step, live mode only, inside
   the run window. Tests: `ExperimentAssignmentTest`, `ExperimentDefaultPlanTest`, `supabase/tests/206_paywall_experiments_test.sql`, `221_experiment_default_plan_test.sql`.

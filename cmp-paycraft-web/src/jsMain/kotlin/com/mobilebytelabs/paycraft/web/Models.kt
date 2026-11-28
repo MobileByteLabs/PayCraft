@@ -90,9 +90,12 @@ class WebSubscription(
     val trialEndsAt: String?,
 )
 
-/** The tenant's exit survey ([PayCraftWeb.surveyConfig]): the question and the reasons, in order. */
+/**
+ * The tenant's exit survey ([PayCraftWeb.surveyConfig]): the question and the reasons, in order. [exitOffer]: a
+ * discount is offered FIRST (`answerSurvey("exit_offer", …)`), the survey only if the buyer declines (migration 226).
+ */
 @JsExport
-class WebExitSurvey(val title: String, val reasons: Array<WebSurveyReason>)
+class WebExitSurvey(val title: String, val reasons: Array<WebSurveyReason>, val exitOffer: Boolean)
 
 /** One answer. [freeText]: "Something else" — show a text field and send what the buyer writes. */
 @JsExport

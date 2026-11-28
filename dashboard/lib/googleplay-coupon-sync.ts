@@ -1,3 +1,4 @@
+import { couponPeriodCount } from "./coupon-periods"
 import { createClient } from "./supabase-server"
 import { playAccessToken, type PlayServiceAccountJson } from "./store-jwt"
 import {
@@ -27,8 +28,6 @@ import {
  * NEW subscribers (acquisition offer); recurrenceCount is expressed in the base
  * plan's own billing period.
  */
-
-const COUPON_OFFER_CAP = 12 // "forever" cap — Play phases are finite
 
 function couponOfferIdFor(basePlanId: string, code: string): string {
   return `${basePlanId}-cpn-${code}`.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 63).replace(/-+$/g, "")
@@ -97,13 +96,15 @@ export async function syncCouponToGooglePlay(opts: {
 
   const token = await playAccessToken(JSON.parse(decrypted.credential) as PlayServiceAccountJson)
 
-  const recurrenceCount =
-    opts.duration === "once" ? 1 : opts.duration === "repeating" ? opts.durationInMonths ?? 1 : COUPON_OFFER_CAP
-
   // 3. One discount offer per applicable product.
   const offerIdsByProduct: Record<string, string> = {}
   const errors: string[] = []
   for (const prod of applicable) {
+    const recurrenceCount = couponPeriodCount(opts.duration, opts.durationInMonths, prod.interval)
+    if (recurrenceCount === null) {
+      errors.push(`${prod.playProductId}: a ${opts.durationInMonths}-month discount doesn't fit a ${prod.interval} plan`)
+      continue
+    }
     if (prod.prices.length === 0) { errors.push(`${prod.playProductId}: no prices`); continue }
     const regions = resolveRegions(prod.prices)
     if (regions.length === 0) { errors.push(`${prod.playProductId}: no mappable regions`); continue }

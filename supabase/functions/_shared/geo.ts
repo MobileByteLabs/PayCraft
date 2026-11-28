@@ -8,10 +8,16 @@
 // inputs — a buyer priced one way in the app and another through web checkout). Cloudflare first because that
 // is the runtime PayCraft deploys on. "XX" is the CDN's unknown-country placeholder, not a country, and a
 // three-letter value is not ISO-3166 alpha-2 — both are rejected.
+//
+// `x-paycraft-country` comes FIRST (realtime-analytics design, "Country"): the paycraft-edge Worker
+// (edge/src/proxy.ts) sets it from `request.cf.country` and drops any client-supplied copy; Supabase's own edge
+// sends no geo header (migration 215), so for SDK traffic this is the server-side country. The dashboard is not
+// behind that Worker, so dashboard/lib/customer-geo.ts has no such header; the rest of the order is unchanged.
 
 import { toAlpha2 } from "./country-code.ts"
 
 export const GEO_HEADERS = [
+  "x-paycraft-country",
   "cf-ipcountry",
   "x-vercel-ip-country",
   "cloudfront-viewer-country",

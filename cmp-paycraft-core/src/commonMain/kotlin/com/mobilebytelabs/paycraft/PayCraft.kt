@@ -4,6 +4,8 @@ import com.mobilebytelabs.paycraft.analytics.AttemptTracker
 import com.mobilebytelabs.paycraft.analytics.PayCraftAnalytics
 import com.mobilebytelabs.paycraft.analytics.PayCraftAnalyticsListener
 import com.mobilebytelabs.paycraft.analytics.PayCraftEvent
+import com.mobilebytelabs.paycraft.analytics.PayCraftEventName
+import com.mobilebytelabs.paycraft.analytics.PayCraftStep
 import com.mobilebytelabs.paycraft.analytics.mintAttemptId
 import com.mobilebytelabs.paycraft.attribution.AttributionIdsSync
 import com.mobilebytelabs.paycraft.billing.CheckoutLane
@@ -33,7 +35,9 @@ import com.mobilebytelabs.paycraft.core.identity.ConsumerAuth
 import com.mobilebytelabs.paycraft.core.identity.ConsumerIdentityLink
 import com.mobilebytelabs.paycraft.core.identity.ConsumerLinkFailure
 import com.mobilebytelabs.paycraft.core.identity.ConsumerSessionVerifier
+import com.mobilebytelabs.paycraft.core.identity.SignInState
 import com.mobilebytelabs.paycraft.core.identity.VerifiedSignIn
+import com.mobilebytelabs.paycraft.core.identity.signInFailure
 import com.mobilebytelabs.paycraft.debug.PayCraftError
 import com.mobilebytelabs.paycraft.debug.PayCraftLogger
 import com.mobilebytelabs.paycraft.debug.payCraftScope
@@ -53,7 +57,9 @@ import com.mobilebytelabs.paycraft.platform.DeviceFingerprint
 import com.mobilebytelabs.paycraft.platform.DeviceTokenStore
 import com.mobilebytelabs.paycraft.platform.NotificationPermission
 import com.mobilebytelabs.paycraft.platform.PlatformInfo
+import com.mobilebytelabs.paycraft.platform.appBuildOrNull
 import com.mobilebytelabs.paycraft.platform.currentTimeMillis
+import com.mobilebytelabs.paycraft.platform.osVersionOrNull
 import com.mobilebytelabs.paycraft.platform.platformSettings
 import com.mobilebytelabs.paycraft.provider.PaymentProvider
 import com.mobilebytelabs.paycraft.provider.withEmailParam
@@ -206,7 +212,50 @@ object PayCraft {
         // Persisted: a batch the ingest did not take is retried with backoff and survives a restart (D14).
         // The flush loop starts in initialize(), not here: an event emitted before initialize (the billing manager
         // reports every purchase result) queues instead of starting an endless loop with nothing to send to.
-        PayCraftAnalytics(send = ::postEvents, settings = runCatching { platformSettings() }.getOrNull())
+        PayCraftAnalytics(
+            send = ::postEvents,
+            settings = runCatching { platformSettings() }.getOrNull(),
+            stamp = { it.withApp(resolvedAppVersion(), PlatformInfo.appBuildOrNull(), PlatformInfo.osVersionOrNull()) },
+        )
+    }
+
+    /** What the app passed as `appVersion` to [initialize] — used where the platform reports none (desktop, web). */
+    private var hostAppVersion: String? = null
+
+    /** The platform's own version name wins (Android, iOS); else the one the app passed to [initialize]. */
+    private fun resolvedAppVersion(): String? =
+        runCatching { PlatformInfo.appVersion }.getOrNull()?.takeIf { it.isNotBlank() } ?: hostAppVersion
+
+    /**
+     * Emits a catalog event from an SDK surface that is not the paywall funnel (restore, identity screens, device
+     * transfer), with the platform, country and experiment every event carries. The app version, build and OS
+     * version are added by [analytics] itself.
+     */
+    @PayCraftInternalApi
+    fun reportEvent(name: PayCraftEventName, step: PayCraftStep, reason: String? = null, provider: String? = null) {
+        runCatching {
+            val experiment = activeExperiment
+            analytics.emit(
+                PayCraftEvent(
+                    name = name,
+                    step = step,
+                    platform = runCatching { PlatformInfo.platform.lowercase() }.getOrDefault("android"),
+                    country = runCatching { activeCountry }.getOrNull(),
+                    provider = provider,
+                    reason = reason,
+                    atMs = currentTimeMillis(),
+                    experiment = experiment?.experiment,
+                    variant = experiment?.variant,
+                ),
+            )
+        }.onFailure { PayCraftLogger.onError("reportEvent", "${name.wire}: ${it.message}") }
+    }
+
+    /** `paycraft_sign_in_fail` for a cancelled / failed sign-in [state]; anything else is ignored. */
+    @PayCraftInternalApi
+    fun reportSignInFailure(state: SignInState) {
+        val (provider, reason) = signInFailure(state) ?: return
+        reportEvent(PayCraftEventName.SignInFail, PayCraftStep.SignIn, reason = reason, provider = provider)
     }
 
     // ─── Purchase attempts + resume reminder (paycraft-attempt-observability D4 / D10–D12) ────────────────
@@ -372,6 +421,11 @@ object PayCraft {
                 sku,
                 freeText,
             )
+            // The A/B arm, so the server applies its exit offer (227). App-only: the web SDK runs no experiments.
+            activeExperiment?.let {
+                val arm = mapOf("experiment" to JsonPrimitive(it.experiment), "variant" to JsonPrimitive(it.variant))
+                body = JsonObject(body + arm)
+            }
             if (platform == "ios") {
                 val appUserId = billingManager?.userEmail?.value?.trim()?.lowercase()?.ifBlank { null } ?: deviceId
                 body = JsonObject(body + ("appAccountToken" to JsonPrimitive(storeAppAccountToken(appUserId))))
@@ -472,7 +526,7 @@ object PayCraft {
                     deviceId,
                     DeviceTokenStore.getToken(),
                     batch,
-                    appVersion = runCatching { PlatformInfo.appVersion }.getOrNull(),
+                    appVersion = resolvedAppVersion(),
                 ).toString(),
             )
         }
@@ -775,6 +829,9 @@ object PayCraft {
      *
      *                 Selection is build-type only; [InitOptions.modeOverride] does NOT re-point it
      *                 (it overrides the reported mode, not which credential identifies the tenant).
+     * @param appVersion  OPTIONAL — your app's version name, for desktop and web, where the platform reports none.
+     *                 Every event then carries it (`app_version`), so the dashboard compares releases. Android and
+     *                 iOS read it from the app itself and ignore this.
      */
     fun initialize(
         apiKey: String,
@@ -782,6 +839,7 @@ object PayCraft {
         options: InitOptions = InitOptions(),
         mode: MonetizationMode = MonetizationMode.AdSupported,
         testApiKey: String? = null,
+        appVersion: String? = null,
     ) {
         // ANY publishable key. Under the one-key-per-app model the prefix no longer carries mode —
         // [mode] resolves that from the build type (or [InitOptions.modeOverride]) — so a plain
@@ -843,6 +901,7 @@ object PayCraft {
             }
         }
         this.apiKey = effectiveApiKey
+        this.hostAppVersion = appVersion?.takeIf { it.isNotBlank() }
         this.backend = backend
         this.initOptions = options
         // Capture the init-flag AND resolve against whatever SuiteConfig the previous

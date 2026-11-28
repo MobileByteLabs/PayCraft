@@ -17,8 +17,8 @@ import {
  * Owner alert channels (migration 211) — Settings ▸ Alert channels.
  *
  * GET                                              → PublicChannels (no URL, no secret — booleans + "set"/"unset")
- * PUT  { email_enabled?, slack_url?, webhook_url?, webhook_secret?, kinds? }
- *      absent = keep, "" = clear (slack / webhook)   → PublicChannels
+ * PUT  { email_enabled?, slack_url?, webhook_url?, webhook_secret?, telegram_bot_token?, telegram_chat_id?, kinds? }
+ *      absent = keep, "" = clear (slack / webhook / telegram) → PublicChannels
  * POST { action: "test", channel }                 → { ok, delivery } — sends a channel_test alert now
  *
  * Channels are written only through `tenant_alert_channels_save` as the signed-in admin (the RPC checks membership
@@ -38,7 +38,7 @@ async function loadStatus(sb: ReturnType<typeof createClient>, tenantId: string)
   const { data, error } = await sb.rpc("tenant_alert_channels_status", { p_tenant_id: tenantId })
   if (error) throw Object.assign(new Error(error.message), { code: error.code })
   const row = (Array.isArray(data) ? data[0] : data) as ChannelStatus | undefined
-  return row ?? { email_enabled: true, slack_configured: false, webhook_configured: false, inbox_enabled: true, updated_at: null }
+  return row ?? { email_enabled: true, slack_configured: false, webhook_configured: false, inbox_enabled: true, updated_at: null, telegram_configured: false }
 }
 
 async function loadPrefs(tenantId: string) {
@@ -79,7 +79,7 @@ export async function PUT(req: NextRequest) {
     const parsed = parseChannelsUpdate(body, current)
     if (!parsed.ok) return fail(parsed.error)
 
-    // The RPC encrypts the Slack URL and the webhook URL + secret; a blank secret keeps the stored one.
+    // The RPC encrypts the Slack URL, the webhook URL + secret and the Telegram bot token; a blank secret keeps the stored one.
     const { error } = await sb.rpc("tenant_alert_channels_save", { p_tenant_id: tenant.id, ...parsed.rpc })
     if (error) throw Object.assign(new Error(error.message), { code: error.code })
 
@@ -104,6 +104,7 @@ export async function PUT(req: NextRequest) {
           slack: change(parsed.rpc.p_slack_url),
           webhook: change(parsed.rpc.p_webhook_url),
           webhook_secret_rotated: parsed.rpc.p_webhook_secret !== null,
+          telegram: change(parsed.rpc.p_telegram_bot_token ?? (parsed.rpc.p_telegram_chat_id === null ? null : "set")),
           kinds: parsed.kinds,
         },
       })
@@ -131,6 +132,7 @@ export async function POST(req: NextRequest) {
       slack: status.slack_configured,
       webhook: status.webhook_configured,
       inbox: status.inbox_enabled,
+      telegram: status.telegram_configured === true,
     }
     if (!ready[channel]) return fail("channel_not_configured")
 

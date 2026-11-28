@@ -98,6 +98,8 @@ private fun rememberConsumerSignIn(client: KmpSupabaseAuthClient, link: Consumer
     val apple = rememberKmpSupabaseAppleSignIn(client = client, onError = { launchError = it })
     val linkState = link.state.collectAsState().value
     val state = consumerSignInState(tapped, launchError, linkState)
+    // Keyed on the state: a cancelled / failed attempt is reported once, not on every recomposition.
+    LaunchedEffect(state) { PayCraft.reportSignInFailure(state) }
     return PayCraftSignIn(
         launch = { provider ->
             tapped = provider
