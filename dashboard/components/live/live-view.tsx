@@ -1,92 +1,108 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis } from "recharts"
-import { Activity } from "lucide-react"
+import { Activity, ChevronDown, ChevronRight } from "lucide-react"
 import { useDashboard } from "@/components/app-providers"
 import { LoadError, LoadingCard } from "@/components/query-ui"
 import { EmptyState } from "@/components/ui/empty-state"
 import {
+  ago,
   countersFromCompare,
   countersFromEvents,
+  dateTime,
+  describeEvent,
   distinct,
-  eventLabel,
-  minuteSeries,
+  exitLines,
+  journeys,
   pushEvent,
+  rangeOf,
+  RANGES,
+  seriesForRange,
   versionTable,
+  type ExitStepRow,
+  type Journey,
   type LiveCounters,
   type LiveEvent,
-  type LiveMinuteRow,
+  type LiveSeriesRow,
+  type RangeKey,
   type VersionCompareRow,
   type VersionRow,
 } from "@/lib/live"
 
-const HOUR = 60 * 60_000
-const EVENT_COLUMNS = "id,name,reason,provider,app_version,country,platform,mode,occurred_at"
+const EVENT_COLUMNS = "id,name,step,reason,provider,sku,trigger,device_ref,app_version,country,platform,mode,occurred_at"
+const SEED_LIMIT = 200
 
 const pct = (v: number | null) => (v === null ? "—" : `${(v * 100).toFixed(1)}%`)
-const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
 
 /**
- * Live — the last hour of paywall traffic, the per-version comparison and the realtime event stream
- * (realtime-analytics spec, "Live page"). Counters + sparkline refetch every 60 s; the stream is Supabase Realtime.
+ * Live — paywall traffic over a chosen range (1 h … 30 d): counters, a bucketed chart, the per-version comparison,
+ * where buyers leave, and the realtime activity as buyer journeys or single events, all in plain words.
+ * (realtime-analytics spec, "Live page"; ranges + exits: migration 225.)
  */
 export function LiveView() {
   const { tenantId, mode, supabase } = useDashboard()
+  const [rangeKey, setRangeKey] = useState<RangeKey>("1h")
   const [version, setVersion] = useState<string | null>(null)
   const [country, setCountry] = useState<string | null>(null)
+  const [view, setView] = useState<"journeys" | "events">("journeys")
+  const [now, setNow] = useState(() => Date.now())
+  const range = rangeOf(rangeKey)
+  const refresh = range.key === "1h" ? 60_000 : 5 * 60_000
 
-  const compareHourQuery = useQuery({
-    queryKey: ["live", tenantId, mode, "compare-60m"],
-    refetchInterval: 60_000,
+  // Re-render the "3 min ago" labels every 30 s.
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+
+  const since = () => new Date(Date.now() - range.ms).toISOString()
+
+  const compareQuery = useQuery({
+    queryKey: ["live", tenantId, mode, "compare", range.key],
+    refetchInterval: refresh,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("paywall_version_compare", {
-        p_tenant: tenantId,
-        p_since: new Date(Date.now() - HOUR).toISOString(),
-        p_mode: mode,
-      })
+      const { data, error } = await supabase.rpc("paywall_version_compare", { p_tenant: tenantId, p_since: since(), p_mode: mode })
       if (error) throw new Error(error.message)
       return (data ?? []) as VersionCompareRow[]
     },
   })
-  const minutesQuery = useQuery({
-    queryKey: ["live", tenantId, mode, "minutes-60m"],
-    refetchInterval: 60_000,
+  const seriesQuery = useQuery({
+    queryKey: ["live", tenantId, mode, "series", range.key],
+    refetchInterval: refresh,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("paywall_live_minutes", {
+      const { data, error } = await supabase.rpc("paywall_live_series", {
         p_tenant: tenantId,
-        p_since: new Date(Date.now() - HOUR).toISOString(),
+        p_since: since(),
         p_mode: mode,
+        p_bucket: range.bucket,
       })
       if (error) throw new Error(error.message)
-      return { rows: (data ?? []) as LiveMinuteRow[], at: Date.now() }
+      return { rows: (data ?? []) as LiveSeriesRow[], at: Date.now() }
     },
   })
-  const compareWeekQuery = useQuery({
-    queryKey: ["live", tenantId, mode, "compare-7d"],
+  const exitsQuery = useQuery({
+    queryKey: ["live", tenantId, mode, "exits", range.key],
+    refetchInterval: refresh,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("paywall_version_compare", {
-        p_tenant: tenantId,
-        p_since: new Date(Date.now() - 7 * 24 * HOUR).toISOString(),
-        p_mode: mode,
-      })
+      const { data, error } = await supabase.rpc("paywall_exit_steps", { p_tenant: tenantId, p_since: since(), p_mode: mode })
       if (error) throw new Error(error.message)
-      return versionTable((data ?? []) as VersionCompareRow[])
+      return exitLines((data ?? []) as ExitStepRow[])
     },
   })
-  // The last hour's events seed the stream (and the country list) so the page isn't blank until the next INSERT.
+  // The newest events in the range seed the activity list (and the country filter) before the next INSERT arrives.
   const seedQuery = useQuery({
-    queryKey: ["live", tenantId, mode, "seed"],
+    queryKey: ["live", tenantId, mode, "seed", range.key],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("paywall_events")
         .select(EVENT_COLUMNS)
         .eq("tenant_id", tenantId)
         .eq("mode", mode)
-        .gte("occurred_at", new Date(Date.now() - HOUR).toISOString())
+        .gte("occurred_at", since())
         .order("occurred_at", { ascending: false })
-        .limit(200)
+        .limit(SEED_LIMIT)
       if (error) throw new Error(error.message)
       return (data ?? []) as LiveEvent[]
     },
@@ -114,26 +130,28 @@ export function LiveView() {
     }
   }, [supabase, tenantId, mode])
 
-  // Seed then stream, one buffer: newest first, deduped, 200 kept.
+  // Seed then stream, one buffer: newest first, deduped, capped.
   const events = useMemo(
     () => (seedQuery.data ?? []).reduceRight((buf, e) => pushEvent(buf, e), streamed),
     [seedQuery.data, streamed],
   )
 
-  const versionOptions = distinct((compareWeekQuery.data ?? []).map((r) => r.app_version))
+  const versionOptions = distinct((compareQuery.data ?? []).map((r) => r.app_version))
   const countryOptions = distinct(events.map((e) => e.country))
   const visibleEvents = events.filter(
     (e) => (version === null || e.app_version === version) && (country === null || e.country === country),
   )
+  const visits = useMemo(() => journeys(visibleEvents), [visibleEvents])
 
   // ponytail: with a country picked, counters come from the loaded events (≤ 200 + streamed) — the RPCs carry no
   // country; add p_country to paywall_version_compare if exact per-country counters are needed.
   const counters: LiveCounters | null = country
-    ? countersFromEvents(visibleEvents, Date.now() - HOUR)
-    : compareHourQuery.data
-      ? countersFromCompare(compareHourQuery.data, version)
+    ? countersFromEvents(visibleEvents, Date.now() - range.ms)
+    : compareQuery.data
+      ? countersFromCompare(compareQuery.data, version)
       : null
-  const series = minutesQuery.data ? minuteSeries(minutesQuery.data.rows, minutesQuery.data.at, version) : null
+  const series = seriesQuery.data ? seriesForRange(seriesQuery.data.rows, seriesQuery.data.at, range, version) : null
+  const versions = compareQuery.data ? versionTable(compareQuery.data) : null
   const live = status === "SUBSCRIBED"
 
   return (
@@ -152,38 +170,55 @@ export function LiveView() {
               {live ? "Live" : "Reconnecting"}
             </span>
           </div>
-          <p className="mt-1 text-sm text-ink-500">Paywall traffic as it happens · {mode} mode · counters refresh every minute.</p>
+          <p className="mt-1 text-sm text-ink-500">
+            What buyers are doing right now · {mode} mode · refreshes every {range.key === "1h" ? "minute" : "5 minutes"}.
+          </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div role="tablist" aria-label="Time range" className="flex rounded-lg border border-ink-200 bg-white p-0.5">
+            {RANGES.map((r) => (
+              <button
+                key={r.key}
+                role="tab"
+                aria-selected={r.key === range.key}
+                onClick={() => setRangeKey(r.key)}
+                className={`rounded-md px-3 py-1 text-sm font-medium ${
+                  r.key === range.key ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-ink-50"
+                }`}
+              >
+                {r.key}
+              </button>
+            ))}
+          </div>
           <Filter label="App version" value={version} options={versionOptions} onChange={setVersion} />
           <Filter label="Country" value={country} options={countryOptions} onChange={setCountry} />
         </div>
       </div>
 
-      {/* Last 60 minutes */}
+      {/* Counters + chart for the range */}
       <section aria-labelledby="live-counters-h" className="space-y-4">
-        <h3 id="live-counters-h" className="text-lg font-bold tracking-tight text-ink-900">Last 60 minutes</h3>
+        <h3 id="live-counters-h" className="text-lg font-bold tracking-tight text-ink-900">{range.label}</h3>
         {counters ? (
           <CounterGrid c={counters} />
-        ) : compareHourQuery.isError ? (
-          <LoadError what="the last hour" error={compareHourQuery.error} retry={() => compareHourQuery.refetch()} />
+        ) : compareQuery.isError ? (
+          <LoadError what={range.label.toLowerCase()} error={compareQuery.error} retry={() => compareQuery.refetch()} />
         ) : (
-          <LoadingCard label="Loading the last hour…" rows={2} />
+          <LoadingCard label={`Loading ${range.label.toLowerCase()}…`} rows={2} />
         )}
-        {minutesQuery.isPending ? (
-          <LoadingCard label="Loading per-minute traffic…" rows={3} />
-        ) : minutesQuery.isError ? (
-          <LoadError what="per-minute traffic" error={minutesQuery.error} retry={() => minutesQuery.refetch()} />
+        {seriesQuery.isPending ? (
+          <LoadingCard label="Loading traffic…" rows={3} />
+        ) : seriesQuery.isError ? (
+          <LoadError what="traffic" error={seriesQuery.error} retry={() => seriesQuery.refetch()} />
         ) : (
           <div className="rounded-xl border border-ink-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center gap-4 text-xs text-ink-500">
               <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#7C3AED]" />Paywall views</span>
               <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#22c55e]" />Purchases</span>
-              <span className="ml-auto">per minute{country ? " · all countries" : ""}</span>
+              <span className="ml-auto">per {range.bucket}{country ? " · all countries" : ""}</span>
             </div>
-            <ResponsiveContainer width="100%" height={120}>
+            <ResponsiveContainer width="100%" height={160}>
               <LineChart data={series ?? []} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
-                <XAxis dataKey="label" fontSize={10} interval={9} tickLine={false} axisLine={false} />
+                <XAxis dataKey="label" fontSize={10} minTickGap={40} tickLine={false} axisLine={false} />
                 <Tooltip />
                 <Line type="monotone" dataKey="views" name="Paywall views" stroke="#7C3AED" strokeWidth={2} dot={false} isAnimationActive={false} />
                 <Line type="monotone" dataKey="purchases" name="Purchases" stroke="#22c55e" strokeWidth={2} dot={false} isAnimationActive={false} />
@@ -193,55 +228,38 @@ export function LiveView() {
         )}
       </section>
 
-      {/* Version comparison, last 7 days */}
-      <section aria-labelledby="live-versions-h" className="space-y-4">
+      {/* Where buyers leave */}
+      <section aria-labelledby="live-exits-h" className="space-y-4">
         <div>
-          <h3 id="live-versions-h" className="text-lg font-bold tracking-tight text-ink-900">Versions — last 7 days</h3>
-          <p className="mt-0.5 text-xs text-ink-500">Newest first · change vs the next-older version</p>
+          <h3 id="live-exits-h" className="text-lg font-bold tracking-tight text-ink-900">Where buyers leave</h3>
+          <p className="mt-0.5 text-xs text-ink-500">{range.label} · each exit point, by how many buyers left there</p>
         </div>
-        {compareWeekQuery.isPending ? (
-          <LoadingCard label="Loading versions…" rows={4} />
-        ) : compareWeekQuery.isError ? (
-          <LoadError what="versions" error={compareWeekQuery.error} retry={() => compareWeekQuery.refetch()} />
-        ) : compareWeekQuery.data.length === 0 ? (
-          <EmptyState icon={<Activity className="h-5 w-5" />} title="No versions reported yet" description="App versions appear once an app on SDK with version reporting opens the paywall." />
-        ) : (
-          <VersionTable rows={compareWeekQuery.data} />
-        )}
-      </section>
-
-      {/* Event stream */}
-      <section aria-labelledby="live-stream-h" className="space-y-4">
-        <h3 id="live-stream-h" className="text-lg font-bold tracking-tight text-ink-900">Event stream</h3>
-        {seedQuery.isPending ? (
-          <LoadingCard label="Loading recent events…" rows={5} />
-        ) : seedQuery.isError && streamed.length === 0 ? (
-          <LoadError what="recent events" error={seedQuery.error} retry={() => seedQuery.refetch()} />
-        ) : visibleEvents.length === 0 ? (
-          <EmptyState
-            icon={<Activity className="h-5 w-5" />}
-            title={live ? "Waiting for events" : "Connecting…"}
-            description="New paywall events appear here the moment an app sends them."
-          />
+        {exitsQuery.isPending ? (
+          <LoadingCard label="Loading exits…" rows={4} />
+        ) : exitsQuery.isError ? (
+          <LoadError what="exits" error={exitsQuery.error} retry={() => exitsQuery.refetch()} />
+        ) : exitsQuery.data.length === 0 ? (
+          <EmptyState icon={<Activity className="h-5 w-5" />} title="Nobody left the paywall in this range" description="Exit points appear here as soon as a buyer closes the paywall, the store sheet or an offer." />
         ) : (
           <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-sm">
-            <table className="min-w-full text-sm" data-testid="live-stream">
+            <table className="min-w-full text-sm" data-testid="live-exits">
               <thead className="bg-ink-50 text-left text-xs font-semibold uppercase tracking-wide text-ink-500">
-                <tr>
-                  {["Time", "Event", "Version", "Country", "Platform", "Reason"].map((h) => (
-                    <th key={h} className="px-4 py-2">{h}</th>
-                  ))}
-                </tr>
+                <tr>{["Where they left", "Buyers", "Times", "Share"].map((h) => <th key={h} className="px-4 py-2">{h}</th>)}</tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
-                {visibleEvents.map((e) => (
-                  <tr key={e.id}>
-                    <td className="whitespace-nowrap px-4 py-2 tabular-nums text-ink-500">{time(e.occurred_at)}</td>
-                    <td className="px-4 py-2 font-medium text-ink-900">{eventLabel(e.name, e.reason)}</td>
-                    <td className="px-4 py-2 text-ink-700">{e.app_version ?? "—"}</td>
-                    <td className="px-4 py-2 text-ink-700">{e.country ?? "—"}</td>
-                    <td className="px-4 py-2 text-ink-700">{e.platform}</td>
-                    <td className="px-4 py-2 text-ink-500">{e.reason ?? "—"}</td>
+                {exitsQuery.data.map((x) => (
+                  <tr key={x.description}>
+                    <td className="px-4 py-2 font-medium text-ink-900">{x.description}</td>
+                    <td className="px-4 py-2 tabular-nums">{x.devices.toLocaleString()}</td>
+                    <td className="px-4 py-2 tabular-nums text-ink-500">{x.exits.toLocaleString()}</td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 w-24 rounded-full bg-ink-100">
+                          <div className="h-1.5 rounded-full bg-danger-500" style={{ width: `${Math.round(x.share * 100)}%` }} />
+                        </div>
+                        <span className="tabular-nums text-xs text-ink-500">{Math.round(x.share * 100)}%</span>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -249,6 +267,142 @@ export function LiveView() {
           </div>
         )}
       </section>
+
+      {/* Version comparison */}
+      <section aria-labelledby="live-versions-h" className="space-y-4">
+        <div>
+          <h3 id="live-versions-h" className="text-lg font-bold tracking-tight text-ink-900">Versions</h3>
+          <p className="mt-0.5 text-xs text-ink-500">{range.label} · newest first · change vs the next-older version</p>
+        </div>
+        {compareQuery.isPending ? (
+          <LoadingCard label="Loading versions…" rows={4} />
+        ) : compareQuery.isError ? (
+          <LoadError what="versions" error={compareQuery.error} retry={() => compareQuery.refetch()} />
+        ) : !versions || versions.length === 0 ? (
+          <EmptyState icon={<Activity className="h-5 w-5" />} title="No versions reported yet" description="App versions appear once an app on SDK with version reporting opens the paywall." />
+        ) : (
+          <VersionTable rows={versions} />
+        )}
+      </section>
+
+      {/* Activity: journeys or single events */}
+      <section aria-labelledby="live-stream-h" className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h3 id="live-stream-h" className="text-lg font-bold tracking-tight text-ink-900">Activity</h3>
+            <p className="mt-0.5 text-xs text-ink-500">
+              The newest {SEED_LIMIT} events in the range, then everything that arrives live
+            </p>
+          </div>
+          <div role="tablist" aria-label="Activity view" className="flex rounded-lg border border-ink-200 bg-white p-0.5">
+            {(["journeys", "events"] as const).map((v) => (
+              <button
+                key={v}
+                role="tab"
+                aria-selected={view === v}
+                onClick={() => setView(v)}
+                className={`rounded-md px-3 py-1 text-sm font-medium ${view === v ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-ink-50"}`}
+              >
+                {v === "journeys" ? "Journeys" : "All events"}
+              </button>
+            ))}
+          </div>
+        </div>
+        {seedQuery.isPending ? (
+          <LoadingCard label="Loading recent activity…" rows={5} />
+        ) : seedQuery.isError && streamed.length === 0 ? (
+          <LoadError what="recent activity" error={seedQuery.error} retry={() => seedQuery.refetch()} />
+        ) : visibleEvents.length === 0 ? (
+          <EmptyState
+            icon={<Activity className="h-5 w-5" />}
+            title={live ? "Waiting for activity" : "Connecting…"}
+            description="Buyers' actions appear here the moment an app sends them."
+          />
+        ) : view === "journeys" ? (
+          <JourneyTable visits={visits} now={now} />
+        ) : (
+          <EventTable events={visibleEvents} now={now} />
+        )}
+      </section>
+    </div>
+  )
+}
+
+function When({ iso, now }: { iso: string; now: number }) {
+  return (
+    <div className="whitespace-nowrap">
+      <div className="tabular-nums text-ink-700">{dateTime(iso)}</div>
+      <div className="text-xs text-ink-400">{ago(iso, now)}</div>
+    </div>
+  )
+}
+
+function EventTable({ events, now }: { events: LiveEvent[]; now: number }) {
+  return (
+    <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-sm">
+      <table className="min-w-full text-sm" data-testid="live-stream">
+        <thead className="bg-ink-50 text-left text-xs font-semibold uppercase tracking-wide text-ink-500">
+          <tr>{["When", "What happened", "Version", "Country", "Platform"].map((h) => <th key={h} className="px-4 py-2">{h}</th>)}</tr>
+        </thead>
+        <tbody className="divide-y divide-ink-100">
+          {events.map((e) => (
+            <tr key={e.id}>
+              <td className="px-4 py-2"><When iso={e.occurred_at} now={now} /></td>
+              <td className="px-4 py-2 font-medium text-ink-900">{describeEvent(e)}</td>
+              <td className="px-4 py-2 text-ink-700">{e.app_version ?? "—"}</td>
+              <td className="px-4 py-2 text-ink-700">{e.country ?? "—"}</td>
+              <td className="px-4 py-2 text-ink-700">{e.platform}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function JourneyTable({ visits, now }: { visits: Journey[]; now: number }) {
+  const [open, setOpen] = useState<string | null>(null)
+  return (
+    <div className="overflow-x-auto rounded-xl border border-ink-200 bg-white shadow-sm">
+      <table className="min-w-full text-sm" data-testid="live-journeys">
+        <thead className="bg-ink-50 text-left text-xs font-semibold uppercase tracking-wide text-ink-500">
+          <tr>{["", "Last seen", "Buyer", "How it ended", "Steps", "Version", "Country"].map((h) => <th key={h} className="px-4 py-2">{h}</th>)}</tr>
+        </thead>
+        <tbody className="divide-y divide-ink-100">
+          {visits.map((j) => {
+            const expanded = open === j.key
+            return (
+              <Fragment key={j.key}>
+                <tr className="cursor-pointer hover:bg-ink-50" onClick={() => setOpen(expanded ? null : j.key)}>
+                  <td className="px-2 py-2 text-ink-400">{expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
+                  <td className="px-4 py-2"><When iso={j.end} now={now} /></td>
+                  <td className="px-4 py-2 font-mono text-xs text-ink-500">{j.device}</td>
+                  <td className={`px-4 py-2 font-medium ${j.bought ? "text-success-700" : "text-ink-900"}`}>{j.outcome}</td>
+                  <td className="px-4 py-2 tabular-nums text-ink-500">{j.events.length}</td>
+                  <td className="px-4 py-2 text-ink-700">{j.app_version ?? "—"}</td>
+                  <td className="px-4 py-2 text-ink-700">{j.country ?? "—"}</td>
+                </tr>
+                {expanded && (
+                  <tr className="bg-ink-50/60">
+                    <td />
+                    <td colSpan={6} className="px-4 py-3">
+                      <ol className="space-y-1.5">
+                        {j.events.map((e, i) => (
+                          <li key={e.id} className="flex gap-3 text-sm">
+                            <span className="w-5 shrink-0 text-right tabular-nums text-ink-400">{i + 1}.</span>
+                            <span className="w-44 shrink-0 tabular-nums text-ink-500">{dateTime(e.occurred_at)}</span>
+                            <span className="text-ink-900">{describeEvent(e)}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -329,7 +483,7 @@ function VersionTable({ rows }: { rows: VersionRow[] }) {
         <tbody className="divide-y divide-ink-100">
           {rows.map((r) => (
             <tr key={r.app_version ?? "unreported"}>
-              <td className="px-4 py-2 font-medium text-ink-900">{r.app_version ?? "Not reported"}</td>
+              <td className="px-4 py-2 font-medium text-ink-900">{r.app_version === "unknown" || !r.app_version ? "Not reported (older app)" : r.app_version}</td>
               <td className="px-4 py-2 tabular-nums">{r.devices.toLocaleString()}</td>
               <td className="px-4 py-2 tabular-nums">
                 {pct(r.purchase_rate)}
